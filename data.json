@@ -1,0 +1,22 @@
+{
+  "items": {
+    "snacks": [],
+    "drinks": []
+  },
+  "votes": {
+    "snacks": {},
+    "drinks": {}
+  },
+  "ipLogs": {
+    "::1": {
+      "drinks": true,
+      "snacks": true
+    }
+  },
+  "lastWinners": {
+    "snacks": [],
+    "drinks": []
+  },
+  "lastReset": "2025-01-31T15:34:24.015Z",
+  "totalVotes": 2
+}
