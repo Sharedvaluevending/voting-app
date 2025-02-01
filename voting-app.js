@@ -4,7 +4,7 @@
 // ====================================================
 const express = require('express');
 const mongoose = require('mongoose');
-const { v4: uuidv4 } = require('uuid'); // For generating unique IDs if needed
+const { v4: uuidv4 } = require('uuid'); // Optional for generating unique IDs if needed
 const ejs = require('ejs');
 
 const app = express();
@@ -13,9 +13,9 @@ const PORT = process.env.PORT || 3000;
 // ====================================================
 // MONGODB CONNECTION SETUP
 // ====================================================
-// Set the MONGODB_URI environment variable on your deployment (e.g., on Render).
-const mongoURI = process.env.MONGODB_URI || 'your_default_connection_string_here';
-mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
+const mongoURI = process.env.MONGODB_URI || 'mongodb+srv://sharedvaluevending:KTwSLX9PeeaXIXME@cluster0.1blpa.mongodb.net/votingApp?retryWrites=true&w=majority&appName=Cluster0';
+
+mongoose.connect(mongoURI)
   .then(() => console.log('Connected to MongoDB Atlas'))
   .catch(err => console.error('MongoDB connection error:', err));
 
@@ -23,7 +23,7 @@ mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
 // MONGOOSE SCHEMAS AND MODELS
 // ====================================================
 
-// Item Schema: Represents an item (e.g., a snack or drink) that can be voted on.
+// Item Schema: Represents a voting item.
 const itemSchema = new mongoose.Schema({
   category: { type: String, enum: ['snacks', 'drinks'], required: true },
   name: { type: String, required: true },
@@ -32,7 +32,7 @@ const itemSchema = new mongoose.Schema({
 });
 const Item = mongoose.model('Item', itemSchema);
 
-// VoteLog Schema: Records that an IP address has voted in a given category.
+// VoteLog Schema: Records that an IP has voted in a category.
 const voteLogSchema = new mongoose.Schema({
   ip: { type: String, required: true },
   category: { type: String, required: true },
@@ -40,13 +40,31 @@ const voteLogSchema = new mongoose.Schema({
 });
 const VoteLog = mongoose.model('VoteLog', voteLogSchema);
 
+// ResetSetting Schema: Stores the timestamp of the last weekly reset.
+const resetSettingSchema = new mongoose.Schema({
+  lastReset: { type: Date, default: Date.now }
+});
+const ResetSetting = mongoose.model('ResetSetting', resetSettingSchema);
+
+// Winner Schema: Stores last week's winners for a category.
+const winnerSchema = new mongoose.Schema({
+  category: { type: String, required: true },
+  winners: [{
+    name: String,
+    price: Number,
+    votes: Number
+  }],
+  weekStart: { type: Date, default: Date.now }
+});
+const Winner = mongoose.model('Winner', winnerSchema);
+
 // ====================================================
 // MIDDLEWARE & STATIC ASSETS
 // ====================================================
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
-// Middleware to remove X-Frame-Options (for iframe embedding)
+// Remove X-Frame-Options header (for iframe embedding)
 app.use((req, res, next) => {
   res.removeHeader("X-Frame-Options");
   next();
@@ -56,7 +74,8 @@ app.use((req, res, next) => {
 // INLINE EJS TEMPLATES WITH FULL-SCREEN CSS
 // ====================================================
 
-// MAIN VOTING PAGE TEMPLATE
+// Main Voting Page Template
+// Now includes a section for "Last Week's Winners"
 const indexTemplate = `
 <!DOCTYPE html>
 <html>
@@ -107,12 +126,29 @@ const indexTemplate = `
         <% } %>
       </div>
     <% }); %>
+    <h2>Last Week's Winners</h2>
+    <% if (winners.length === 0) { %>
+      <p>No winners recorded yet.</p>
+    <% } else { %>
+      <% winners.forEach(function(winner) { %>
+        <h3><%= winner.category.charAt(0).toUpperCase() + winner.category.slice(1) %></h3>
+        <% if (winner.winners.length === 0) { %>
+          <p>No winners for this category.</p>
+        <% } else { %>
+          <ol>
+            <% winner.winners.forEach(function(item) { %>
+              <li><%= item.name %> - $<%= item.price %> (Votes: <%= item.votes %>)</li>
+            <% }); %>
+          </ol>
+        <% } %>
+      <% }); %>
+    <% } %>
   </div>
 </body>
 </html>
 `;
 
-// ADMIN PANEL TEMPLATE
+// Admin Panel Template
 const adminTemplate = `
 <!DOCTYPE html>
 <html>
@@ -176,28 +212,49 @@ const adminTemplate = `
 `;
 
 // ====================================================
-// HELPER FUNCTIONS FOR FETCHING DATA
+// HELPER FUNCTIONS FOR DATA RETRIEVAL & WEEKLY RESET
 // ====================================================
 
-// Fetch items grouped by category from MongoDB
-async function fetchItemsByCategory() {
-  const categories = ['snacks', 'drinks'];
-  const itemsByCategory = {};
-  for (const category of categories) {
-    const items = await Item.find({ category }).lean();
-    itemsByCategory[category] = items;
-  }
-  return { categories, items: itemsByCategory };
-}
+// Check if a week has passed since the last reset; if yes, compute winners and reset votes.
+async function checkWeeklyReset() {
+  const oneWeekInMs = 7 * 24 * 60 * 60 * 1000;
+  let setting = await ResetSetting.findOne();
+  const now = new Date();
 
-// Compute total votes across all categories
-async function computeTotalVotes() {
-  const { categories, items } = await fetchItemsByCategory();
-  let totalVotes = 0;
-  for (const category of categories) {
-    items[category].forEach(item => totalVotes += item.votes);
+  if (!setting) {
+    // Create a new reset setting if none exists
+    setting = new ResetSetting({ lastReset: now });
+    await setting.save();
+    return;
   }
-  return totalVotes;
+
+  if (now - setting.lastReset >= oneWeekInMs) {
+    console.log("Weekly reset triggered.");
+    const categories = ['snacks', 'drinks'];
+
+    // For each category, compute top 3 winners
+    for (const category of categories) {
+      // Find top 3 items sorted by votes descending
+      const topItems = await Item.find({ category }).sort({ votes: -1 }).limit(3).lean();
+
+      // Upsert (insert or update) the Winner document for this category
+      await Winner.findOneAndUpdate(
+        { category },
+        { winners: topItems, weekStart: setting.lastReset },
+        { upsert: true, new: true }
+      );
+
+      // Reset the vote counts for items in this category (set votes to 0)
+      await Item.updateMany({ category }, { votes: 0 });
+    }
+
+    // Optionally, you might clear the VoteLog collection:
+    // await VoteLog.deleteMany({});
+
+    // Update the lastReset timestamp
+    setting.lastReset = now;
+    await setting.save();
+  }
 }
 
 // ====================================================
@@ -209,12 +266,18 @@ app.get('/test', (req, res) => {
   res.send('Hello, this is a test route!');
 });
 
-// MAIN VOTING PAGE ROUTE
+// Main Voting Page Route
 app.get('/', async (req, res) => {
   try {
+    // Check if a weekly reset is needed
+    await checkWeeklyReset();
+
+    // Fetch items and winners
     const { categories, items } = await fetchItemsByCategory();
     const totalVotes = await computeTotalVotes();
-    const html = ejs.render(indexTemplate, { categories, items, totalVotes });
+    const winners = await Winner.find({}).lean();
+
+    const html = ejs.render(indexTemplate, { categories, items, totalVotes, winners });
     res.send(html);
   } catch (err) {
     console.error(err);
@@ -222,31 +285,29 @@ app.get('/', async (req, res) => {
   }
 });
 
-// VOTE ROUTE WITH IP-BASED LIMITING AND DEBUG LOGGING
+// Vote Route with IP-based Limiting and Debug Logging
 app.post('/vote', async (req, res) => {
   const category = req.body.category;
   const itemId = req.body.id;
   
-  // Extract the IP address; handle multiple IPs if present
+  // Extract IP address and handle multiple IPs if present
   let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
   if (ip && ip.indexOf(',') !== -1) {
     ip = ip.split(',')[0].trim();
   }
   
-  // Debug: log the captured IP address
   console.log("Voter IP:", ip);
   
-  // Determine the time threshold (one week ago)
+  // Define one week ago for vote limitation
   const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   
-  // Check if a vote from this IP in this category exists within the last week
+  // Check if this IP has already voted in this category in the last week
   const existingVote = await VoteLog.findOne({ 
     ip, 
     category, 
     votedAt: { $gte: oneWeekAgo }
   });
   
-  // Debug: log the existing vote result (if any)
   console.log("Existing vote:", existingVote);
   
   if (existingVote) {
@@ -263,7 +324,7 @@ app.post('/vote', async (req, res) => {
   res.redirect('/');
 });
 
-// ADMIN PANEL GET ROUTE
+// Admin Panel GET Route
 app.get('/admin', async (req, res) => {
   const adminPassword = (process.env.ADMIN_PASSWORD || 'snack').trim();
   const providedPassword = (req.query.password || '').trim();
@@ -280,7 +341,7 @@ app.get('/admin', async (req, res) => {
   }
 });
 
-// ADMIN ADD ITEM POST ROUTE
+// Admin Add Item POST Route
 app.post('/admin/add', async (req, res) => {
   const adminPassword = (process.env.ADMIN_PASSWORD || 'snack').trim();
   const providedPassword = (req.query.password || '').trim();
@@ -298,7 +359,7 @@ app.post('/admin/add', async (req, res) => {
   res.redirect('/admin?password=' + adminPassword);
 });
 
-// ADMIN REMOVE ITEM POST ROUTE
+// Admin Remove Item POST Route
 app.post('/admin/remove', async (req, res) => {
   const adminPassword = (process.env.ADMIN_PASSWORD || 'snack').trim();
   const providedPassword = (req.query.password || '').trim();
