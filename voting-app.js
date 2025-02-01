@@ -1,99 +1,62 @@
 // voting-app.js
-// ========================================
-// Required Modules
+// ====================================================
+// REQUIRED MODULES
+// ====================================================
 const express = require('express');
-const app = express();
-const PORT = process.env.PORT || 3000;
-const fs = require('fs');
-const { v4: uuidv4 } = require('uuid');
+const mongoose = require('mongoose');
+const { v4: uuidv4 } = require('uuid'); // For generating unique IDs if needed
 const ejs = require('ejs');
 
-const DATA_FILE = 'data.json';
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-// ========================================
-// Data Initialization & Persistence
-// ----------------------------------------
-let data = {
-  items: { snacks: [], drinks: [] },
-  votes: { snacks: {}, drinks: {} },
-  ipLogs: {},
-  lastWinners: { snacks: [], drinks: [] },
-  lastReset: new Date(),
-  totalVotes: 0
-};
+// ====================================================
+// MONGODB CONNECTION SETUP
+// ====================================================
+// Set the MONGODB_URI environment variable on your deployment (e.g., on Render).
+const mongoURI = process.env.MONGODB_URI || 'your_default_connection_string_here';
+mongoose.connect(mongoURI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('Connected to MongoDB Atlas'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
-function loadData() {
-  if (fs.existsSync(DATA_FILE)) {
-    try {
-      const fileData = fs.readFileSync(DATA_FILE, 'utf8');
-      data = JSON.parse(fileData);
-      // Convert the lastReset string back into a Date object.
-      data.lastReset = new Date(data.lastReset);
-    } catch (err) {
-      console.error("Error reading data file:", err);
-    }
-  }
-}
+// ====================================================
+// MONGOOSE SCHEMAS AND MODELS
+// ====================================================
 
-function saveData() {
-  try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error("Error writing data file:", err);
-  }
-}
+// Item Schema: Represents an item (e.g., a snack or drink) that can be voted on.
+const itemSchema = new mongoose.Schema({
+  category: { type: String, enum: ['snacks', 'drinks'], required: true },
+  name: { type: String, required: true },
+  price: { type: Number, required: true },
+  votes: { type: Number, default: 0 }
+});
+const Item = mongoose.model('Item', itemSchema);
 
-loadData();
+// VoteLog Schema: Records that an IP address has voted in a given category.
+const voteLogSchema = new mongoose.Schema({
+  ip: { type: String, required: true },
+  category: { type: String, required: true },
+  votedAt: { type: Date, default: Date.now }
+});
+const VoteLog = mongoose.model('VoteLog', voteLogSchema);
 
-// ========================================
-// Weekly Reset Logic
-// ----------------------------------------
-function checkWeeklyReset() {
-  const now = new Date();
-  const diffDays = (now - data.lastReset) / (1000 * 60 * 60 * 24);
-  if (diffDays >= 7) {
-    // Save last week's winners.
-    data.lastWinners = {
-      snacks: getTopItems('snacks', 3),
-      drinks: getTopItems('drinks', 3)
-    };
-    // Reset votes and IP logs.
-    data.votes = { snacks: {}, drinks: {} };
-    ['snacks', 'drinks'].forEach(category => {
-      data.items[category].forEach(item => {
-        data.votes[category][item.id] = 0;
-      });
-    });
-    data.ipLogs = {};
-    data.totalVotes = 0;
-    data.lastReset = now;
-    saveData();
-  }
-}
-
-// ========================================
-// Helper: Get Top Items for a Category
-// ----------------------------------------
-function getTopItems(category, count) {
-  let itemsWithVotes = data.items[category].map(item => ({
-    ...item,
-    votes: data.votes[category][item.id] || 0
-  }));
-  itemsWithVotes.sort((a, b) => b.votes - a.votes);
-  return itemsWithVotes.slice(0, count);
-}
-
-// ========================================
-// Middleware & Static Assets
-// ----------------------------------------
+// ====================================================
+// MIDDLEWARE & STATIC ASSETS
+// ====================================================
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public')); // Place any static assets (CSS, images) in the 'public' folder
+app.use(express.static('public'));
 
-// ========================================
-// Inline EJS Templates
-// ----------------------------------------
+// Middleware to remove X-Frame-Options (for iframe embedding)
+app.use((req, res, next) => {
+  res.removeHeader("X-Frame-Options");
+  next();
+});
 
-// Main Voting Page Template
+// ====================================================
+// INLINE EJS TEMPLATES WITH FULL-SCREEN CSS
+// ====================================================
+
+// MAIN VOTING PAGE TEMPLATE
 const indexTemplate = `
 <!DOCTYPE html>
 <html>
@@ -101,70 +64,46 @@ const indexTemplate = `
   <meta charset="UTF-8">
   <title>Weekly Voting App</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    .container { max-width: 900px; margin: auto; }
-    .category { margin-bottom: 40px; }
-    .item { border: 1px solid #ccc; padding: 10px; margin: 5px 0; }
-    form { display: inline; }
-    button { cursor: pointer; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      width: 100%;
+      max-width: 900px;
+      margin: 0 auto;
+      min-height: 100vh;
+      box-sizing: border-box;
+      padding: 20px;
+    }
+    body {
+      overflow-x: hidden;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Weekly Voting App</h1>
     <p><strong>Total Votes This Week:</strong> <%= totalVotes %></p>
-    
     <h2>Vote Now!</h2>
-    <% ['snacks', 'drinks'].forEach(function(category) { %>
+    <% categories.forEach(function(category) { %>
       <div class="category">
         <h3><%= category.charAt(0).toUpperCase() + category.slice(1) %></h3>
-        <% if (items[category].length === 0) { %>
+        <% if (!items[category] || items[category].length === 0) { %>
           <p>No items available in this category.</p>
         <% } else { %>
           <% items[category].forEach(function(item) { %>
             <div class="item">
               <span><strong><%= item.name %></strong> - $<%= item.price %></span>
-              <span> | Votes: <%= votes[category][item.id] || 0 %></span>
+              <span> | Votes: <%= item.votes %></span>
               <form method="POST" action="/vote">
                 <input type="hidden" name="category" value="<%= category %>">
-                <input type="hidden" name="id" value="<%= item.id %>">
+                <input type="hidden" name="id" value="<%= item._id %>">
                 <button type="submit">Vote</button>
               </form>
             </div>
           <% }); %>
-        <% } %>
-      </div>
-    <% }); %>
-
-    <h2>Current Top 3 Winners</h2>
-    <% ['snacks', 'drinks'].forEach(function(category) { %>
-      <div class="category">
-        <h3><%= category.charAt(0).toUpperCase() + category.slice(1) %></h3>
-        <% let topItems = getTopItems(category, 3); %>
-        <% if(topItems.length === 0){ %>
-          <p>No votes yet.</p>
-        <% } else { %>
-          <ol>
-          <% topItems.forEach(function(item){ %>
-            <li><%= item.name %> - $<%= item.price %> (<%= item.votes %> votes)</li>
-          <% }); %>
-          </ol>
-        <% } %>
-      </div>
-    <% }); %>
-
-    <h2>Last Week's Winners</h2>
-    <% ['snacks', 'drinks'].forEach(function(category) { %>
-      <div class="category">
-        <h3><%= category.charAt(0).toUpperCase() + category.slice(1) %></h3>
-        <% if(lastWinners[category].length === 0){ %>
-          <p>No winner data available.</p>
-        <% } else { %>
-          <ol>
-          <% lastWinners[category].forEach(function(item){ %>
-            <li><%= item.name %> - $<%= item.price %> (<%= item.votes %> votes)</li>
-          <% }); %>
-          </ol>
         <% } %>
       </div>
     <% }); %>
@@ -173,7 +112,7 @@ const indexTemplate = `
 </html>
 `;
 
-// Admin Panel Template
+// ADMIN PANEL TEMPLATE
 const adminTemplate = `
 <!DOCTYPE html>
 <html>
@@ -181,11 +120,19 @@ const adminTemplate = `
   <meta charset="UTF-8">
   <title>Admin Panel - Voting App</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    .container { max-width: 800px; margin: auto; }
-    .item { border: 1px solid #ccc; padding: 10px; margin: 5px 0; }
-    form { margin-bottom: 20px; }
-    button { cursor: pointer; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      width: 100%;
+      max-width: 800px;
+      margin: 0 auto;
+      min-height: 100vh;
+      box-sizing: border-box;
+      padding: 20px;
+    }
   </style>
 </head>
 <body>
@@ -203,25 +150,22 @@ const adminTemplate = `
       <label>Price: <input type="number" step="0.01" name="price" required></label><br><br>
       <button type="submit">Add Item</button>
     </form>
-
     <h2>Current Items</h2>
-    <% ['snacks', 'drinks'].forEach(function(category){ %>
+    <% categories.forEach(function(category) { %>
       <h3><%= category.charAt(0).toUpperCase() + category.slice(1) %></h3>
-      <% if(items[category].length === 0){ %>
+      <% if (!items[category] || items[category].length === 0) { %>
         <p>No items in this category.</p>
       <% } else { %>
         <ul>
-        <% items[category].forEach(function(item){ %>
-          <li class="item">
-            <%= item.name %> - $<%= item.price %> 
-            (Votes: <%= votes[category][item.id] || 0 %>)
-            <form method="POST" action="/admin/remove?password=<%= password %>" style="display:inline;">
-              <input type="hidden" name="category" value="<%= category %>">
-              <input type="hidden" name="id" value="<%= item.id %>">
-              <button type="submit">Remove</button>
-            </form>
-          </li>
-        <% }); %>
+          <% items[category].forEach(function(item) { %>
+            <li class="item">
+              <%= item.name %> - $<%= item.price %> (Votes: <%= item.votes %>)
+              <form method="POST" action="/admin/remove?password=<%= password %>" style="display:inline;">
+                <input type="hidden" name="id" value="<%= item._id %>">
+                <button type="submit">Remove</button>
+              </form>
+            </li>
+          <% }); %>
         </ul>
       <% } %>
     <% }); %>
@@ -231,81 +175,113 @@ const adminTemplate = `
 </html>
 `;
 
-// ========================================
-// Routes
-// ----------------------------------------
+// ====================================================
+// HELPER FUNCTIONS FOR FETCHING DATA
+// ====================================================
 
-// Main voting page
-app.get('/', (req, res) => {
-  checkWeeklyReset();
-  const templateData = {
-    items: data.items,
-    votes: data.votes,
-    totalVotes: data.totalVotes,
-    lastWinners: data.lastWinners,
-    getTopItems: getTopItems // Pass helper function to the template
-  };
-  const html = ejs.render(indexTemplate, templateData);
-  res.send(html);
+// Fetch items grouped by category from MongoDB
+async function fetchItemsByCategory() {
+  const categories = ['snacks', 'drinks'];
+  const itemsByCategory = {};
+  for (const category of categories) {
+    const items = await Item.find({ category }).lean();
+    itemsByCategory[category] = items;
+  }
+  return { categories, items: itemsByCategory };
+}
+
+// Compute total votes across all categories
+async function computeTotalVotes() {
+  const { categories, items } = await fetchItemsByCategory();
+  let totalVotes = 0;
+  for (const category of categories) {
+    items[category].forEach(item => totalVotes += item.votes);
+  }
+  return totalVotes;
+}
+
+// ====================================================
+// ROUTES
+// ====================================================
+
+// Test Route to verify deployment
+app.get('/test', (req, res) => {
+  res.send('Hello, this is a test route!');
 });
 
-// Voting logic (with IP-based vote limiting)
-app.post('/vote', (req, res) => {
-  checkWeeklyReset();
-  const category = req.body.category;
-  const id = req.body.id;
-  // Get the user's IP address
-  const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-  
-  // Initialize IP log if needed.
-  if (!data.ipLogs[ip]) {
-    data.ipLogs[ip] = {};
+// MAIN VOTING PAGE ROUTE
+app.get('/', async (req, res) => {
+  try {
+    const { categories, items } = await fetchItemsByCategory();
+    const totalVotes = await computeTotalVotes();
+    const html = ejs.render(indexTemplate, { categories, items, totalVotes });
+    res.send(html);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error loading voting page.");
   }
-  // Prevent multiple votes in the same category.
-  if (data.ipLogs[ip][category]) {
+});
+
+// VOTE ROUTE WITH IP-BASED LIMITING AND DEBUG LOGGING
+app.post('/vote', async (req, res) => {
+  const category = req.body.category;
+  const itemId = req.body.id;
+  
+  // Extract the IP address; handle multiple IPs if present
+  let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  if (ip && ip.indexOf(',') !== -1) {
+    ip = ip.split(',')[0].trim();
+  }
+  
+  // Debug: log the captured IP address
+  console.log("Voter IP:", ip);
+  
+  // Determine the time threshold (one week ago)
+  const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  
+  // Check if a vote from this IP in this category exists within the last week
+  const existingVote = await VoteLog.findOne({ 
+    ip, 
+    category, 
+    votedAt: { $gte: oneWeekAgo }
+  });
+  
+  // Debug: log the existing vote result (if any)
+  console.log("Existing vote:", existingVote);
+  
+  if (existingVote) {
     return res.send("You have already voted in this category this week.");
   }
-  data.ipLogs[ip][category] = true;
   
-  if (!data.votes[category][id]) {
-    data.votes[category][id] = 0;
-  }
-  data.votes[category][id]++;
-  data.totalVotes++;
-  saveData();
+  // Increment the vote count for the item
+  await Item.findByIdAndUpdate(itemId, { $inc: { votes: 1 } });
+  
+  // Record this vote in VoteLog
+  const voteEntry = new VoteLog({ ip, category });
+  await voteEntry.save();
+  
   res.redirect('/');
 });
 
-// ----------------------
-// Admin Panel Routes
-// ----------------------
-
-// GET admin panel with default password "snack" if not set.
-app.get('/admin', (req, res) => {
-  // Trim the environment variable value to remove any extra spaces.
+// ADMIN PANEL GET ROUTE
+app.get('/admin', async (req, res) => {
   const adminPassword = (process.env.ADMIN_PASSWORD || 'snack').trim();
   const providedPassword = (req.query.password || '').trim();
-  
-  console.log("Admin password:", JSON.stringify(adminPassword));
-  console.log("Provided password:", JSON.stringify(providedPassword));
-  
   if (providedPassword !== adminPassword) {
-    console.log("Password mismatch. Access denied.");
     return res.send("Unauthorized. Please access /admin?password=" + adminPassword);
   }
-  
-  console.log("Password match. Rendering admin panel.");
-  const templateData = {
-    items: data.items,
-    votes: data.votes,
-    password: adminPassword
-  };
-  const html = ejs.render(adminTemplate, templateData);
-  res.send(html);
+  try {
+    const { categories, items } = await fetchItemsByCategory();
+    const html = ejs.render(adminTemplate, { categories, items, password: adminPassword });
+    res.send(html);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error loading admin panel.");
+  }
 });
 
-// POST: Add an item
-app.post('/admin/add', (req, res) => {
+// ADMIN ADD ITEM POST ROUTE
+app.post('/admin/add', async (req, res) => {
   const adminPassword = (process.env.ADMIN_PASSWORD || 'snack').trim();
   const providedPassword = (req.query.password || '').trim();
   if (providedPassword !== adminPassword) {
@@ -317,34 +293,26 @@ app.post('/admin/add', (req, res) => {
   if (!['snacks', 'drinks'].includes(category)) {
     return res.send("Invalid category.");
   }
-  const newItem = { id: uuidv4(), name, price };
-  data.items[category].push(newItem);
-  data.votes[category][newItem.id] = 0;
-  saveData();
+  const newItem = new Item({ category, name, price, votes: 0 });
+  await newItem.save();
   res.redirect('/admin?password=' + adminPassword);
 });
 
-// POST: Remove an item
-app.post('/admin/remove', (req, res) => {
+// ADMIN REMOVE ITEM POST ROUTE
+app.post('/admin/remove', async (req, res) => {
   const adminPassword = (process.env.ADMIN_PASSWORD || 'snack').trim();
   const providedPassword = (req.query.password || '').trim();
   if (providedPassword !== adminPassword) {
     return res.send("Unauthorized.");
   }
-  const category = req.body.category;
-  const id = req.body.id;
-  if (!['snacks', 'drinks'].includes(category)) {
-    return res.send("Invalid category.");
-  }
-  data.items[category] = data.items[category].filter(item => item.id !== id);
-  delete data.votes[category][id];
-  saveData();
+  const itemId = req.body.id;
+  await Item.findByIdAndRemove(itemId);
   res.redirect('/admin?password=' + adminPassword);
 });
 
-// ========================================
-// Start the Server
-// ----------------------------------------
+// ====================================================
+// START THE SERVER
+// ====================================================
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
