@@ -4,7 +4,7 @@
 // ====================================================
 const express = require('express');
 const mongoose = require('mongoose');
-const { v4: uuidv4 } = require('uuid'); // Optional for generating unique IDs if needed
+const { v4: uuidv4 } = require('uuid'); // Optional if needed
 const ejs = require('ejs');
 
 const app = express();
@@ -46,7 +46,7 @@ const resetSettingSchema = new mongoose.Schema({
 });
 const ResetSetting = mongoose.model('ResetSetting', resetSettingSchema);
 
-// Winner Schema: Stores last week's winners for a category.
+// Winner Schema: Stores last week's top winners for a category.
 const winnerSchema = new mongoose.Schema({
   category: { type: String, required: true },
   winners: [{
@@ -74,8 +74,7 @@ app.use((req, res, next) => {
 // INLINE EJS TEMPLATES WITH FULL-SCREEN CSS
 // ====================================================
 
-// Main Voting Page Template
-// Now includes a section for "Last Week's Winners"
+// Main Voting Page Template (includes Last Week's Winners section)
 const indexTemplate = `
 <!DOCTYPE html>
 <html>
@@ -130,13 +129,13 @@ const indexTemplate = `
     <% if (winners.length === 0) { %>
       <p>No winners recorded yet.</p>
     <% } else { %>
-      <% winners.forEach(function(winner) { %>
-        <h3><%= winner.category.charAt(0).toUpperCase() + winner.category.slice(1) %></h3>
-        <% if (winner.winners.length === 0) { %>
+      <% winners.forEach(function(winnerDoc) { %>
+        <h3><%= winnerDoc.category.charAt(0).toUpperCase() + winnerDoc.category.slice(1) %></h3>
+        <% if (winnerDoc.winners.length === 0) { %>
           <p>No winners for this category.</p>
         <% } else { %>
           <ol>
-            <% winner.winners.forEach(function(item) { %>
+            <% winnerDoc.winners.forEach(function(item) { %>
               <li><%= item.name %> - $<%= item.price %> (Votes: <%= item.votes %>)</li>
             <% }); %>
           </ol>
@@ -212,17 +211,38 @@ const adminTemplate = `
 `;
 
 // ====================================================
-// HELPER FUNCTIONS FOR DATA RETRIEVAL & WEEKLY RESET
+// HELPER FUNCTIONS
 // ====================================================
 
-// Check if a week has passed since the last reset; if yes, compute winners and reset votes.
+// Fetch items grouped by category from MongoDB
+async function fetchItemsByCategory() {
+  const categories = ['snacks', 'drinks'];
+  const itemsByCategory = {};
+  for (const category of categories) {
+    const items = await Item.find({ category }).lean();
+    itemsByCategory[category] = items;
+  }
+  return { categories, items: itemsByCategory };
+}
+
+// Compute total votes across all categories
+async function computeTotalVotes() {
+  const { categories, items } = await fetchItemsByCategory();
+  let totalVotes = 0;
+  for (const category of categories) {
+    items[category].forEach(item => totalVotes += item.votes);
+  }
+  return totalVotes;
+}
+
+// Check for a weekly reset. If 7 days have passed, compute winners and reset votes.
 async function checkWeeklyReset() {
   const oneWeekInMs = 7 * 24 * 60 * 60 * 1000;
   let setting = await ResetSetting.findOne();
   const now = new Date();
 
   if (!setting) {
-    // Create a new reset setting if none exists
+    // No reset setting exists; create one.
     setting = new ResetSetting({ lastReset: now });
     await setting.save();
     return;
@@ -232,26 +252,25 @@ async function checkWeeklyReset() {
     console.log("Weekly reset triggered.");
     const categories = ['snacks', 'drinks'];
 
-    // For each category, compute top 3 winners
+    // For each category, compute top 3 winners and reset votes.
     for (const category of categories) {
-      // Find top 3 items sorted by votes descending
       const topItems = await Item.find({ category }).sort({ votes: -1 }).limit(3).lean();
 
-      // Upsert (insert or update) the Winner document for this category
+      // Upsert the Winner document for this category.
       await Winner.findOneAndUpdate(
         { category },
         { winners: topItems, weekStart: setting.lastReset },
         { upsert: true, new: true }
       );
 
-      // Reset the vote counts for items in this category (set votes to 0)
+      // Reset the votes for all items in this category.
       await Item.updateMany({ category }, { votes: 0 });
     }
 
-    // Optionally, you might clear the VoteLog collection:
+    // Optionally, clear the VoteLog collection (if you want a clean slate for vote logging)
     // await VoteLog.deleteMany({});
 
-    // Update the lastReset timestamp
+    // Update the last reset timestamp.
     setting.lastReset = now;
     await setting.save();
   }
@@ -269,10 +288,10 @@ app.get('/test', (req, res) => {
 // Main Voting Page Route
 app.get('/', async (req, res) => {
   try {
-    // Check if a weekly reset is needed
+    // Check for weekly reset and perform if needed.
     await checkWeeklyReset();
 
-    // Fetch items and winners
+    // Fetch items and winners.
     const { categories, items } = await fetchItemsByCategory();
     const totalVotes = await computeTotalVotes();
     const winners = await Winner.find({}).lean();
@@ -290,7 +309,7 @@ app.post('/vote', async (req, res) => {
   const category = req.body.category;
   const itemId = req.body.id;
   
-  // Extract IP address and handle multiple IPs if present
+  // Extract IP address, handling comma-separated values if necessary.
   let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
   if (ip && ip.indexOf(',') !== -1) {
     ip = ip.split(',')[0].trim();
@@ -298,10 +317,10 @@ app.post('/vote', async (req, res) => {
   
   console.log("Voter IP:", ip);
   
-  // Define one week ago for vote limitation
+  // Define the threshold for one week ago.
   const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   
-  // Check if this IP has already voted in this category in the last week
+  // Check if this IP has already voted in the category in the past week.
   const existingVote = await VoteLog.findOne({ 
     ip, 
     category, 
@@ -314,10 +333,10 @@ app.post('/vote', async (req, res) => {
     return res.send("You have already voted in this category this week.");
   }
   
-  // Increment the vote count for the item
+  // Increment the vote count for the item.
   await Item.findByIdAndUpdate(itemId, { $inc: { votes: 1 } });
   
-  // Record this vote in VoteLog
+  // Record this vote in the VoteLog.
   const voteEntry = new VoteLog({ ip, category });
   await voteEntry.save();
   
@@ -328,9 +347,11 @@ app.post('/vote', async (req, res) => {
 app.get('/admin', async (req, res) => {
   const adminPassword = (process.env.ADMIN_PASSWORD || 'snack').trim();
   const providedPassword = (req.query.password || '').trim();
+  
   if (providedPassword !== adminPassword) {
     return res.send("Unauthorized. Please access /admin?password=" + adminPassword);
   }
+  
   try {
     const { categories, items } = await fetchItemsByCategory();
     const html = ejs.render(adminTemplate, { categories, items, password: adminPassword });
@@ -345,17 +366,22 @@ app.get('/admin', async (req, res) => {
 app.post('/admin/add', async (req, res) => {
   const adminPassword = (process.env.ADMIN_PASSWORD || 'snack').trim();
   const providedPassword = (req.query.password || '').trim();
+  
   if (providedPassword !== adminPassword) {
     return res.send("Unauthorized.");
   }
+  
   const category = req.body.category;
   const name = req.body.name;
   const price = parseFloat(req.body.price);
+  
   if (!['snacks', 'drinks'].includes(category)) {
     return res.send("Invalid category.");
   }
+  
   const newItem = new Item({ category, name, price, votes: 0 });
   await newItem.save();
+  
   res.redirect('/admin?password=' + adminPassword);
 });
 
@@ -363,11 +389,14 @@ app.post('/admin/add', async (req, res) => {
 app.post('/admin/remove', async (req, res) => {
   const adminPassword = (process.env.ADMIN_PASSWORD || 'snack').trim();
   const providedPassword = (req.query.password || '').trim();
+  
   if (providedPassword !== adminPassword) {
     return res.send("Unauthorized.");
   }
+  
   const itemId = req.body.id;
   await Item.findByIdAndRemove(itemId);
+  
   res.redirect('/admin?password=' + adminPassword);
 });
 
