@@ -1,11 +1,11 @@
-// voting-app.js
 // ====================================================
 // REQUIRED MODULES
 // ====================================================
 const express = require('express');
 const mongoose = require('mongoose');
-const { v4: uuidv4 } = require('uuid'); // Optional if needed
+const { v4: uuidv4 } = require('uuid');
 const ejs = require('ejs');
+const cron = require('node-cron'); // For automating weekly resets
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,38 +23,34 @@ mongoose.connect(mongoURI)
 // MONGOOSE SCHEMAS AND MODELS
 // ====================================================
 
-// Item Schema: Represents a voting item.
 const itemSchema = new mongoose.Schema({
   category: { type: String, enum: ['snacks', 'drinks'], required: true },
   name: { type: String, required: true },
   price: { type: Number, required: true },
-  votes: { type: Number, default: 0 }
+  votes: { type: Number, default: 0 },
 });
 const Item = mongoose.model('Item', itemSchema);
 
-// VoteLog Schema: Records that an IP has voted in a category.
 const voteLogSchema = new mongoose.Schema({
   ip: { type: String, required: true },
   category: { type: String, required: true },
-  votedAt: { type: Date, default: Date.now }
+  votedAt: { type: Date, default: Date.now },
 });
 const VoteLog = mongoose.model('VoteLog', voteLogSchema);
 
-// ResetSetting Schema: Stores the timestamp of the last weekly reset.
 const resetSettingSchema = new mongoose.Schema({
-  lastReset: { type: Date, default: Date.now }
+  lastReset: { type: Date, default: Date.now },
 });
 const ResetSetting = mongoose.model('ResetSetting', resetSettingSchema);
 
-// Winner Schema: Stores last week's top winners for a category.
 const winnerSchema = new mongoose.Schema({
   category: { type: String, required: true },
   winners: [{
     name: String,
     price: Number,
-    votes: Number
+    votes: Number,
   }],
-  weekStart: { type: Date, default: Date.now }
+  weekStart: { type: Date, default: Date.now },
 });
 const Winner = mongoose.model('Winner', winnerSchema);
 
@@ -74,7 +70,6 @@ app.use((req, res, next) => {
 // INLINE EJS TEMPLATES WITH FULL-SCREEN CSS
 // ====================================================
 
-// Main Voting Page Template (includes Last Week's Winners section)
 const indexTemplate = `
 <!DOCTYPE html>
 <html>
@@ -82,22 +77,9 @@ const indexTemplate = `
   <meta charset="UTF-8">
   <title>Weekly Voting App</title>
   <style>
-    html, body {
-      height: 100%;
-      margin: 0;
-      padding: 0;
-    }
-    .container {
-      width: 100%;
-      max-width: 900px;
-      margin: 0 auto;
-      min-height: 100vh;
-      box-sizing: border-box;
-      padding: 20px;
-    }
-    body {
-      overflow-x: hidden;
-    }
+    html, body { height: 100%; margin: 0; padding: 0; }
+    .container { width: 100%; max-width: 900px; margin: 0 auto; min-height: 100vh; box-sizing: border-box; padding: 20px; }
+    body { overflow-x: hidden; }
   </style>
 </head>
 <body>
@@ -147,7 +129,6 @@ const indexTemplate = `
 </html>
 `;
 
-// Admin Panel Template
 const adminTemplate = `
 <!DOCTYPE html>
 <html>
@@ -155,19 +136,8 @@ const adminTemplate = `
   <meta charset="UTF-8">
   <title>Admin Panel - Voting App</title>
   <style>
-    html, body {
-      height: 100%;
-      margin: 0;
-      padding: 0;
-    }
-    .container {
-      width: 100%;
-      max-width: 800px;
-      margin: 0 auto;
-      min-height: 100vh;
-      box-sizing: border-box;
-      padding: 20px;
-    }
+    html, body { height: 100%; margin: 0; padding: 0; }
+    .container { width: 100%; max-width: 800px; margin: 0 auto; min-height: 100vh; box-sizing: border-box; padding: 20px; }
   </style>
 </head>
 <body>
@@ -211,6 +181,14 @@ const adminTemplate = `
 `;
 
 // ====================================================
+// CRON JOB FOR AUTOMATIC WEEKLY RESET (Every Sunday at Midnight)
+// ====================================================
+cron.schedule('0 0 * * SUN', async () => {
+  console.log('Weekly reset triggered!');
+  await checkWeeklyReset(); // Call the reset function every Sunday at midnight
+});
+
+// ====================================================
 // HELPER FUNCTIONS
 // ====================================================
 
@@ -242,7 +220,6 @@ async function checkWeeklyReset() {
   const now = new Date();
 
   if (!setting) {
-    // No reset setting exists; create one.
     setting = new ResetSetting({ lastReset: now });
     await setting.save();
     return;
@@ -267,8 +244,8 @@ async function checkWeeklyReset() {
       await Item.updateMany({ category }, { votes: 0 });
     }
 
-    // Optionally, clear the VoteLog collection (if you want a clean slate for vote logging)
-    // await VoteLog.deleteMany({});
+    // Clear the VoteLog collection (reset voting logs)
+    await VoteLog.deleteMany({});
 
     // Update the last reset timestamp.
     setting.lastReset = now;
@@ -279,11 +256,6 @@ async function checkWeeklyReset() {
 // ====================================================
 // ROUTES
 // ====================================================
-
-// Test Route to verify deployment
-app.get('/test', (req, res) => {
-  res.send('Hello, this is a test route!');
-});
 
 // Main Voting Page Route
 app.get('/', async (req, res) => {
@@ -315,8 +287,6 @@ app.post('/vote', async (req, res) => {
     ip = ip.split(',')[0].trim();
   }
   
-  console.log("Voter IP:", ip);
-  
   // Define the threshold for one week ago.
   const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   
@@ -326,8 +296,6 @@ app.post('/vote', async (req, res) => {
     category, 
     votedAt: { $gte: oneWeekAgo }
   });
-  
-  console.log("Existing vote:", existingVote);
   
   if (existingVote) {
     return res.send("You have already voted in this category this week.");
