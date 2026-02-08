@@ -1,20 +1,26 @@
 {
-  "name": "voting-app",
-  "version": "1.0.0",
+  "name": "crypto-trading-signals",
+  "version": "2.0.0",
   "main": "voting-app.js",
   "scripts": {
+    "start": "node voting-app.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "crypto",
+    "trading",
+    "signals",
+    "bitcoin",
+    "technical-analysis"
+  ],
+  "author": "SharedValueVending",
   "license": "ISC",
   "type": "commonjs",
-  "description": "",
+  "description": "Crypto trading signals with technical analysis, entry/TP/SL levels, and reasoning",
   "dependencies": {
     "ejs": "^3.1.10",
     "express": "^4.21.2",
     "mongoose": "^8.9.6",
-    "node-cron": "^3.0.3",
-    "uuid": "^11.0.5"
+    "node-fetch": "^2.7.0"
   }
 }
