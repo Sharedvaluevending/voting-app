@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: crypto-trading-signals
+    runtime: node
+    buildCommand: npm install
+    startCommand: node voting-app.js
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: NODE_ENV
+        value: production
