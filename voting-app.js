@@ -134,6 +134,15 @@ const dashboardTemplate = `
     .reasoning h4 { font-size: 12px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
     .reason { font-size: 13px; color: #9ca3af; padding: 3px 0; padding-left: 12px; border-left: 2px solid #1e2a3a; margin-bottom: 4px; }
 
+    /* Timeframe Row */
+    .tf-row { display: flex; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
+    .tf-chip { font-size: 11px; padding: 4px 10px; border-radius: 6px; display: inline-flex; gap: 6px; align-items: center; }
+    .tf-bull { background: #0d2818; color: #10b981; border: 1px solid #064e3b; }
+    .tf-bear { background: #2a1010; color: #ef4444; border: 1px solid #451a1a; }
+    .tf-neutral { background: #1a1a0d; color: #eab308; border: 1px solid #3b3510; }
+    .tf-label { font-weight: 700; }
+    .tf-rsi { color: #6b7280; font-size: 10px; }
+
     /* Indicators Mini */
     .indicators-row { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
     .ind { font-size: 11px; color: #6b7280; }
@@ -234,7 +243,19 @@ const dashboardTemplate = `
             <span>Strength: <strong><%= sig.strength %>%</strong></span>
             <span>Confidence: <strong><%= sig.confidence %>%</strong></span>
             <span>R:R <strong><%= sig.riskReward %>x</strong></span>
+            <span>Confluence: <strong><%= sig.confluenceLevel %>/3</strong></span>
+            <span>Best TF: <strong><%= sig.bestTimeframe %></strong></span>
           </div>
+
+          <% if (sig.timeframes) { %>
+          <div class="tf-row">
+            <% ['1H','4H','1D'].forEach(function(tf) { var t = sig.timeframes[tf]; if(t) { %>
+              <div class="tf-chip <%= t.direction === 'BULL' ? 'tf-bull' : t.direction === 'BEAR' ? 'tf-bear' : 'tf-neutral' %>">
+                <span class="tf-label"><%= tf %></span> <%= t.signal %> <span class="tf-rsi">RSI <%= t.rsi %></span>
+              </div>
+            <% }}); %>
+          </div>
+          <% } %>
 
           <% if (sig.entry) { %>
           <div class="levels">
@@ -272,13 +293,14 @@ const dashboardTemplate = `
             <% }); %>
           </div>
 
-          <% if (sig.indicators) { %>
+          <% if (sig.indicators && sig.indicators.rsi !== undefined) { %>
           <div class="indicators-row">
-            <% if (sig.indicators.rsi !== undefined) { %><div class="ind">RSI <span><%= sig.indicators.rsi %></span></div><% } %>
-            <% if (sig.indicators.trend) { %><div class="ind">Trend <span><%= sig.indicators.trend %></span></div><% } %>
+            <div class="ind">RSI <span><%= sig.indicators.rsi %></span></div>
+            <% if (sig.indicators.trend) { %><div class="ind">Trend <span><%= sig.indicators.trend.replace('_',' ') %></span></div><% } %>
             <% if (sig.indicators.macdHistogram !== undefined) { %><div class="ind">MACD <span class="<%= sig.indicators.macdHistogram >= 0 ? 'up' : 'down' %>"><%= sig.indicators.macdHistogram >= 0 ? '+' : '' %><%= sig.indicators.macdHistogram %></span></div><% } %>
-            <% if (sig.indicators.support) { %><div class="ind">Support <span>$<%= formatPrice(sig.indicators.support) %></span></div><% } %>
-            <% if (sig.indicators.resistance) { %><div class="ind">Resistance <span>$<%= formatPrice(sig.indicators.resistance) %></span></div><% } %>
+            <% if (sig.indicators.stochK !== undefined) { %><div class="ind">Stoch <span><%= sig.indicators.stochK %>/<%= sig.indicators.stochD %></span></div><% } %>
+            <% if (sig.indicators.bollingerUpper) { %><div class="ind">BB <span><%= formatPrice(sig.indicators.bollingerLower) %> - <%= formatPrice(sig.indicators.bollingerUpper) %></span></div><% } %>
+            <% if (sig.indicators.support) { %><div class="ind">S/R <span><%= formatPrice(sig.indicators.support) %>/<%= formatPrice(sig.indicators.resistance) %></span></div><% } %>
             <% if (sig.indicators.volumeTrend) { %><div class="ind">Vol <span><%= sig.indicators.volumeTrend %></span></div><% } %>
           </div>
           <% } %>
