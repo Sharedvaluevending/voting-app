@@ -20,8 +20,9 @@ function analyzeCoin(coinData, history) {
   const rawVolumes = (history.volumes || []).map(v => v.volume);
   const rawTimestamps = (history.prices || []).map(p => p.timestamp);
 
-  if (rawPrices.length < 20) {
-    return buildEmptySignal(coinData, ['Insufficient data - need at least 20 data points']);
+  // If no history at all, generate a basic signal from 24h change + price
+  if (rawPrices.length < 5) {
+    return generateBasicSignal(coinData);
   }
 
   const currentPrice = coinData.price;
@@ -591,6 +592,97 @@ function round2(num) {
   if (Math.abs(num) >= 1) return Math.round(num * 100) / 100;
   if (Math.abs(num) >= 0.01) return Math.round(num * 10000) / 10000;
   return Math.round(num * 100000000) / 100000000;
+}
+
+/**
+ * Generate signal from just current data when history is unavailable.
+ * Uses 24h change, volume context, and price action heuristics.
+ */
+function generateBasicSignal(coinData) {
+  const price = coinData.price;
+  const change = coinData.change24h || 0;
+  let score = 0;
+  const reasons = [];
+
+  // 24h momentum - strong moves suggest continuation or reversal
+  if (change < -10) {
+    score += 25; // Oversold bounce play
+    reasons.push(`Down ${change.toFixed(1)}% in 24h - Oversold, potential bounce`);
+  } else if (change < -5) {
+    score += 15;
+    reasons.push(`Down ${change.toFixed(1)}% in 24h - Pullback, watching for reversal`);
+  } else if (change < -2) {
+    score += 5;
+    reasons.push(`Down ${change.toFixed(1)}% in 24h - Slight dip`);
+  } else if (change > 10) {
+    score -= 15; // Overextended
+    reasons.push(`Up ${change.toFixed(1)}% in 24h - Extended move, caution`);
+  } else if (change > 5) {
+    score += 10; // Momentum
+    reasons.push(`Up ${change.toFixed(1)}% in 24h - Bullish momentum`);
+  } else if (change > 2) {
+    score += 5;
+    reasons.push(`Up ${change.toFixed(1)}% in 24h - Mild bullish`);
+  } else {
+    reasons.push(`Flat (${change.toFixed(1)}%) in 24h - No strong direction`);
+  }
+
+  reasons.push('Analysis based on 24h data only (history loading)');
+
+  let signal, strength;
+  if (score >= 20) { signal = 'BUY'; strength = score; }
+  else if (score >= 10) { signal = 'BUY'; strength = score; }
+  else if (score <= -15) { signal = 'SELL'; strength = Math.abs(score); }
+  else { signal = 'HOLD'; strength = Math.abs(score); }
+
+  // Basic levels from price
+  const volatility = price * (Math.abs(change) / 100 || 0.02);
+  let entry, sl, tp1, tp2, tp3;
+  if (signal === 'BUY') {
+    entry = round2(price * 0.998);
+    sl = round2(price - volatility * 1.5);
+    const risk = entry - sl;
+    tp1 = round2(entry + risk * 1.5);
+    tp2 = round2(entry + risk * 2.5);
+    tp3 = round2(entry + risk * 4);
+  } else if (signal === 'SELL') {
+    entry = round2(price * 1.002);
+    sl = round2(price + volatility * 1.5);
+    const risk = sl - entry;
+    tp1 = round2(entry - risk * 1.5);
+    tp2 = round2(entry - risk * 2.5);
+    tp3 = round2(entry - risk * 4);
+  } else {
+    entry = round2(price);
+    sl = round2(price - volatility * 2);
+    tp1 = round2(price + volatility);
+    tp2 = round2(price + volatility * 2);
+    tp3 = round2(price + volatility * 3);
+  }
+
+  const risk = Math.abs(entry - sl);
+  const reward = Math.abs(tp2 - entry);
+  const rr = risk > 0 ? round2(reward / risk) : 0;
+
+  return {
+    coin: {
+      id: coinData.id, symbol: coinData.symbol, name: coinData.name,
+      price, change24h: coinData.change24h,
+      volume24h: coinData.volume24h, marketCap: coinData.marketCap
+    },
+    signal, strength: Math.round(strength), confidence: 30, confluenceLevel: 0,
+    bestTimeframe: '24H',
+    entry, takeProfit1: tp1, takeProfit2: tp2, takeProfit3: tp3,
+    stopLoss: sl, riskReward: rr,
+    reasoning: reasons,
+    timeframes: {
+      '1H': { signal: 'LOADING', score: 0, direction: 'NEUTRAL', rsi: '-', trend: '-' },
+      '4H': { signal: 'LOADING', score: 0, direction: 'NEUTRAL', rsi: '-', trend: '-' },
+      '1D': { signal: change > 2 ? 'BUY' : change < -2 ? 'SELL' : 'NEUTRAL', score: Math.round(score), direction: score > 5 ? 'BULL' : score < -5 ? 'BEAR' : 'NEUTRAL', rsi: '-', trend: change > 3 ? 'UP' : change < -3 ? 'DOWN' : 'SIDEWAYS' }
+    },
+    indicators: {},
+    timestamp: new Date().toISOString()
+  };
 }
 
 function buildEmptySignal(coinData, reasons) {

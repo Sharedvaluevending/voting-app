@@ -18,13 +18,12 @@ const cache = {
 };
 
 const REFRESH_INTERVAL = 5 * 60 * 1000;   // Refresh every 5 minutes
-const REQUEST_DELAY = 2000;                // 2 seconds between API calls
-const RETRY_DELAY = 10000;                 // 10 seconds retry on 429
+const REQUEST_DELAY = 4000;                // 4 seconds between API calls (CoinGecko free = ~10-15 req/min)
+const RETRY_DELAY = 15000;                 // 15 seconds retry on 429
 
-// Top 8 coins for full analysis (reduces API calls from 16 to 9 total)
+// Top coins for analysis (6 total = 1 price call + 6 history = 7 API calls per refresh)
 const TRACKED_COINS = [
-  'bitcoin', 'ethereum', 'solana', 'dogecoin', 'cardano',
-  'ripple', 'chainlink', 'avalanche-2'
+  'bitcoin', 'ethereum', 'solana', 'dogecoin', 'ripple', 'cardano'
 ];
 
 const COIN_META = {
@@ -32,10 +31,8 @@ const COIN_META = {
   ethereum:       { symbol: 'ETH',   name: 'Ethereum' },
   solana:         { symbol: 'SOL',   name: 'Solana' },
   dogecoin:       { symbol: 'DOGE',  name: 'Dogecoin' },
-  cardano:        { symbol: 'ADA',   name: 'Cardano' },
   ripple:         { symbol: 'XRP',   name: 'Ripple' },
-  chainlink:      { symbol: 'LINK',  name: 'Chainlink' },
-  'avalanche-2':  { symbol: 'AVAX',  name: 'Avalanche' }
+  cardano:        { symbol: 'ADA',   name: 'Cardano' }
 };
 
 // ====================================================
@@ -50,12 +47,16 @@ async function fetchWithRetry(url, retries = 2) {
       });
 
       if (response.status === 429) {
-        console.log(`Rate limited (429). Waiting ${RETRY_DELAY / 1000}s before retry ${attempt + 1}/${retries}...`);
-        await sleep(RETRY_DELAY * (attempt + 1));
+        const waitTime = RETRY_DELAY * (attempt + 1);
+        console.log(`Rate limited (429) on ${url.split('?')[0].split('/').pop()}. Waiting ${waitTime / 1000}s (attempt ${attempt + 1}/${retries})...`);
+        await sleep(waitTime);
         continue;
       }
 
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        throw new Error(`HTTP ${response.status}: ${body.slice(0, 100)}`);
+      }
       return await response.json();
     } catch (err) {
       if (attempt === retries) throw err;
@@ -96,14 +97,17 @@ async function fetchPricesFromAPI() {
 }
 
 async function fetchHistoryFromAPI(coinId, days = 7) {
-  const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currencies=usd&days=${days}`;
+  const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
   const data = await fetchWithRetry(url);
 
-  return {
+  const result = {
     prices: (data.prices || []).map(([ts, price]) => ({ timestamp: ts, price })),
     volumes: (data.total_volumes || []).map(([ts, vol]) => ({ timestamp: ts, volume: vol })),
     marketCaps: (data.market_caps || []).map(([ts, mc]) => ({ timestamp: ts, marketCap: mc }))
   };
+
+  console.log(`  ${coinId}: got ${result.prices.length} price points`);
+  return result;
 }
 
 // ====================================================
@@ -127,20 +131,21 @@ async function refreshAllData() {
     // Step 2: Fetch history for each coin with generous delays
     await sleep(REQUEST_DELAY);
 
+    let successCount = 0;
     for (const coinId of TRACKED_COINS) {
       try {
         const history = await fetchHistoryFromAPI(coinId, 7);
         cache.history[coinId] = history;
-        console.log(`Fetched history for ${COIN_META[coinId].symbol}`);
+        successCount++;
+        console.log(`Fetched history for ${COIN_META[coinId].symbol} (${successCount}/${TRACKED_COINS.length})`);
       } catch (err) {
         console.error(`History fetch failed for ${coinId}: ${err.message}`);
-        // Keep old cache data if available
       }
       await sleep(REQUEST_DELAY);
     }
 
     cache.lastRefresh = Date.now();
-    console.log('Background refresh complete.');
+    console.log(`Background refresh complete. ${successCount}/${TRACKED_COINS.length} histories loaded.`);
   } catch (err) {
     console.error('Background refresh error:', err.message);
   } finally {
