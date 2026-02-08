@@ -207,7 +207,11 @@ const dashboardTemplate = `
 
     <!-- SIGNAL CARDS -->
     <% if (signals.length === 0) { %>
-      <div class="loading-note">Loading market data... This may take a moment on first load as we fetch price history for all coins. Refresh in 30 seconds.</div>
+      <div class="loading-note">
+        Loading market data... The first load takes ~20 seconds while we fetch price history.<br>
+        <strong>This page will auto-refresh in 30 seconds.</strong>
+      </div>
+      <script>setTimeout(function(){ location.reload(); }, 30000);</script>
     <% } %>
 
     <div class="signals-grid">
