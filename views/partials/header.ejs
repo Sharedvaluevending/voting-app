@@ -17,8 +17,9 @@
           <a href="/history" class="<%= typeof activePage !== 'undefined' && activePage === 'history' ? 'active' : '' %>">History</a>
           <a href="/performance" class="<%= typeof activePage !== 'undefined' && activePage === 'performance' ? 'active' : '' %>">Performance</a>
           <a href="/journal" class="<%= typeof activePage !== 'undefined' && activePage === 'journal' ? 'active' : '' %>">Journal</a>
-          <a href="/learn" class="<%= typeof activePage !== 'undefined' && activePage === 'learn' ? 'active' : '' %>">Learn</a>
         <% } %>
+        <a href="/learn" class="<%= typeof activePage !== 'undefined' && activePage === 'learn' ? 'active' : '' %>">Learn</a>
+        <a href="/learning" class="<%= typeof activePage !== 'undefined' && activePage === 'learning' ? 'active' : '' %>">AI Engine</a>
       </div>
       <div class="nav-right">
         <% if (typeof user !== 'undefined' && user) { %>

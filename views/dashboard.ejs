@@ -107,9 +107,9 @@
 
       <% if (sig.timeframes) { %>
       <div class="tf-row">
-        <% ['1H','4H','1D'].forEach(function(tf) { var t = sig.timeframes[tf]; if(t) { %>
+        <% ['15m','1H','4H','1D','1W'].forEach(function(tf) { var t = sig.timeframes[tf]; if(t) { %>
           <div class="tf-chip <%= t.direction === 'BULL' ? 'tf-bull' : t.direction === 'BEAR' ? 'tf-bear' : 'tf-neutral' %>">
-            <span class="tf-label"><%= tf %></span> <%= t.signal %> (<%= t.score %>) <span class="tf-rsi"><%= t.rsi !== '-' ? 'RSI ' + t.rsi : '' %></span>
+            <span class="tf-label"><%= tf %></span> <%= t.signal %> (<%= t.score %>) <span class="tf-rsi"><%= t.rsi && t.rsi !== '-' && t.rsi !== 0 ? 'RSI ' + t.rsi : '' %></span>
           </div>
         <% }}); %>
       </div>

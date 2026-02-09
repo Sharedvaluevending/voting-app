@@ -17,20 +17,70 @@
 
   <div class="section">
     <h3>Market Regimes</h3>
-    <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Different strategies work in different market conditions.</p>
-    <div class="journal-entry"><span class="regime-badge regime-trending">Trending</span><br>ADX > 25, clear direction. Best for: Trend Following, Momentum.</div>
-    <div class="journal-entry"><span class="regime-badge regime-ranging">Ranging</span><br>Low ADX, no direction. Best for: Mean Reversion.</div>
-    <div class="journal-entry"><span class="regime-badge regime-compression">Compression</span><br>Bollinger squeeze active. Best for: Breakout trades.</div>
-    <div class="journal-entry"><span class="regime-badge regime-volatile">Volatile</span><br>High ATR, wild swings. Reduce leverage, wider stops.</div>
+    <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">The engine detects 5 market regimes. Different strategies work in different conditions.</p>
+    <div class="journal-entry"><span class="regime-badge regime-trending">Trending</span><br>ADX > 25, clear direction. Best for: <strong>Trend Following, Momentum, Swing, Position</strong>.</div>
+    <div class="journal-entry"><span class="regime-badge regime-ranging">Ranging</span><br>Low ADX (5-15), no direction. Best for: <strong>Mean Reversion</strong>.</div>
+    <div class="journal-entry"><span class="regime-badge regime-compression">Compression</span><br>Bollinger squeeze active. Best for: <strong>Breakout, Scalping, Swing</strong>.</div>
+    <div class="journal-entry"><span class="regime-badge regime-volatile">Volatile</span><br>High ATR, wild swings. Best for: <strong>Scalping</strong>. Reduce leverage, wider stops.</div>
+    <div class="journal-entry"><span class="regime-badge regime-mixed">Mixed</span><br>No clear regime. Signals are weaker. Trade with caution or wait for clarity.</div>
   </div>
 
   <div class="section">
-    <h3>Strategies</h3>
-    <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">The system runs 4 strategies and picks the best for current conditions.</p>
-    <div class="journal-entry"><strong style="color:#3b82f6;">Trend Following</strong><br>Rides established trends. Enters on pullbacks in trend direction. Works best in trending regimes.</div>
-    <div class="journal-entry"><strong style="color:#10b981;">Breakout</strong><br>Catches moves from compression zones. Looks for Bollinger squeeze + volume expansion.</div>
-    <div class="journal-entry"><strong style="color:#eab308;">Mean Reversion</strong><br>Fades extremes back to average. Uses RSI oversold/overbought + VWAP. Best in ranges.</div>
-    <div class="journal-entry"><strong style="color:#a78bfa;">Momentum</strong><br>Follows strong directional moves. Requires volume confirmation + MACD alignment.</div>
+    <h3>7 Strategies</h3>
+    <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">The engine runs all 7 strategies and picks the best for current conditions. The top 2-3 are shown on each signal card.</p>
+
+    <div class="journal-entry">
+      <strong style="color:#3b82f6;">Trend Following</strong>
+      <span style="font-size:10px;color:#6b7280;margin-left:6px;">4H / 1D</span>
+      <br>Rides established trends. Enters on pullbacks in the trend direction. Uses EMA alignment and ADX confirmation. Works best in <span class="regime-badge regime-trending" style="font-size:9px;">trending</span> regimes.
+    </div>
+
+    <div class="journal-entry">
+      <strong style="color:#10b981;">Breakout</strong>
+      <span style="font-size:10px;color:#6b7280;margin-left:6px;">1H</span>
+      <br>Catches volatility expansion from compression zones. Looks for Bollinger squeeze + volume expansion + structure breakout. Best in <span class="regime-badge regime-compression" style="font-size:9px;">compression</span>.
+    </div>
+
+    <div class="journal-entry">
+      <strong style="color:#eab308;">Mean Reversion</strong>
+      <span style="font-size:10px;color:#6b7280;margin-left:6px;">1H</span>
+      <br>Fades extremes back to average. Uses RSI oversold/overbought + VWAP + Bollinger band mean. Best in <span class="regime-badge regime-ranging" style="font-size:9px;">ranging</span> markets.
+    </div>
+
+    <div class="journal-entry">
+      <strong style="color:#a78bfa;">Momentum</strong>
+      <span style="font-size:10px;color:#6b7280;margin-left:6px;">1H</span>
+      <br>Follows strong directional moves. Requires volume confirmation + MACD alignment. Best in <span class="regime-badge regime-trending" style="font-size:9px;">trending</span>.
+    </div>
+
+    <div class="journal-entry">
+      <strong style="color:#ef4444;">Scalping</strong>
+      <span style="font-size:10px;color:#6b7280;margin-left:6px;">15m / 1H</span>
+      <br>Short-term: tight structure, quick momentum, volatility spikes. Uses 15-minute candles for fast entries and 1H for confirmation. Best in <span class="regime-badge regime-volatile" style="font-size:9px;">volatile</span> and <span class="regime-badge regime-compression" style="font-size:9px;">compression</span>. Targets are small but fast.
+    </div>
+
+    <div class="journal-entry">
+      <strong style="color:#f97316;">Swing</strong>
+      <span style="font-size:10px;color:#6b7280;margin-left:6px;">4H / 1D</span>
+      <br>Multi-day holds. Focuses on higher-timeframe trend and structure. Enters on 4H pullbacks aligned with 1D direction. Best in <span class="regime-badge regime-trending" style="font-size:9px;">trending</span> and <span class="regime-badge regime-compression" style="font-size:9px;">compression</span>. Larger targets, wider stops.
+    </div>
+
+    <div class="journal-entry">
+      <strong style="color:#06b6d4;">Position</strong>
+      <span style="font-size:10px;color:#6b7280;margin-left:6px;">1D / 1W</span>
+      <br>Long-term (weeks). Uses daily and weekly macro trends. Only trades with the big picture direction. Best in <span class="regime-badge regime-trending" style="font-size:9px;">trending</span>. Lowest leverage, widest stops, biggest targets.
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Timeframes (5 levels)</h3>
+    <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">The engine analyzes candles across 5 timeframes to find confluence.</p>
+    <div class="journal-entry"><strong>15m</strong> — Scalping setups, fast entries. 96 candles (24 hours of data).</div>
+    <div class="journal-entry"><strong>1H</strong> — Core analysis timeframe (25% weight). 168 candles (7 days).</div>
+    <div class="journal-entry"><strong>4H</strong> — Intermediate trend and structure (35% weight). 100 candles (~17 days).</div>
+    <div class="journal-entry"><strong>1D</strong> — Daily trend, dominant weight (40%). 30 candles (1 month).</div>
+    <div class="journal-entry"><strong>1W</strong> — Weekly macro trend for Position strategy. 26 candles (~6 months).</div>
+    <div class="journal-entry" style="color:#6b7280;"><strong>Confluence</strong> — When 2/3 or 3/3 of the core timeframes (1H/4H/1D) agree on direction, the signal gets a confidence bonus. 3/3 = strong, 1/3 = weak.</div>
   </div>
 
   <div class="section">
@@ -41,7 +91,10 @@
     <div class="journal-entry"><strong>VWAP</strong><br>Volume Weighted Average Price. Institutions use this. Price above VWAP = bullish bias. Below = bearish.</div>
     <div class="journal-entry"><strong>Bollinger Bands</strong><br>Shows volatility. Price near lower band in uptrend = buy zone. Squeeze (narrow bands) = big move coming.</div>
     <div class="journal-entry"><strong>Stochastic</strong><br>Like RSI but compares price to range. K/D crossover in oversold = buy signal. In overbought = sell signal.</div>
+    <div class="journal-entry"><strong>ATR (Average True Range)</strong><br>Measures volatility in price terms. Used to set stop losses and position sizes. Higher ATR = wider stops needed.</div>
     <div class="journal-entry"><strong>Market Structure</strong><br>HH/HL = bullish (higher highs + higher lows). LH/LL = bearish. Break of structure = potential reversal.</div>
+    <div class="journal-entry"><strong>EMA (9/21)</strong><br>Fast/slow exponential moving averages. When 9 EMA crosses above 21 = bullish crossover. Price above both = uptrend.</div>
+    <div class="journal-entry"><strong>SMA (20/50)</strong><br>Simple moving averages. 20 above 50 = bullish alignment. Price below both = downtrend.</div>
   </div>
 
   <div class="section">
@@ -63,6 +116,15 @@
     <div class="journal-entry"><strong>Score 40-49</strong>: Up to 2x (cautious)</div>
     <div class="journal-entry"><strong>Below 40</strong>: 1x only (weak setup, consider skipping)</div>
     <div class="journal-entry" style="color:#ef4444;"><strong>Volatile market?</strong> Cut leverage by 50%. Extreme vol? Use 1x only.</div>
+  </div>
+
+  <div class="section">
+    <h3>Learning Engine</h3>
+    <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">The app tracks every trade outcome and uses it to improve over time.</p>
+    <div class="journal-entry"><strong>How it works</strong><br>Every closed trade is recorded with its strategy, regime, and result (win/loss + R:R). The learning engine adjusts strategy weights based on real performance.</div>
+    <div class="journal-entry"><strong>Weight adjustment</strong><br>Strategies with negative expectancy (losing over 20+ trades) get their scoring weights reduced by 5%. Strategies with positive expectancy (>0.5) get a 2% boost. This makes good strategies louder and bad ones quieter.</div>
+    <div class="journal-entry"><strong>Regime tracking</strong><br>Wins and losses are broken down by market regime (trending, ranging, volatile, compression, mixed). This helps identify which strategies work best in which conditions.</div>
+    <div class="journal-entry" style="color:#3b82f6;"><strong>View it live:</strong> <a href="/learning" style="color:#3b82f6;">Learning Engine Dashboard</a> — see strategy performance, win rates, weights, and regime stats.</div>
   </div>
 </div>
 

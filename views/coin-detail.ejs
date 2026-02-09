@@ -50,6 +50,25 @@
 </div>
 <% } %>
 
+<% if (sig.timeframes) { %>
+<div class="section">
+  <h3>Timeframe Analysis</h3>
+  <div class="tf-row" style="gap:8px;">
+    <% ['15m','1H','4H','1D','1W'].forEach(function(tf) { var t = sig.timeframes[tf]; if(t) { %>
+      <div class="tf-chip <%= t.direction === 'BULL' ? 'tf-bull' : t.direction === 'BEAR' ? 'tf-bear' : 'tf-neutral' %>" style="padding:6px 12px;font-size:12px;">
+        <span class="tf-label"><%= tf %></span> <%= t.signal %> (<%= t.score %>)
+        <% if (t.rsi && t.rsi !== '-' && t.rsi !== 0) { %>
+          <span class="tf-rsi" style="margin-left:4px;">RSI <%= t.rsi %></span>
+        <% } %>
+        <% if (t.adx && t.adx !== '-' && t.adx !== 0) { %>
+          <span style="color:#6b7280;font-size:10px;margin-left:4px;">ADX <%= t.adx %></span>
+        <% } %>
+      </div>
+    <% }}); %>
+  </div>
+</div>
+<% } %>
+
 <% if (sig.scoreBreakdown) { %>
 <div class="section">
   <h3>Score Breakdown</h3>

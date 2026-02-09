@@ -21,7 +21,8 @@ const { fetchAllPrices, fetchAllCandles, fetchAllHistory, fetchCandles, getCurre
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
 const { openTrade, closeTrade, checkStopsAndTPs, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
-const { initializeStrategies } = require('./services/learning-engine');
+const { initializeStrategies, getPerformanceReport } = require('./services/learning-engine');
+const StrategyWeight = require('./models/StrategyWeight');
 
 const User = require('./models/User');
 const Trade = require('./models/Trade');
@@ -417,6 +418,33 @@ app.post('/journal', requireLogin, async (req, res) => {
 // ====================================================
 app.get('/learn', (req, res) => {
   res.render('learn', { activePage: 'learn' });
+});
+
+// ====================================================
+// LEARNING ENGINE DASHBOARD (public - shows strategy performance)
+// ====================================================
+app.get('/learning', async (req, res) => {
+  try {
+    const allStrategies = await StrategyWeight.find({}).lean();
+    const strategies = allStrategies.map(s => ({
+      id: s.strategyId,
+      name: s.name,
+      description: s.description || '',
+      winRate: s.performance.winRate.toFixed(1),
+      avgRR: s.performance.avgRR.toFixed(2),
+      totalTrades: s.performance.totalTrades,
+      wins: s.performance.wins,
+      losses: s.performance.losses,
+      weights: s.weights,
+      byRegime: s.performance.byRegime || {},
+      active: s.active,
+      updatedAt: s.updatedAt
+    }));
+    res.render('learning', { activePage: 'learning', strategies });
+  } catch (err) {
+    console.error('[Learning] Error:', err);
+    res.render('learning', { activePage: 'learning', strategies: [] });
+  }
 });
 
 // ====================================================

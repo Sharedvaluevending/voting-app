@@ -1,0 +1,153 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Learning Engine</h2>
+  <span style="font-size:12px;color:#6b7280;">Self-improving strategy performance tracker</span>
+</div>
+
+<% if (!strategies || strategies.length === 0) { %>
+  <div class="empty-state">
+    <h3>No strategy data yet</h3>
+    <p>The learning engine initializes when you start trading. Open some trades from the <a href="/" style="color:#3b82f6;">Dashboard</a> and close them to see data here.</p>
+  </div>
+<% } else { %>
+
+<!-- STRATEGY PERFORMANCE TABLE -->
+<div class="section">
+  <h3>Strategy Performance</h3>
+  <div style="overflow-x:auto;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Strategy</th>
+          <th>Trades</th>
+          <th>Wins</th>
+          <th>Losses</th>
+          <th>Win Rate</th>
+          <th>Avg R:R</th>
+          <th>Expectancy</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% strategies.forEach(function(s) {
+          var wr = parseFloat(s.winRate) || 0;
+          var avgRR = parseFloat(s.avgRR) || 0;
+          var expectancy = ((wr/100) * avgRR) - ((1 - wr/100) * 1);
+        %>
+          <tr>
+            <td style="font-weight:700;"><%= s.name %></td>
+            <td><%= s.totalTrades %></td>
+            <td class="up"><%= s.wins %></td>
+            <td class="down"><%= s.losses %></td>
+            <td style="color:<%= wr >= 50 ? '#10b981' : wr > 0 ? '#eab308' : '#6b7280' %>;font-weight:600;"><%= s.winRate %>%</td>
+            <td><%= s.avgRR %></td>
+            <td class="<%= expectancy >= 0 ? 'up' : 'down' %>"><%= expectancy.toFixed(3) %></td>
+            <td>
+              <% if (s.totalTrades === 0) { %>
+                <span style="color:#6b7280;">No data</span>
+              <% } else if (s.totalTrades < 10) { %>
+                <span style="color:#eab308;">Learning (<%= s.totalTrades %>/10)</span>
+              <% } else if (expectancy >= 0.5) { %>
+                <span style="color:#10b981;">Strong</span>
+              <% } else if (expectancy >= 0) { %>
+                <span style="color:#3b82f6;">Active</span>
+              <% } else { %>
+                <span style="color:#ef4444;">Weak (reducing weight)</span>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- STRATEGY WEIGHTS -->
+<div class="section">
+  <h3>Current Scoring Weights</h3>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:12px;">These weights determine how much each dimension contributes to a strategy's score. The learning engine adjusts them based on trade outcomes.</p>
+  <div style="overflow-x:auto;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Strategy</th>
+          <th>Trend</th>
+          <th>Momentum</th>
+          <th>Volume</th>
+          <th>Structure</th>
+          <th>Volatility</th>
+          <th>Risk Qual</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% strategies.forEach(function(s) { %>
+          <tr>
+            <td style="font-weight:700;"><%= s.name %></td>
+            <td><%= s.weights.trend %></td>
+            <td><%= s.weights.momentum %></td>
+            <td><%= s.weights.volume %></td>
+            <td><%= s.weights.structure %></td>
+            <td><%= s.weights.volatility %></td>
+            <td><%= s.weights.riskQuality %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- REGIME BREAKDOWN -->
+<div class="section">
+  <h3>Performance by Regime</h3>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:12px;">How each strategy performs in different market conditions.</p>
+  <div style="overflow-x:auto;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Strategy</th>
+          <th><span class="regime-badge regime-trending">Trending</span></th>
+          <th><span class="regime-badge regime-ranging">Ranging</span></th>
+          <th><span class="regime-badge regime-volatile">Volatile</span></th>
+          <th><span class="regime-badge regime-compression">Compression</span></th>
+          <th><span class="regime-badge regime-mixed">Mixed</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% strategies.forEach(function(s) {
+          var regimes = s.byRegime || {};
+          function fmtRegime(r) {
+            if (!r) return '<span style="color:#4b5563;">-</span>';
+            var total = (r.wins || 0) + (r.losses || 0);
+            if (total === 0) return '<span style="color:#4b5563;">-</span>';
+            var wr = ((r.wins / total) * 100).toFixed(0);
+            return '<span class="up">' + r.wins + 'W</span> / <span class="down">' + r.losses + 'L</span> <span style="color:#6b7280;">(' + wr + '%)</span>';
+          }
+        %>
+          <tr>
+            <td style="font-weight:700;"><%= s.name %></td>
+            <td><%- fmtRegime(regimes.trending) %></td>
+            <td><%- fmtRegime(regimes.ranging) %></td>
+            <td><%- fmtRegime(regimes.volatile) %></td>
+            <td><%- fmtRegime(regimes.compression) %></td>
+            <td><%- fmtRegime(regimes.mixed) %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- HOW IT WORKS -->
+<div class="section">
+  <h3>How the Learning Engine Works</h3>
+  <div class="journal-entry"><strong>1. Record outcomes</strong><br>Every closed trade saves its strategy type, market regime, P&L, and risk/reward ratio.</div>
+  <div class="journal-entry"><strong>2. Calculate expectancy</strong><br>Expectancy = (Win Rate x Avg R:R) - (Loss Rate x 1). Positive = profitable strategy over time.</div>
+  <div class="journal-entry"><strong>3. Adjust weights</strong><br>After 10+ trades, strategies with negative expectancy get scoring weights reduced by 5%. Strategies with high expectancy (>0.5) get a 2% boost.</div>
+  <div class="journal-entry"><strong>4. Strategy selection improves</strong><br>As weights adjust, the engine naturally favors strategies that are working in current market conditions and de-emphasizes underperformers.</div>
+  <div class="journal-entry" style="color:#6b7280;"><strong>Note:</strong> Weight adjustments are gradual and conservative. A strategy needs 20+ trades with negative expectancy before weights start decreasing. This prevents overreacting to small sample sizes.</div>
+</div>
+
+<% } %>
+
+<%- include('partials/footer') %>
