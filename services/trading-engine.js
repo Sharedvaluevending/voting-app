@@ -892,8 +892,10 @@ function determineBestTF(s1h, s4h, s1d) {
 // FALLBACK: CoinGecko close-price history
 // ====================================================
 function analyzeWithHistory(coinData, history) {
-  const rawPrices = history.prices.map(p => p.price);
-  const rawVolumes = history.volumes.map(v => v.volume);
+  const pricesArr = history && Array.isArray(history.prices) ? history.prices : [];
+  const volumesArr = history && Array.isArray(history.volumes) ? history.volumes : [];
+  const rawPrices = pricesArr.map(p => (p && typeof p.price !== 'undefined') ? p.price : 0);
+  const rawVolumes = volumesArr.map(v => (v && typeof v.volume !== 'undefined') ? v.volume : 0);
 
   // Simulate OHLCV from close prices
   const fakeCandles = rawPrices.map((price, i) => ({

@@ -20,6 +20,7 @@ const REFRESH_INTERVAL = 5 * 60 * 1000;
 const COINGECKO_DELAY = 6000;
 const BINANCE_DELAY = 200;
 const RETRY_DELAY = 10000;
+const RATE_LIMIT_WAIT_BASE = 20000;
 
 const TRACKED_COINS = [
   'bitcoin', 'ethereum', 'solana', 'dogecoin', 'ripple', 'cardano',
@@ -39,6 +40,13 @@ const COIN_META = {
   polygon:       { symbol: 'MATIC', name: 'Polygon',    binance: 'MATICUSDT' }
 };
 
+// CoinCap.io uses different asset ids – map our id to theirs
+const COINCAP_IDS = {
+  'bitcoin': 'bitcoin', 'ethereum': 'ethereum', 'solana': 'solana', 'dogecoin': 'dogecoin',
+  'ripple': 'xrp', 'cardano': 'cardano', 'polkadot': 'polkadot', 'avalanche-2': 'avalanche',
+  'chainlink': 'chainlink', 'polygon': 'matic-network'
+};
+
 // ====================================================
 // FETCH WITH RETRY
 // ====================================================
@@ -49,9 +57,12 @@ async function fetchWithRetry(url, retries = 2) {
         headers: { 'Accept': 'application/json' },
         timeout: 15000
       });
+      if (response.status === 451) {
+        throw new Error('Service unavailable from this location (451)');
+      }
       if (response.status === 429) {
-        const wait = RETRY_DELAY * (attempt + 1);
-        console.log(`Rate limited on price. Waiting ${wait / 1000}s...`);
+        const wait = RATE_LIMIT_WAIT_BASE * (attempt + 1);
+        console.log(`Rate limited. Waiting ${wait / 1000}s before retry...`);
         await sleep(wait);
         continue;
       }
@@ -101,6 +112,90 @@ async function fetchPricesFromAPI() {
       lastUpdated: info.last_updated_at ? new Date(info.last_updated_at * 1000) : new Date()
     };
   }).filter(Boolean);
+}
+
+// ====================================================
+// BINANCE - Prices (24hr ticker, no API key)
+// Use as fallback when CoinGecko is rate limited. Returns null if 451 (restricted region).
+// ====================================================
+async function fetchPricesFromBinance() {
+  const results = [];
+  for (const coinId of TRACKED_COINS) {
+    const meta = COIN_META[coinId];
+    if (!meta || !meta.binance) continue;
+    try {
+      const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${meta.binance}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 10000 });
+      if (res.status === 451) {
+        console.log('[Binance] 451 – not available from this region (prices skipped)');
+        return null;
+      }
+      if (!res.ok) continue;
+      const data = await res.json();
+      const price = parseFloat(data.lastPrice);
+      const change24h = parseFloat(data.priceChangePercent) || 0;
+      results.push({
+        id: coinId,
+        symbol: meta.symbol,
+        name: meta.name,
+        binanceSymbol: meta.binance,
+        price: isNaN(price) ? 0 : price,
+        change24h,
+        volume24h: parseFloat(data.quoteVolume) || 0,
+        marketCap: 0,
+        lastUpdated: new Date()
+      });
+      await sleep(100);
+    } catch (err) {
+      if (err.message && err.message.includes('451')) return null;
+      console.error(`[Binance] price ${meta.symbol}:`, err.message);
+    }
+  }
+  return results.length > 0 ? results : null;
+}
+
+// ====================================================
+// COINCAP.IO - Free prices, no key, ~200 req/min, usually not geo-blocked
+// ====================================================
+async function fetchPricesFromCoinCap() {
+  try {
+    const res = await fetch('https://api.coincap.io/v2/assets?limit=200', {
+      headers: { 'Accept': 'application/json' },
+      timeout: 15000
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const list = json.data || json;
+    if (!Array.isArray(list)) return null;
+    const byId = {};
+    list.forEach(function(a) {
+      byId[(a.id || '').toLowerCase()] = a;
+    });
+    const results = [];
+    TRACKED_COINS.forEach(function(coinId) {
+      const capId = COINCAP_IDS[coinId] || coinId;
+      const a = byId[capId];
+      const meta = COIN_META[coinId];
+      if (!a || !meta) return;
+      const price = parseFloat(a.priceUsd);
+      if (isNaN(price)) return;
+      results.push({
+        id: coinId,
+        symbol: meta.symbol,
+        name: meta.name,
+        binanceSymbol: meta.binance,
+        price,
+        change24h: parseFloat(a.changePercent24Hr) || 0,
+        volume24h: parseFloat(a.volumeUsd24Hr) || 0,
+        marketCap: parseFloat(a.marketCapUsd) || 0,
+        lastUpdated: new Date()
+      });
+    });
+    return results.length > 0 ? results : null;
+  } catch (err) {
+    console.error('[CoinCap] Price fetch failed:', err.message);
+    return null;
+  }
 }
 
 // ====================================================
@@ -155,12 +250,23 @@ async function fetchHistoryFromAPI(coinId, days = 7) {
   const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
   const data = await fetchWithRetry(url);
 
+  if (!data || typeof data !== 'object') {
+    throw new Error('Invalid history response');
+  }
+  const prices = Array.isArray(data.prices) ? data.prices : [];
+  const totalVolumes = Array.isArray(data.total_volumes) ? data.total_volumes : [];
+  const marketCaps = Array.isArray(data.market_caps) ? data.market_caps : [];
+
   return {
-    prices: (data.prices || []).map(([ts, price]) => ({ timestamp: ts, price })),
-    volumes: (data.total_volumes || []).map(([ts, vol]) => ({ timestamp: ts, volume: vol })),
-    marketCaps: (data.market_caps || []).map(([ts, mc]) => ({ timestamp: ts, marketCap: mc }))
+    prices: prices.map(([ts, price]) => ({ timestamp: ts, price })),
+    volumes: totalVolumes.map(([ts, vol]) => ({ timestamp: ts, volume: vol })),
+    marketCaps: marketCaps.map(([ts, mc]) => ({ timestamp: ts, marketCap: mc }))
   };
 }
+
+// Resolved when first price load attempt has finished (so dashboard has data or we've tried)
+let pricesReadyResolve;
+const pricesReadyPromise = new Promise(function(resolve) { pricesReadyResolve = resolve; });
 
 // ====================================================
 // BACKGROUND REFRESH
@@ -171,20 +277,45 @@ async function refreshAllData() {
   console.log('[Refresh] Starting background data refresh...');
 
   try {
-    // Step 1: CoinGecko prices (keep previous cache if rate limited or error)
+    if (cache.lastRefresh === 0) {
+      console.log('[Refresh] Waiting 10s before first API call (avoids rate limit)...');
+      await sleep(10000);
+    }
+    // Step 1: Prices – CoinGecko first, then Binance fallback (Binance returns 451 on Render)
+    let prices = [];
     try {
-      const prices = await fetchPricesFromAPI();
-      if (prices && prices.length > 0) {
-        cache.prices = { data: prices, timestamp: Date.now() };
-        console.log(`[Refresh] Got prices for ${prices.length} coins`);
-      }
+      prices = await fetchPricesFromAPI();
     } catch (priceErr) {
-      console.error('[Refresh] Price fetch failed:', priceErr.message, '- keeping previous prices');
+      console.error('[Refresh] CoinGecko price fetch failed:', priceErr.message);
+    }
+    if (prices && prices.length > 0) {
+      cache.prices = { data: prices, timestamp: Date.now() };
+      console.log(`[Refresh] Got prices for ${prices.length} coins (CoinGecko)`);
+    } else {
+      const binancePrices = await fetchPricesFromBinance();
+      if (binancePrices && binancePrices.length > 0) {
+        cache.prices = { data: binancePrices, timestamp: Date.now() };
+        console.log(`[Refresh] Got prices for ${binancePrices.length} coins (Binance)`);
+      } else {
+        const coincapPrices = await fetchPricesFromCoinCap();
+        if (coincapPrices && coincapPrices.length > 0) {
+          cache.prices = { data: coincapPrices, timestamp: Date.now() };
+          console.log(`[Refresh] Got prices for ${coincapPrices.length} coins (CoinCap)`);
+        } else {
+          console.log('[Refresh] No prices from CoinGecko, Binance, or CoinCap – keeping previous');
+        }
+      }
+    }
+    if (pricesReadyResolve) {
+      pricesReadyResolve();
+      pricesReadyResolve = null;
     }
 
-    // Step 2: Binance candles for each coin (3 calls per coin, but Binance is generous)
+    // Step 2: Binance candles (skipped in restricted regions – 451). Use CoinGecko history fallback below.
+    let binanceOk = true;
     let successCount = 0;
     for (const coinId of TRACKED_COINS) {
+      if (!binanceOk) break;
       try {
         await sleep(BINANCE_DELAY);
         const candles = await fetchAllCandlesForCoin(coinId);
@@ -194,7 +325,12 @@ async function refreshAllData() {
           console.log(`[Refresh] Candles: ${COIN_META[coinId].symbol} (${successCount}/${TRACKED_COINS.length})`);
         }
       } catch (err) {
-        console.error(`[Refresh] Candles failed for ${coinId}: ${err.message}`);
+        if (err.message && err.message.includes('451')) {
+          console.log('[Refresh] Binance unavailable (451) – using CoinGecko history for candles');
+          binanceOk = false;
+        } else {
+          console.error(`[Refresh] Candles failed for ${coinId}: ${err.message}`);
+        }
       }
     }
 
@@ -218,6 +354,10 @@ async function refreshAllData() {
     console.error('[Refresh] Error:', err.message);
   } finally {
     cache.refreshing = false;
+    if (pricesReadyResolve) {
+      pricesReadyResolve();
+      pricesReadyResolve = null;
+    }
   }
 }
 
@@ -276,5 +416,6 @@ refreshAllData().catch(err => console.error('[CryptoAPI] Initial error:', err.me
 module.exports = {
   fetchAllPrices, fetchPriceHistory, fetchAllHistory,
   fetchCandles, fetchAllCandles, getCurrentPrice, isDataReady,
+  pricesReadyPromise,
   TRACKED_COINS, COIN_META
 };

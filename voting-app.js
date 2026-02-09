@@ -17,7 +17,7 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const path = require('path');
 
-const { fetchAllPrices, fetchAllCandles, fetchAllHistory, fetchCandles, getCurrentPrice, isDataReady, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
+const { fetchAllPrices, fetchAllCandles, fetchAllHistory, fetchCandles, getCurrentPrice, isDataReady, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
 const { openTrade, closeTrade, checkStopsAndTPs, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
@@ -464,10 +464,23 @@ setInterval(() => {
 }, 60 * 1000);
 
 // ====================================================
-// START SERVER
+// START SERVER (wait for first price load so dashboard has data)
 // ====================================================
-app.listen(PORT, () => {
-  console.log(`[Server] CryptoSignals Pro v3.0 running on port ${PORT}`);
-  console.log(`[Server] Dashboard: http://localhost:${PORT}`);
-  console.log(`[Server] API: http://localhost:${PORT}/api/signals`);
-});
+const START_TIMEOUT = 140000;
+Promise.race([
+  pricesReadyPromise,
+  new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), START_TIMEOUT))
+])
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`[Server] CryptoSignals Pro v3.0 running on port ${PORT}`);
+      console.log(`[Server] Dashboard: http://localhost:${PORT}`);
+      console.log(`[Server] API: http://localhost:${PORT}/api/signals`);
+    });
+  })
+  .catch(() => {
+    app.listen(PORT, () => {
+      console.log(`[Server] CryptoSignals Pro v3.0 running on port ${PORT} (started without waiting for prices)`);
+      console.log(`[Server] Dashboard: http://localhost:${PORT}`);
+    });
+  });

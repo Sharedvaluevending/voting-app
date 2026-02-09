@@ -1,5 +1,5 @@
 /**
- * Active Trades live updates: time every 1s, price & PnL every 15s
+ * Active Trades live updates: time every 1s, price and PnL every 10s
  */
 (function() {
   'use strict';
@@ -53,23 +53,26 @@
     setInterval(tickTime, 1000);
     tickTime();
 
-    // Price & PnL: fetch every 15 seconds
+    // Price & PnL: fetch every 10 seconds
     function updatePrices() {
       var url = (window.location.origin || '') + '/api/prices';
       fetch(url, { credentials: 'same-origin' })
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+          if (!r.ok) throw new Error('API ' + r.status);
+          return r.json();
+        })
         .then(function(result) {
           if (!result || !result.success || !result.data || !Array.isArray(result.data)) return;
           var priceMap = {};
           for (var i = 0; i < result.data.length; i++) {
             var p = result.data[i];
-            if (p && p.id != null) priceMap[p.id] = p.price;
+            if (p && p.id != null) priceMap[p.id] = Number(p.price);
           }
           for (var c = 0; c < cards.length; c++) {
             var card = cards[c];
             var coinId = card.getAttribute('data-coin-id');
             var currentPrice = priceMap[coinId];
-            if (currentPrice == null || isNaN(currentPrice)) continue;
+            if (currentPrice == null || isNaN(currentPrice) || currentPrice <= 0) continue;
             var entryPrice = parseFloat(card.getAttribute('data-entry-price'));
             var positionSize = parseFloat(card.getAttribute('data-position-size'));
             var margin = parseFloat(card.getAttribute('data-margin'));
@@ -100,7 +103,8 @@
         })
         .catch(function() {});
     }
-    setInterval(updatePrices, 15000);
+    setInterval(updatePrices, 10000);
+    setTimeout(updatePrices, 1000);
     updatePrices();
   });
 })();
