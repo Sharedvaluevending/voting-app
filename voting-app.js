@@ -638,13 +638,14 @@ setInterval(() => {
 // Re-analyzes each open trade's coin and generates
 // status messages: confidence, momentum, structure, etc.
 // ====================================================
-setInterval(async () => {
+async function runScoreRecheck() {
   try {
     const [prices, allCandles, allHistory] = await Promise.all([
       fetchAllPrices(),
       Promise.resolve(fetchAllCandles()),
       fetchAllHistory()
     ]);
+    if (!prices || prices.length === 0) return; // prices not loaded yet
     const options = await buildEngineOptions(prices, allCandles, allHistory);
 
     const signalCache = {};
@@ -652,7 +653,7 @@ setInterval(async () => {
       if (signalCache[coinId]) return signalCache[coinId];
       const coinData = prices.find(p => p.id === coinId);
       if (!coinData) return null;
-      const candles = fetchCandles(coinId);
+      const candles = allCandles[coinId] || null;
       const history = allHistory[coinId] || { prices: [], volumes: [] };
       signalCache[coinId] = analyzeCoin(coinData, candles, history, options);
       return signalCache[coinId];
@@ -662,7 +663,10 @@ setInterval(async () => {
   } catch (err) {
     console.error('[ScoreCheck] Interval error:', err.message);
   }
-}, SCORE_RECHECK_MINUTES * 60 * 1000);
+}
+setInterval(runScoreRecheck, SCORE_RECHECK_MINUTES * 60 * 1000);
+// Run first score check 30s after startup so trades get data quickly
+setTimeout(runScoreRecheck, 30 * 1000);
 
 // ====================================================
 // START SERVER (wait for first price load so dashboard has data)
