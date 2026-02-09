@@ -1287,8 +1287,8 @@ function generateBasicSignal(coinData) {
     reasoning: reasons,
     scoreBreakdown: { trend: 0, momentum: 0, volume: 0, structure: 0, volatility: 0, riskQuality: 0 },
     timeframes: {
-      '1H': { signal: 'LOADING', score: 0, direction: 'NEUTRAL', rsi: '-', trend: '-', adx: '-' },
-      '4H': { signal: 'LOADING', score: 0, direction: 'NEUTRAL', rsi: '-', trend: '-', adx: '-' },
+      '1H': { signal: '24h only', score: 0, direction: 'NEUTRAL', rsi: '-', trend: '-', adx: '-' },
+      '4H': { signal: '24h only', score: 0, direction: 'NEUTRAL', rsi: '-', trend: '-', adx: '-' },
       '1D': { signal: dir === 'BULL' ? 'BUY' : dir === 'BEAR' ? 'SELL' : 'NEUTRAL', score, direction: dir, rsi: '-', trend: change > 3 ? 'UP' : change < -3 ? 'DOWN' : 'SIDEWAYS', adx: '-' }
     },
     indicators: {}, timestamp: new Date().toISOString()

@@ -18,13 +18,15 @@ const cache = {
 
 const REFRESH_INTERVAL = 60 * 1000;
 const COINGECKO_DELAY = 6000;
-const BINANCE_DELAY = 200;
+const BINANCE_DELAY = 450;  // Stay under ~20 req/s (5 klines per coin) to avoid 429
 const RETRY_DELAY = 10000;
 const RATE_LIMIT_WAIT_BASE = 20000;
+const BINANCE_CANDLE_RETRY_DELAY = 3500;
 
 const TRACKED_COINS = [
   'bitcoin', 'ethereum', 'solana', 'dogecoin', 'ripple', 'cardano',
-  'polkadot', 'avalanche-2', 'chainlink', 'polygon'
+  'polkadot', 'avalanche-2', 'chainlink', 'polygon',
+  'binancecoin', 'litecoin', 'uniswap', 'cosmos'
 ];
 
 const COIN_META = {
@@ -37,14 +39,19 @@ const COIN_META = {
   polkadot:      { symbol: 'DOT',   name: 'Polkadot',   binance: 'DOTUSDT' },
   'avalanche-2': { symbol: 'AVAX',  name: 'Avalanche',  binance: 'AVAXUSDT' },
   chainlink:     { symbol: 'LINK',  name: 'Chainlink',  binance: 'LINKUSDT' },
-  polygon:       { symbol: 'MATIC', name: 'Polygon',    binance: 'MATICUSDT' }
+  polygon:       { symbol: 'MATIC', name: 'Polygon',    binance: 'MATICUSDT' },
+  binancecoin:   { symbol: 'BNB',   name: 'BNB',        binance: 'BNBUSDT' },
+  litecoin:      { symbol: 'LTC',   name: 'Litecoin',   binance: 'LTCUSDT' },
+  uniswap:       { symbol: 'UNI',   name: 'Uniswap',    binance: 'UNIUSDT' },
+  cosmos:        { symbol: 'ATOM',  name: 'Cosmos',     binance: 'ATOMUSDT' }
 };
 
 // CoinCap.io uses different asset ids – map our id to theirs
 const COINCAP_IDS = {
   'bitcoin': 'bitcoin', 'ethereum': 'ethereum', 'solana': 'solana', 'dogecoin': 'dogecoin',
   'ripple': 'xrp', 'cardano': 'cardano', 'polkadot': 'polkadot', 'avalanche-2': 'avalanche',
-  'chainlink': 'chainlink', 'polygon': 'matic-network'
+  'chainlink': 'chainlink', 'polygon': 'matic-network',
+  'binancecoin': 'binance-coin', 'litecoin': 'litecoin', 'uniswap': 'uniswap', 'cosmos': 'cosmos'
 };
 
 // Once we get 451 from Binance we skip all Binance calls for this process (e.g. on Render)
@@ -213,7 +220,8 @@ async function fetchPricesFromCoinCap() {
 const KRAKEN_PAIRS = {
   'bitcoin': 'XXBTZUSD', 'ethereum': 'XETHZUSD', 'solana': 'SOLUSD', 'dogecoin': 'DOGEUSD',
   'ripple': 'XXRPZUSD', 'cardano': 'ADAUSD', 'polkadot': 'DOTUSD', 'avalanche-2': 'AVAXUSD',
-  'chainlink': 'LINKUSD', 'polygon': 'MATICUSD'
+  'chainlink': 'LINKUSD', 'polygon': 'MATICUSD',
+  'binancecoin': 'BNBUSD', 'litecoin': 'XLTCZUSD', 'uniswap': 'UNIUSD', 'cosmos': 'ATOMUSD'
 };
 
 // ====================================================
@@ -282,7 +290,7 @@ async function fetchBinanceCandles(symbol, interval, limit) {
   }));
 }
 
-async function fetchAllCandlesForCoin(coinId) {
+async function fetchAllCandlesForCoin(coinId, retriesLeft = 1) {
   if (binanceRestricted) return null;
   const meta = COIN_META[coinId];
   if (!meta?.binance) return null;
@@ -305,6 +313,11 @@ async function fetchAllCandlesForCoin(coinId) {
     };
   } catch (err) {
     if (err.message && err.message.includes('451')) binanceRestricted = true;
+    if (retriesLeft > 0 && !binanceRestricted) {
+      console.log(`[Binance] Retrying ${COIN_META[coinId].symbol} in ${BINANCE_CANDLE_RETRY_DELAY / 1000}s...`);
+      await sleep(BINANCE_CANDLE_RETRY_DELAY);
+      return fetchAllCandlesForCoin(coinId, retriesLeft - 1);
+    }
     console.error(`Binance candles failed for ${coinId}: ${err.message}`);
     return null;
   }
@@ -411,19 +424,26 @@ async function refreshAllData() {
       }
     }
 
-    // Step 3: CoinGecko history as fallback (one shot per coin, no retry on 429 – skip rest if rate limited)
-    for (const coinId of TRACKED_COINS) {
-      if (!cache.candles[coinId]) {
-        try {
-          await sleep(COINGECKO_DELAY);
-          const history = await fetchHistoryOnce(coinId, 7);
-          cache.history[coinId] = history;
-          console.log(`[Refresh] CG history: ${COIN_META[coinId].symbol}`);
-        } catch (err) {
-          if (err.message && err.message.includes('429')) {
-            console.log('[Refresh] CoinGecko history rate limited – skipping rest this round');
-            break;
+    // Step 3: CoinGecko history as fallback for coins without Binance candles
+    const coinsNeedingHistory = TRACKED_COINS.filter(id => !cache.candles[id]);
+    for (const coinId of coinsNeedingHistory) {
+      try {
+        await sleep(COINGECKO_DELAY);
+        const history = await fetchHistoryOnce(coinId, 7);
+        cache.history[coinId] = history;
+        console.log(`[Refresh] CG history: ${COIN_META[coinId].symbol}`);
+      } catch (err) {
+        if (err.message && err.message.includes('429')) {
+          console.log('[Refresh] CoinGecko history rate limited – waiting 25s then continuing...');
+          await sleep(25000);
+          try {
+            const history = await fetchHistoryOnce(coinId, 7);
+            cache.history[coinId] = history;
+            console.log(`[Refresh] CG history: ${COIN_META[coinId].symbol} (after wait)`);
+          } catch (retryErr) {
+            console.error(`[Refresh] CG history failed for ${coinId}: ${retryErr.message}`);
           }
+        } else {
           console.error(`[Refresh] CG history failed for ${coinId}: ${err.message}`);
         }
       }
