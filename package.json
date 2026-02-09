@@ -4,7 +4,8 @@
   "main": "voting-app.js",
   "scripts": {
     "start": "node voting-app.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:apis": "node scripts/test-apis.js"
   },
   "keywords": [
     "crypto",
