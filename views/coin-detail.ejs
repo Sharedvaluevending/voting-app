@@ -1,0 +1,116 @@
+<%- include('partials/header') %>
+
+<a href="/" style="color:#3b82f6;text-decoration:none;font-size:13px;">&larr; Back to Dashboard</a>
+
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin:16px 0;flex-wrap:wrap;gap:12px;">
+  <div>
+    <h1 style="font-size:28px;color:#fff;"><%= sig.coin.name %></h1>
+    <span style="color:#6b7280;font-size:14px;"><%= sig.coin.symbol %> | Market Cap: $<%= formatBigNumber(sig.coin.marketCap) %></span>
+  </div>
+  <div style="text-align:right;">
+    <div style="font-size:32px;font-weight:700;color:#fff;">$<%= formatPrice(sig.coin.price) %></div>
+    <div class="<%= sig.coin.change24h >= 0 ? 'up' : 'down' %>" style="font-size:16px;font-weight:600;">
+      <%= sig.coin.change24h >= 0 ? '+' : '' %><%= sig.coin.change24h.toFixed(2) %>% (24h)
+    </div>
+  </div>
+</div>
+
+<div class="signal-badge badge-<%= sig.signal %>" style="font-size:18px;padding:12px 24px;margin-bottom:16px;display:inline-block;">
+  <%= sig.signal.replace('_', ' ') %>
+</div>
+<% if (sig.regime && sig.regime !== 'unknown') { %>
+  <span class="regime-badge regime-<%= sig.regime %>" style="font-size:13px;padding:6px 14px;"><%= sig.regime %></span>
+<% } %>
+<% if (sig.suggestedLeverage > 1) { %>
+  <span class="lev-badge" style="font-size:13px;padding:6px 14px;">Suggested: <%= sig.suggestedLeverage %>x Leverage</span>
+<% } %>
+
+<div class="score-bar" style="margin:16px 0;">
+  <div class="score-bar-outer" style="height:10px;">
+    <div class="score-bar-inner" style="width:<%= Math.min(100, sig.score || 0) %>%;background:<%= (sig.score||0) >= 70 ? '#10b981' : (sig.score||0) >= 50 ? '#3b82f6' : (sig.score||0) >= 30 ? '#eab308' : '#ef4444' %>;height:100%;"></div>
+  </div>
+  <div class="score-label" style="font-size:14px;">
+    <span>Score: <strong><%= sig.score || 0 %>/100</strong></span>
+    <span>Strategy: <strong><%= sig.strategyName || 'N/A' %></strong></span>
+  </div>
+</div>
+
+<% if (sig.scoreBreakdown) { %>
+<div class="section">
+  <h3>Score Breakdown</h3>
+  <div class="perf-grid">
+    <div class="perf-card"><div class="perf-label">Trend</div><div class="perf-value"><%= sig.scoreBreakdown.trend %>/20</div></div>
+    <div class="perf-card"><div class="perf-label">Momentum</div><div class="perf-value"><%= sig.scoreBreakdown.momentum %>/20</div></div>
+    <div class="perf-card"><div class="perf-label">Volume</div><div class="perf-value"><%= sig.scoreBreakdown.volume %>/20</div></div>
+    <div class="perf-card"><div class="perf-label">Structure</div><div class="perf-value"><%= sig.scoreBreakdown.structure %>/20</div></div>
+    <div class="perf-card"><div class="perf-label">Volatility</div><div class="perf-value"><%= sig.scoreBreakdown.volatility %>/10</div></div>
+    <div class="perf-card"><div class="perf-label">Risk Quality</div><div class="perf-value"><%= sig.scoreBreakdown.riskQuality %>/10</div></div>
+  </div>
+</div>
+<% } %>
+
+<div class="section">
+  <h3>Trade Levels</h3>
+  <div class="perf-grid">
+    <div class="perf-card"><div class="perf-label">Entry</div><div class="perf-value" style="color:#3b82f6;">$<%= formatPrice(sig.entry) %></div></div>
+    <div class="perf-card"><div class="perf-label">Stop Loss</div><div class="perf-value" style="color:#ef4444;"><%= sig.stopLoss ? '$' + formatPrice(sig.stopLoss) : 'N/A' %></div></div>
+    <div class="perf-card"><div class="perf-label">TP 1</div><div class="perf-value" style="color:#10b981;"><%= sig.takeProfit1 ? '$' + formatPrice(sig.takeProfit1) : 'N/A' %></div></div>
+    <div class="perf-card"><div class="perf-label">TP 2</div><div class="perf-value" style="color:#10b981;"><%= sig.takeProfit2 ? '$' + formatPrice(sig.takeProfit2) : 'N/A' %></div></div>
+    <div class="perf-card"><div class="perf-label">TP 3</div><div class="perf-value" style="color:#10b981;"><%= sig.takeProfit3 ? '$' + formatPrice(sig.takeProfit3) : 'N/A' %></div></div>
+    <div class="perf-card"><div class="perf-label">Risk / Reward</div><div class="perf-value" style="color:#a78bfa;"><%= sig.riskReward %>x</div></div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Why This Trade</h3>
+  <% (sig.reasoning || []).forEach(function(reason) { %>
+    <div style="padding:10px 14px;background:#0d1320;border-radius:8px;margin-bottom:6px;font-size:14px;color:#d1d5db;line-height:1.5;"><%= reason %></div>
+  <% }); %>
+</div>
+
+<% if (sig.indicators && sig.indicators.rsi) { %>
+<div class="section">
+  <h3>Technical Indicators</h3>
+  <div class="perf-grid">
+    <% if (sig.indicators.rsi) { %><div class="perf-card"><div class="perf-label">RSI (14)</div><div class="perf-value"><%= sig.indicators.rsi %></div></div><% } %>
+    <% if (sig.indicators.adx) { %><div class="perf-card"><div class="perf-label">ADX</div><div class="perf-value"><%= sig.indicators.adx %></div></div><% } %>
+    <% if (sig.indicators.trend) { %><div class="perf-card"><div class="perf-label">Trend</div><div class="perf-value" style="font-size:16px;"><%= sig.indicators.trend.replace('_',' ') %></div></div><% } %>
+    <% if (sig.indicators.structure) { %><div class="perf-card"><div class="perf-label">Structure</div><div class="perf-value" style="font-size:16px;"><%= sig.indicators.structure %></div></div><% } %>
+    <% if (sig.indicators.vwap) { %><div class="perf-card"><div class="perf-label">VWAP</div><div class="perf-value">$<%= formatPrice(sig.indicators.vwap) %></div></div><% } %>
+    <% if (sig.indicators.macdHistogram !== undefined) { %><div class="perf-card"><div class="perf-label">MACD Hist</div><div class="perf-value <%= sig.indicators.macdHistogram >= 0 ? 'up' : 'down' %>"><%= sig.indicators.macdHistogram %></div></div><% } %>
+    <% if (sig.indicators.stochK !== undefined) { %><div class="perf-card"><div class="perf-label">Stoch K/D</div><div class="perf-value"><%= sig.indicators.stochK %>/<%= sig.indicators.stochD %></div></div><% } %>
+    <% if (sig.indicators.atr) { %><div class="perf-card"><div class="perf-label">ATR</div><div class="perf-value">$<%= formatPrice(sig.indicators.atr) %></div></div><% } %>
+    <% if (sig.indicators.bollingerUpper) { %><div class="perf-card"><div class="perf-label">BB Range</div><div class="perf-value" style="font-size:14px;">$<%= formatPrice(sig.indicators.bollingerLower) %> - $<%= formatPrice(sig.indicators.bollingerUpper) %></div></div><% } %>
+    <% if (sig.indicators.support) { %><div class="perf-card"><div class="perf-label">Support</div><div class="perf-value">$<%= formatPrice(sig.indicators.support) %></div></div><% } %>
+    <% if (sig.indicators.resistance) { %><div class="perf-card"><div class="perf-label">Resistance</div><div class="perf-value">$<%= formatPrice(sig.indicators.resistance) %></div></div><% } %>
+    <% if (sig.indicators.volumeTrend) { %><div class="perf-card"><div class="perf-label">Volume</div><div class="perf-value" style="font-size:16px;"><%= sig.indicators.volumeTrend %></div></div><% } %>
+    <% if (sig.indicators.relativeVolume) { %><div class="perf-card"><div class="perf-label">Rel Volume</div><div class="perf-value"><%= sig.indicators.relativeVolume %>x</div></div><% } %>
+  </div>
+</div>
+<% } %>
+
+<% if (typeof user !== 'undefined' && user && sig.signal !== 'HOLD') { %>
+<div class="section">
+  <h3>Take This Trade</h3>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;">
+    <% if (sig.signal === 'BUY' || sig.signal === 'STRONG_BUY') { %>
+      <form action="/trades/open" method="POST">
+        <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
+        <input type="hidden" name="direction" value="LONG">
+        <input type="hidden" name="score" value="<%= sig.score %>">
+        <button type="submit" class="btn btn-buy">Open Long Position</button>
+      </form>
+    <% } %>
+    <% if (sig.signal === 'SELL' || sig.signal === 'STRONG_SELL') { %>
+      <form action="/trades/open" method="POST">
+        <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
+        <input type="hidden" name="direction" value="SHORT">
+        <input type="hidden" name="score" value="<%= sig.score %>">
+        <button type="submit" class="btn btn-sell">Open Short Position</button>
+      </form>
+    <% } %>
+  </div>
+</div>
+<% } %>
+
+<%- include('partials/footer') %>

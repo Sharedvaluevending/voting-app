@@ -1,0 +1,69 @@
+const mongoose = require('mongoose');
+
+const tradeSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  coinId: { type: String, required: true },
+  symbol: { type: String, required: true },
+  direction: { type: String, enum: ['LONG', 'SHORT'], required: true },
+  status: {
+    type: String,
+    enum: ['OPEN', 'CLOSED_MANUAL', 'STOPPED_OUT', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT', 'CANCELLED'],
+    default: 'OPEN'
+  },
+  entryPrice: { type: Number, required: true },
+  entryTime: { type: Date, default: Date.now },
+  positionSize: { type: Number, required: true },
+  leverage: { type: Number, default: 1, min: 1, max: 50 },
+  margin: { type: Number, required: true },
+  stopLoss: { type: Number },
+  takeProfit1: { type: Number },
+  takeProfit2: { type: Number },
+  takeProfit3: { type: Number },
+  exitPrice: { type: Number },
+  exitTime: { type: Date },
+  closeReason: { type: String },
+  pnl: { type: Number, default: 0 },
+  pnlPercent: { type: Number, default: 0 },
+  fees: { type: Number, default: 0 },
+  score: { type: Number },
+  strategyType: { type: String },
+  regime: { type: String },
+  reasoning: [String],
+  indicatorsAtEntry: { type: mongoose.Schema.Types.Mixed },
+  maxPrice: { type: Number },
+  minPrice: { type: Number },
+  maxDrawdownPercent: { type: Number, default: 0 },
+  maxProfitPercent: { type: Number, default: 0 },
+  userNotes: { type: String },
+  followedPlan: { type: Boolean },
+  emotion: { type: String },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+});
+
+tradeSchema.index({ userId: 1, status: 1 });
+tradeSchema.index({ userId: 1, coinId: 1, status: 1 });
+tradeSchema.index({ userId: 1, createdAt: -1 });
+
+tradeSchema.methods.getCurrentPnl = function(currentPrice) {
+  if (!currentPrice) return { pnl: 0, pnlPercent: 0 };
+  let pnl;
+  if (this.direction === 'LONG') {
+    pnl = (currentPrice - this.entryPrice) / this.entryPrice * this.positionSize;
+  } else {
+    pnl = (this.entryPrice - currentPrice) / this.entryPrice * this.positionSize;
+  }
+  const pnlPercent = (pnl / this.margin) * 100;
+  return { pnl: Math.round(pnl * 100) / 100, pnlPercent: Math.round(pnlPercent * 100) / 100 };
+};
+
+tradeSchema.methods.getTimeHeld = function() {
+  const end = this.exitTime || new Date();
+  const ms = end - this.entryTime;
+  const hours = Math.floor(ms / 3600000);
+  const mins = Math.floor((ms % 3600000) / 60000);
+  if (hours >= 24) return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+  return `${hours}h ${mins}m`;
+};
+
+module.exports = mongoose.model('Trade', tradeSchema);

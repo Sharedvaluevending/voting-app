@@ -1,0 +1,69 @@
+<%- include('partials/header') %>
+
+<h2 style="color:#fff;font-size:22px;margin-bottom:16px;">Learn Trading</h2>
+
+<div class="signals-grid" style="grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));">
+
+  <div class="section">
+    <h3>Score Breakdown (0-100)</h3>
+    <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Each signal is scored across 6 categories. Higher = stronger setup.</p>
+    <div class="journal-entry"><strong style="color:#3b82f6;">Trend (0-20)</strong><br>EMA alignment, ADX trend strength, SMA direction. Tells you if the market is moving in a clear direction.</div>
+    <div class="journal-entry"><strong style="color:#10b981;">Momentum (0-20)</strong><br>RSI, MACD, Stochastic. Measures the speed and force of price movement.</div>
+    <div class="journal-entry"><strong style="color:#a78bfa;">Volume (0-20)</strong><br>Relative volume, VWAP, accumulation/distribution. Shows if smart money is behind the move.</div>
+    <div class="journal-entry"><strong style="color:#eab308;">Structure (0-20)</strong><br>Higher highs/lows, support/resistance, Bollinger position. Market structure shows the pattern.</div>
+    <div class="journal-entry"><strong style="color:#f97316;">Volatility (0-10)</strong><br>Bollinger squeeze, ATR, Keltner compression. Low vol before big moves = opportunity.</div>
+    <div class="journal-entry"><strong style="color:#ef4444;">Risk Quality (0-10)</strong><br>Clear stop levels, data quality, trend clarity. Better risk = safer trade.</div>
+  </div>
+
+  <div class="section">
+    <h3>Market Regimes</h3>
+    <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Different strategies work in different market conditions.</p>
+    <div class="journal-entry"><span class="regime-badge regime-trending">Trending</span><br>ADX > 25, clear direction. Best for: Trend Following, Momentum.</div>
+    <div class="journal-entry"><span class="regime-badge regime-ranging">Ranging</span><br>Low ADX, no direction. Best for: Mean Reversion.</div>
+    <div class="journal-entry"><span class="regime-badge regime-compression">Compression</span><br>Bollinger squeeze active. Best for: Breakout trades.</div>
+    <div class="journal-entry"><span class="regime-badge regime-volatile">Volatile</span><br>High ATR, wild swings. Reduce leverage, wider stops.</div>
+  </div>
+
+  <div class="section">
+    <h3>Strategies</h3>
+    <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">The system runs 4 strategies and picks the best for current conditions.</p>
+    <div class="journal-entry"><strong style="color:#3b82f6;">Trend Following</strong><br>Rides established trends. Enters on pullbacks in trend direction. Works best in trending regimes.</div>
+    <div class="journal-entry"><strong style="color:#10b981;">Breakout</strong><br>Catches moves from compression zones. Looks for Bollinger squeeze + volume expansion.</div>
+    <div class="journal-entry"><strong style="color:#eab308;">Mean Reversion</strong><br>Fades extremes back to average. Uses RSI oversold/overbought + VWAP. Best in ranges.</div>
+    <div class="journal-entry"><strong style="color:#a78bfa;">Momentum</strong><br>Follows strong directional moves. Requires volume confirmation + MACD alignment.</div>
+  </div>
+
+  <div class="section">
+    <h3>Key Indicators</h3>
+    <div class="journal-entry"><strong>RSI (Relative Strength Index)</strong><br>Measures momentum. Below 30 = oversold (potential buy). Above 70 = overbought (potential sell). 14-period standard.</div>
+    <div class="journal-entry"><strong>MACD</strong><br>Shows trend momentum. When MACD crosses above signal line = bullish. Histogram shows strength of the cross.</div>
+    <div class="journal-entry"><strong>ADX</strong><br>Measures trend strength (not direction). Above 25 = trending. Above 40 = strong trend. Below 20 = no trend.</div>
+    <div class="journal-entry"><strong>VWAP</strong><br>Volume Weighted Average Price. Institutions use this. Price above VWAP = bullish bias. Below = bearish.</div>
+    <div class="journal-entry"><strong>Bollinger Bands</strong><br>Shows volatility. Price near lower band in uptrend = buy zone. Squeeze (narrow bands) = big move coming.</div>
+    <div class="journal-entry"><strong>Stochastic</strong><br>Like RSI but compares price to range. K/D crossover in oversold = buy signal. In overbought = sell signal.</div>
+    <div class="journal-entry"><strong>Market Structure</strong><br>HH/HL = bullish (higher highs + higher lows). LH/LL = bearish. Break of structure = potential reversal.</div>
+  </div>
+
+  <div class="section">
+    <h3>Risk Management Rules</h3>
+    <div class="journal-entry"><strong>1. Never risk more than 2% per trade</strong><br>If your account is $10,000, max risk per trade = $200.</div>
+    <div class="journal-entry"><strong>2. Always use a stop loss</strong><br>No exceptions. The system calculates stops using ATR + structure.</div>
+    <div class="journal-entry"><strong>3. Risk/Reward minimum 1.5:1</strong><br>Your potential profit should be at least 1.5x your risk.</div>
+    <div class="journal-entry"><strong>4. Leverage matches confidence</strong><br>Only use higher leverage when the score is 70+. High vol = low leverage.</div>
+    <div class="journal-entry"><strong>5. 1 trade per pair</strong><br>Don't stack positions. Wait for your trade to close before opening another on the same pair.</div>
+    <div class="journal-entry"><strong>6. Follow the system</strong><br>Journal shows you win more when you follow rules. Trust the process.</div>
+  </div>
+
+  <div class="section">
+    <h3>Leverage Guide</h3>
+    <div class="journal-entry"><strong>Score 80+</strong>: Up to 10x (very strong setup)</div>
+    <div class="journal-entry"><strong>Score 70-79</strong>: Up to 7x (strong setup)</div>
+    <div class="journal-entry"><strong>Score 60-69</strong>: Up to 5x (good setup)</div>
+    <div class="journal-entry"><strong>Score 50-59</strong>: Up to 3x (moderate)</div>
+    <div class="journal-entry"><strong>Score 40-49</strong>: Up to 2x (cautious)</div>
+    <div class="journal-entry"><strong>Below 40</strong>: 1x only (weak setup, consider skipping)</div>
+    <div class="journal-entry" style="color:#ef4444;"><strong>Volatile market?</strong> Cut leverage by 50%. Extreme vol? Use 1x only.</div>
+  </div>
+</div>
+
+<%- include('partials/footer') %>

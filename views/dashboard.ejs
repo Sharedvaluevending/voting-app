@@ -1,0 +1,153 @@
+<%- include('partials/header') %>
+
+<!-- PRICE TICKER -->
+<div class="ticker-strip">
+  <% prices.forEach(function(coin) { %>
+    <div class="ticker" onclick="location.href='/coin/<%= coin.id %>'">
+      <div class="ticker-sym"><%= coin.symbol %></div>
+      <div class="ticker-price">$<%= formatPrice(coin.price) %></div>
+      <div class="ticker-change <%= coin.change24h >= 0 ? 'up' : 'down' %>">
+        <%= coin.change24h >= 0 ? '+' : '' %><%= coin.change24h.toFixed(2) %>%
+      </div>
+    </div>
+  <% }); %>
+</div>
+
+<!-- SUMMARY -->
+<div class="summary-bar">
+  <div class="summary-stat">
+    <div class="label">Strong Buys</div>
+    <div class="value up"><%= signals.filter(s => s.signal === 'STRONG_BUY').length %></div>
+  </div>
+  <div class="summary-stat">
+    <div class="label">Buys</div>
+    <div class="value" style="color:#3b82f6;"><%= signals.filter(s => s.signal === 'BUY').length %></div>
+  </div>
+  <div class="summary-stat">
+    <div class="label">Sells</div>
+    <div class="value down"><%= signals.filter(s => s.signal === 'SELL' || s.signal === 'STRONG_SELL').length %></div>
+  </div>
+  <div class="summary-stat">
+    <div class="label">Hold</div>
+    <div class="value" style="color:#eab308;"><%= signals.filter(s => s.signal === 'HOLD').length %></div>
+  </div>
+  <div class="summary-stat">
+    <div class="label">Coins</div>
+    <div class="value"><%= signals.length %></div>
+  </div>
+</div>
+
+<!-- SIGNAL CARDS -->
+<% if (signals.length === 0) { %>
+  <div class="loading-note">
+    Loading market data... First load takes ~15 seconds while we fetch candles from Binance.<br>
+    <strong>This page auto-refreshes in 20 seconds.</strong>
+  </div>
+  <script>setTimeout(function(){ location.reload(); }, 20000);</script>
+<% } %>
+
+<div class="signals-grid">
+  <% signals.forEach(function(sig) { %>
+    <div class="signal-card <%= sig.signal.toLowerCase().replace('_', '-') %>">
+      <div class="card-header">
+        <div class="coin-info">
+          <h3><a href="/coin/<%= sig.coin.id %>" style="color:#fff;text-decoration:none;"><%= sig.coin.name %></a> <span class="symbol"><%= sig.coin.symbol %></span></h3>
+          <span class="signal-badge badge-<%= sig.signal %>"><%= sig.signal.replace('_', ' ') %></span>
+          <% if (sig.regime && sig.regime !== 'unknown') { %>
+            <span class="regime-badge regime-<%= sig.regime %>"><%= sig.regime %></span>
+          <% } %>
+        </div>
+        <div class="coin-price">
+          <div class="price">$<%= formatPrice(sig.coin.price) %></div>
+          <div class="change <%= sig.coin.change24h >= 0 ? 'up' : 'down' %>">
+            <%= sig.coin.change24h >= 0 ? '+' : '' %><%= sig.coin.change24h.toFixed(2) %>%
+          </div>
+        </div>
+      </div>
+
+      <!-- Score Bar -->
+      <div class="score-bar">
+        <div class="score-bar-outer">
+          <div class="score-bar-inner" style="width:<%= Math.min(100, sig.score || 0) %>%;background:<%= (sig.score||0) >= 70 ? '#10b981' : (sig.score||0) >= 50 ? '#3b82f6' : (sig.score||0) >= 30 ? '#eab308' : '#ef4444' %>;"></div>
+        </div>
+        <div class="score-label">
+          <span>Score: <strong><%= sig.score || 0 %>/100</strong></span>
+          <span><%= sig.strategyName || '' %></span>
+        </div>
+      </div>
+
+      <% if (sig.scoreBreakdown) { %>
+      <div class="score-breakdown">
+        <div class="score-cat">T <span><%= sig.scoreBreakdown.trend %></span></div>
+        <div class="score-cat">M <span><%= sig.scoreBreakdown.momentum %></span></div>
+        <div class="score-cat">V <span><%= sig.scoreBreakdown.volume %></span></div>
+        <div class="score-cat">S <span><%= sig.scoreBreakdown.structure %></span></div>
+        <div class="score-cat">Vol <span><%= sig.scoreBreakdown.volatility %></span></div>
+        <div class="score-cat">R <span><%= sig.scoreBreakdown.riskQuality %></span></div>
+      </div>
+      <% } %>
+
+      <div class="signal-meta">
+        <span>Conf: <strong><%= sig.confidence %>%</strong></span>
+        <span>R:R <strong><%= sig.riskReward %>x</strong></span>
+        <span>Confl: <strong><%= sig.confluenceLevel %>/3</strong></span>
+        <span>TF: <strong><%= sig.bestTimeframe %></strong></span>
+        <% if (sig.suggestedLeverage > 1) { %>
+          <span class="lev-badge"><%= sig.suggestedLeverage %>x LEV</span>
+        <% } %>
+      </div>
+
+      <% if (sig.timeframes) { %>
+      <div class="tf-row">
+        <% ['1H','4H','1D'].forEach(function(tf) { var t = sig.timeframes[tf]; if(t) { %>
+          <div class="tf-chip <%= t.direction === 'BULL' ? 'tf-bull' : t.direction === 'BEAR' ? 'tf-bear' : 'tf-neutral' %>">
+            <span class="tf-label"><%= tf %></span> <%= t.signal %> (<%= t.score %>) <span class="tf-rsi"><%= t.rsi !== '-' ? 'RSI ' + t.rsi : '' %></span>
+          </div>
+        <% }}); %>
+      </div>
+      <% } %>
+
+      <% if (sig.entry) { %>
+      <div class="levels">
+        <div class="level"><div class="level-label">Entry</div><div class="level-value entry">$<%= formatPrice(sig.entry) %></div></div>
+        <div class="level"><div class="level-label">Stop Loss</div><div class="level-value sl"><%= sig.stopLoss ? '$' + formatPrice(sig.stopLoss) : '-' %></div></div>
+        <div class="level"><div class="level-label">R:R</div><div class="level-value rr"><%= sig.riskReward %>x</div></div>
+        <div class="level"><div class="level-label">TP 1</div><div class="level-value tp"><%= sig.takeProfit1 ? '$' + formatPrice(sig.takeProfit1) : '-' %></div></div>
+        <div class="level"><div class="level-label">TP 2</div><div class="level-value tp"><%= sig.takeProfit2 ? '$' + formatPrice(sig.takeProfit2) : '-' %></div></div>
+        <div class="level"><div class="level-label">TP 3</div><div class="level-value tp"><%= sig.takeProfit3 ? '$' + formatPrice(sig.takeProfit3) : '-' %></div></div>
+      </div>
+      <% } %>
+
+      <div class="reasoning">
+        <h4>Why This Trade</h4>
+        <% (sig.reasoning || []).forEach(function(reason) { %>
+          <div class="reason"><%= reason %></div>
+        <% }); %>
+      </div>
+
+      <% if (typeof user !== 'undefined' && user && sig.signal !== 'HOLD') { %>
+      <div class="trade-actions">
+        <% if (sig.signal === 'BUY' || sig.signal === 'STRONG_BUY') { %>
+          <form action="/trades/open" method="POST" style="display:inline;">
+            <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
+            <input type="hidden" name="direction" value="LONG">
+            <input type="hidden" name="score" value="<%= sig.score %>">
+            <button type="submit" class="btn btn-buy btn-sm">Open Long</button>
+          </form>
+        <% } %>
+        <% if (sig.signal === 'SELL' || sig.signal === 'STRONG_SELL') { %>
+          <form action="/trades/open" method="POST" style="display:inline;">
+            <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
+            <input type="hidden" name="direction" value="SHORT">
+            <input type="hidden" name="score" value="<%= sig.score %>">
+            <button type="submit" class="btn btn-sell btn-sm">Open Short</button>
+          </form>
+        <% } %>
+        <a href="/coin/<%= sig.coin.id %>" class="btn btn-outline btn-sm">Details</a>
+      </div>
+      <% } %>
+    </div>
+  <% }); %>
+</div>
+
+<%- include('partials/footer') %>

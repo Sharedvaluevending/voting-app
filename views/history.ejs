@@ -1,0 +1,55 @@
+<%- include('partials/header') %>
+
+<h2 style="color:#fff;font-size:22px;margin-bottom:16px;">Trade History</h2>
+
+<% if (trades.length === 0) { %>
+  <div class="empty-state">
+    <h3>No Closed Trades Yet</h3>
+    <p>Your completed trades will appear here.</p>
+  </div>
+<% } else { %>
+  <div class="section" style="overflow-x:auto;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Pair</th>
+          <th>Dir</th>
+          <th>Entry</th>
+          <th>Exit</th>
+          <th>P&L</th>
+          <th>P&L %</th>
+          <th>Lev</th>
+          <th>Score</th>
+          <th>Strategy</th>
+          <th>Time Held</th>
+          <th>Status</th>
+          <th>Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% trades.forEach(function(trade) {
+          var timeMs = trade.exitTime ? (new Date(trade.exitTime) - new Date(trade.entryTime)) : 0;
+          var hours = Math.floor(timeMs / 3600000);
+          var timeStr = hours >= 24 ? Math.floor(hours/24) + 'd' : hours + 'h';
+        %>
+          <tr>
+            <td style="font-weight:700;"><%= trade.symbol %></td>
+            <td><span class="signal-badge <%= trade.direction === 'LONG' ? 'badge-BUY' : 'badge-SELL' %>" style="font-size:10px;padding:2px 6px;"><%= trade.direction %></span></td>
+            <td>$<%= formatPrice(trade.entryPrice) %></td>
+            <td>$<%= trade.exitPrice ? formatPrice(trade.exitPrice) : '-' %></td>
+            <td class="<%= (trade.pnl||0) >= 0 ? 'up' : 'down' %>" style="font-weight:700;"><%= (trade.pnl||0) >= 0 ? '+' : '' %>$<%= (trade.pnl||0).toFixed(2) %></td>
+            <td class="<%= (trade.pnlPercent||0) >= 0 ? 'up' : 'down' %>"><%= (trade.pnlPercent||0) >= 0 ? '+' : '' %><%= (trade.pnlPercent||0).toFixed(1) %>%</td>
+            <td><%= trade.leverage || 1 %>x</td>
+            <td><%= trade.score || '-' %></td>
+            <td style="font-size:11px;"><%= trade.strategyType || '-' %></td>
+            <td><%= timeStr %></td>
+            <td style="font-size:11px;"><%= trade.status.replace('_',' ') %></td>
+            <td style="font-size:11px;color:#6b7280;"><%= trade.exitTime ? new Date(trade.exitTime).toLocaleDateString() : '-' %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+<% } %>
+
+<%- include('partials/footer') %>

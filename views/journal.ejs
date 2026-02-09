@@ -1,0 +1,97 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Trading Journal</h2>
+</div>
+
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="alert alert-error"><%= error %></div>
+<% } %>
+<% if (typeof success !== 'undefined' && success) { %>
+  <div class="alert alert-success"><%= success %></div>
+<% } %>
+
+<div class="section">
+  <h3>New Entry</h3>
+  <form action="/journal" method="POST">
+    <div class="form-group">
+      <label>Type</label>
+      <select name="type">
+        <option value="daily_review">Daily Review</option>
+        <option value="trade_note">Trade Note</option>
+        <option value="lesson">Lesson Learned</option>
+        <option value="mistake">Mistake</option>
+        <option value="win_analysis">Win Analysis</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>How are you feeling?</label>
+      <select name="emotion">
+        <option value="neutral">Neutral</option>
+        <option value="confident">Confident</option>
+        <option value="disciplined">Disciplined</option>
+        <option value="excited">Excited</option>
+        <option value="fearful">Fearful</option>
+        <option value="greedy">Greedy</option>
+        <option value="frustrated">Frustrated</option>
+        <option value="impulsive">Impulsive</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Did you follow your rules?</label>
+      <select name="followedRules">
+        <option value="true">Yes</option>
+        <option value="false">No</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>What happened? What did you learn?</label>
+      <textarea name="content" required placeholder="Today I..."></textarea>
+    </div>
+    <div class="form-group">
+      <label>Session Rating (1-10)</label>
+      <input type="number" name="rating" min="1" max="10" value="5">
+    </div>
+    <button type="submit" class="form-btn">Save Entry</button>
+  </form>
+</div>
+
+<% if (typeof ruleStats !== 'undefined' && ruleStats.total > 0) { %>
+<div class="section">
+  <h3>Discipline Stats</h3>
+  <div class="perf-grid">
+    <div class="perf-card">
+      <div class="perf-label">Rules Followed</div>
+      <div class="perf-value up"><%= ruleStats.followed %>/<%= ruleStats.total %> (<%= ((ruleStats.followed/ruleStats.total)*100).toFixed(0) %>%)</div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Avg Rating</div>
+      <div class="perf-value"><%= ruleStats.avgRating %>/10</div>
+    </div>
+  </div>
+</div>
+<% } %>
+
+<% if (entries.length > 0) { %>
+<div class="section">
+  <h3>Recent Entries</h3>
+  <% entries.forEach(function(entry) { %>
+    <div class="journal-entry">
+      <div class="je-header">
+        <span class="je-type"><%= entry.type.replace('_',' ') %></span>
+        <span class="je-date"><%= new Date(entry.createdAt).toLocaleDateString() %> <%= new Date(entry.createdAt).toLocaleTimeString() %></span>
+      </div>
+      <div class="je-content"><%= entry.content %></div>
+      <% if (entry.emotion) { %><div class="je-emotion">Feeling: <%= entry.emotion %></div><% } %>
+      <% if (entry.followedRules !== undefined) { %>
+        <span style="font-size:11px;color:<%= entry.followedRules ? '#10b981' : '#ef4444' %>;">
+          <%= entry.followedRules ? 'Followed rules' : 'Broke rules' %>
+        </span>
+      <% } %>
+      <% if (entry.rating) { %><span style="font-size:11px;color:#6b7280;margin-left:10px;">Rating: <%= entry.rating %>/10</span><% } %>
+    </div>
+  <% }); %>
+</div>
+<% } %>
+
+<%- include('partials/footer') %>

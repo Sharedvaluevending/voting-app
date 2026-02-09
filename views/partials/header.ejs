@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title><%= typeof pageTitle !== 'undefined' ? pageTitle + ' | ' : '' %>CryptoSignals Pro</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="/" class="logo"><span>Crypto</span>Signals Pro</a>
+      <div class="nav-links">
+        <a href="/" class="<%= typeof activePage !== 'undefined' && activePage === 'dashboard' ? 'active' : '' %>">Dashboard</a>
+        <% if (typeof user !== 'undefined' && user) { %>
+          <a href="/trades" class="<%= typeof activePage !== 'undefined' && activePage === 'trades' ? 'active' : '' %>">Trades</a>
+          <a href="/history" class="<%= typeof activePage !== 'undefined' && activePage === 'history' ? 'active' : '' %>">History</a>
+          <a href="/performance" class="<%= typeof activePage !== 'undefined' && activePage === 'performance' ? 'active' : '' %>">Performance</a>
+          <a href="/journal" class="<%= typeof activePage !== 'undefined' && activePage === 'journal' ? 'active' : '' %>">Journal</a>
+          <a href="/learn" class="<%= typeof activePage !== 'undefined' && activePage === 'learn' ? 'active' : '' %>">Learn</a>
+        <% } %>
+      </div>
+      <div class="nav-right">
+        <% if (typeof user !== 'undefined' && user) { %>
+          <span class="nav-balance">$<%= typeof balance !== 'undefined' ? balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '10,000.00' %></span>
+          <span class="nav-user"><%= user.username %></span>
+          <a href="/logout" class="nav-btn">Logout</a>
+        <% } else { %>
+          <a href="/login" class="nav-btn">Login</a>
+          <a href="/register" class="nav-btn primary">Sign Up</a>
+        <% } %>
+      </div>
+    </div>
+  </nav>
+  <div class="main-content">

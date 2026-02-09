@@ -1,42 +1,46 @@
 // services/crypto-api.js
 // ====================================================
-// CRYPTO MARKET DATA - CoinGecko API Integration
-// Free API, no key required.
-// Uses BACKGROUND REFRESH pattern to avoid rate limits.
-// Data is fetched every 5 minutes in background, served from cache instantly.
+// CRYPTO MARKET DATA - CoinGecko + Binance Integration
+// CoinGecko: prices, market caps (1 call)
+// Binance: OHLCV candles, volume (no API key, 1200 req/min)
+// Uses BACKGROUND REFRESH pattern.
 // ====================================================
 
 const fetch = require('node-fetch');
 
-// Cache stores - data lives here, served to all requests instantly
 const cache = {
   prices: { data: [], timestamp: 0 },
-  history: {},        // keyed by coinId
-  signals: null,      // pre-computed signals
+  candles: {},
+  history: {},
   lastRefresh: 0,
-  refreshing: false   // lock to prevent concurrent refreshes
+  refreshing: false
 };
 
-const REFRESH_INTERVAL = 5 * 60 * 1000;   // Refresh every 5 minutes
-const REQUEST_DELAY = 4000;                // 4 seconds between API calls (CoinGecko free = ~10-15 req/min)
-const RETRY_DELAY = 15000;                 // 15 seconds retry on 429
+const REFRESH_INTERVAL = 3 * 60 * 1000;
+const COINGECKO_DELAY = 4000;
+const BINANCE_DELAY = 200;
+const RETRY_DELAY = 10000;
 
-// Top coins for analysis (6 total = 1 price call + 6 history = 7 API calls per refresh)
 const TRACKED_COINS = [
-  'bitcoin', 'ethereum', 'solana', 'dogecoin', 'ripple', 'cardano'
+  'bitcoin', 'ethereum', 'solana', 'dogecoin', 'ripple', 'cardano',
+  'polkadot', 'avalanche-2', 'chainlink', 'polygon'
 ];
 
 const COIN_META = {
-  bitcoin:        { symbol: 'BTC',   name: 'Bitcoin' },
-  ethereum:       { symbol: 'ETH',   name: 'Ethereum' },
-  solana:         { symbol: 'SOL',   name: 'Solana' },
-  dogecoin:       { symbol: 'DOGE',  name: 'Dogecoin' },
-  ripple:         { symbol: 'XRP',   name: 'Ripple' },
-  cardano:        { symbol: 'ADA',   name: 'Cardano' }
+  bitcoin:       { symbol: 'BTC',   name: 'Bitcoin',    binance: 'BTCUSDT' },
+  ethereum:      { symbol: 'ETH',   name: 'Ethereum',   binance: 'ETHUSDT' },
+  solana:        { symbol: 'SOL',   name: 'Solana',     binance: 'SOLUSDT' },
+  dogecoin:      { symbol: 'DOGE',  name: 'Dogecoin',   binance: 'DOGEUSDT' },
+  ripple:        { symbol: 'XRP',   name: 'Ripple',     binance: 'XRPUSDT' },
+  cardano:       { symbol: 'ADA',   name: 'Cardano',    binance: 'ADAUSDT' },
+  polkadot:      { symbol: 'DOT',   name: 'Polkadot',   binance: 'DOTUSDT' },
+  'avalanche-2': { symbol: 'AVAX',  name: 'Avalanche',  binance: 'AVAXUSDT' },
+  chainlink:     { symbol: 'LINK',  name: 'Chainlink',  binance: 'LINKUSDT' },
+  polygon:       { symbol: 'MATIC', name: 'Polygon',    binance: 'MATICUSDT' }
 };
 
 // ====================================================
-// SINGLE API CALL WITH RETRY
+// FETCH WITH RETRY
 // ====================================================
 async function fetchWithRetry(url, retries = 2) {
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -45,14 +49,12 @@ async function fetchWithRetry(url, retries = 2) {
         headers: { 'Accept': 'application/json' },
         timeout: 15000
       });
-
       if (response.status === 429) {
-        const waitTime = RETRY_DELAY * (attempt + 1);
-        console.log(`Rate limited (429) on ${url.split('?')[0].split('/').pop()}. Waiting ${waitTime / 1000}s (attempt ${attempt + 1}/${retries})...`);
-        await sleep(waitTime);
+        const wait = RETRY_DELAY * (attempt + 1);
+        console.log(`Rate limited on ${url.split('?')[0].split('/').pop()}. Waiting ${wait / 1000}s...`);
+        await sleep(wait);
         continue;
       }
-
       if (!response.ok) {
         const body = await response.text().catch(() => '');
         throw new Error(`HTTP ${response.status}: ${body.slice(0, 100)}`);
@@ -70,13 +72,11 @@ function sleep(ms) {
 }
 
 // ====================================================
-// FETCH FUNCTIONS (called by background refresh only)
+// COINGECKO - Prices (single call for all coins)
 // ====================================================
-
 async function fetchPricesFromAPI() {
   const ids = TRACKED_COINS.join(',');
   const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true&include_last_updated_at=true`;
-
   const data = await fetchWithRetry(url);
 
   return TRACKED_COINS.map(id => {
@@ -87,6 +87,7 @@ async function fetchPricesFromAPI() {
       id,
       symbol: meta.symbol,
       name: meta.name,
+      binanceSymbol: meta.binance,
       price: info.usd || 0,
       change24h: info.usd_24h_change || 0,
       volume24h: info.usd_24h_vol || 0,
@@ -96,69 +97,122 @@ async function fetchPricesFromAPI() {
   }).filter(Boolean);
 }
 
+// ====================================================
+// BINANCE - OHLCV Candles (no API key needed!)
+// Returns proper Open/High/Low/Close/Volume candles
+// ====================================================
+async function fetchBinanceCandles(symbol, interval, limit) {
+  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const data = await fetchWithRetry(url);
+
+  return (data || []).map(candle => ({
+    openTime: candle[0],
+    open: parseFloat(candle[1]),
+    high: parseFloat(candle[2]),
+    low: parseFloat(candle[3]),
+    close: parseFloat(candle[4]),
+    volume: parseFloat(candle[5]),
+    closeTime: candle[6],
+    quoteVolume: parseFloat(candle[7]),
+    trades: candle[8],
+    takerBuyVolume: parseFloat(candle[9]),
+    takerBuyQuoteVolume: parseFloat(candle[10])
+  }));
+}
+
+async function fetchAllCandlesForCoin(coinId) {
+  const meta = COIN_META[coinId];
+  if (!meta?.binance) return null;
+
+  try {
+    const [candles1h, candles4h, candles1d] = await Promise.all([
+      fetchBinanceCandles(meta.binance, '1h', 168),
+      fetchBinanceCandles(meta.binance, '4h', 100),
+      fetchBinanceCandles(meta.binance, '1d', 30)
+    ]);
+
+    return {
+      '1h': candles1h,
+      '4h': candles4h,
+      '1d': candles1d
+    };
+  } catch (err) {
+    console.error(`Binance candles failed for ${coinId}: ${err.message}`);
+    return null;
+  }
+}
+
+// ====================================================
+// COINGECKO HISTORY FALLBACK
+// ====================================================
 async function fetchHistoryFromAPI(coinId, days = 7) {
   const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
   const data = await fetchWithRetry(url);
 
-  const result = {
+  return {
     prices: (data.prices || []).map(([ts, price]) => ({ timestamp: ts, price })),
     volumes: (data.total_volumes || []).map(([ts, vol]) => ({ timestamp: ts, volume: vol })),
     marketCaps: (data.market_caps || []).map(([ts, mc]) => ({ timestamp: ts, marketCap: mc }))
   };
-
-  console.log(`  ${coinId}: got ${result.prices.length} price points`);
-  return result;
 }
 
 // ====================================================
-// BACKGROUND REFRESH - fetches all data sequentially
+// BACKGROUND REFRESH
 // ====================================================
 async function refreshAllData() {
-  if (cache.refreshing) {
-    console.log('Refresh already in progress, skipping...');
-    return;
-  }
-
+  if (cache.refreshing) return;
   cache.refreshing = true;
-  console.log('Starting background data refresh...');
+  console.log('[Refresh] Starting background data refresh...');
 
   try {
-    // Step 1: Fetch all prices (single API call)
+    // Step 1: CoinGecko prices
     const prices = await fetchPricesFromAPI();
     cache.prices = { data: prices, timestamp: Date.now() };
-    console.log(`Fetched prices for ${prices.length} coins`);
+    console.log(`[Refresh] Got prices for ${prices.length} coins`);
 
-    // Step 2: Fetch history for each coin with generous delays
-    await sleep(REQUEST_DELAY);
-
+    // Step 2: Binance candles for each coin (3 calls per coin, but Binance is generous)
     let successCount = 0;
     for (const coinId of TRACKED_COINS) {
       try {
-        const history = await fetchHistoryFromAPI(coinId, 7);
-        cache.history[coinId] = history;
-        successCount++;
-        console.log(`Fetched history for ${COIN_META[coinId].symbol} (${successCount}/${TRACKED_COINS.length})`);
+        await sleep(BINANCE_DELAY);
+        const candles = await fetchAllCandlesForCoin(coinId);
+        if (candles) {
+          cache.candles[coinId] = candles;
+          successCount++;
+          console.log(`[Refresh] Candles: ${COIN_META[coinId].symbol} (${successCount}/${TRACKED_COINS.length})`);
+        }
       } catch (err) {
-        console.error(`History fetch failed for ${coinId}: ${err.message}`);
+        console.error(`[Refresh] Candles failed for ${coinId}: ${err.message}`);
       }
-      await sleep(REQUEST_DELAY);
+    }
+
+    // Step 3: CoinGecko history as fallback (only for coins without Binance data)
+    for (const coinId of TRACKED_COINS) {
+      if (!cache.candles[coinId]) {
+        try {
+          await sleep(COINGECKO_DELAY);
+          const history = await fetchHistoryFromAPI(coinId, 7);
+          cache.history[coinId] = history;
+          console.log(`[Refresh] CG history fallback: ${COIN_META[coinId].symbol}`);
+        } catch (err) {
+          console.error(`[Refresh] CG history failed for ${coinId}: ${err.message}`);
+        }
+      }
     }
 
     cache.lastRefresh = Date.now();
-    console.log(`Background refresh complete. ${successCount}/${TRACKED_COINS.length} histories loaded.`);
+    console.log(`[Refresh] Complete. ${successCount}/${TRACKED_COINS.length} coins with Binance candles.`);
   } catch (err) {
-    console.error('Background refresh error:', err.message);
+    console.error('[Refresh] Error:', err.message);
   } finally {
     cache.refreshing = false;
   }
 }
 
 // ====================================================
-// PUBLIC API - returns cached data instantly
+// PUBLIC API
 // ====================================================
-
 function fetchAllPrices() {
-  // Trigger background refresh if stale (non-blocking)
   triggerRefreshIfNeeded();
   return Promise.resolve(cache.prices.data || []);
 }
@@ -177,18 +231,38 @@ function fetchAllHistory() {
   return Promise.resolve(results);
 }
 
+function fetchCandles(coinId) {
+  triggerRefreshIfNeeded();
+  return cache.candles[coinId] || null;
+}
+
+function fetchAllCandles() {
+  triggerRefreshIfNeeded();
+  return { ...cache.candles };
+}
+
+function getCurrentPrice(coinId) {
+  const prices = cache.prices.data || [];
+  return prices.find(p => p.id === coinId) || null;
+}
+
+function isDataReady() {
+  return cache.lastRefresh > 0 && Object.keys(cache.candles).length > 0;
+}
+
 function triggerRefreshIfNeeded() {
   const now = Date.now();
   if ((now - cache.lastRefresh) > REFRESH_INTERVAL && !cache.refreshing) {
-    // Fire and forget - don't await
-    refreshAllData().catch(err => console.error('Refresh trigger error:', err.message));
+    refreshAllData().catch(err => console.error('[Refresh] Trigger error:', err.message));
   }
 }
 
-// ====================================================
-// START INITIAL REFRESH ON MODULE LOAD
-// ====================================================
-console.log('Crypto API: Starting initial data fetch (this takes ~20 seconds)...');
-refreshAllData().catch(err => console.error('Initial refresh error:', err.message));
+// Start initial refresh
+console.log('[CryptoAPI] Starting initial data fetch...');
+refreshAllData().catch(err => console.error('[CryptoAPI] Initial error:', err.message));
 
-module.exports = { fetchAllPrices, fetchPriceHistory, fetchAllHistory, TRACKED_COINS, COIN_META };
+module.exports = {
+  fetchAllPrices, fetchPriceHistory, fetchAllHistory,
+  fetchCandles, fetchAllCandles, getCurrentPrice, isDataReady,
+  TRACKED_COINS, COIN_META
+};
