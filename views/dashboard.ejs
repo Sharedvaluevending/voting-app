@@ -1,13 +1,13 @@
 <%- include('partials/header') %>
 
-<!-- PRICE TICKER -->
-<div class="ticker-strip">
+<!-- PRICE TICKER (polled every 15s for live-ish updates) -->
+<div class="ticker-strip" id="ticker-strip">
   <% prices.forEach(function(coin) { %>
-    <div class="ticker" onclick="location.href='/coin/<%= coin.id %>'">
+    <div class="ticker" data-coin-id="<%= coin.id %>" onclick="location.href='/coin/<%= coin.id %>'">
       <div class="ticker-sym"><%= coin.symbol %></div>
-      <div class="ticker-price">$<%= formatPrice(coin.price) %></div>
-      <div class="ticker-change <%= coin.change24h >= 0 ? 'up' : 'down' %>">
-        <%= coin.change24h >= 0 ? '+' : '' %><%= coin.change24h.toFixed(2) %>%
+      <div class="ticker-price" data-price><%= typeof formatPrice !== 'undefined' ? '$' + formatPrice(coin.price) : '$' + Number(coin.price).toFixed(2) %></div>
+      <div class="ticker-change <%= coin.change24h >= 0 ? 'up' : 'down' %>" data-change>
+        <%= coin.change24h >= 0 ? '+' : '' %><%= Number(coin.change24h).toFixed(2) %>%
       </div>
     </div>
   <% }); %>
@@ -40,10 +40,10 @@
 <!-- SIGNAL CARDS -->
 <% if (signals.length === 0) { %>
   <div class="loading-note">
-    Loading market data... First load takes ~15 seconds while we fetch candles from Binance.<br>
-    <strong>This page auto-refreshes in 20 seconds.</strong>
+    Loading market data... First load can take up to ~30 seconds.<br>
+    <strong>This page will refresh in 25 seconds.</strong>
   </div>
-  <script>setTimeout(function(){ location.reload(); }, 20000);</script>
+  <script>setTimeout(function(){ location.reload(); }, 25000);</script>
 <% } %>
 
 <div class="signals-grid">
@@ -149,5 +149,45 @@
     </div>
   <% }); %>
 </div>
+
+<% if (prices.length > 0) { %>
+<script>
+(function() {
+  function fmt(p) {
+    if (p == null || isNaN(p)) return '0.00';
+    var n = Number(p);
+    if (n >= 1000) return n.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+    if (n >= 1) return n.toFixed(2);
+    if (n >= 0.01) return n.toFixed(4);
+    return n.toFixed(8);
+  }
+  function poll() {
+    fetch('/api/prices', { credentials: 'same-origin' })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(json) {
+        if (!json || !json.data || !json.data.length) return;
+        var byId = {};
+        json.data.forEach(function(p) { byId[p.id] = p; });
+        document.querySelectorAll('.ticker[data-coin-id]').forEach(function(el) {
+          var id = el.getAttribute('data-coin-id');
+          var p = byId[id];
+          if (!p) return;
+          var priceEl = el.querySelector('[data-price]');
+          var changeEl = el.querySelector('[data-change]');
+          if (priceEl) priceEl.textContent = '$' + fmt(p.price);
+          if (changeEl) {
+            var ch = Number(p.change24h);
+            changeEl.textContent = (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%';
+            changeEl.className = 'ticker-change ' + (ch >= 0 ? 'up' : 'down');
+          }
+        });
+      })
+      .catch(function() {});
+  }
+  setInterval(poll, 15000);
+  setTimeout(poll, 5000);
+})();
+</script>
+<% } %>
 
 <%- include('partials/footer') %>

@@ -16,7 +16,7 @@ const cache = {
   refreshing: false
 };
 
-const REFRESH_INTERVAL = 5 * 60 * 1000;
+const REFRESH_INTERVAL = 60 * 1000;
 const COINGECKO_DELAY = 6000;
 const BINANCE_DELAY = 200;
 const RETRY_DELAY = 10000;
@@ -89,17 +89,22 @@ function sleep(ms) {
 }
 
 // ====================================================
-// COINGECKO - Prices (single call for all coins)
+// COINGECKO - Prices (single call). NO RETRY on 429 so we can try next API immediately.
 // ====================================================
-async function fetchPricesFromAPI() {
+async function fetchCoinGeckoPricesOnce() {
   const ids = TRACKED_COINS.join(',');
   const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true&include_last_updated_at=true`;
-  const data = await fetchWithRetry(url);
-
-  if (!data || typeof data !== 'object') {
-    throw new Error('Invalid price response from API');
+  const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
+  if (res.status === 429) {
+    throw new Error('Rate limited (429)');
   }
-
+  if (!res.ok) {
+    throw new Error('HTTP ' + res.status);
+  }
+  const data = await res.json();
+  if (!data || typeof data !== 'object') {
+    throw new Error('Invalid price response');
+  }
   return TRACKED_COINS.map(id => {
     const info = data[id];
     if (!info) return null;
@@ -346,20 +351,16 @@ async function refreshAllData() {
       : ['coincap', 'coingecko', 'kraken', 'binance'];
     let prices = [];
     for (const source of tryOrder) {
-      if (prices.length > 0) break;
+      if (prices && prices.length > 0) break;
       try {
-        if (source === 'coingecko') {
-          prices = await fetchPricesFromAPI();
-          if (prices && prices.length > 0) console.log(`[Refresh] Got prices for ${prices.length} coins (CoinGecko)`);
-        } else if (source === 'coincap') {
-          prices = await fetchPricesFromCoinCap();
-          if (prices && prices.length > 0) console.log(`[Refresh] Got prices for ${prices.length} coins (CoinCap)`);
-        } else if (source === 'kraken') {
-          prices = await fetchPricesFromKraken();
-          if (prices && prices.length > 0) console.log(`[Refresh] Got prices for ${prices.length} coins (Kraken)`);
-        } else if (source === 'binance') {
-          prices = await fetchPricesFromBinance();
-          if (prices && prices.length > 0) console.log(`[Refresh] Got prices for ${prices.length} coins (Binance)`);
+        let result = null;
+        if (source === 'coingecko') result = await fetchCoinGeckoPricesOnce();
+        else if (source === 'coincap') result = await fetchPricesFromCoinCap();
+        else if (source === 'kraken') result = await fetchPricesFromKraken();
+        else if (source === 'binance') result = await fetchPricesFromBinance();
+        if (result && Array.isArray(result) && result.length > 0) {
+          prices = result;
+          console.log(`[Refresh] Got prices for ${prices.length} coins (${source})`);
         }
       } catch (err) {
         console.error(`[Refresh] ${source} failed:`, err.message);
