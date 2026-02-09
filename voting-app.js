@@ -278,7 +278,7 @@ app.get('/trades', requireLogin, async (req, res) => {
 
 app.post('/trades/open', requireLogin, async (req, res) => {
   try {
-    const { coinId, direction, score } = req.body;
+    const { coinId, direction, score, strategyType } = req.body;
     if (!coinId || !direction) {
       return res.redirect('/trades?error=' + encodeURIComponent('Missing trade data'));
     }
@@ -295,20 +295,40 @@ app.post('/trades/open', requireLogin, async (req, res) => {
     const history = allHistory[coinId] || { prices: [], volumes: [] };
     const signal = analyzeCoin(coinData, candles, history, options);
 
-    const lev = signal.suggestedLeverage || suggestLeverage(parseInt(score) || 0, signal.regime || 'mixed', 'normal');
+    const useScore = parseInt(score, 10) || signal.score || 0;
+    const lev = signal.suggestedLeverage || suggestLeverage(useScore, signal.regime || 'mixed', 'normal');
+
+    let entry = signal.entry || coinData.price;
+    let stopLoss = signal.stopLoss;
+    let takeProfit1 = signal.takeProfit1;
+    let takeProfit2 = signal.takeProfit2;
+    let takeProfit3 = signal.takeProfit3;
+    let usedStrategyType = signal.strategyType || 'manual';
+
+    if (strategyType && signal.topStrategies && Array.isArray(signal.topStrategies)) {
+      const strat = signal.topStrategies.find(s => s.id === strategyType);
+      if (strat && strat.entry != null && strat.stopLoss != null) {
+        entry = strat.entry;
+        stopLoss = strat.stopLoss;
+        takeProfit1 = strat.takeProfit1;
+        takeProfit2 = strat.takeProfit2;
+        takeProfit3 = strat.takeProfit3;
+        usedStrategyType = strat.id;
+      }
+    }
 
     const tradeData = {
       coinId,
       symbol: COIN_META[coinId]?.symbol || coinId.toUpperCase(),
       direction,
-      entry: signal.entry || coinData.price,
-      stopLoss: signal.stopLoss,
-      takeProfit1: signal.takeProfit1,
-      takeProfit2: signal.takeProfit2,
-      takeProfit3: signal.takeProfit3,
+      entry,
+      stopLoss,
+      takeProfit1,
+      takeProfit2,
+      takeProfit3,
       leverage: lev,
-      score: signal.score || parseInt(score) || 0,
-      strategyType: signal.strategyType || 'manual',
+      score: useScore,
+      strategyType: usedStrategyType,
       regime: signal.regime || 'unknown',
       reasoning: signal.reasoning || [],
       indicators: signal.indicators || {}

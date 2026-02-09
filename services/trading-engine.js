@@ -148,19 +148,31 @@ function analyzeWithCandles(coinData, candles, options) {
     }
   }
 
-  // Top 2–3 strategies by display score with their signal (Phase 4: multi-strategy view)
-  const topStrategies = allStrategiesWithScores
+  // Top 2–3 strategies by display score with their signal and strategy-specific levels
+  const topStrategiesRaw = allStrategiesWithScores
     .filter(s => s.displayScore != null)
     .sort((a, b) => b.displayScore - a.displayScore)
-    .slice(0, 3)
-    .map(s => ({
+    .slice(0, 3);
+  const topStrategies = topStrategiesRaw.map(s => {
+    const stratScore = Math.round(s.displayScore);
+    const stratSignal = scoreToSignal(stratScore, Math.min(2, confluenceLevel), dominantDir).signal;
+    const stratDir = stratSignal === 'STRONG_BUY' || stratSignal === 'BUY' ? 'BULL' : stratSignal === 'STRONG_SELL' || stratSignal === 'SELL' ? 'BEAR' : dominantDir;
+    const levelsForStrat = calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, stratSignal, stratDir, regime, s.id);
+    return {
       id: s.id,
       name: s.name,
-      score: Math.round(s.displayScore),
-      signal: scoreToSignal(Math.round(s.displayScore), Math.min(2, confluenceLevel), dominantDir).signal
-    }));
+      score: stratScore,
+      signal: stratSignal,
+      entry: levelsForStrat.entry,
+      stopLoss: levelsForStrat.stopLoss,
+      takeProfit1: levelsForStrat.tp1,
+      takeProfit2: levelsForStrat.tp2,
+      takeProfit3: levelsForStrat.tp3,
+      riskReward: levelsForStrat.riskReward
+    };
+  });
 
-  // Calculate trade levels (dynamic ATR by regime, multi-TF S/R)
+  // Main trade levels (blended signal; no strategy override)
   const levels = calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, dominantDir, regime);
 
   // Suggest leverage
@@ -1085,11 +1097,21 @@ function suggestLeverage(score, regime, volatilityState) {
 }
 
 // ====================================================
-// TRADE LEVELS (dynamic ATR by regime, multi-TF S/R)
+// TRADE LEVELS (dynamic ATR by regime + strategy, multi-TF S/R)
+// Strategy-specific: scalping = tighter, position = wider
 // ====================================================
-function calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, direction, regime) {
+const STRATEGY_LEVELS = {
+  scalping:     { atrMult: 1.2, tp1R: 1,   tp2R: 1.5, tp3R: 2   },
+  momentum:     { atrMult: 1.5, tp1R: 1.5, tp2R: 2.5, tp3R: 3   },
+  breakout:     { atrMult: 1.5, tp1R: 1.5, tp2R: 2.5, tp3R: 3   },
+  mean_revert:  { atrMult: 1.5, tp1R: 1.5, tp2R: 2.5, tp3R: 3   },
+  trend_follow: { atrMult: 2,   tp1R: 1.5, tp2R: 2.5, tp3R: 4   },
+  swing:        { atrMult: 2,   tp1R: 1.5, tp2R: 2.5, tp3R: 4   },
+  position:     { atrMult: 2.5, tp1R: 2,   tp2R: 3,   tp3R: 5   }
+};
+
+function calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, direction, regime, strategyType) {
   const atr = tf1h.atr || currentPrice * 0.02;
-  // Multi-TF S/R: prefer 1D/4H for levels when available
   const support1d = tf1d && tf1d.support > 0 ? tf1d.support : null;
   const resistance1d = tf1d && tf1d.resistance > 0 ? tf1d.resistance : null;
   const support4h = tf4h && tf4h.support > 0 ? tf4h.support : null;
@@ -1097,11 +1119,22 @@ function calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, direction,
   const support = support1d || support4h || tf1h.support || currentPrice * 0.95;
   const resistance = resistance1d || resistance4h || tf1h.resistance || currentPrice * 1.05;
 
-  // Dynamic ATR multiple by regime (quant-desk: tighter in trending, wider in volatile)
-  let atrMult = 2;
-  if (regime === 'trending') atrMult = 1.5;
-  else if (regime === 'volatile' || regime === 'mixed') atrMult = 2.5;
-  else if (regime === 'compression') atrMult = 2;
+  let atrMult, tp1R, tp2R, tp3R;
+  if (strategyType && STRATEGY_LEVELS[strategyType]) {
+    const sl = STRATEGY_LEVELS[strategyType];
+    atrMult = sl.atrMult;
+    tp1R = sl.tp1R;
+    tp2R = sl.tp2R;
+    tp3R = sl.tp3R;
+  } else {
+    atrMult = 2;
+    if (regime === 'trending') atrMult = 1.5;
+    else if (regime === 'volatile' || regime === 'mixed') atrMult = 2.5;
+    else if (regime === 'compression') atrMult = 2;
+    tp1R = 1.5;
+    tp2R = 2.5;
+    tp3R = 4;
+  }
 
   let entry, tp1, tp2, tp3, stopLoss;
 
@@ -1110,17 +1143,17 @@ function calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, direction,
     stopLoss = r2(Math.max(support * 0.995, entry - atr * atrMult));
     if (stopLoss >= entry) stopLoss = r2(entry - atr * (atrMult + 0.5));
     const risk = entry - stopLoss;
-    tp1 = r2(entry + risk * 1.5);
-    tp2 = r2(entry + risk * 2.5);
-    tp3 = r2(entry + risk * 4);
+    tp1 = r2(entry + risk * tp1R);
+    tp2 = r2(entry + risk * tp2R);
+    tp3 = r2(entry + risk * tp3R);
   } else if (signal === 'STRONG_SELL' || signal === 'SELL') {
     entry = r2(currentPrice);
     stopLoss = r2(Math.min(resistance * 1.005, entry + atr * atrMult));
     if (stopLoss <= entry) stopLoss = r2(entry + atr * (atrMult + 0.5));
     const risk = stopLoss - entry;
-    tp1 = r2(entry - risk * 1.5);
-    tp2 = r2(entry - risk * 2.5);
-    tp3 = r2(entry - risk * 4);
+    tp1 = r2(entry - risk * tp1R);
+    tp2 = r2(entry - risk * tp2R);
+    tp3 = r2(entry - risk * tp3R);
   } else {
     entry = r2(currentPrice);
     stopLoss = r2(support * 0.995);

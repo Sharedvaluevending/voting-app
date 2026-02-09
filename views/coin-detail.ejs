@@ -38,12 +38,29 @@
 <% if (sig.topStrategies && sig.topStrategies.length > 0) { %>
 <div class="section">
   <h3>Strategy Views</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Each strategy has its own score and levels (scalping = tighter stops, swing = wider). You can open a trade using any strategy that scores ≥55.</p>
   <div style="display:flex;flex-wrap:wrap;gap:10px;">
     <% sig.topStrategies.forEach(function(ts) { %>
-      <div style="padding:10px 14px;background:#0d1320;border-radius:8px;font-size:14px;">
-        <span style="color:#9ca3af;"><%= ts.name %></span>
-        <span class="badge-<%= ts.signal %>" style="margin-left:8px;padding:4px 8px;border-radius:4px;font-size:12px;"><%= ts.signal %></span>
-        <span style="color:#6b7280;margin-left:6px;">(<%= ts.score %>)</span>
+      <div style="padding:12px 14px;background:#0d1320;border-radius:8px;font-size:14px;min-width:200px;">
+        <div style="margin-bottom:6px;">
+          <span style="color:#9ca3af;"><%= ts.name %></span>
+          <span class="badge-<%= ts.signal %>" style="margin-left:8px;padding:4px 8px;border-radius:4px;font-size:12px;"><%= ts.signal %></span>
+          <span style="color:#6b7280;margin-left:6px;">(<%= ts.score %>)</span>
+        </div>
+        <% if (ts.stopLoss != null && ts.entry != null) { %>
+        <div style="font-size:11px;color:#6b7280;margin-bottom:8px;">SL $<%= formatPrice(ts.stopLoss) %> · TP1 $<%= formatPrice(ts.takeProfit1) %></div>
+        <% } %>
+        <% var stratCanLong = (ts.signal === 'BUY' || ts.signal === 'STRONG_BUY') && (ts.score || 0) >= 55; %>
+        <% var stratCanShort = (ts.signal === 'SELL' || ts.signal === 'STRONG_SELL') && (ts.score || 0) >= 55; %>
+        <% if (typeof user !== 'undefined' && user && (stratCanLong || stratCanShort)) { %>
+        <form action="/trades/open" method="POST" style="margin:0;">
+          <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
+          <input type="hidden" name="direction" value="<%= stratCanLong ? 'LONG' : 'SHORT' %>">
+          <input type="hidden" name="score" value="<%= ts.score %>">
+          <input type="hidden" name="strategyType" value="<%= ts.id %>">
+          <button type="submit" class="btn <%= stratCanLong ? 'btn-buy' : 'btn-sell' %>" style="font-size:12px;padding:6px 12px;">Open <%= stratCanLong ? 'Long' : 'Short' %> (<%= ts.name %>)</button>
+        </form>
+        <% } %>
       </div>
     <% }); %>
   </div>
@@ -127,6 +144,7 @@
 <% if (typeof user !== 'undefined' && user) { %>
 <div class="section">
   <h3>Take This Trade</h3>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">Main signal uses blended 1H/4H/1D score and levels. Or use a strategy-specific trade above (Scalping, Momentum, etc.) for that strategy&rsquo;s levels.</p>
   <% if (canTrade) { %>
   <div style="display:flex;gap:12px;flex-wrap:wrap;">
     <% if (sig.signal === 'BUY' || sig.signal === 'STRONG_BUY') { %>
@@ -134,7 +152,7 @@
         <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
         <input type="hidden" name="direction" value="LONG">
         <input type="hidden" name="score" value="<%= sig.score %>">
-        <button type="submit" class="btn btn-buy">Open Long Position</button>
+        <button type="submit" class="btn btn-buy">Open Long (main signal)</button>
       </form>
     <% } %>
     <% if (sig.signal === 'SELL' || sig.signal === 'STRONG_SELL') { %>
@@ -142,12 +160,12 @@
         <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
         <input type="hidden" name="direction" value="SHORT">
         <input type="hidden" name="score" value="<%= sig.score %>">
-        <button type="submit" class="btn btn-sell">Open Short Position</button>
+        <button type="submit" class="btn btn-sell">Open Short (main signal)</button>
       </form>
     <% } %>
   </div>
   <% } else if (sig.signal !== 'HOLD') { %>
-  <p style="color:#6b7280;font-size:13px;">Need score ≥55 and confluence ≥2 to open. Current: score <%= sig.score || 0 %>, confluence <%= sig.confluenceLevel || 0 %>.</p>
+  <p style="color:#6b7280;font-size:13px;">Main signal needs score ≥55 and confluence ≥2. Current: score <%= sig.score || 0 %>, confluence <%= sig.confluenceLevel || 0 %>. You can still open via a strategy above if that strategy scores ≥55.</p>
   <% } %>
 </div>
 <% } %>

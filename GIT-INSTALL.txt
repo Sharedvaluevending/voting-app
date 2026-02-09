@@ -1,0 +1,21 @@
+Git was not found. Do one of the following:
+
+OPTION 1 - Install Git (recommended)
+------------------------------------
+1. Download: https://git-scm.com/download/win
+2. Run the installer.
+3. On "Adjusting your PATH environment", choose:
+   "Git from the command line and also from 3rd-party software"
+4. Finish the install, then double-click commit-and-push.bat again.
+
+
+OPTION 2 - Use Git from a custom location
+-----------------------------------------
+If Git is already installed but in a different folder:
+
+1. Find git.exe on your PC (e.g. search for "git.exe" in File Explorer).
+2. In this folder (voting-app), create a text file named:  git-path.txt
+3. Put one line in it: the full path to git.exe
+   Example:  C:\Program Files\Git\bin\git.exe
+   Or:       D:\Tools\Git\bin\git.exe
+4. Save the file, then double-click commit-and-push.bat again.
