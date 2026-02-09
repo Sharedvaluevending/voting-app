@@ -46,6 +46,7 @@
             : secs + 's';
     %>
       <div class="signal-card trade-card <%= pnl >= 0 ? 'buy' : 'sell' %>"
+           data-trade-id="<%= trade._id %>"
            data-coin-id="<%= trade.coinId %>"
            data-direction="<%= trade.direction %>"
            data-entry-price="<%= trade.entryPrice %>"
@@ -90,6 +91,40 @@
         <div class="reasoning">
           <h4>Entry Thesis</h4>
           <% trade.reasoning.forEach(function(r) { %><div class="reason"><%= r %></div><% }); %>
+        </div>
+        <% } %>
+
+        <% if (trade.scoreCheck && trade.scoreCheck.messages && trade.scoreCheck.messages.length > 0) { %>
+        <div class="score-check" data-trade-id="<%= trade._id %>">
+          <div class="score-check-header">
+            <h4>Score Check</h4>
+            <span class="score-check-time"><%= trade.scoreCheck.checkedAt ? new Date(trade.scoreCheck.checkedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '' %></span>
+          </div>
+          <div class="score-check-summary">
+            <span>Now: <strong><%= trade.scoreCheck.currentScore %></strong></span>
+            <span>Entry: <strong><%= trade.scoreCheck.entryScore %></strong></span>
+            <% if (trade.scoreCheck.scoreDiff > 0) { %>
+              <span class="score-diff score-diff-pos">+<%= trade.scoreCheck.scoreDiff %></span>
+            <% } else if (trade.scoreCheck.scoreDiff < 0) { %>
+              <span class="score-diff score-diff-neg"><%= trade.scoreCheck.scoreDiff %></span>
+            <% } else { %>
+              <span class="score-diff score-diff-neutral">0</span>
+            <% } %>
+          </div>
+          <div class="score-check-messages">
+            <% trade.scoreCheck.messages.forEach(function(msg) { %>
+              <span class="score-msg score-msg-<%= msg.type %>"><%= msg.text %></span>
+            <% }); %>
+          </div>
+        </div>
+        <% } else { %>
+        <div class="score-check score-check-pending" data-trade-id="<%= trade._id %>">
+          <div class="score-check-header">
+            <h4>Score Check</h4>
+          </div>
+          <div class="score-check-messages">
+            <span class="score-msg score-msg-neutral">Awaiting first re-check...</span>
+          </div>
         </div>
         <% } %>
 

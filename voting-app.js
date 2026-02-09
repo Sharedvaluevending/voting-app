@@ -20,7 +20,7 @@ const path = require('path');
 const { fetchAllPrices, fetchAllCandles, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
-const { openTrade, closeTrade, checkStopsAndTPs, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
+const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
 const { initializeStrategies, getPerformanceReport } = require('./services/learning-engine');
 const StrategyWeight = require('./models/StrategyWeight');
 
@@ -365,6 +365,7 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       regime: signal.regime || 'unknown',
       reasoning: signal.reasoning || [],
       indicators: signal.indicators || {},
+      scoreBreakdown: signal.scoreBreakdown || {},
       stopType: signal.stopType || 'ATR_SR',
       stopLabel: signal.stopLabel || 'ATR + S/R',
       tpType: signal.tpType || 'R_multiple',
@@ -598,6 +599,22 @@ app.get('/api/prices', async (req, res) => {
   }
 });
 
+app.get('/api/trade-scores', async (req, res) => {
+  try {
+    if (!req.session || !req.session.userId) {
+      return res.json({ success: true, scoreChecks: {} });
+    }
+    const trades = await Trade.find({ userId: req.session.userId, status: 'OPEN' }).lean();
+    const scoreChecks = {};
+    trades.forEach(t => {
+      scoreChecks[t._id.toString()] = t.scoreCheck || null;
+    });
+    res.json({ success: true, scoreChecks });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/status', (req, res) => {
   res.json({
     success: true,
@@ -615,6 +632,37 @@ setInterval(() => {
     console.error('[AutoCheck] Error:', err.message)
   );
 }, 60 * 1000);
+
+// ====================================================
+// TRADE SCORE RE-CHECK (runs every SCORE_RECHECK_MINUTES)
+// Re-analyzes each open trade's coin and generates
+// status messages: confidence, momentum, structure, etc.
+// ====================================================
+setInterval(async () => {
+  try {
+    const [prices, allCandles, allHistory] = await Promise.all([
+      fetchAllPrices(),
+      Promise.resolve(fetchAllCandles()),
+      fetchAllHistory()
+    ]);
+    const options = await buildEngineOptions(prices, allCandles, allHistory);
+
+    const signalCache = {};
+    const getSignalForCoin = async (coinId) => {
+      if (signalCache[coinId]) return signalCache[coinId];
+      const coinData = prices.find(p => p.id === coinId);
+      if (!coinData) return null;
+      const candles = fetchCandles(coinId);
+      const history = allHistory[coinId] || { prices: [], volumes: [] };
+      signalCache[coinId] = analyzeCoin(coinData, candles, history, options);
+      return signalCache[coinId];
+    };
+
+    await recheckTradeScores(getSignalForCoin, getCurrentPrice);
+  } catch (err) {
+    console.error('[ScoreCheck] Interval error:', err.message);
+  }
+}, SCORE_RECHECK_MINUTES * 60 * 1000);
 
 // ====================================================
 // START SERVER (wait for first price load so dashboard has data)

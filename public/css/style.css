@@ -188,6 +188,26 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 .regime-compression { background: #1e3a5f; color: #3b82f6; }
 .regime-mixed { background: #1e2a3a; color: #9ca3af; }
 
+/* SCORE CHECK */
+.score-check { margin-top: 10px; padding: 10px; background: #0d1320; border-radius: 8px; border: 1px solid #1e2a3a; }
+.score-check-pending { opacity: 0.6; }
+.score-check-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.score-check-header h4 { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin: 0; }
+.score-check-time { font-size: 10px; color: #4b5563; }
+.score-check-summary { display: flex; gap: 10px; align-items: center; font-size: 12px; color: #9ca3af; margin-bottom: 6px; }
+.score-check-summary strong { color: #e1e5eb; }
+.score-diff { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+.score-diff-pos { background: #064e3b; color: #10b981; }
+.score-diff-neg { background: #451a1a; color: #ef4444; }
+.score-diff-neutral { background: #1e2a3a; color: #6b7280; }
+.score-check-messages { display: flex; gap: 5px; flex-wrap: wrap; }
+.score-msg { font-size: 11px; padding: 3px 9px; border-radius: 5px; font-weight: 600; }
+.score-msg-positive { background: #064e3b; color: #10b981; }
+.score-msg-warning { background: #3b3510; color: #eab308; }
+.score-msg-danger { background: #451a1a; color: #ef4444; }
+.score-msg-info { background: #1e3a5f; color: #3b82f6; }
+.score-msg-neutral { background: #1e2a3a; color: #6b7280; }
+
 /* RESPONSIVE */
 @media (max-width: 600px) {
   .signals-grid { grid-template-columns: 1fr; }

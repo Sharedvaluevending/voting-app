@@ -152,6 +152,7 @@ async function openTrade(userId, signalData) {
     tpLabel: signalData.tpLabel,
     reasoning: signalData.reasoning || [],
     indicatorsAtEntry: signalData.indicators || {},
+    scoreBreakdownAtEntry: signalData.scoreBreakdown || {},
     maxPrice: entryPrice,
     minPrice: entryPrice
   });
@@ -305,6 +306,146 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
   }
 }
 
+// ====================================================
+// TRADE SCORE RE-CHECK (runs every 5 min while trades open)
+// Compares current signal with entry state and generates
+// actionable status messages for each open trade.
+// ====================================================
+const SCORE_RECHECK_MINUTES = 5;
+
+function generateScoreCheckMessages(trade, signal, currentPrice) {
+  const messages = [];
+  const entryScore = trade.score || 0;
+  const currentScore = signal.score || 0;
+  const scoreDiff = currentScore - entryScore;
+
+  const eb = trade.scoreBreakdownAtEntry || {};
+  const cb = signal.scoreBreakdown || {};
+  const hasEntryBreakdown = typeof eb.momentum === 'number';
+
+  const isLong = trade.direction === 'LONG';
+
+  // Signal direction flipped?
+  const signalFlipped = isLong
+    ? (signal.signal === 'SELL' || signal.signal === 'STRONG_SELL')
+    : (signal.signal === 'BUY' || signal.signal === 'STRONG_BUY');
+
+  // 1. Setup invalidated (most severe)
+  if (signalFlipped || currentScore < 35 || scoreDiff <= -20) {
+    messages.push({ type: 'danger', text: 'Setup invalidated' });
+  }
+
+  // 2. Structure breaking
+  if (hasEntryBreakdown && (cb.structure || 0) <= (eb.structure || 0) - 4) {
+    messages.push({ type: 'danger', text: 'Structure breaking' });
+  }
+
+  // 3. Momentum weakening
+  if (hasEntryBreakdown && (cb.momentum || 0) <= (eb.momentum || 0) - 3) {
+    messages.push({ type: 'warning', text: 'Momentum weakening' });
+  }
+
+  // 4. Confidence increasing
+  if (scoreDiff >= 5 && !signalFlipped) {
+    messages.push({ type: 'positive', text: 'Confidence increasing' });
+  }
+
+  // 5. TP probability rising (price progressing toward TP2 & score solid)
+  const tp2 = trade.takeProfit2;
+  if (tp2) {
+    let progress = 0;
+    if (isLong && tp2 > trade.entryPrice) {
+      progress = (currentPrice - trade.entryPrice) / (tp2 - trade.entryPrice);
+    } else if (!isLong && tp2 < trade.entryPrice) {
+      progress = (trade.entryPrice - currentPrice) / (trade.entryPrice - tp2);
+    }
+    if (progress >= 0.5 && currentScore >= 50) {
+      messages.push({ type: 'positive', text: 'TP probability rising' });
+    }
+  }
+
+  // 6. Consider partial (near TP1 with weakening signals)
+  const tp1 = trade.takeProfit1;
+  if (tp1) {
+    const nearTP1 = isLong
+      ? currentPrice >= tp1 * 0.98
+      : currentPrice <= tp1 * 1.02;
+    const weakening = scoreDiff < 0 ||
+      (hasEntryBreakdown && (cb.momentum || 0) < (eb.momentum || 0));
+    if (nearTP1 && weakening) {
+      messages.push({ type: 'info', text: 'Consider partial' });
+    }
+  }
+
+  // 7. Consider BE stop (1R+ in profit, stop not yet at breakeven)
+  const sl = trade.stopLoss;
+  if (sl != null) {
+    const risk = Math.abs(trade.entryPrice - sl);
+    if (risk > 0) {
+      const inProfit1R = isLong
+        ? currentPrice >= trade.entryPrice + risk
+        : currentPrice <= trade.entryPrice - risk;
+      const stopNotBE = isLong
+        ? sl < trade.entryPrice
+        : sl > trade.entryPrice;
+      if (inProfit1R && stopNotBE) {
+        messages.push({ type: 'info', text: 'Consider BE stop' });
+      }
+    }
+  }
+
+  // Default: neutral status when nothing noteworthy
+  if (messages.length === 0) {
+    if (scoreDiff >= 0) {
+      messages.push({ type: 'positive', text: 'Score holding steady' });
+    } else {
+      messages.push({ type: 'warning', text: 'Score slightly lower' });
+    }
+  }
+
+  return messages;
+}
+
+async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
+  const openTrades = await Trade.find({ status: 'OPEN' });
+  if (openTrades.length === 0) return;
+
+  let checkedCount = 0;
+  for (const trade of openTrades) {
+    try {
+      const priceData = getCurrentPriceFunc(trade.coinId);
+      if (!priceData) continue;
+      const currentPrice = priceData.price;
+
+      const signal = await getSignalForCoin(trade.coinId);
+      if (!signal) continue;
+
+      const messages = generateScoreCheckMessages(trade, signal, currentPrice);
+
+      trade.scoreCheck = {
+        currentScore: signal.score,
+        entryScore: trade.score || 0,
+        scoreDiff: (signal.score || 0) - (trade.score || 0),
+        currentBreakdown: signal.scoreBreakdown || {},
+        regime: signal.regime,
+        signal: signal.signal,
+        confidence: signal.confidence,
+        messages,
+        checkedAt: new Date()
+      };
+      trade.updatedAt = new Date();
+      await trade.save();
+      checkedCount++;
+    } catch (err) {
+      console.error(`[ScoreCheck] Error rechecking ${trade.symbol}:`, err.message);
+    }
+  }
+
+  if (checkedCount > 0) {
+    console.log(`[ScoreCheck] Rechecked ${checkedCount} open trades`);
+  }
+}
+
 async function getOpenTrades(userId) {
   return Trade.find({ userId, status: 'OPEN' }).sort({ createdAt: -1 }).lean();
 }
@@ -397,6 +538,8 @@ module.exports = {
   openTrade,
   closeTrade,
   checkStopsAndTPs,
+  recheckTradeScores,
+  SCORE_RECHECK_MINUTES,
   getOpenTrades,
   getTradeHistory,
   getPerformanceStats,

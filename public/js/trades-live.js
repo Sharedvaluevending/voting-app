@@ -106,5 +106,64 @@
     setInterval(updatePrices, 10000);
     setTimeout(updatePrices, 1000);
     updatePrices();
+
+    // Score checks: poll every 60s for updated trade score re-checks
+    function updateScoreChecks() {
+      var url = (window.location.origin || '') + '/api/trade-scores';
+      fetch(url, { credentials: 'same-origin' })
+        .then(function(r) {
+          if (!r.ok) throw new Error('API ' + r.status);
+          return r.json();
+        })
+        .then(function(result) {
+          if (!result || !result.success || !result.scoreChecks) return;
+          for (var c = 0; c < cards.length; c++) {
+            var card = cards[c];
+            var tradeId = card.getAttribute('data-trade-id');
+            if (!tradeId) continue;
+            var check = result.scoreChecks[tradeId];
+            if (!check || !check.messages) continue;
+
+            var el = card.querySelector('.score-check');
+            if (!el) {
+              el = document.createElement('div');
+              el.className = 'score-check';
+              el.setAttribute('data-trade-id', tradeId);
+              var actions = card.querySelector('.trade-actions');
+              if (actions) card.insertBefore(el, actions);
+              else card.appendChild(el);
+            }
+            el.classList.remove('score-check-pending');
+
+            var html = '<div class="score-check-header"><h4>Score Check</h4>';
+            if (check.checkedAt) {
+              var t = new Date(check.checkedAt);
+              html += '<span class="score-check-time">' + t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + '</span>';
+            }
+            html += '</div>';
+            html += '<div class="score-check-summary">';
+            html += '<span>Now: <strong>' + check.currentScore + '</strong></span>';
+            html += '<span>Entry: <strong>' + check.entryScore + '</strong></span>';
+            if (check.scoreDiff > 0) {
+              html += '<span class="score-diff score-diff-pos">+' + check.scoreDiff + '</span>';
+            } else if (check.scoreDiff < 0) {
+              html += '<span class="score-diff score-diff-neg">' + check.scoreDiff + '</span>';
+            } else {
+              html += '<span class="score-diff score-diff-neutral">0</span>';
+            }
+            html += '</div>';
+            html += '<div class="score-check-messages">';
+            for (var m = 0; m < check.messages.length; m++) {
+              html += '<span class="score-msg score-msg-' + check.messages[m].type + '">' + check.messages[m].text + '</span>';
+            }
+            html += '</div>';
+
+            el.innerHTML = html;
+          }
+        })
+        .catch(function() {});
+    }
+    setInterval(updateScoreChecks, 60000);
+    setTimeout(updateScoreChecks, 2000);
   });
 })();
