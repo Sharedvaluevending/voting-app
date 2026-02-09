@@ -123,9 +123,11 @@
 </div>
 <% } %>
 
-<% if (typeof user !== 'undefined' && user && sig.signal !== 'HOLD') { %>
+<% var canTrade = typeof user !== 'undefined' && user && sig.signal !== 'HOLD' && (sig.score || 0) >= 55 && (sig.confluenceLevel || 0) >= 2; %>
+<% if (typeof user !== 'undefined' && user) { %>
 <div class="section">
   <h3>Take This Trade</h3>
+  <% if (canTrade) { %>
   <div style="display:flex;gap:12px;flex-wrap:wrap;">
     <% if (sig.signal === 'BUY' || sig.signal === 'STRONG_BUY') { %>
       <form action="/trades/open" method="POST">
@@ -144,6 +146,9 @@
       </form>
     <% } %>
   </div>
+  <% } else if (sig.signal !== 'HOLD') { %>
+  <p style="color:#6b7280;font-size:13px;">Need score ≥55 and confluence ≥2 to open. Current: score <%= sig.score || 0 %>, confluence <%= sig.confluenceLevel || 0 %>.</p>
+  <% } %>
 </div>
 <% } %>
 

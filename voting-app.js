@@ -179,6 +179,24 @@ app.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/'));
 });
 
+// Build engine options: strategy weights, BTC signal, strategy stats (for regime gating + learned weights)
+async function buildEngineOptions(prices, allCandles, allHistory) {
+  const strategyWeights = await StrategyWeight.find({ active: true }).lean();
+  const strategyStats = {};
+  strategyWeights.forEach(s => {
+    strategyStats[s.strategyId] = { totalTrades: s.performance.totalTrades || 0 };
+  });
+  let btcSignal = null;
+  const btcData = prices.find(p => p.id === 'bitcoin');
+  if (btcData) {
+    const btcCandles = allCandles && allCandles.bitcoin;
+    const btcHistory = allHistory && allHistory.bitcoin || { prices: [], volumes: [] };
+    const btcSig = analyzeCoin(btcData, btcCandles, btcHistory, { strategyWeights, strategyStats });
+    btcSignal = btcSig.signal;
+  }
+  return { strategyWeights, strategyStats, btcSignal };
+}
+
 // ====================================================
 // DASHBOARD (public, enhanced for logged-in users)
 // ====================================================
@@ -189,8 +207,8 @@ app.get('/', async (req, res) => {
       Promise.resolve(fetchAllCandles()),
       fetchAllHistory()
     ]);
-
-    const signals = analyzeAllCoins(prices, allCandles, allHistory);
+    const options = await buildEngineOptions(prices, allCandles, allHistory);
+    const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
 
     res.render('dashboard', {
       activePage: 'dashboard',
@@ -213,16 +231,19 @@ app.get('/coin/:coinId', async (req, res) => {
       return res.status(404).send('Coin not found. <a href="/">Back to Dashboard</a>');
     }
 
-    const prices = await fetchAllPrices();
+    const [prices, allCandles, allHistory] = await Promise.all([
+      fetchAllPrices(),
+      Promise.resolve(fetchAllCandles()),
+      fetchAllHistory()
+    ]);
     const coinData = prices.find(p => p.id === coinId);
     if (!coinData) {
       return res.status(404).send('Price data unavailable. <a href="/">Back to Dashboard</a>');
     }
-
+    const options = await buildEngineOptions(prices, allCandles, allHistory);
     const candles = fetchCandles(coinId);
-    const allHistory = await fetchAllHistory();
     const history = allHistory[coinId] || { prices: [], volumes: [] };
-    const sig = analyzeCoin(coinData, candles, history);
+    const sig = analyzeCoin(coinData, candles, history, options);
 
     res.render('coin-detail', {
       activePage: 'dashboard',
@@ -268,10 +289,11 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       return res.redirect('/trades?error=' + encodeURIComponent('Price data not available'));
     }
 
+    const [allCandles, allHistory] = await Promise.all([Promise.resolve(fetchAllCandles()), fetchAllHistory()]);
+    const options = await buildEngineOptions(await fetchAllPrices(), allCandles, allHistory);
     const candles = fetchCandles(coinId);
-    const allHistory = await fetchAllHistory();
     const history = allHistory[coinId] || { prices: [], volumes: [] };
-    const signal = analyzeCoin(coinData, candles, history);
+    const signal = analyzeCoin(coinData, candles, history, options);
 
     const lev = signal.suggestedLeverage || suggestLeverage(parseInt(score) || 0, signal.regime || 'mixed', 'normal');
 
@@ -457,7 +479,8 @@ app.get('/api/signals', async (req, res) => {
       Promise.resolve(fetchAllCandles()),
       fetchAllHistory()
     ]);
-    const signals = analyzeAllCoins(prices, allCandles, allHistory);
+    const options = await buildEngineOptions(prices, allCandles, allHistory);
+    const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
     res.json({ success: true, generated: new Date().toISOString(), count: signals.length, signals });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

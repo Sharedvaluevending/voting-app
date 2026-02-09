@@ -12,6 +12,8 @@ const { recordTradeOutcome, adjustWeights } = require('./learning-engine');
 
 const MAKER_FEE = 0.001;
 const TAKER_FEE = 0.001;
+const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
+const COOLDOWN_HOURS = 4;         // no same-direction re-entry on same coin within 4h
 
 function suggestLeverage(score, regime, volatilityState) {
   let maxLev = 1;
@@ -52,6 +54,19 @@ async function openTrade(userId, signalData) {
   });
   if (existing) throw new Error(`Already have an open ${existing.direction} on ${existing.symbol}`);
 
+  // Cooldown: no same-direction re-entry on this coin within COOLDOWN_HOURS
+  const cooldownSince = new Date(Date.now() - COOLDOWN_HOURS * 60 * 60 * 1000);
+  const lastClosed = await Trade.findOne({
+    userId,
+    coinId: signalData.coinId,
+    status: { $ne: 'OPEN' },
+    direction: signalData.direction,
+    exitTime: { $gte: cooldownSince }
+  }).sort({ exitTime: -1 }).lean();
+  if (lastClosed) {
+    throw new Error(`${signalData.direction} on ${signalData.symbol} in cooldown. Wait ${COOLDOWN_HOURS}h after last close.`);
+  }
+
   const openCount = await Trade.countDocuments({ userId, status: 'OPEN' });
   if (openCount >= (user.settings?.maxOpenTrades || 3)) {
     throw new Error(`Max open trades reached (${user.settings?.maxOpenTrades || 3}). Close a trade first.`);
@@ -59,12 +74,20 @@ async function openTrade(userId, signalData) {
 
   const leverage = signalData.leverage || user.settings?.defaultLeverage || 1;
   const riskPercent = user.settings?.riskPerTrade || 2;
-  const entryPrice = signalData.entry;
+  // Slippage: worse entry (LONG pay more, SHORT receive less)
+  const slippage = 1 + (SLIPPAGE_BPS / 10000);
+  const entryPrice = signalData.direction === 'LONG'
+    ? signalData.entry * slippage
+    : signalData.entry / slippage;
   const stopLoss = signalData.stopLoss;
 
-  const positionSize = calculatePositionSize(
+  let positionSize = calculatePositionSize(
     user.paperBalance, riskPercent, entryPrice, stopLoss, leverage
   );
+  // Confidence-weighted size: scale by score (0.5 + score/100), cap 1.2
+  const score = Math.min(100, Math.max(0, signalData.score || 50));
+  const confidenceMult = Math.min(1.2, 0.5 + score / 100);
+  positionSize = positionSize * confidenceMult;
 
   const margin = positionSize / leverage;
   const fees = positionSize * MAKER_FEE;
@@ -111,11 +134,17 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
   const user = await User.findById(userId);
   if (!user) throw new Error('User not found');
 
+  // Slippage on exit: LONG sell lower, SHORT buy back higher
+  const slippage = 1 + (SLIPPAGE_BPS / 10000);
+  const exitPrice = trade.direction === 'LONG'
+    ? currentPrice / slippage
+    : currentPrice * slippage;
+
   let pnl;
   if (trade.direction === 'LONG') {
-    pnl = ((currentPrice - trade.entryPrice) / trade.entryPrice) * trade.positionSize;
+    pnl = ((exitPrice - trade.entryPrice) / trade.entryPrice) * trade.positionSize;
   } else {
-    pnl = ((trade.entryPrice - currentPrice) / trade.entryPrice) * trade.positionSize;
+    pnl = ((trade.entryPrice - exitPrice) / trade.entryPrice) * trade.positionSize;
   }
 
   const exitFees = trade.positionSize * TAKER_FEE;
@@ -123,7 +152,7 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
 
   const pnlPercent = (pnl / trade.margin) * 100;
 
-  trade.exitPrice = currentPrice;
+  trade.exitPrice = exitPrice;
   trade.exitTime = new Date();
   trade.closeReason = reason;
   trade.pnl = Math.round(pnl * 100) / 100;
@@ -183,10 +212,24 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
     }
     trade.maxDrawdownPercent = Math.max(trade.maxDrawdownPercent, drawdown);
     trade.maxProfitPercent = Math.max(trade.maxProfitPercent, profit);
+
+    // Trailing stop: move stop to breakeven when price is 1R in favor
+    const risk = trade.direction === 'LONG'
+      ? trade.entryPrice - (trade.stopLoss || 0)
+      : (trade.stopLoss || 0) - trade.entryPrice;
+    if (risk > 0 && trade.stopLoss != null && trade.stopLoss !== trade.entryPrice) {
+      if (trade.direction === 'LONG' && currentPrice >= trade.entryPrice + risk) {
+        trade.stopLoss = trade.entryPrice;
+        await trade.save();
+      } else if (trade.direction === 'SHORT' && currentPrice <= trade.entryPrice - risk) {
+        trade.stopLoss = trade.entryPrice;
+        await trade.save();
+      }
+    }
     await trade.save();
 
     if (trade.direction === 'LONG') {
-      if (trade.stopLoss && currentPrice <= trade.stopLoss) {
+      if (trade.stopLoss != null && currentPrice <= trade.stopLoss) {
         await closeTrade(trade.userId, trade._id, trade.stopLoss, 'STOPPED_OUT');
         closedCount++;
         continue;

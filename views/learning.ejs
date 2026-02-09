@@ -1,8 +1,8 @@
 <%- include('partials/header') %>
 
 <div class="section-header">
-  <h2 style="color:#fff;font-size:22px;">Learning Engine</h2>
-  <span style="font-size:12px;color:#6b7280;">Self-improving strategy performance tracker</span>
+  <h2 style="color:#fff;font-size:22px;">AI Engine</h2>
+  <span style="font-size:12px;color:#6b7280;">Self-improving strategy performance. Weights here are used live by the trading engine to score signals. Regime gating and min 5 trades per strategy apply.</span>
 </div>
 
 <% if (!strategies || strategies.length === 0) { %>
@@ -33,7 +33,8 @@
         <% strategies.forEach(function(s) {
           var wr = parseFloat(s.winRate) || 0;
           var avgRR = parseFloat(s.avgRR) || 0;
-          var expectancy = ((wr/100) * avgRR) - ((1 - wr/100) * 1);
+          var hasData = s.totalTrades > 0;
+          var expectancy = hasData ? ((wr/100) * avgRR) - ((1 - wr/100) * 1) : null;
         %>
           <tr>
             <td style="font-weight:700;"><%= s.name %></td>
@@ -42,18 +43,20 @@
             <td class="down"><%= s.losses %></td>
             <td style="color:<%= wr >= 50 ? '#10b981' : wr > 0 ? '#eab308' : '#6b7280' %>;font-weight:600;"><%= s.winRate %>%</td>
             <td><%= s.avgRR %></td>
-            <td class="<%= expectancy >= 0 ? 'up' : 'down' %>"><%= expectancy.toFixed(3) %></td>
+            <td class="<%= expectancy !== null && expectancy >= 0 ? 'up' : expectancy !== null ? 'down' : '' %>"><%= expectancy !== null ? expectancy.toFixed(3) : '—' %></td>
             <td>
               <% if (s.totalTrades === 0) { %>
                 <span style="color:#6b7280;">No data</span>
               <% } else if (s.totalTrades < 10) { %>
                 <span style="color:#eab308;">Learning (<%= s.totalTrades %>/10)</span>
-              <% } else if (expectancy >= 0.5) { %>
+              <% } else if (expectancy !== null && expectancy >= 0.5) { %>
                 <span style="color:#10b981;">Strong</span>
-              <% } else if (expectancy >= 0) { %>
+              <% } else if (expectancy !== null && expectancy >= 0) { %>
                 <span style="color:#3b82f6;">Active</span>
-              <% } else { %>
+              <% } else if (expectancy !== null) { %>
                 <span style="color:#ef4444;">Weak (reducing weight)</span>
+              <% } else { %>
+                <span style="color:#6b7280;">No data</span>
               <% } %>
             </td>
           </tr>
@@ -144,8 +147,8 @@
   <div class="journal-entry"><strong>1. Record outcomes</strong><br>Every closed trade saves its strategy type, market regime, P&L, and risk/reward ratio.</div>
   <div class="journal-entry"><strong>2. Calculate expectancy</strong><br>Expectancy = (Win Rate x Avg R:R) - (Loss Rate x 1). Positive = profitable strategy over time.</div>
   <div class="journal-entry"><strong>3. Adjust weights</strong><br>After 10+ trades, strategies with negative expectancy get scoring weights reduced by 5%. Strategies with high expectancy (>0.5) get a 2% boost.</div>
-  <div class="journal-entry"><strong>4. Strategy selection improves</strong><br>As weights adjust, the engine naturally favors strategies that are working in current market conditions and de-emphasizes underperformers.</div>
-  <div class="journal-entry" style="color:#6b7280;"><strong>Note:</strong> Weight adjustments are gradual and conservative. A strategy needs 20+ trades with negative expectancy before weights start decreasing. This prevents overreacting to small sample sizes.</div>
+  <div class="journal-entry"><strong>4. Live use in signals</strong><br>Strategy weights above are passed to the trading engine. Each strategy’s score uses its learned weights. Regime gating (e.g. no Mean Reversion in trending) and min 5 trades per strategy apply.</div>
+  <div class="journal-entry" style="color:#6b7280;"><strong>Note:</strong> Weight adjustments are gradual. A strategy needs 20+ trades with negative expectancy before weights start decreasing.</div>
 </div>
 
 <% } %>

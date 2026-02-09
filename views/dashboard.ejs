@@ -133,9 +133,10 @@
         <% }); %>
       </div>
 
-      <% if (typeof user !== 'undefined' && user && sig.signal !== 'HOLD') { %>
+      <% var canTrade = typeof user !== 'undefined' && user && sig.signal !== 'HOLD' && (sig.score || 0) >= 55 && (sig.confluenceLevel || 0) >= 2; %>
+      <% if (typeof user !== 'undefined' && user) { %>
       <div class="trade-actions">
-        <% if (sig.signal === 'BUY' || sig.signal === 'STRONG_BUY') { %>
+        <% if (canTrade && (sig.signal === 'BUY' || sig.signal === 'STRONG_BUY')) { %>
           <form action="/trades/open" method="POST" style="display:inline;">
             <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
             <input type="hidden" name="direction" value="LONG">
@@ -143,13 +144,16 @@
             <button type="submit" class="btn btn-buy btn-sm">Open Long</button>
           </form>
         <% } %>
-        <% if (sig.signal === 'SELL' || sig.signal === 'STRONG_SELL') { %>
+        <% if (canTrade && (sig.signal === 'SELL' || sig.signal === 'STRONG_SELL')) { %>
           <form action="/trades/open" method="POST" style="display:inline;">
             <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
             <input type="hidden" name="direction" value="SHORT">
             <input type="hidden" name="score" value="<%= sig.score %>">
             <button type="submit" class="btn btn-sell btn-sm">Open Short</button>
           </form>
+        <% } %>
+        <% if (!canTrade && sig.signal !== 'HOLD') { %>
+          <span style="font-size:11px;color:#6b7280;">Score ≥55 &amp; confluence ≥2 to open</span>
         <% } %>
         <a href="/coin/<%= sig.coin.id %>" class="btn btn-outline btn-sm">Details</a>
       </div>

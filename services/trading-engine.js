@@ -1,49 +1,70 @@
 // services/trading-engine.js
 // ====================================================
-// ADVANCED MULTI-STRATEGY TRADING ENGINE v3.0
+// ADVANCED MULTI-STRATEGY TRADING ENGINE v4.0
 //
-// Uses Binance OHLCV candles across 1H, 4H, 1D timeframes.
-// Scores signals 0-100 using 6 categories:
-//   Trend(0-20) + Momentum(0-20) + Volume(0-20) +
-//   Structure(0-20) + Volatility(0-10) + Risk(0-10)
-//
-// Multiple strategy types compete:
-//   - Trend Following
-//   - Breakout
-//   - Mean Reversion
-//   - Momentum
-//
-// Features: ADX, VWAP, market structure (HH/HL/LH/LL),
-//   Bollinger squeeze, volume climax, regime detection,
-//   suggested leverage, and full reasoning transparency.
+// Uses Binance OHLCV candles across 15m, 1H, 4H, 1D, 1W.
+// Scores signals 0-100 using 6 categories (learned weights optional).
+// Min score/confluence gate, regime-strategy gating, BTC filter,
+// MTF divergence, dynamic stops, multi-TF S/R, VWAP bands,
+// order blocks, liquidity clusters, session filter.
 // ====================================================
+
+// Config: quality gates and filters (quant-desk upgrades)
+const ENGINE_CONFIG = {
+  MIN_SIGNAL_SCORE: 52,
+  MIN_CONFLUENCE_FOR_SIGNAL: 2,
+  MTF_DIVERGENCE_PENALTY: 10,
+  SESSION_START_UTC: 12,
+  SESSION_END_UTC: 22,
+  SESSION_PENALTY: 5,
+  BTC_STRONG_OPPOSITE_FORCE_HOLD: true
+};
 
 // ====================================================
 // MAIN ANALYSIS ENTRY POINT
 // ====================================================
-function analyzeCoin(coinData, candles, history) {
+function analyzeCoin(coinData, candles, history, options) {
+  options = options || {};
   const currentPrice = coinData.price;
 
   // Try Binance candles first, fall back to CoinGecko history
   if (candles && candles['1h'] && candles['1h'].length >= 20) {
-    return analyzeWithCandles(coinData, candles);
+    return analyzeWithCandles(coinData, candles, options);
   }
 
   // Fallback to CoinGecko close-price history
   if (history && history.prices && history.prices.length >= 10) {
-    return analyzeWithHistory(coinData, history);
+    return analyzeWithHistory(coinData, history, options);
   }
 
   // Basic signal from 24h change only
   return generateBasicSignal(coinData);
 }
 
-function analyzeAllCoins(allPrices, allCandles, allHistory) {
+function analyzeAllCoins(allPrices, allCandles, allHistory, options) {
+  options = options || {};
+  const strategyWeights = options.strategyWeights || [];
+  const btcSignal = options.btcSignal || null;
+
   const signals = allPrices.map(coinData => {
     const candles = allCandles[coinData.id] || null;
     const history = allHistory[coinData.id] || { prices: [], volumes: [] };
-    return analyzeCoin(coinData, candles, history);
+    return analyzeCoin(coinData, candles, history, options);
   });
+
+  // BTC regime filter: don't LONG alts when BTC is STRONG_SELL, don't SHORT when BTC is STRONG_BUY
+  if (ENGINE_CONFIG.BTC_STRONG_OPPOSITE_FORCE_HOLD && btcSignal) {
+    signals.forEach(sig => {
+      if (sig.coin.id === 'bitcoin') return;
+      if (btcSignal === 'STRONG_SELL' && (sig.signal === 'BUY' || sig.signal === 'STRONG_BUY')) {
+        sig.signal = 'HOLD';
+        sig.reasoning = (sig.reasoning || []).concat(['BTC strongly bearish – alt longs suppressed']);
+      } else if (btcSignal === 'STRONG_BUY' && (sig.signal === 'SELL' || sig.signal === 'STRONG_SELL')) {
+        sig.signal = 'HOLD';
+        sig.reasoning = (sig.reasoning || []).concat(['BTC strongly bullish – alt shorts suppressed']);
+      }
+    });
+  }
 
   const signalOrder = { STRONG_BUY: 0, BUY: 1, STRONG_SELL: 2, SELL: 3, HOLD: 4 };
   signals.sort((a, b) => {
@@ -58,8 +79,10 @@ function analyzeAllCoins(allPrices, allCandles, allHistory) {
 // ====================================================
 // ANALYSIS WITH BINANCE OHLCV CANDLES (best path)
 // ====================================================
-function analyzeWithCandles(coinData, candles) {
+function analyzeWithCandles(coinData, candles, options) {
+  options = options || {};
   const currentPrice = coinData.price;
+  const strategyWeights = options.strategyWeights || [];
 
   // Analyze each real timeframe
   const tf1h = analyzeOHLCV(candles['1h'], currentPrice);
@@ -86,27 +109,44 @@ function analyzeWithCandles(coinData, candles) {
   const scores1d = scoreCandles(tf1d, currentPrice, '1d');
 
   // Weighted confluence: 1D=40%, 4H=35%, 1H=25%
-  const finalScore = Math.round(
+  let finalScore = Math.round(
     scores1d.total * 0.40 + scores4h.total * 0.35 + scores1h.total * 0.25
   );
 
-  // Direction confluence
+  // MTF divergence penalty: 1H vs 4H direction disagree
   const directions = [scores1h.direction, scores4h.direction, scores1d.direction];
   const bullCount = directions.filter(d => d === 'BULL').length;
   const bearCount = directions.filter(d => d === 'BEAR').length;
   const confluenceLevel = Math.max(bullCount, bearCount);
   const dominantDir = bullCount >= bearCount ? 'BULL' : 'BEAR';
+  if (scores1h.direction !== scores4h.direction && scores1h.direction !== 'NEUTRAL' && scores4h.direction !== 'NEUTRAL') {
+    finalScore = Math.max(0, finalScore - ENGINE_CONFIG.MTF_DIVERGENCE_PENALTY);
+  }
 
-  // Determine signal from score
-  const { signal, strength } = scoreToSignal(finalScore, confluenceLevel, dominantDir);
+  // Session filter: outside 12–22 UTC reduce score slightly
+  const utcHour = new Date().getUTCHours();
+  const inSession = utcHour >= ENGINE_CONFIG.SESSION_START_UTC && utcHour < ENGINE_CONFIG.SESSION_END_UTC;
+  if (!inSession) {
+    finalScore = Math.max(0, finalScore - ENGINE_CONFIG.SESSION_PENALTY);
+  }
 
   // Detect market regime
   const regime = detectRegime(tf1d, tf4h);
 
-  // Best strategy + all strategies for multi-strategy view
+  // Best strategy + all strategies (with regime gating and optional learned weights)
+  const strategyStats = options.strategyStats || {};
   const { best: bestStrategy, allStrategies: allStrategiesWithScores } = pickStrategy(
-    scores1h, scores4h, scores1d, regime, scores15m, scores1w
+    scores1h, scores4h, scores1d, regime, scores15m, scores1w, strategyWeights, strategyStats
   );
+
+  // Determine signal from score (with min score/confluence gate)
+  let { signal, strength } = scoreToSignal(finalScore, confluenceLevel, dominantDir);
+  if (finalScore < ENGINE_CONFIG.MIN_SIGNAL_SCORE || confluenceLevel < ENGINE_CONFIG.MIN_CONFLUENCE_FOR_SIGNAL) {
+    if (signal !== 'HOLD') {
+      signal = 'HOLD';
+      strength = finalScore;
+    }
+  }
 
   // Top 2–3 strategies by display score with their signal (Phase 4: multi-strategy view)
   const topStrategies = allStrategiesWithScores
@@ -120,14 +160,14 @@ function analyzeWithCandles(coinData, candles) {
       signal: scoreToSignal(Math.round(s.displayScore), Math.min(2, confluenceLevel), dominantDir).signal
     }));
 
-  // Calculate trade levels
-  const levels = calculateTradeLevels(currentPrice, tf1h, tf4h, signal, dominantDir);
+  // Calculate trade levels (dynamic ATR by regime, multi-TF S/R)
+  const levels = calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, dominantDir, regime);
 
   // Suggest leverage
   const suggestedLev = suggestLeverage(finalScore, regime, tf1h.volatilityState);
 
-  // Build reasoning
-  const reasoning = buildReasoning(scores1h, scores4h, scores1d, confluenceLevel, regime, bestStrategy, signal);
+  // Build reasoning (include session, MTF divergence, quality gate if applicable)
+  const reasoning = buildReasoning(scores1h, scores4h, scores1d, confluenceLevel, regime, bestStrategy, signal, finalScore, inSession, tf1h, tf4h, tf1d);
 
   // Confidence
   const confidence = calculateConfidence(finalScore, confluenceLevel, regime, candles['1h'].length);
@@ -249,6 +289,11 @@ function analyzeOHLCV(candles, currentPrice) {
   // Support & Resistance from swing points
   const sr = findSR(highs, lows, closes);
 
+  // Order blocks, FVG, liquidity clusters (price-action confluence)
+  const orderBlocks = detectOrderBlocks(opens, highs, lows, closes, atr);
+  const fvgs = detectFVGs(highs, lows);
+  const liquidityClusters = detectLiquidityClusters(highs, lows, currentPrice);
+
   // Market Structure: HH/HL/LH/LL
   const marketStructure = detectMarketStructure(highs, lows);
 
@@ -269,6 +314,7 @@ function analyzeOHLCV(candles, currentPrice) {
     stochK: stoch.k, stochD: stoch.d,
     vwap,
     support: sr.support, resistance: sr.resistance,
+    orderBlocks, fvgs, liquidityClusters,
     marketStructure,
     trend,
     volumeTrend: volumeAnalysis.trend,
@@ -377,6 +423,12 @@ function scoreCandles(analysis, currentPrice, timeframe) {
     volume += 4; bearPoints += 1;
   } else { volume += 2; }
 
+  // VWAP bands: price within 0.5 ATR of VWAP = value zone (small bonus)
+  const atrP = analysis.atr || 0;
+  if (atrP > 0 && analysis.vwap > 0) {
+    const dist = Math.abs(currentPrice - analysis.vwap) / atrP;
+    if (dist < 0.5) volume += 2;
+  }
   volume = Math.min(20, volume);
 
   // === STRUCTURE (0-20) ===
@@ -405,6 +457,36 @@ function scoreCandles(analysis, currentPrice, timeframe) {
     if (bbPos < 0.15) { structure += 5; bullPoints += 1; }
     else if (bbPos > 0.85) { structure += 5; bearPoints += 1; }
     else { structure += 2; }
+  }
+
+  // Order blocks: price at/near zone adds confluence
+  const ob = analysis.orderBlocks || [];
+  for (const b of ob) {
+    const mid = (b.top + b.bottom) / 2;
+    const dist = (mid > 0) ? Math.abs(currentPrice - mid) / mid : 1;
+    if (dist < 0.008) {
+      if (b.type === 'BULL') { structure += 3; bullPoints += 1; }
+      else if (b.type === 'BEAR') { structure += 3; bearPoints += 1; }
+    }
+  }
+  // Fair value gaps: price inside or just touching zone
+  const fvgList = analysis.fvgs || [];
+  for (const f of fvgList) {
+    const inZone = currentPrice >= f.bottom && currentPrice <= f.top;
+    const nearLow = f.bottom > 0 && currentPrice >= f.bottom * 0.997 && currentPrice <= f.bottom * 1.003;
+    const nearHigh = f.top > 0 && currentPrice >= f.top * 0.997 && currentPrice <= f.top * 1.003;
+    if (inZone || nearLow || nearHigh) {
+      if (f.type === 'BULL') { structure += 2; bullPoints += 1; }
+      else if (f.type === 'BEAR') { structure += 2; bearPoints += 1; }
+    }
+  }
+  // Liquidity cluster: near cluster above = potential resistance/sweep; near below = support
+  const liq = analysis.liquidityClusters || {};
+  if (liq.above != null && liq.above > 0 && currentPrice >= liq.above * 0.995 && currentPrice <= liq.above * 1.01) {
+    structure += 1; bearPoints += 1;
+  }
+  if (liq.below != null && liq.below > 0 && currentPrice <= liq.below * 1.005 && currentPrice >= liq.below * 0.99) {
+    structure += 1; bullPoints += 1;
   }
 
   structure = Math.min(20, structure);
@@ -690,6 +772,98 @@ function findSR(highs, lows, closes) {
 }
 
 // ====================================================
+// ORDER BLOCKS (last opposing candle before strong move)
+// ====================================================
+function detectOrderBlocks(opens, highs, lows, closes, atr) {
+  const blocks = [];
+  if (!opens || opens.length < 5 || !atr || atr <= 0) return blocks;
+  const bodyThreshold = atr * 0.4;
+  const lookback = Math.min(40, opens.length - 2);
+
+  for (let i = closes.length - 2; i >= Math.max(0, closes.length - lookback); i--) {
+    const bodyPrev = closes[i] - opens[i];
+    const bodyNext = closes[i + 1] - opens[i + 1];
+    // Bullish OB: bearish candle then strong bullish move
+    if (bodyPrev < 0 && bodyNext > bodyThreshold) {
+      blocks.push({ type: 'BULL', top: highs[i], bottom: lows[i], idx: i });
+      if (blocks.length >= 2) break;
+    }
+    // Bearish OB: bullish candle then strong bearish move
+    if (bodyPrev > 0 && bodyNext < -bodyThreshold) {
+      blocks.push({ type: 'BEAR', top: highs[i], bottom: lows[i], idx: i });
+      if (blocks.length >= 2) break;
+    }
+  }
+  return blocks;
+}
+
+// ====================================================
+// FAIR VALUE GAPS (3-candle imbalance)
+// ====================================================
+function detectFVGs(highs, lows) {
+  const fvgs = [];
+  if (!highs || highs.length < 3) return fvgs;
+  const lookback = Math.min(30, highs.length - 3);
+
+  for (let i = highs.length - 1; i >= Math.max(0, highs.length - lookback); i--) {
+    if (i + 2 >= highs.length) continue;
+    // Bullish FVG: gap between candle i high and candle i+2 low
+    if (lows[i + 2] > highs[i]) {
+      fvgs.push({ type: 'BULL', top: lows[i + 2], bottom: highs[i], idx: i });
+      if (fvgs.length >= 2) break;
+    }
+    // Bearish FVG: gap between candle i low and candle i+2 high
+    if (highs[i + 2] < lows[i]) {
+      fvgs.push({ type: 'BEAR', top: lows[i], bottom: highs[i + 2], idx: i });
+      if (fvgs.length >= 2) break;
+    }
+  }
+  return fvgs;
+}
+
+// ====================================================
+// LIQUIDITY CLUSTERS (swing highs/lows grouped by proximity)
+// ====================================================
+function detectLiquidityClusters(highs, lows, currentPrice) {
+  const result = { above: null, below: null };
+  if (!highs || highs.length < 10) return result;
+  const lookback = Math.min(48, highs.length);
+  const recentH = highs.slice(-lookback);
+  const recentL = lows.slice(-lookback);
+
+  const swingHighs = [];
+  const swingLows = [];
+  for (let i = 2; i < recentH.length - 2; i++) {
+    if (recentH[i] > recentH[i - 1] && recentH[i] > recentH[i + 1]) swingHighs.push(recentH[i]);
+    if (recentL[i] < recentL[i - 1] && recentL[i] < recentL[i + 1]) swingLows.push(recentL[i]);
+  }
+  if (swingHighs.length === 0 && swingLows.length === 0) return result;
+
+  const pctTolerance = 0.005; // 0.5% = same level
+  const cluster = (vals, isHigh) => {
+    if (vals.length === 0) return null;
+    const sorted = [...vals].sort((a, b) => a - b);
+    const groups = [];
+    let group = [sorted[0]];
+    for (let i = 1; i < sorted.length; i++) {
+      const diff = Math.abs(sorted[i] - group[group.length - 1]) / group[group.length - 1];
+      if (diff <= pctTolerance) group.push(sorted[i]);
+      else { groups.push(group); group = [sorted[i]]; }
+    }
+    groups.push(group);
+    const best = groups.filter(g => isHigh ? g.some(v => v > currentPrice) : g.some(v => v < currentPrice));
+    if (best.length === 0) return null;
+    const nearest = isHigh
+      ? best.map(g => Math.min(...g)).filter(v => v > currentPrice).sort((a, b) => a - b)[0]
+      : best.map(g => Math.max(...g)).filter(v => v < currentPrice).sort((a, b) => b - a)[0];
+    return nearest !== undefined ? nearest : null;
+  };
+  result.above = cluster(swingHighs, true);
+  result.below = cluster(swingLows, false);
+  return result;
+}
+
+// ====================================================
 // TREND DETECTION
 // ====================================================
 function determineTrend(closes, sma20, sma50, ema9, ema21, adx) {
@@ -778,10 +952,28 @@ function detectRegime(tf1d, tf4h) {
   return 'mixed';
 }
 
+// Regime–strategy gating: strategies not allowed in wrong regime (min sample still applies)
+const REGIME_STRATEGY_BLOCK = {
+  mean_revert: ['trending'],
+  trend_follow: ['ranging'],
+  momentum: ['ranging'],
+  breakout: [],
+  scalping: [],
+  swing: [],
+  position: []
+};
+
+const MIN_TRADES_FOR_STRATEGY = 5;
+
 // ====================================================
-// STRATEGY SELECTION (7 strategies: trend, breakout, mean_revert, momentum, scalping, swing, position)
+// STRATEGY SELECTION (7 strategies + regime gating + learned weights)
 // ====================================================
-function pickStrategy(s1h, s4h, s1d, regime, scores15m, scores1w) {
+function pickStrategy(s1h, s4h, s1d, regime, scores15m, scores1w, strategyWeights, strategyStats) {
+  strategyWeights = strategyWeights || [];
+  strategyStats = strategyStats || {};
+  const byId = {};
+  strategyWeights.forEach(w => { byId[w.strategyId || w.id] = w; });
+
   const strategies = {
     trend_follow: { id: 'trend_follow', name: 'Trend Following', score: 0, displayScore: 0 },
     breakout:     { id: 'breakout',     name: 'Breakout',        score: 0, displayScore: 0 },
@@ -792,33 +984,44 @@ function pickStrategy(s1h, s4h, s1d, regime, scores15m, scores1w) {
     position:     { id: 'position',     name: 'Position',       score: 0, displayScore: null }
   };
 
+  function weightedScore(s, weights) {
+    if (!weights || typeof weights.trend !== 'number') return null;
+    const w = weights;
+    const total = (w.trend + w.momentum + w.volume + w.structure + w.volatility + w.riskQuality) || 100;
+    // Normalize to 0-100: each dimension is 0-20, weight to 0-1 and sum
+    const v = (s.trend / 20) * (w.trend / total) + (s.momentum / 20) * (w.momentum / total) + (s.volume / 20) * (w.volume / total) +
+      (s.structure / 20) * (w.structure / total) + (s.volatility / 10) * (w.volatility / total) + (s.riskQuality / 10) * (w.riskQuality / total);
+    return Math.round(Math.min(100, Math.max(0, v * 100)));
+  }
+
   // Trend following: 1D/4H trend
   strategies.trend_follow.score = s1d.trend * 1.5 + s4h.trend * 1.2;
   if (regime === 'trending') strategies.trend_follow.score += 20;
-  strategies.trend_follow.displayScore = s1d.total * 0.55 + s4h.total * 0.45;
+  const wTf = byId.trend_follow && byId.trend_follow.weights;
+  strategies.trend_follow.displayScore = wTf ? (weightedScore(s1d, wTf) * 0.55 + weightedScore(s4h, wTf) * 0.45) : (s1d.total * 0.55 + s4h.total * 0.45);
 
-  // Breakout: 1H volatility + structure
+  // Breakout: 1H
   strategies.breakout.score = s1h.volatility * 2 + s1h.structure * 1.3;
   if (regime === 'compression') strategies.breakout.score += 25;
-  strategies.breakout.displayScore = s1h.total;
+  strategies.breakout.displayScore = (byId.breakout && byId.breakout.weights) ? weightedScore(s1h, byId.breakout.weights) : s1h.total;
 
   // Mean reversion: 1H
   strategies.mean_revert.score = s1h.momentum * 1.2 + s1h.structure * 1.0;
   if (regime === 'ranging') strategies.mean_revert.score += 20;
-  strategies.mean_revert.displayScore = s1h.total;
+  strategies.mean_revert.displayScore = (byId.mean_revert && byId.mean_revert.weights) ? weightedScore(s1h, byId.mean_revert.weights) : s1h.total;
 
   // Momentum: 1H
   strategies.momentum.score = s1h.momentum * 1.5 + s1h.volume * 1.3;
   if (regime === 'trending') strategies.momentum.score += 10;
-  strategies.momentum.displayScore = s1h.total;
+  strategies.momentum.displayScore = (byId.momentum && byId.momentum.weights) ? weightedScore(s1h, byId.momentum.weights) : s1h.total;
 
-  // Scalping: 15m + 1H (when 15m available)
+  // Scalping
   if (scores15m) {
     strategies.scalping.score = scores15m.volatility * 1.5 + scores15m.structure * 1.2 + s1h.momentum * 1.0;
     if (regime === 'volatile' || regime === 'compression') strategies.scalping.score += 15;
     strategies.scalping.displayScore = scores15m.total * 0.5 + s1h.total * 0.5;
   } else {
-    strategies.scalping.displayScore = s1h.total; // fallback
+    strategies.scalping.displayScore = s1h.total;
   }
 
   // Swing: 4H + 1D
@@ -826,17 +1029,33 @@ function pickStrategy(s1h, s4h, s1d, regime, scores15m, scores1w) {
   if (regime === 'trending' || regime === 'compression') strategies.swing.score += 15;
   strategies.swing.displayScore = s4h.total * 0.5 + s1d.total * 0.5;
 
-  // Position: 1D + 1W (when 1w available)
+  // Position: 1D + 1W
   if (scores1w) {
     strategies.position.score = s1d.trend * 1.2 + scores1w.trend * 1.5 + s1d.structure * 1.0;
     if (regime === 'trending') strategies.position.score += 15;
     strategies.position.displayScore = s1d.total * 0.5 + scores1w.total * 0.5;
   } else {
-    strategies.position.displayScore = s1d.total; // fallback
+    strategies.position.displayScore = s1d.total;
   }
 
+  // Normalize displayScore to 0-100
+  Object.values(strategies).forEach(s => {
+    if (s.displayScore != null && (s.displayScore < 0 || s.displayScore > 100)) s.displayScore = Math.max(0, Math.min(100, s.displayScore));
+  });
+
+  // Pick best: respect regime gating and min sample
   let best = strategies.trend_follow;
-  for (const s of Object.values(strategies)) {
+  const list = Object.values(strategies);
+  const allowed = list.filter(s => {
+    const blocked = (REGIME_STRATEGY_BLOCK[s.id] || []).indexOf(regime) >= 0;
+    const minTrades = (strategyStats[s.id] || strategyStats[s.id + ''] || {}).totalTrades || 0;
+    const underMin = minTrades < MIN_TRADES_FOR_STRATEGY;
+    return !blocked && (!underMin || minTrades === 0); // allow if no data yet, or enough data
+  });
+  const candidates = allowed.length > 0 ? allowed : list;
+  for (const s of candidates) {
+    const blocked = (REGIME_STRATEGY_BLOCK[s.id] || []).indexOf(regime) >= 0;
+    if (blocked) continue;
     if (s.score > best.score) best = s;
   }
 
@@ -866,27 +1085,38 @@ function suggestLeverage(score, regime, volatilityState) {
 }
 
 // ====================================================
-// TRADE LEVELS
+// TRADE LEVELS (dynamic ATR by regime, multi-TF S/R)
 // ====================================================
-function calculateTradeLevels(currentPrice, tf1h, tf4h, signal, direction) {
+function calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, direction, regime) {
   const atr = tf1h.atr || currentPrice * 0.02;
-  const support = tf1h.support;
-  const resistance = tf1h.resistance;
+  // Multi-TF S/R: prefer 1D/4H for levels when available
+  const support1d = tf1d && tf1d.support > 0 ? tf1d.support : null;
+  const resistance1d = tf1d && tf1d.resistance > 0 ? tf1d.resistance : null;
+  const support4h = tf4h && tf4h.support > 0 ? tf4h.support : null;
+  const resistance4h = tf4h && tf4h.resistance > 0 ? tf4h.resistance : null;
+  const support = support1d || support4h || tf1h.support || currentPrice * 0.95;
+  const resistance = resistance1d || resistance4h || tf1h.resistance || currentPrice * 1.05;
+
+  // Dynamic ATR multiple by regime (quant-desk: tighter in trending, wider in volatile)
+  let atrMult = 2;
+  if (regime === 'trending') atrMult = 1.5;
+  else if (regime === 'volatile' || regime === 'mixed') atrMult = 2.5;
+  else if (regime === 'compression') atrMult = 2;
 
   let entry, tp1, tp2, tp3, stopLoss;
 
   if (signal === 'STRONG_BUY' || signal === 'BUY') {
     entry = r2(currentPrice);
-    stopLoss = r2(Math.max(support * 0.995, entry - atr * 2));
-    if (stopLoss >= entry) stopLoss = r2(entry - atr * 2.5);
+    stopLoss = r2(Math.max(support * 0.995, entry - atr * atrMult));
+    if (stopLoss >= entry) stopLoss = r2(entry - atr * (atrMult + 0.5));
     const risk = entry - stopLoss;
     tp1 = r2(entry + risk * 1.5);
     tp2 = r2(entry + risk * 2.5);
     tp3 = r2(entry + risk * 4);
   } else if (signal === 'STRONG_SELL' || signal === 'SELL') {
     entry = r2(currentPrice);
-    stopLoss = r2(Math.min(resistance * 1.005, entry + atr * 2));
-    if (stopLoss <= entry) stopLoss = r2(entry + atr * 2.5);
+    stopLoss = r2(Math.min(resistance * 1.005, entry + atr * atrMult));
+    if (stopLoss <= entry) stopLoss = r2(entry + atr * (atrMult + 0.5));
     const risk = stopLoss - entry;
     tp1 = r2(entry - risk * 1.5);
     tp2 = r2(entry - risk * 2.5);
@@ -924,13 +1154,16 @@ function calculateConfidence(score, confluenceLevel, regime, dataPoints) {
 // ====================================================
 // REASONING BUILDER
 // ====================================================
-function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal) {
+function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal, finalScore, inSession, tf1h, tf4h, tf1d) {
   const reasons = [];
 
   if (confluenceLevel === 3) reasons.push('All 3 timeframes agree - strong confluence');
   else if (confluenceLevel === 2) reasons.push('2/3 timeframes agree - moderate confluence');
   else reasons.push('Mixed timeframes - weak confluence, trade with caution');
 
+  if (finalScore !== undefined && (finalScore < ENGINE_CONFIG.MIN_SIGNAL_SCORE || confluenceLevel < ENGINE_CONFIG.MIN_CONFLUENCE_FOR_SIGNAL))
+    reasons.push(`Quality gate: score ${finalScore} or confluence ${confluenceLevel} below minimum – held to HOLD`);
+  if (inSession === false) reasons.push('Outside peak session (12–22 UTC) – reduced weight');
   reasons.push(`Strategy: ${strategy.name} (best fit for ${regime} regime)`);
   reasons.push(`1H: ${s1h.label} (${s1h.total}/100) | 4H: ${s4h.label} (${s4h.total}/100) | 1D: ${s1d.label} (${s1d.total}/100)`);
 
@@ -938,6 +1171,27 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
   if (s1h.momentum >= 12) reasons.push('Momentum confirming on 1H');
   if (s4h.volume >= 12) reasons.push('Volume supporting on 4H');
   if (s1h.structure >= 12) reasons.push('Market structure favorable');
+
+  // Order blocks / FVG / liquidity clusters (price-action context)
+  const tfs = [
+    { name: '1H', a: tf1h },
+    { name: '4H', a: tf4h },
+    { name: '1D', a: tf1d }
+  ].filter(x => x.a && (x.a.orderBlocks?.length || x.a.fvgs?.length || x.a.liquidityClusters));
+  for (const { name, a } of tfs) {
+    if (a.orderBlocks && a.orderBlocks.length > 0) {
+      const bull = a.orderBlocks.filter(b => b.type === 'BULL').length;
+      const bear = a.orderBlocks.filter(b => b.type === 'BEAR').length;
+      if (bull > 0 || bear > 0) reasons.push(`${name}: Order blocks in scope (${bull} bull, ${bear} bear)`);
+    }
+    if (a.fvgs && a.fvgs.length > 0) {
+      const bull = a.fvgs.filter(f => f.type === 'BULL').length;
+      const bear = a.fvgs.filter(f => f.type === 'BEAR').length;
+      if (bull > 0 || bear > 0) reasons.push(`${name}: FVG zones present (${bull} bull, ${bear} bear)`);
+    }
+    if (a.liquidityClusters && (a.liquidityClusters.above != null || a.liquidityClusters.below != null))
+      reasons.push(`${name}: Liquidity clusters (above/below) in view`);
+  }
 
   return reasons;
 }
@@ -954,7 +1208,8 @@ function determineBestTF(s1h, s4h, s1d) {
 // ====================================================
 // FALLBACK: CoinGecko close-price history
 // ====================================================
-function analyzeWithHistory(coinData, history) {
+function analyzeWithHistory(coinData, history, options) {
+  options = options || {};
   const pricesArr = history && Array.isArray(history.prices) ? history.prices : [];
   const volumesArr = history && Array.isArray(history.volumes) ? history.volumes : [];
   const rawPrices = pricesArr.map(p => (p && typeof p.price !== 'undefined') ? p.price : 0);
@@ -975,7 +1230,7 @@ function analyzeWithHistory(coinData, history) {
     '1d': resample(fakeCandles, 24)
   };
 
-  return analyzeWithCandles(coinData, candles);
+  return analyzeWithCandles(coinData, candles, options);
 }
 
 function resample(candles, factor) {
@@ -1063,4 +1318,4 @@ function r2(num) {
   return Math.round(num * 100000000) / 100000000;
 }
 
-module.exports = { analyzeCoin, analyzeAllCoins };
+module.exports = { analyzeCoin, analyzeAllCoins, ENGINE_CONFIG };
