@@ -23,7 +23,9 @@ const strategyWeightSchema = new mongoose.Schema({
     byRegime: {
       trending: { wins: { type: Number, default: 0 }, losses: { type: Number, default: 0 } },
       ranging: { wins: { type: Number, default: 0 }, losses: { type: Number, default: 0 } },
-      volatile: { wins: { type: Number, default: 0 }, losses: { type: Number, default: 0 } }
+      volatile: { wins: { type: Number, default: 0 }, losses: { type: Number, default: 0 } },
+      compression: { wins: { type: Number, default: 0 }, losses: { type: Number, default: 0 } },
+      mixed: { wins: { type: Number, default: 0 }, losses: { type: Number, default: 0 } }
     }
   },
   active: { type: Boolean, default: true },

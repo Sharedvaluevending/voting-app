@@ -22,7 +22,7 @@ const DEFAULT_STRATEGIES = [
     weights: { trend: 15, momentum: 20, volume: 25, structure: 20, volatility: 15, riskQuality: 5 }
   },
   {
-    strategyId: 'mean_reversion',
+    strategyId: 'mean_revert',
     name: 'Mean Reversion',
     description: 'Fades extremes back to value zones',
     weights: { trend: 10, momentum: 25, volume: 20, structure: 15, volatility: 20, riskQuality: 10 }
@@ -32,6 +32,24 @@ const DEFAULT_STRATEGIES = [
     name: 'Momentum',
     description: 'Follows strong directional moves with volume confirmation',
     weights: { trend: 20, momentum: 30, volume: 20, structure: 10, volatility: 10, riskQuality: 10 }
+  },
+  {
+    strategyId: 'scalping',
+    name: 'Scalping',
+    description: 'Short-term 15m/1H: tight structure, volatility, quick momentum',
+    weights: { trend: 10, momentum: 25, volume: 20, structure: 25, volatility: 15, riskQuality: 5 }
+  },
+  {
+    strategyId: 'swing',
+    name: 'Swing',
+    description: 'Multi-day 4H/1D: trend and structure on higher timeframes',
+    weights: { trend: 30, momentum: 25, volume: 15, structure: 20, volatility: 5, riskQuality: 5 }
+  },
+  {
+    strategyId: 'position',
+    name: 'Position',
+    description: 'Long-term 1D/1W: macro trend and daily structure',
+    weights: { trend: 35, momentum: 20, volume: 15, structure: 20, volatility: 5, riskQuality: 5 }
   }
 ];
 
@@ -80,7 +98,10 @@ async function recordTradeOutcome(trade) {
       ((strategy.performance.avgRR * (total - 1)) + rr) / total;
   }
 
-  if (regime && strategy.performance.byRegime[regime]) {
+  if (regime && regime !== 'unknown') {
+    if (!strategy.performance.byRegime[regime]) {
+      strategy.performance.byRegime[regime] = { wins: 0, losses: 0 };
+    }
     if (isWin) strategy.performance.byRegime[regime].wins += 1;
     else strategy.performance.byRegime[regime].losses += 1;
   }

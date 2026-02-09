@@ -35,6 +35,21 @@
   </div>
 </div>
 
+<% if (sig.topStrategies && sig.topStrategies.length > 0) { %>
+<div class="section">
+  <h3>Strategy Views</h3>
+  <div style="display:flex;flex-wrap:wrap;gap:10px;">
+    <% sig.topStrategies.forEach(function(ts) { %>
+      <div style="padding:10px 14px;background:#0d1320;border-radius:8px;font-size:14px;">
+        <span style="color:#9ca3af;"><%= ts.name %></span>
+        <span class="badge-<%= ts.signal %>" style="margin-left:8px;padding:4px 8px;border-radius:4px;font-size:12px;"><%= ts.signal %></span>
+        <span style="color:#6b7280;margin-left:6px;">(<%= ts.score %>)</span>
+      </div>
+    <% }); %>
+  </div>
+</div>
+<% } %>
+
 <% if (sig.scoreBreakdown) { %>
 <div class="section">
   <h3>Score Breakdown</h3>

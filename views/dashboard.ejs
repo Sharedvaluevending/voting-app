@@ -76,6 +76,14 @@
         </div>
       </div>
 
+      <% if (sig.topStrategies && sig.topStrategies.length > 1) { %>
+      <div class="top-strategies" style="font-size:11px;color:#9ca3af;margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">
+        <% sig.topStrategies.forEach(function(ts) { %>
+          <span class="<%= ts.signal === 'STRONG_BUY' || ts.signal === 'BUY' ? 'up' : ts.signal === 'STRONG_SELL' || ts.signal === 'SELL' ? 'down' : '' %>"><%= ts.name %>: <strong><%= ts.signal %></strong> (<%= ts.score %>)</span>
+        <% }); %>
+      </div>
+      <% } %>
+
       <% if (sig.scoreBreakdown) { %>
       <div class="score-breakdown">
         <div class="score-cat">T <span><%= sig.scoreBreakdown.trend %></span></div>

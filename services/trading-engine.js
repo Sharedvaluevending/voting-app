@@ -66,6 +66,20 @@ function analyzeWithCandles(coinData, candles) {
   const tf4h = analyzeOHLCV(candles['4h'], currentPrice);
   const tf1d = analyzeOHLCV(candles['1d'], currentPrice);
 
+  // Optional 15m and 1w for scalping / position strategies
+  let scores15m = null;
+  let scores1w = null;
+  let tf15m = null;
+  let tf1w = null;
+  if (candles['15m'] && candles['15m'].length >= 20) {
+    tf15m = analyzeOHLCV(candles['15m'], currentPrice);
+    scores15m = scoreCandles(tf15m, currentPrice, '15m');
+  }
+  if (candles['1w'] && candles['1w'].length >= 5) {
+    tf1w = analyzeOHLCV(candles['1w'], currentPrice);
+    scores1w = scoreCandles(tf1w, currentPrice, '1w');
+  }
+
   // Score each timeframe across 6 dimensions (0-100 total)
   const scores1h = scoreCandles(tf1h, currentPrice, '1h');
   const scores4h = scoreCandles(tf4h, currentPrice, '4h');
@@ -89,8 +103,22 @@ function analyzeWithCandles(coinData, candles) {
   // Detect market regime
   const regime = detectRegime(tf1d, tf4h);
 
-  // Best strategy for this market
-  const bestStrategy = pickStrategy(scores1h, scores4h, scores1d, regime);
+  // Best strategy + all strategies for multi-strategy view
+  const { best: bestStrategy, allStrategies: allStrategiesWithScores } = pickStrategy(
+    scores1h, scores4h, scores1d, regime, scores15m, scores1w
+  );
+
+  // Top 2–3 strategies by display score with their signal (Phase 4: multi-strategy view)
+  const topStrategies = allStrategiesWithScores
+    .filter(s => s.displayScore != null)
+    .sort((a, b) => b.displayScore - a.displayScore)
+    .slice(0, 3)
+    .map(s => ({
+      id: s.id,
+      name: s.name,
+      score: Math.round(s.displayScore),
+      signal: scoreToSignal(Math.round(s.displayScore), Math.min(2, confluenceLevel), dominantDir).signal
+    }));
 
   // Calculate trade levels
   const levels = calculateTradeLevels(currentPrice, tf1h, tf4h, signal, dominantDir);
@@ -118,6 +146,7 @@ function analyzeWithCandles(coinData, candles) {
     bestTimeframe: determineBestTF(scores1h, scores4h, scores1d),
     strategyType: bestStrategy.id,
     strategyName: bestStrategy.name,
+    topStrategies,
     regime,
     suggestedLeverage: suggestedLev,
     entry: levels.entry,
@@ -135,11 +164,11 @@ function analyzeWithCandles(coinData, candles) {
       volatility: Math.round(scores1d.volatility * 0.4 + scores4h.volatility * 0.35 + scores1h.volatility * 0.25),
       riskQuality: Math.round(scores1d.riskQuality * 0.4 + scores4h.riskQuality * 0.35 + scores1h.riskQuality * 0.25)
     },
-    timeframes: {
+    timeframes: Object.assign({
       '1H': { signal: scores1h.label, score: scores1h.total, direction: scores1h.direction, rsi: r2(tf1h.rsi), trend: tf1h.trend, adx: r2(tf1h.adx) },
       '4H': { signal: scores4h.label, score: scores4h.total, direction: scores4h.direction, rsi: r2(tf4h.rsi), trend: tf4h.trend, adx: r2(tf4h.adx) },
       '1D': { signal: scores1d.label, score: scores1d.total, direction: scores1d.direction, rsi: r2(tf1d.rsi), trend: tf1d.trend, adx: r2(tf1d.adx) }
-    },
+    }, scores15m && tf15m ? { '15m': { signal: scores15m.label, score: scores15m.total, direction: scores15m.direction, rsi: r2(tf15m.rsi), trend: tf15m.trend, adx: r2(tf15m.adx) } } : {}, scores1w && tf1w ? { '1W': { signal: scores1w.label, score: scores1w.total, direction: scores1w.direction, rsi: r2(tf1w.rsi), trend: tf1w.trend, adx: r2(tf1w.adx) } } : {}),
     indicators: {
       rsi: r2(tf1h.rsi),
       sma20: r2(tf1h.sma20),
@@ -750,37 +779,71 @@ function detectRegime(tf1d, tf4h) {
 }
 
 // ====================================================
-// STRATEGY SELECTION
+// STRATEGY SELECTION (7 strategies: trend, breakout, mean_revert, momentum, scalping, swing, position)
 // ====================================================
-function pickStrategy(s1h, s4h, s1d, regime) {
+function pickStrategy(s1h, s4h, s1d, regime, scores15m, scores1w) {
   const strategies = {
-    trend_follow: { id: 'trend_follow', name: 'Trend Following', score: 0 },
-    breakout:     { id: 'breakout',     name: 'Breakout',        score: 0 },
-    mean_revert:  { id: 'mean_revert',  name: 'Mean Reversion',  score: 0 },
-    momentum:     { id: 'momentum',     name: 'Momentum',        score: 0 }
+    trend_follow: { id: 'trend_follow', name: 'Trend Following', score: 0, displayScore: 0 },
+    breakout:     { id: 'breakout',     name: 'Breakout',        score: 0, displayScore: 0 },
+    mean_revert:  { id: 'mean_revert',  name: 'Mean Reversion',  score: 0, displayScore: 0 },
+    momentum:     { id: 'momentum',     name: 'Momentum',        score: 0, displayScore: 0 },
+    scalping:     { id: 'scalping',     name: 'Scalping',        score: 0, displayScore: null },
+    swing:        { id: 'swing',        name: 'Swing',           score: 0, displayScore: 0 },
+    position:     { id: 'position',     name: 'Position',       score: 0, displayScore: null }
   };
 
-  // Trend following scores high with strong trends and ADX
+  // Trend following: 1D/4H trend
   strategies.trend_follow.score = s1d.trend * 1.5 + s4h.trend * 1.2;
   if (regime === 'trending') strategies.trend_follow.score += 20;
+  strategies.trend_follow.displayScore = s1d.total * 0.55 + s4h.total * 0.45;
 
-  // Breakout scores high with compression + structure
+  // Breakout: 1H volatility + structure
   strategies.breakout.score = s1h.volatility * 2 + s1h.structure * 1.3;
   if (regime === 'compression') strategies.breakout.score += 25;
+  strategies.breakout.displayScore = s1h.total;
 
-  // Mean reversion scores in ranging markets
+  // Mean reversion: 1H
   strategies.mean_revert.score = s1h.momentum * 1.2 + s1h.structure * 1.0;
   if (regime === 'ranging') strategies.mean_revert.score += 20;
+  strategies.mean_revert.displayScore = s1h.total;
 
-  // Momentum scores with volume and momentum
+  // Momentum: 1H
   strategies.momentum.score = s1h.momentum * 1.5 + s1h.volume * 1.3;
   if (regime === 'trending') strategies.momentum.score += 10;
+  strategies.momentum.displayScore = s1h.total;
+
+  // Scalping: 15m + 1H (when 15m available)
+  if (scores15m) {
+    strategies.scalping.score = scores15m.volatility * 1.5 + scores15m.structure * 1.2 + s1h.momentum * 1.0;
+    if (regime === 'volatile' || regime === 'compression') strategies.scalping.score += 15;
+    strategies.scalping.displayScore = scores15m.total * 0.5 + s1h.total * 0.5;
+  } else {
+    strategies.scalping.displayScore = s1h.total; // fallback
+  }
+
+  // Swing: 4H + 1D
+  strategies.swing.score = s4h.trend * 1.3 + s1d.trend * 1.2 + s4h.structure * 1.0;
+  if (regime === 'trending' || regime === 'compression') strategies.swing.score += 15;
+  strategies.swing.displayScore = s4h.total * 0.5 + s1d.total * 0.5;
+
+  // Position: 1D + 1W (when 1w available)
+  if (scores1w) {
+    strategies.position.score = s1d.trend * 1.2 + scores1w.trend * 1.5 + s1d.structure * 1.0;
+    if (regime === 'trending') strategies.position.score += 15;
+    strategies.position.displayScore = s1d.total * 0.5 + scores1w.total * 0.5;
+  } else {
+    strategies.position.displayScore = s1d.total; // fallback
+  }
 
   let best = strategies.trend_follow;
   for (const s of Object.values(strategies)) {
     if (s.score > best.score) best = s;
   }
-  return best;
+
+  return {
+    best,
+    allStrategies: Object.values(strategies)
+  };
 }
 
 // ====================================================
@@ -962,6 +1025,7 @@ function generateBasicSignal(coinData) {
     coin: { id: coinData.id, symbol: coinData.symbol, name: coinData.name, price, change24h: coinData.change24h, volume24h: coinData.volume24h, marketCap: coinData.marketCap },
     signal, score, strength: score, confidence: 25, confluenceLevel: 0,
     bestTimeframe: '24H', strategyType: 'basic', strategyName: 'Basic 24H',
+    topStrategies: [{ id: 'basic', name: 'Basic 24H', score, signal }],
     regime: 'unknown', suggestedLeverage: 1,
     entry, takeProfit1: tp1, takeProfit2: tp2, takeProfit3: tp3, stopLoss: sl,
     riskReward: risk > 0 ? r2(reward / risk) : 0,

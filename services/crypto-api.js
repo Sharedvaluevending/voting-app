@@ -288,16 +288,20 @@ async function fetchAllCandlesForCoin(coinId) {
   if (!meta?.binance) return null;
 
   try {
-    const [candles1h, candles4h, candles1d] = await Promise.all([
+    const [candles15m, candles1h, candles4h, candles1d, candles1w] = await Promise.all([
+      fetchBinanceCandles(meta.binance, '15m', 96),   // 24h of 15m
       fetchBinanceCandles(meta.binance, '1h', 168),
       fetchBinanceCandles(meta.binance, '4h', 100),
-      fetchBinanceCandles(meta.binance, '1d', 30)
+      fetchBinanceCandles(meta.binance, '1d', 30),
+      fetchBinanceCandles(meta.binance, '1w', 26)     // ~6 months weekly
     ]);
 
     return {
+      '15m': candles15m,
       '1h': candles1h,
       '4h': candles4h,
-      '1d': candles1d
+      '1d': candles1d,
+      '1w': candles1w
     };
   } catch (err) {
     if (err.message && err.message.includes('451')) binanceRestricted = true;
@@ -307,24 +311,28 @@ async function fetchAllCandlesForCoin(coinId) {
 }
 
 // ====================================================
-// COINGECKO HISTORY FALLBACK
+// COINGECKO HISTORY – one shot, no retry on 429 (so we don't block refresh)
 // ====================================================
-async function fetchHistoryFromAPI(coinId, days = 7) {
+async function fetchHistoryOnce(coinId, days = 7) {
   const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
-  const data = await fetchWithRetry(url);
-
-  if (!data || typeof data !== 'object') {
-    throw new Error('Invalid history response');
-  }
+  const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
+  if (res.status === 429) throw new Error('Rate limited (429)');
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  if (!data || typeof data !== 'object') throw new Error('Invalid history response');
   const prices = Array.isArray(data.prices) ? data.prices : [];
   const totalVolumes = Array.isArray(data.total_volumes) ? data.total_volumes : [];
   const marketCaps = Array.isArray(data.market_caps) ? data.market_caps : [];
-
   return {
     prices: prices.map(([ts, price]) => ({ timestamp: ts, price })),
     volumes: totalVolumes.map(([ts, vol]) => ({ timestamp: ts, volume: vol })),
     marketCaps: marketCaps.map(([ts, mc]) => ({ timestamp: ts, marketCap: mc }))
   };
+}
+
+// Used by other code paths that may need retry (e.g. coin detail page)
+async function fetchHistoryFromAPI(coinId, days = 7) {
+  return fetchHistoryOnce(coinId, days);
 }
 
 // Resolved when first price load attempt has finished (so dashboard has data or we've tried)
@@ -403,15 +411,19 @@ async function refreshAllData() {
       }
     }
 
-    // Step 3: CoinGecko history as fallback (only for coins without Binance data)
+    // Step 3: CoinGecko history as fallback (one shot per coin, no retry on 429 – skip rest if rate limited)
     for (const coinId of TRACKED_COINS) {
       if (!cache.candles[coinId]) {
         try {
           await sleep(COINGECKO_DELAY);
-          const history = await fetchHistoryFromAPI(coinId, 7);
+          const history = await fetchHistoryOnce(coinId, 7);
           cache.history[coinId] = history;
-          console.log(`[Refresh] CG history fallback: ${COIN_META[coinId].symbol}`);
+          console.log(`[Refresh] CG history: ${COIN_META[coinId].symbol}`);
         } catch (err) {
+          if (err.message && err.message.includes('429')) {
+            console.log('[Refresh] CoinGecko history rate limited – skipping rest this round');
+            break;
+          }
           console.error(`[Refresh] CG history failed for ${coinId}: ${err.message}`);
         }
       }
