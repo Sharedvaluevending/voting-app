@@ -47,6 +47,10 @@ const COINCAP_IDS = {
   'chainlink': 'chainlink', 'polygon': 'matic-network'
 };
 
+// Once we get 451 from Binance we skip all Binance calls for this process (e.g. on Render)
+let binanceRestricted = false;
+let priceSourceRotation = 0;
+
 // ====================================================
 // FETCH WITH RETRY
 // ====================================================
@@ -116,9 +120,10 @@ async function fetchPricesFromAPI() {
 
 // ====================================================
 // BINANCE - Prices (24hr ticker, no API key)
-// Use as fallback when CoinGecko is rate limited. Returns null if 451 (restricted region).
+// Skipped if we already got 451 (binanceRestricted). Use as fallback when others rate limit.
 // ====================================================
 async function fetchPricesFromBinance() {
+  if (binanceRestricted) return null;
   const results = [];
   for (const coinId of TRACKED_COINS) {
     const meta = COIN_META[coinId];
@@ -127,7 +132,8 @@ async function fetchPricesFromBinance() {
       const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${meta.binance}`;
       const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 10000 });
       if (res.status === 451) {
-        console.log('[Binance] 451 – not available from this region (prices skipped)');
+        binanceRestricted = true;
+        console.log('[Binance] 451 – not available from this region (skipping Binance for rest of session)');
         return null;
       }
       if (!res.ok) continue;
@@ -198,6 +204,56 @@ async function fetchPricesFromCoinCap() {
   }
 }
 
+// Kraken pair names (they use X/Z prefixes)
+const KRAKEN_PAIRS = {
+  'bitcoin': 'XXBTZUSD', 'ethereum': 'XETHZUSD', 'solana': 'SOLUSD', 'dogecoin': 'DOGEUSD',
+  'ripple': 'XXRPZUSD', 'cardano': 'ADAUSD', 'polkadot': 'DOTUSD', 'avalanche-2': 'AVAXUSD',
+  'chainlink': 'LINKUSD', 'polygon': 'MATICUSD'
+};
+
+// ====================================================
+// KRAKEN - Free public ticker, no key, good rate limits
+// ====================================================
+async function fetchPricesFromKraken() {
+  try {
+    const pairs = TRACKED_COINS.map(id => KRAKEN_PAIRS[id]).filter(Boolean);
+    if (pairs.length === 0) return null;
+    const url = 'https://api.kraken.com/0/public/Ticker?pair=' + pairs.join(',');
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 10000 });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const result = json.result || json;
+    if (!result || typeof result !== 'object') return null;
+    const out = [];
+    TRACKED_COINS.forEach(function(coinId) {
+      const pair = KRAKEN_PAIRS[coinId];
+      const meta = COIN_META[coinId];
+      if (!pair || !meta) return;
+      const t = result[pair] || result[pair.replace('Z', '')];
+      if (!t || !t.c) return;
+      const price = parseFloat(t.c[0]);
+      const open = t.o ? parseFloat(t.o) : price;
+      const change24h = open && open > 0 ? ((price - open) / open) * 100 : 0;
+      if (isNaN(price)) return;
+      out.push({
+        id: coinId,
+        symbol: meta.symbol,
+        name: meta.name,
+        binanceSymbol: meta.binance,
+        price,
+        change24h: isNaN(change24h) ? 0 : change24h,
+        volume24h: t.v ? parseFloat(t.v[1]) : 0,
+        marketCap: 0,
+        lastUpdated: new Date()
+      });
+    });
+    return out.length > 0 ? out : null;
+  } catch (err) {
+    console.error('[Kraken] Price fetch failed:', err.message);
+    return null;
+  }
+}
+
 // ====================================================
 // BINANCE - OHLCV Candles (no API key needed!)
 // Returns proper Open/High/Low/Close/Volume candles
@@ -222,6 +278,7 @@ async function fetchBinanceCandles(symbol, interval, limit) {
 }
 
 async function fetchAllCandlesForCoin(coinId) {
+  if (binanceRestricted) return null;
   const meta = COIN_META[coinId];
   if (!meta?.binance) return null;
 
@@ -238,6 +295,7 @@ async function fetchAllCandlesForCoin(coinId) {
       '1d': candles1d
     };
   } catch (err) {
+    if (err.message && err.message.includes('451')) binanceRestricted = true;
     console.error(`Binance candles failed for ${coinId}: ${err.message}`);
     return null;
   }
@@ -281,56 +339,66 @@ async function refreshAllData() {
       console.log('[Refresh] Waiting 10s before first API call (avoids rate limit)...');
       await sleep(10000);
     }
-    // Step 1: Prices – CoinGecko first, then Binance fallback (Binance returns 451 on Render)
+    // Step 1: Prices – rotate first source (CoinGecko / CoinCap) to spread rate limits, then Kraken, then Binance
+    priceSourceRotation = (priceSourceRotation + 1) % 2;
+    const tryOrder = priceSourceRotation === 0
+      ? ['coingecko', 'coincap', 'kraken', 'binance']
+      : ['coincap', 'coingecko', 'kraken', 'binance'];
     let prices = [];
-    try {
-      prices = await fetchPricesFromAPI();
-    } catch (priceErr) {
-      console.error('[Refresh] CoinGecko price fetch failed:', priceErr.message);
+    for (const source of tryOrder) {
+      if (prices.length > 0) break;
+      try {
+        if (source === 'coingecko') {
+          prices = await fetchPricesFromAPI();
+          if (prices && prices.length > 0) console.log(`[Refresh] Got prices for ${prices.length} coins (CoinGecko)`);
+        } else if (source === 'coincap') {
+          prices = await fetchPricesFromCoinCap();
+          if (prices && prices.length > 0) console.log(`[Refresh] Got prices for ${prices.length} coins (CoinCap)`);
+        } else if (source === 'kraken') {
+          prices = await fetchPricesFromKraken();
+          if (prices && prices.length > 0) console.log(`[Refresh] Got prices for ${prices.length} coins (Kraken)`);
+        } else if (source === 'binance') {
+          prices = await fetchPricesFromBinance();
+          if (prices && prices.length > 0) console.log(`[Refresh] Got prices for ${prices.length} coins (Binance)`);
+        }
+      } catch (err) {
+        console.error(`[Refresh] ${source} failed:`, err.message);
+      }
     }
     if (prices && prices.length > 0) {
       cache.prices = { data: prices, timestamp: Date.now() };
-      console.log(`[Refresh] Got prices for ${prices.length} coins (CoinGecko)`);
     } else {
-      const binancePrices = await fetchPricesFromBinance();
-      if (binancePrices && binancePrices.length > 0) {
-        cache.prices = { data: binancePrices, timestamp: Date.now() };
-        console.log(`[Refresh] Got prices for ${binancePrices.length} coins (Binance)`);
-      } else {
-        const coincapPrices = await fetchPricesFromCoinCap();
-        if (coincapPrices && coincapPrices.length > 0) {
-          cache.prices = { data: coincapPrices, timestamp: Date.now() };
-          console.log(`[Refresh] Got prices for ${coincapPrices.length} coins (CoinCap)`);
-        } else {
-          console.log('[Refresh] No prices from CoinGecko, Binance, or CoinCap – keeping previous');
-        }
-      }
+      console.log('[Refresh] No prices from any API – keeping previous');
     }
     if (pricesReadyResolve) {
       pricesReadyResolve();
       pricesReadyResolve = null;
     }
 
-    // Step 2: Binance candles (skipped in restricted regions – 451). Use CoinGecko history fallback below.
-    let binanceOk = true;
-    let successCount = 0;
-    for (const coinId of TRACKED_COINS) {
-      if (!binanceOk) break;
-      try {
-        await sleep(BINANCE_DELAY);
-        const candles = await fetchAllCandlesForCoin(coinId);
-        if (candles) {
-          cache.candles[coinId] = candles;
-          successCount++;
-          console.log(`[Refresh] Candles: ${COIN_META[coinId].symbol} (${successCount}/${TRACKED_COINS.length})`);
+    // Step 2: Binance candles – skipped entirely if we already got 451 (binanceRestricted)
+    if (binanceRestricted) {
+      console.log('[Refresh] Skipping Binance candles (unavailable in this region)');
+    } else {
+      let successCount = 0;
+      for (const coinId of TRACKED_COINS) {
+        try {
+          await sleep(BINANCE_DELAY);
+          const candles = await fetchAllCandlesForCoin(coinId);
+          if (candles) {
+            cache.candles[coinId] = candles;
+            successCount++;
+            console.log(`[Refresh] Candles: ${COIN_META[coinId].symbol} (${successCount}/${TRACKED_COINS.length})`);
+          }
+        } catch (err) {
+          if (err.message && err.message.includes('451')) {
+            binanceRestricted = true;
+            console.log('[Refresh] Binance unavailable (451) – skipping candles for rest of session');
+            break;
+          } else {
+            console.error(`[Refresh] Candles failed for ${coinId}: ${err.message}`);
+          }
         }
-      } catch (err) {
-        if (err.message && err.message.includes('451')) {
-          console.log('[Refresh] Binance unavailable (451) – using CoinGecko history for candles');
-          binanceOk = false;
-        } else {
-          console.error(`[Refresh] Candles failed for ${coinId}: ${err.message}`);
-        }
+        if (binanceRestricted) break;
       }
     }
 
