@@ -345,6 +345,7 @@ const pricesReadyPromise = new Promise(function(resolve) { pricesReadyResolve = 
 async function refreshAllData() {
   if (cache.refreshing) return;
   cache.refreshing = true;
+  let successCount = 0; // Binance candles count; in scope for completion log
   console.log('[Refresh] Starting background data refresh...');
 
   try {
@@ -388,7 +389,6 @@ async function refreshAllData() {
     if (binanceRestricted) {
       console.log('[Refresh] Skipping Binance candles (unavailable in this region)');
     } else {
-      let successCount = 0;
       for (const coinId of TRACKED_COINS) {
         try {
           await sleep(BINANCE_DELAY);
