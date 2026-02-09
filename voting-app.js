@@ -17,7 +17,7 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const path = require('path');
 
-const { fetchAllPrices, fetchAllCandles, fetchAllHistory, fetchCandles, getCurrentPrice, isDataReady, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
+const { fetchAllPrices, fetchAllCandles, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
 const { openTrade, closeTrade, checkStopsAndTPs, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
@@ -257,6 +257,39 @@ app.get('/coin/:coinId', async (req, res) => {
 });
 
 // ====================================================
+// CHART (TradingView embed; optional trade levels from query)
+// ====================================================
+app.get('/chart/:coinId', (req, res) => {
+  const coinId = req.params.coinId;
+  if (!TRACKED_COINS.includes(coinId)) {
+    return res.status(404).send('Coin not found. <a href="/">Back to Dashboard</a>');
+  }
+  const meta = COIN_META[coinId];
+  if (!meta || !meta.binance) {
+    return res.status(404).send('Chart not available for this coin. <a href="/">Back to Dashboard</a>');
+  }
+  const tvSymbol = 'BINANCE:' + meta.binance;
+  const entry = req.query.entry ? Number(req.query.entry) : null;
+  const sl = req.query.sl ? Number(req.query.sl) : null;
+  const tp1 = req.query.tp1 ? Number(req.query.tp1) : null;
+  const tp2 = req.query.tp2 ? Number(req.query.tp2) : null;
+  const tp3 = req.query.tp3 ? Number(req.query.tp3) : null;
+  res.render('chart', {
+    activePage: 'dashboard',
+    pageTitle: meta.name + ' Chart',
+    coinId,
+    coinName: meta.name,
+    symbol: meta.symbol,
+    tvSymbol,
+    entry,
+    sl,
+    tp1,
+    tp2,
+    tp3
+  });
+});
+
+// ====================================================
 // TRADE ROUTES (require login)
 // ====================================================
 app.get('/trades', requireLogin, async (req, res) => {
@@ -331,7 +364,11 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       strategyType: usedStrategyType,
       regime: signal.regime || 'unknown',
       reasoning: signal.reasoning || [],
-      indicators: signal.indicators || {}
+      indicators: signal.indicators || {},
+      stopType: signal.stopType || 'ATR_SR',
+      stopLabel: signal.stopLabel || 'ATR + S/R',
+      tpType: signal.tpType || 'R_multiple',
+      tpLabel: signal.tpLabel || 'R multiples'
     };
 
     await openTrade(req.session.userId, tradeData);
@@ -349,11 +386,15 @@ app.post('/trades/close/:tradeId', requireLogin, async (req, res) => {
       return res.redirect('/trades?error=' + encodeURIComponent('Trade not found'));
     }
 
-    const priceData = getCurrentPrice(trade.coinId);
-    const currentPrice = priceData ? priceData.price : trade.entryPrice;
+    // Use live price when closing so PnL matches reality (not stale cache)
+    let currentPrice = await fetchLivePrice(trade.coinId);
+    if (currentPrice == null || !Number.isFinite(currentPrice)) {
+      const priceData = getCurrentPrice(trade.coinId);
+      currentPrice = priceData ? priceData.price : trade.entryPrice;
+    }
 
     const closed = await closeTrade(req.session.userId, trade._id, currentPrice, 'MANUAL');
-    res.redirect('/trades?success=' + encodeURIComponent(`Closed ${trade.symbol} for ${closed.pnl >= 0 ? '+' : ''}$${closed.pnl.toFixed(2)}`));
+    res.redirect('/trades?success=' + encodeURIComponent(`Closed ${trade.symbol} at $${Number(currentPrice).toFixed(4)} for ${closed.pnl >= 0 ? '+' : ''}$${closed.pnl.toFixed(2)}`));
   } catch (err) {
     console.error('[CloseTrade] Error:', err);
     res.redirect('/trades?error=' + encodeURIComponent(err.message));
@@ -378,11 +419,52 @@ app.get('/history', requireLogin, async (req, res) => {
 // ====================================================
 app.get('/performance', requireLogin, async (req, res) => {
   try {
-    const stats = await getPerformanceStats(req.session.userId);
-    res.render('performance', { activePage: 'performance', stats });
+    const [stats, user] = await Promise.all([
+      getPerformanceStats(req.session.userId),
+      User.findById(req.session.userId).lean()
+    ]);
+    res.render('performance', {
+      activePage: 'performance',
+      stats,
+      user: user || {},
+      success: req.query.success || null,
+      error: req.query.error || null
+    });
   } catch (err) {
     console.error('[Performance] Error:', err);
     res.status(500).send('Error loading performance');
+  }
+});
+
+// ====================================================
+// ACCOUNT SETTINGS (risk, margin cap, etc.)
+// ====================================================
+app.post('/account/settings', requireLogin, async (req, res) => {
+  try {
+    const u = await User.findById(req.session.userId);
+    if (!u) return res.redirect('/performance');
+    const s = u.settings || {};
+    if (req.body.maxBalancePercentPerTrade != null) {
+      const v = Math.min(100, Math.max(5, parseInt(req.body.maxBalancePercentPerTrade, 10) || 25));
+      s.maxBalancePercentPerTrade = v;
+    }
+    if (req.body.riskPerTrade != null) {
+      const v = Math.min(10, Math.max(0.5, parseFloat(req.body.riskPerTrade) || 2));
+      s.riskPerTrade = v;
+    }
+    if (req.body.maxOpenTrades != null) {
+      const v = Math.min(10, Math.max(1, parseInt(req.body.maxOpenTrades, 10) || 3));
+      s.maxOpenTrades = v;
+    }
+    if (req.body.defaultLeverage != null) {
+      const v = Math.min(20, Math.max(1, parseInt(req.body.defaultLeverage, 10) || 1));
+      s.defaultLeverage = v;
+    }
+    u.settings = s;
+    await u.save();
+    res.redirect('/performance?success=Settings+saved');
+  } catch (err) {
+    res.redirect('/performance?error=' + encodeURIComponent(err.message || 'Failed to save'));
   }
 });
 

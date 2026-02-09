@@ -1,6 +1,9 @@
 <%- include('partials/header') %>
 
-<a href="/" style="color:#3b82f6;text-decoration:none;font-size:13px;">&larr; Back to Dashboard</a>
+<div style="margin-bottom:8px;">
+  <a href="/" style="color:#3b82f6;text-decoration:none;font-size:13px;">&larr; Back to Dashboard</a>
+  <a href="/chart/<%= sig.coin.id %>" class="btn btn-outline btn-sm" style="margin-left:10px;" target="_blank" rel="noopener">View chart</a>
+</div>
 
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:16px 0;flex-wrap:wrap;gap:12px;">
   <div>
@@ -37,13 +40,14 @@
 
 <% if (sig.topStrategies && sig.topStrategies.length > 0) { %>
 <div class="section">
-  <h3>Strategy Views</h3>
-  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Each strategy has its own score and levels (scalping = tighter stops, swing = wider). You can open a trade using any strategy that scores ≥55.</p>
+  <h3>All strategy scores</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Scores for all strategies (scalping = tighter ATR stops, position = wider). Stop/TP style: <strong><%= sig.stopLabel || 'ATR + S/R' %></strong>, TP: <strong><%= sig.tpLabel || 'R multiples' %></strong>. You can open a trade using any strategy that scores ≥55.</p>
   <div style="display:flex;flex-wrap:wrap;gap:10px;">
     <% sig.topStrategies.forEach(function(ts) { %>
-      <div style="padding:12px 14px;background:#0d1320;border-radius:8px;font-size:14px;min-width:200px;">
+      <div style="padding:12px 14px;background:#0d1320;border-radius:8px;font-size:14px;min-width:200px;<%= ts.id === sig.strategyType ? 'border:1px solid #3b82f6;' : '' %>">
         <div style="margin-bottom:6px;">
           <span style="color:#9ca3af;"><%= ts.name %></span>
+          <% if (ts.id === sig.strategyType) { %><span style="margin-left:6px;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;background:#3b82f6;color:#fff;">Best</span><% } %>
           <span class="badge-<%= ts.signal %>" style="margin-left:8px;padding:4px 8px;border-radius:4px;font-size:12px;"><%= ts.signal %></span>
           <span style="color:#6b7280;margin-left:6px;">(<%= ts.score %>)</span>
         </div>

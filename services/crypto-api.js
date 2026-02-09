@@ -506,6 +506,26 @@ function getCurrentPrice(coinId) {
   return prices.find(p => p.id === coinId) || null;
 }
 
+/** Fetch live price for one coin (e.g. for closing a trade). Tries Binance then cache. */
+async function fetchLivePrice(coinId) {
+  const meta = COIN_META[coinId];
+  if (meta && meta.binance && !binanceRestricted) {
+    try {
+      const url = `https://api.binance.com/api/v3/ticker/price?symbol=${meta.binance}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 8000 });
+      if (res.status === 451) { binanceRestricted = true; return null; }
+      if (!res.ok) return null;
+      const data = await res.json();
+      const price = parseFloat(data.price);
+      return Number.isFinite(price) && price > 0 ? price : null;
+    } catch (err) {
+      if (err.message && err.message.includes('451')) binanceRestricted = true;
+    }
+  }
+  const cached = getCurrentPrice(coinId);
+  return cached && Number.isFinite(cached.price) ? cached.price : null;
+}
+
 function isDataReady() {
   return cache.lastRefresh > 0 && Object.keys(cache.candles).length > 0;
 }
@@ -523,7 +543,7 @@ refreshAllData().catch(err => console.error('[CryptoAPI] Initial error:', err.me
 
 module.exports = {
   fetchAllPrices, fetchPriceHistory, fetchAllHistory,
-  fetchCandles, fetchAllCandles, getCurrentPrice, isDataReady,
+  fetchCandles, fetchAllCandles, getCurrentPrice, fetchLivePrice, isDataReady,
   pricesReadyPromise,
   TRACKED_COINS, COIN_META
 };

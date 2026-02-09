@@ -7,6 +7,41 @@
   </form>
 </div>
 
+<% if (typeof success !== 'undefined' && success) { %>
+  <div class="alert alert-success" style="margin-bottom:12px;"><%= success %></div>
+<% } %>
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="alert alert-error" style="margin-bottom:12px;"><%= error %></div>
+<% } %>
+
+<% if (typeof user !== 'undefined' && user) { %>
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Trading settings</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Limit how much of your balance each trade can use. Lower values = safer position sizing.</p>
+  <form action="/account/settings" method="POST" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;align-items:end;max-width:700px;">
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Max balance per trade (%)</label>
+      <input type="number" name="maxBalancePercentPerTrade" min="5" max="100" value="<%= (user.settings && user.settings.maxBalancePercentPerTrade) != null ? user.settings.maxBalancePercentPerTrade : 25 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Risk per trade (%)</label>
+      <input type="number" name="riskPerTrade" min="0.5" max="10" step="0.5" value="<%= (user.settings && user.settings.riskPerTrade) != null ? user.settings.riskPerTrade : 2 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Max open trades</label>
+      <input type="number" name="maxOpenTrades" min="1" max="10" value="<%= (user.settings && user.settings.maxOpenTrades) || 3 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Default leverage</label>
+      <input type="number" name="defaultLeverage" min="1" max="20" value="<%= (user.settings && user.settings.defaultLeverage) || 1 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <button type="submit" class="btn btn-outline btn-sm">Save</button>
+    </div>
+  </form>
+</div>
+<% } %>
+
 <div class="perf-grid">
   <div class="perf-card">
     <div class="perf-label">Balance</div>

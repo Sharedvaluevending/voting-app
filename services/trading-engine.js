@@ -148,11 +148,10 @@ function analyzeWithCandles(coinData, candles, options) {
     }
   }
 
-  // Top 2–3 strategies by display score with their signal and strategy-specific levels
+  // All strategies with display score, sorted by score (so user can pick any)
   const topStrategiesRaw = allStrategiesWithScores
     .filter(s => s.displayScore != null)
-    .sort((a, b) => b.displayScore - a.displayScore)
-    .slice(0, 3);
+    .sort((a, b) => b.displayScore - a.displayScore);
   const topStrategies = topStrategiesRaw.map(s => {
     const stratScore = Math.round(s.displayScore);
     const stratSignal = scoreToSignal(stratScore, Math.min(2, confluenceLevel), dominantDir).signal;
@@ -207,6 +206,10 @@ function analyzeWithCandles(coinData, candles, options) {
     takeProfit3: levels.tp3,
     stopLoss: levels.stopLoss,
     riskReward: levels.riskReward,
+    stopType: STOP_TP_LABELS.stopType,
+    stopLabel: STOP_TP_LABELS.stopLabel,
+    tpType: STOP_TP_LABELS.tpType,
+    tpLabel: STOP_TP_LABELS.tpLabel,
     reasoning,
     scoreBreakdown: {
       trend: Math.round(scores1d.trend * 0.4 + scores4h.trend * 0.35 + scores1h.trend * 0.25),
@@ -1168,6 +1171,9 @@ function calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, direction,
 
   return { entry, tp1, tp2, tp3, stopLoss, riskReward };
 }
+
+// Labels for UI: we use ATR with S/R bounds (fixed, not trailing); TP = R multiples
+const STOP_TP_LABELS = { stopType: 'ATR_SR', stopLabel: 'ATR + S/R', tpType: 'R_multiple', tpLabel: 'R multiples' };
 
 // ====================================================
 // CONFIDENCE

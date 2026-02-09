@@ -48,7 +48,7 @@
 
 <div class="signals-grid">
   <% signals.forEach(function(sig) { %>
-    <div class="signal-card <%= sig.signal.toLowerCase().replace('_', '-') %>">
+    <div class="signal-card <%= sig.signal.toLowerCase().replace('_', '-') %>" data-coin-id="<%= sig.coin.id %>">
       <div class="card-header">
         <div class="coin-info">
           <h3><a href="/coin/<%= sig.coin.id %>" style="color:#fff;text-decoration:none;"><%= sig.coin.name %></a> <span class="symbol"><%= sig.coin.symbol %></span></h3>
@@ -58,8 +58,8 @@
           <% } %>
         </div>
         <div class="coin-price">
-          <div class="price">$<%= formatPrice(sig.coin.price) %></div>
-          <div class="change <%= sig.coin.change24h >= 0 ? 'up' : 'down' %>">
+          <div class="price card-price">$<%= formatPrice(sig.coin.price) %></div>
+          <div class="change card-change <%= sig.coin.change24h >= 0 ? 'up' : 'down' %>">
             <%= sig.coin.change24h >= 0 ? '+' : '' %><%= sig.coin.change24h.toFixed(2) %>%
           </div>
         </div>
@@ -76,7 +76,7 @@
         </div>
       </div>
 
-      <% if (sig.topStrategies && sig.topStrategies.length > 1) { %>
+      <% if (sig.topStrategies && sig.topStrategies.length > 0) { %>
       <div class="top-strategies" style="font-size:11px;color:#9ca3af;margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">
         <% sig.topStrategies.forEach(function(ts) { %>
           <span class="<%= ts.signal === 'STRONG_BUY' || ts.signal === 'BUY' ? 'up' : ts.signal === 'STRONG_SELL' || ts.signal === 'SELL' ? 'down' : '' %>"><%= ts.name %>: <strong><%= ts.signal %></strong> (<%= ts.score %>)</span>
@@ -102,6 +102,9 @@
         <span>TF: <strong><%= sig.bestTimeframe %></strong></span>
         <% if (sig.suggestedLeverage > 1) { %>
           <span class="lev-badge"><%= sig.suggestedLeverage %>x LEV</span>
+        <% } %>
+        <% if (sig.stopLabel || sig.tpLabel) { %>
+          <span style="color:#6b7280;">Stop: <strong><%= sig.stopLabel || 'ATR + S/R' %></strong> · TP: <strong><%= sig.tpLabel || 'R multiples' %></strong></span>
         <% } %>
       </div>
 
@@ -156,6 +159,12 @@
           <span style="font-size:11px;color:#6b7280;">Score ≥55 &amp; confluence ≥2 to open</span>
         <% } %>
         <a href="/coin/<%= sig.coin.id %>" class="btn btn-outline btn-sm">Details</a>
+        <a href="/chart/<%= sig.coin.id %>" class="btn btn-outline btn-sm" target="_blank" rel="noopener">View chart</a>
+      </div>
+      <% } else { %>
+      <div class="trade-actions">
+        <a href="/coin/<%= sig.coin.id %>" class="btn btn-outline btn-sm">Details</a>
+        <a href="/chart/<%= sig.coin.id %>" class="btn btn-outline btn-sm" target="_blank" rel="noopener">View chart</a>
       </div>
       <% } %>
     </div>
@@ -191,6 +200,19 @@
             var ch = Number(p.change24h);
             changeEl.textContent = (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%';
             changeEl.className = 'ticker-change ' + (ch >= 0 ? 'up' : 'down');
+          }
+        });
+        document.querySelectorAll('.signal-card[data-coin-id]').forEach(function(el) {
+          var id = el.getAttribute('data-coin-id');
+          var p = byId[id];
+          if (!p) return;
+          var priceEl = el.querySelector('.card-price');
+          var changeEl = el.querySelector('.card-change');
+          if (priceEl) priceEl.textContent = '$' + fmt(p.price);
+          if (changeEl) {
+            var ch = Number(p.change24h);
+            changeEl.textContent = (ch >= 0 ? '+' : '') + ch.toFixed(2) + '%';
+            changeEl.className = 'change card-change ' + (ch >= 0 ? 'up' : 'down');
           }
         });
       })

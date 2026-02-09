@@ -3,7 +3,7 @@
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Active Trades</h2>
   <span style="color:#6b7280;font-size:13px;">Max <%= (user.settings && user.settings.maxOpenTrades) || 3 %> open trades | 1 per pair</span>
-  <span style="color:#6b7280;font-size:12px;margin-left:10px;">Time every 1s, price and % every 10s</span>
+  <span style="color:#6b7280;font-size:12px;margin-left:10px;">Time every 1s, price every 10s. Close uses live price.</span>
 </div>
 
 <% if (typeof error !== 'undefined' && error) { %>
@@ -73,6 +73,8 @@
           <span>Margin: <strong>$<%= trade.margin.toFixed(2) %></strong></span>
           <span>Time: <strong class="trade-time"><%= timeStr %></strong></span>
           <span>Score: <strong><%= trade.score || '-' %></strong></span>
+          <% if (trade.strategyType) { %><span>Strategy: <strong><%= trade.strategyType.replace(/_/g, ' ') %></strong></span><% } %>
+          <% if (trade.stopLabel || trade.tpLabel) { %><span style="color:#6b7280;">Stop: <%= trade.stopLabel || 'ATR+S/R' %> · TP: <%= trade.tpLabel || 'R mult' %></span><% } %>
         </div>
 
         <div class="levels">
@@ -92,6 +94,8 @@
         <% } %>
 
         <div class="trade-actions">
+          <% var chartUrl = '/chart/' + trade.coinId + '?entry=' + trade.entryPrice + (trade.stopLoss ? '&sl=' + trade.stopLoss : '') + (trade.takeProfit1 ? '&tp1=' + trade.takeProfit1 : '') + (trade.takeProfit2 ? '&tp2=' + trade.takeProfit2 : '') + (trade.takeProfit3 ? '&tp3=' + trade.takeProfit3 : ''); %>
+          <a href="<%= chartUrl %>" class="btn btn-outline btn-sm" target="_blank" rel="noopener">View chart</a>
           <form action="/trades/close/<%= trade._id %>" method="POST" style="display:inline;">
             <button type="submit" class="btn btn-close btn-sm">Close at Market</button>
           </form>

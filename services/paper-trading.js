@@ -78,6 +78,7 @@ async function openTrade(userId, signalData) {
 
   const leverage = signalData.leverage || user.settings?.defaultLeverage || 1;
   const riskPercent = user.settings?.riskPerTrade || 2;
+  const maxBalancePct = user.settings?.maxBalancePercentPerTrade ?? 25;
   // Slippage: worse entry (LONG pay more, SHORT receive less)
   const slippage = 1 + (SLIPPAGE_BPS / 10000);
   const entryPrice = signalData.direction === 'LONG'
@@ -92,6 +93,11 @@ async function openTrade(userId, signalData) {
   const score = Math.min(100, Math.max(0, signalData.score || 50));
   const confidenceMult = Math.min(1.2, 0.5 + score / 100);
   positionSize = positionSize * confidenceMult;
+
+  // Cap margin to max % of balance so we don't use all balance on one trade
+  const maxMarginByPct = user.paperBalance * (Math.min(100, Math.max(5, maxBalancePct)) / 100);
+  const maxPositionByMarginPct = maxMarginByPct * leverage;
+  positionSize = Math.min(positionSize, Math.max(0, maxPositionByMarginPct));
 
   // Cap so margin + fees never exceed balance (leave $0.50 buffer for rounding)
   const maxSpend = Math.max(0, user.paperBalance - 0.50);
@@ -140,6 +146,10 @@ async function openTrade(userId, signalData) {
     score: signalData.score,
     strategyType: signalData.strategyType,
     regime: signalData.regime,
+    stopType: signalData.stopType,
+    stopLabel: signalData.stopLabel,
+    tpType: signalData.tpType,
+    tpLabel: signalData.tpLabel,
     reasoning: signalData.reasoning || [],
     indicatorsAtEntry: signalData.indicators || {},
     maxPrice: entryPrice,
