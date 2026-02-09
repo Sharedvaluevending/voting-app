@@ -999,58 +999,73 @@ function pickStrategy(s1h, s4h, s1d, regime, scores15m, scores1w, strategyWeight
     position:     { id: 'position',     name: 'Position',       score: 0, displayScore: null }
   };
 
+  // Default dimension weights per strategy (used when no learned weights exist)
+  // Each strategy emphasizes the dimensions it cares about most
+  const DEFAULT_WEIGHTS = {
+    trend_follow: { trend: 30, momentum: 20, volume: 10, structure: 15, volatility: 10, riskQuality: 15 },
+    breakout:     { trend: 10, momentum: 15, volume: 25, structure: 25, volatility: 15, riskQuality: 10 },
+    mean_revert:  { trend: 10, momentum: 30, volume: 10, structure: 20, volatility: 20, riskQuality: 10 },
+    momentum:     { trend: 15, momentum: 30, volume: 25, structure: 10, volatility: 10, riskQuality: 10 },
+    scalping:     { trend: 10, momentum: 25, volume: 15, structure: 25, volatility: 15, riskQuality: 10 },
+    swing:        { trend: 25, momentum: 15, volume: 10, structure: 25, volatility: 15, riskQuality: 10 },
+    position:     { trend: 30, momentum: 10, volume: 10, structure: 20, volatility: 10, riskQuality: 20 }
+  };
+
   function weightedScore(s, weights) {
     if (!weights || typeof weights.trend !== 'number') return null;
     const w = weights;
     const total = (w.trend + w.momentum + w.volume + w.structure + w.volatility + w.riskQuality) || 100;
-    // Normalize to 0-100: each dimension is 0-20, weight to 0-1 and sum
     const v = (s.trend / 20) * (w.trend / total) + (s.momentum / 20) * (w.momentum / total) + (s.volume / 20) * (w.volume / total) +
       (s.structure / 20) * (w.structure / total) + (s.volatility / 10) * (w.volatility / total) + (s.riskQuality / 10) * (w.riskQuality / total);
     return Math.round(Math.min(100, Math.max(0, v * 100)));
   }
 
+  function getWeights(stratId) {
+    return (byId[stratId] && byId[stratId].weights) || DEFAULT_WEIGHTS[stratId];
+  }
+
   // Trend following: 1D/4H trend
   strategies.trend_follow.score = s1d.trend * 1.5 + s4h.trend * 1.2;
   if (regime === 'trending') strategies.trend_follow.score += 20;
-  const wTf = byId.trend_follow && byId.trend_follow.weights;
-  strategies.trend_follow.displayScore = wTf ? (weightedScore(s1d, wTf) * 0.55 + weightedScore(s4h, wTf) * 0.45) : (s1d.total * 0.55 + s4h.total * 0.45);
+  const wTf = getWeights('trend_follow');
+  strategies.trend_follow.displayScore = weightedScore(s1d, wTf) * 0.55 + weightedScore(s4h, wTf) * 0.45;
 
   // Breakout: 1H
   strategies.breakout.score = s1h.volatility * 2 + s1h.structure * 1.3;
   if (regime === 'compression') strategies.breakout.score += 25;
-  strategies.breakout.displayScore = (byId.breakout && byId.breakout.weights) ? weightedScore(s1h, byId.breakout.weights) : s1h.total;
+  strategies.breakout.displayScore = weightedScore(s1h, getWeights('breakout'));
 
   // Mean reversion: 1H
   strategies.mean_revert.score = s1h.momentum * 1.2 + s1h.structure * 1.0;
   if (regime === 'ranging') strategies.mean_revert.score += 20;
-  strategies.mean_revert.displayScore = (byId.mean_revert && byId.mean_revert.weights) ? weightedScore(s1h, byId.mean_revert.weights) : s1h.total;
+  strategies.mean_revert.displayScore = weightedScore(s1h, getWeights('mean_revert'));
 
   // Momentum: 1H
   strategies.momentum.score = s1h.momentum * 1.5 + s1h.volume * 1.3;
   if (regime === 'trending') strategies.momentum.score += 10;
-  strategies.momentum.displayScore = (byId.momentum && byId.momentum.weights) ? weightedScore(s1h, byId.momentum.weights) : s1h.total;
+  strategies.momentum.displayScore = weightedScore(s1h, getWeights('momentum'));
 
   // Scalping
   if (scores15m) {
     strategies.scalping.score = scores15m.volatility * 1.5 + scores15m.structure * 1.2 + s1h.momentum * 1.0;
     if (regime === 'volatile' || regime === 'compression') strategies.scalping.score += 15;
-    strategies.scalping.displayScore = scores15m.total * 0.5 + s1h.total * 0.5;
+    strategies.scalping.displayScore = weightedScore(scores15m, getWeights('scalping')) * 0.5 + weightedScore(s1h, getWeights('scalping')) * 0.5;
   } else {
-    strategies.scalping.displayScore = s1h.total;
+    strategies.scalping.displayScore = weightedScore(s1h, getWeights('scalping'));
   }
 
   // Swing: 4H + 1D
   strategies.swing.score = s4h.trend * 1.3 + s1d.trend * 1.2 + s4h.structure * 1.0;
   if (regime === 'trending' || regime === 'compression') strategies.swing.score += 15;
-  strategies.swing.displayScore = s4h.total * 0.5 + s1d.total * 0.5;
+  strategies.swing.displayScore = weightedScore(s4h, getWeights('swing')) * 0.5 + weightedScore(s1d, getWeights('swing')) * 0.5;
 
   // Position: 1D + 1W
   if (scores1w) {
     strategies.position.score = s1d.trend * 1.2 + scores1w.trend * 1.5 + s1d.structure * 1.0;
     if (regime === 'trending') strategies.position.score += 15;
-    strategies.position.displayScore = s1d.total * 0.5 + scores1w.total * 0.5;
+    strategies.position.displayScore = weightedScore(s1d, getWeights('position')) * 0.5 + weightedScore(scores1w, getWeights('position')) * 0.5;
   } else {
-    strategies.position.displayScore = s1d.total;
+    strategies.position.displayScore = weightedScore(s1d, getWeights('position'));
   }
 
   // Normalize displayScore to 0-100
@@ -1058,21 +1073,36 @@ function pickStrategy(s1h, s4h, s1d, regime, scores15m, scores1w, strategyWeight
     if (s.displayScore != null && (s.displayScore < 0 || s.displayScore > 100)) s.displayScore = Math.max(0, Math.min(100, s.displayScore));
   });
 
-  // Pick best: respect regime gating and min sample
-  let best = strategies.trend_follow;
+  // Pick best: use displayScore (balanced 0-100) with small regime fit bonus
+  // Old logic used inflated raw .score which always favored trend_follow
+  const REGIME_FIT_BONUS = {
+    trend_follow: { trending: 5 },
+    breakout:     { compression: 5 },
+    mean_revert:  { ranging: 5 },
+    momentum:     { trending: 3 },
+    scalping:     { volatile: 3, compression: 3 },
+    swing:        { trending: 3, compression: 3 },
+    position:     { trending: 3 }
+  };
+  let best = null;
   const list = Object.values(strategies);
   const allowed = list.filter(s => {
+    if (s.displayScore == null) return false;
     const blocked = (REGIME_STRATEGY_BLOCK[s.id] || []).indexOf(regime) >= 0;
     const minTrades = (strategyStats[s.id] || strategyStats[s.id + ''] || {}).totalTrades || 0;
     const underMin = minTrades < MIN_TRADES_FOR_STRATEGY;
-    return !blocked && (!underMin || minTrades === 0); // allow if no data yet, or enough data
+    return !blocked && (!underMin || minTrades === 0);
   });
-  const candidates = allowed.length > 0 ? allowed : list;
+  const candidates = allowed.length > 0 ? allowed : list.filter(s => s.displayScore != null);
   for (const s of candidates) {
     const blocked = (REGIME_STRATEGY_BLOCK[s.id] || []).indexOf(regime) >= 0;
     if (blocked) continue;
-    if (s.score > best.score) best = s;
+    if (s.displayScore == null) continue;
+    const bonus = (REGIME_FIT_BONUS[s.id] && REGIME_FIT_BONUS[s.id][regime]) || 0;
+    const bestBonus = best ? ((REGIME_FIT_BONUS[best.id] && REGIME_FIT_BONUS[best.id][regime]) || 0) : 0;
+    if (!best || (s.displayScore + bonus) > (best.displayScore + bestBonus)) best = s;
   }
+  if (!best) best = strategies.trend_follow;
 
   return {
     best,
