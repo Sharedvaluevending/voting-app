@@ -8,7 +8,7 @@
 
 const Trade = require('../models/Trade');
 const User = require('../models/User');
-const { recordTradeOutcome } = require('./learning-engine');
+const { recordTradeOutcome, adjustWeights } = require('./learning-engine');
 
 const MAKER_FEE = 0.001;
 const TAKER_FEE = 0.001;
@@ -153,7 +153,9 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
   user.stats.totalPnl += pnl;
   await user.save();
 
-  recordTradeOutcome(trade).catch(err => console.error('[PaperTrading] Learn error:', err.message));
+  recordTradeOutcome(trade)
+    .then(() => adjustWeights().catch(err => console.error('[PaperTrading] AdjustWeights error:', err.message)))
+    .catch(err => console.error('[PaperTrading] Learn error:', err.message));
 
   return trade;
 }

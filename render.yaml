@@ -5,6 +5,8 @@ services:
     buildCommand: npm install
     startCommand: node voting-app.js
     envVars:
+      # Use the STANDARD connection string (mongodb://host:port,...) not mongodb+srv
+      # to avoid DNS ENOTFOUND on Render. In Atlas: Connect → your app → copy standard URI.
       - key: MONGODB_URI
         sync: false
       - key: NODE_ENV

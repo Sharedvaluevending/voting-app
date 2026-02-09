@@ -1,0 +1,106 @@
+/**
+ * Active Trades live updates: time every 1s, price & PnL every 15s
+ */
+(function() {
+  'use strict';
+
+  function formatPrice(price) {
+    if (price == null || isNaN(price)) return '0.00';
+    var n = Number(price);
+    if (n >= 1000) return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (n >= 1) return n.toFixed(2);
+    if (n >= 0.01) return n.toFixed(4);
+    return n.toFixed(8);
+  }
+
+  function timeHeldStr(entryTimeMs) {
+    var heldMs = Date.now() - entryTimeMs;
+    var totalSecs = Math.max(0, Math.floor(heldMs / 1000));
+    var secs = totalSecs % 60;
+    var mins = Math.floor(totalSecs / 60) % 60;
+    var hours = Math.floor(totalSecs / 3600);
+    var days = Math.floor(hours / 24);
+    if (days > 0) return days + 'd ' + (hours % 24) + 'h';
+    if (hours > 0) return hours + 'h ' + mins + 'm ' + secs + 's';
+    if (mins > 0) return mins + 'm ' + secs + 's';
+    return secs + 's';
+  }
+
+  function runWhenReady(fn) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', fn);
+    } else {
+      fn();
+    }
+  }
+
+  runWhenReady(function() {
+    var cards = document.querySelectorAll('.trade-card');
+    if (!cards || cards.length === 0) return;
+
+    // Time held: update every second
+    function tickTime() {
+      for (var i = 0; i < cards.length; i++) {
+        var card = cards[i];
+        var entryTime = card.getAttribute('data-entry-time');
+        if (!entryTime) continue;
+        var entryMs = new Date(entryTime).getTime();
+        if (isNaN(entryMs)) continue;
+        var el = card.querySelector('.trade-time');
+        if (el) el.textContent = timeHeldStr(entryMs);
+      }
+    }
+    setInterval(tickTime, 1000);
+    tickTime();
+
+    // Price & PnL: fetch every 15 seconds
+    function updatePrices() {
+      var url = (window.location.origin || '') + '/api/prices';
+      fetch(url, { credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
+          if (!result || !result.success || !result.data || !Array.isArray(result.data)) return;
+          var priceMap = {};
+          for (var i = 0; i < result.data.length; i++) {
+            var p = result.data[i];
+            if (p && p.id != null) priceMap[p.id] = p.price;
+          }
+          for (var c = 0; c < cards.length; c++) {
+            var card = cards[c];
+            var coinId = card.getAttribute('data-coin-id');
+            var currentPrice = priceMap[coinId];
+            if (currentPrice == null || isNaN(currentPrice)) continue;
+            var entryPrice = parseFloat(card.getAttribute('data-entry-price'));
+            var positionSize = parseFloat(card.getAttribute('data-position-size'));
+            var margin = parseFloat(card.getAttribute('data-margin'));
+            var direction = card.getAttribute('data-direction');
+            if (!margin || margin <= 0) continue;
+            var pnl = direction === 'LONG'
+              ? ((currentPrice - entryPrice) / entryPrice) * positionSize
+              : ((entryPrice - currentPrice) / entryPrice) * positionSize;
+            var pnlPct = (pnl / margin) * 100;
+
+            var priceEl = card.querySelector('.trade-price');
+            var dollarEl = card.querySelector('.trade-pnl-dollar');
+            var pctEl = card.querySelector('.trade-pnl-pct');
+            var levelEl = card.querySelector('.trade-current-level');
+            var wrapEl = card.querySelector('.trade-pnl-wrap');
+
+            if (priceEl) priceEl.textContent = '$' + formatPrice(currentPrice);
+            if (dollarEl) dollarEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+            if (pctEl) pctEl.textContent = ' (' + pnlPct.toFixed(2) + '%)';
+            if (levelEl) {
+              levelEl.textContent = '$' + formatPrice(currentPrice);
+              levelEl.className = 'level-value trade-current-level ' + (pnl >= 0 ? 'tp' : 'sl');
+            }
+            if (wrapEl) wrapEl.className = 'change trade-pnl-wrap ' + (pnl >= 0 ? 'up' : 'down');
+            card.classList.remove('buy', 'sell');
+            card.classList.add(pnl >= 0 ? 'buy' : 'sell');
+          }
+        })
+        .catch(function() {});
+    }
+    setInterval(updatePrices, 15000);
+    updatePrices();
+  });
+})();

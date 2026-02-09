@@ -731,10 +731,12 @@ function classifyVolatility(atr, closes) {
 }
 
 // ====================================================
-// REGIME DETECTION
+// REGIME DETECTION (use both 1D and 4H so we don't default everything to ranging)
 // ====================================================
 function detectRegime(tf1d, tf4h) {
-  const adx = tf1d.adx || 0;
+  const adx1d = tf1d.adx || 0;
+  const adx4h = tf4h.adx || 0;
+  const adx = Math.max(adx1d, adx4h);
   const bbSqueeze = tf4h.bbSqueeze;
   const trend = tf1d.trend;
   const vol = tf1d.volatilityState;
@@ -743,7 +745,7 @@ function detectRegime(tf1d, tf4h) {
   if (adx > 20 && (trend === 'UP' || trend === 'DOWN')) return 'trending';
   if (bbSqueeze) return 'compression';
   if (vol === 'extreme' || vol === 'high') return 'volatile';
-  if (adx < 15) return 'ranging';
+  if (adx > 0 && adx < 15) return 'ranging';
   return 'mixed';
 }
 

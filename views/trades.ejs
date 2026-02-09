@@ -3,6 +3,7 @@
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Active Trades</h2>
   <span style="color:#6b7280;font-size:13px;">Max <%= user.settings?.maxOpenTrades || 3 %> open trades | 1 per pair</span>
+  <span style="color:#6b7280;font-size:12px;margin-left:10px;">· Time updates every second · Price & % every 15s</span>
 </div>
 
 <% if (typeof error !== 'undefined' && error) { %>
@@ -29,10 +30,28 @@
         pnl = ((trade.entryPrice - currentPrice) / trade.entryPrice) * trade.positionSize;
       }
       pnlPct = (pnl / trade.margin) * 100;
-      var timeHeld = Math.floor((Date.now() - new Date(trade.entryTime).getTime()) / 3600000);
-      var timeStr = timeHeld >= 24 ? Math.floor(timeHeld/24) + 'd ' + (timeHeld%24) + 'h' : timeHeld + 'h';
+      var entryTs = trade.entryTime ? new Date(trade.entryTime).getTime() : Date.now();
+      var heldMs = Date.now() - entryTs;
+      var totalSecs = Math.max(0, Math.floor(heldMs / 1000));
+      var secs = totalSecs % 60;
+      var mins = Math.floor(totalSecs / 60) % 60;
+      var hours = Math.floor(totalSecs / 3600);
+      var days = Math.floor(hours / 24);
+      var timeStr = days > 0
+        ? days + 'd ' + (hours % 24) + 'h'
+        : hours > 0
+          ? hours + 'h ' + mins + 'm ' + secs + 's'
+          : mins > 0
+            ? mins + 'm ' + secs + 's'
+            : secs + 's';
     %>
-      <div class="signal-card <%= pnl >= 0 ? 'buy' : 'sell' %>">
+      <div class="signal-card trade-card <%= pnl >= 0 ? 'buy' : 'sell' %>"
+           data-coin-id="<%= trade.coinId %>"
+           data-direction="<%= trade.direction %>"
+           data-entry-price="<%= trade.entryPrice %>"
+           data-position-size="<%= trade.positionSize %>"
+           data-margin="<%= trade.margin %>"
+           data-entry-time="<%= trade.entryTime ? new Date(trade.entryTime).toISOString() : new Date().toISOString() %>">
         <div class="card-header">
           <div class="coin-info">
             <h3><%= trade.symbol %> <span class="symbol"><%= trade.direction %></span></h3>
@@ -40,9 +59,10 @@
             <% if (trade.leverage > 1) { %><span class="lev-badge"><%= trade.leverage %>x</span><% } %>
           </div>
           <div class="coin-price">
-            <div class="price">$<%= formatPrice(currentPrice) %></div>
-            <div class="change <%= pnl >= 0 ? 'up' : 'down' %>">
-              <%= pnl >= 0 ? '+' : '' %>$<%= pnl.toFixed(2) %> (<%= pnlPct.toFixed(2) %>%)
+            <div class="price trade-price">$<%= formatPrice(currentPrice) %></div>
+            <div class="change trade-pnl-wrap <%= pnl >= 0 ? 'up' : 'down' %>">
+              <span class="trade-pnl-dollar"><%= pnl >= 0 ? '+' : '' %>$<%= pnl.toFixed(2) %></span>
+              <span class="trade-pnl-pct"> (<%= pnlPct.toFixed(2) %>%)</span>
             </div>
           </div>
         </div>
@@ -51,14 +71,14 @@
           <span>Entry: <strong>$<%= formatPrice(trade.entryPrice) %></strong></span>
           <span>Size: <strong>$<%= trade.positionSize.toFixed(2) %></strong></span>
           <span>Margin: <strong>$<%= trade.margin.toFixed(2) %></strong></span>
-          <span>Time: <strong><%= timeStr %></strong></span>
+          <span>Time: <strong class="trade-time"><%= timeStr %></strong></span>
           <span>Score: <strong><%= trade.score || '-' %></strong></span>
         </div>
 
         <div class="levels">
           <div class="level"><div class="level-label">Entry</div><div class="level-value entry">$<%= formatPrice(trade.entryPrice) %></div></div>
           <div class="level"><div class="level-label">SL</div><div class="level-value sl"><%= trade.stopLoss ? '$' + formatPrice(trade.stopLoss) : '-' %></div></div>
-          <div class="level"><div class="level-label">Current</div><div class="level-value <%= pnl >= 0 ? 'tp' : 'sl' %>">$<%= formatPrice(currentPrice) %></div></div>
+          <div class="level"><div class="level-label">Current</div><div class="level-value trade-current-level <%= pnl >= 0 ? 'tp' : 'sl' %>">$<%= formatPrice(currentPrice) %></div></div>
           <div class="level"><div class="level-label">TP1</div><div class="level-value tp"><%= trade.takeProfit1 ? '$' + formatPrice(trade.takeProfit1) : '-' %></div></div>
           <div class="level"><div class="level-label">TP2</div><div class="level-value tp"><%= trade.takeProfit2 ? '$' + formatPrice(trade.takeProfit2) : '-' %></div></div>
           <div class="level"><div class="level-label">TP3</div><div class="level-value tp"><%= trade.takeProfit3 ? '$' + formatPrice(trade.takeProfit3) : '-' %></div></div>
@@ -79,6 +99,10 @@
       </div>
     <% }); %>
   </div>
+<% } %>
+
+<% if (trades.length > 0) { %>
+<script src="/js/trades-live.js" defer></script>
 <% } %>
 
 <%- include('partials/footer') %>

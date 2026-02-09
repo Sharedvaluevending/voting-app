@@ -32,15 +32,30 @@ const PORT = process.env.PORT || 3000;
 
 // ====================================================
 // MONGODB
+// On Render: use the STANDARD connection string (not mongodb+srv) to avoid
+// DNS ENOTFOUND. In Atlas: Cluster → Connect → "Connect your application"
+// → toggle "Driver" to see standard format, or use "Direct connection" host.
 // ====================================================
-const mongoURI = process.env.MONGODB_URI || 'mongodb+srv://sharedvaluevending:KTwSLX9PeeaXIXME@cluster0.1blpa.mongodb.net/votingApp?retryWrites=true&w=majority&appName=Cluster0';
+const mongoURI = process.env.MONGODB_URI || (process.env.NODE_ENV === 'production' ? null : 'mongodb://127.0.0.1:27017/votingApp');
+if (!mongoURI) {
+  console.error('[DB] MONGODB_URI is required in production. Set it in Render Environment.');
+  process.exit(1);
+}
 
-mongoose.connect(mongoURI)
+// Prefer explicit standard URI on Render to avoid SRV DNS issues (ENOTFOUND)
+const uri = process.env.MONGODB_URI_STANDARD || mongoURI;
+
+mongoose.connect(uri)
   .then(() => {
-    console.log('[DB] Connected to MongoDB Atlas');
+    console.log('[DB] Connected to MongoDB');
     initializeStrategies().catch(err => console.error('[DB] Strategy init error:', err.message));
   })
-  .catch(err => console.error('[DB] MongoDB connection error:', err));
+  .catch(err => {
+    console.error('[DB] MongoDB connection error:', err);
+    if (uri.startsWith('mongodb+srv://') && process.env.NODE_ENV === 'production') {
+      console.error('[DB] Tip: On Render, use the standard connection string (mongodb://...) in MONGODB_URI or MONGODB_URI_STANDARD to avoid SRV DNS errors.');
+    }
+  });
 
 // ====================================================
 // MIDDLEWARE
@@ -55,7 +70,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'crypto-signals-secret-key-change-in-prod',
   resave: false,
   saveUninitialized: false,
-  store: MongoStore.create({ mongoUrl: mongoURI, collectionName: 'sessions' }),
+  store: MongoStore.create({ mongoUrl: uri, collectionName: 'sessions' }),
   cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
 }));
 
