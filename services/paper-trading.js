@@ -93,25 +93,34 @@ async function openTrade(userId, signalData) {
   const confidenceMult = Math.min(1.2, 0.5 + score / 100);
   positionSize = positionSize * confidenceMult;
 
-  // Cap position so margin + fees never exceed balance (risk management = size from balance)
-  const maxPositionFromBalance = user.paperBalance / (1 / leverage + MAKER_FEE);
+  // Cap so margin + fees never exceed balance (leave $0.50 buffer for rounding)
+  const maxSpend = Math.max(0, user.paperBalance - 0.50);
+  const maxPositionFromBalance = maxSpend / (1 / leverage + MAKER_FEE);
   positionSize = Math.min(positionSize, Math.max(0, maxPositionFromBalance));
 
-  // If still invalid or zero (e.g. bad data), use a small % of balance so we can always open when balance > 0
+  // If still invalid or zero, use a small size that fits in balance
   if (!Number.isFinite(positionSize) || positionSize <= 0) {
     positionSize = Math.min(user.paperBalance * 0.02 * leverage, maxPositionFromBalance);
   }
 
-  const margin = positionSize / leverage;
-  const fees = positionSize * MAKER_FEE;
-  const required = margin + fees;
-  const epsilon = 0.01;
+  let margin = positionSize / leverage;
+  let fees = positionSize * MAKER_FEE;
+  let required = margin + fees;
+
+  // Final safety: if required still exceeds balance (e.g. rounding), shrink position until it fits
+  if (required > user.paperBalance && user.paperBalance > 0) {
+    const maxPosByBalance = (user.paperBalance - 0.01) / (1 / leverage + MAKER_FEE);
+    positionSize = Math.min(positionSize, Math.max(0, maxPosByBalance));
+    margin = positionSize / leverage;
+    fees = positionSize * MAKER_FEE;
+    required = margin + fees;
+  }
 
   if (user.paperBalance <= 0) {
-    throw new Error('Insufficient balance. Your paper balance is zero.');
+    throw new Error('Insufficient balance. Your paper balance is zero. Reset your paper account from the Performance page.');
   }
-  if (required > user.paperBalance + epsilon) {
-    throw new Error(`Insufficient balance. Need $${required.toFixed(2)}, have $${user.paperBalance.toFixed(2)}`);
+  if (required > user.paperBalance) {
+    throw new Error(`Insufficient balance. Need $${required.toFixed(2)}, have $${user.paperBalance.toFixed(2)}. Try resetting paper account.`);
   }
 
   const trade = new Trade({
