@@ -389,7 +389,14 @@ async function refreshAllData() {
       }
     }
     if (prices && prices.length > 0) {
-      cache.prices = { data: prices, timestamp: Date.now() };
+      const prevCount = (cache.prices.data || []).length;
+      const minCoins = Math.min(TRACKED_COINS.length, Math.max(5, Math.ceil(TRACKED_COINS.length * 0.5)));
+      const accept = prices.length >= minCoins || (prevCount > 0 && prices.length >= prevCount);
+      if (accept) {
+        cache.prices = { data: prices, timestamp: Date.now() };
+      } else {
+        console.log(`[Refresh] Skipping partial price update (got ${prices.length}, need ${minCoins} or more; keeping ${prevCount} coins)`);
+      }
     } else {
       console.log('[Refresh] No prices from any API – keeping previous');
     }
