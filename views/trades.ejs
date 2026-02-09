@@ -2,7 +2,7 @@
 
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Active Trades</h2>
-  <span style="color:#6b7280;font-size:13px;">Max <%= user.settings?.maxOpenTrades || 3 %> open trades | 1 per pair</span>
+  <span style="color:#6b7280;font-size:13px;">Max <%= (user.settings && user.settings.maxOpenTrades) || 3 %> open trades | 1 per pair</span>
   <span style="color:#6b7280;font-size:12px;margin-left:10px;">· Time updates every second · Price & % every 15s</span>
 </div>
 

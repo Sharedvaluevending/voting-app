@@ -16,8 +16,8 @@ const cache = {
   refreshing: false
 };
 
-const REFRESH_INTERVAL = 3 * 60 * 1000;
-const COINGECKO_DELAY = 4000;
+const REFRESH_INTERVAL = 5 * 60 * 1000;
+const COINGECKO_DELAY = 6000;
 const BINANCE_DELAY = 200;
 const RETRY_DELAY = 10000;
 
@@ -51,7 +51,7 @@ async function fetchWithRetry(url, retries = 2) {
       });
       if (response.status === 429) {
         const wait = RETRY_DELAY * (attempt + 1);
-        console.log(`Rate limited on ${url.split('?')[0].split('/').pop()}. Waiting ${wait / 1000}s...`);
+        console.log(`Rate limited on price. Waiting ${wait / 1000}s...`);
         await sleep(wait);
         continue;
       }
@@ -59,12 +59,14 @@ async function fetchWithRetry(url, retries = 2) {
         const body = await response.text().catch(() => '');
         throw new Error(`HTTP ${response.status}: ${body.slice(0, 100)}`);
       }
-      return await response.json();
+      const json = await response.json();
+      return json;
     } catch (err) {
       if (attempt === retries) throw err;
       await sleep(RETRY_DELAY);
     }
   }
+  throw new Error('Rate limited after retries');
 }
 
 function sleep(ms) {
@@ -78,6 +80,10 @@ async function fetchPricesFromAPI() {
   const ids = TRACKED_COINS.join(',');
   const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true&include_last_updated_at=true`;
   const data = await fetchWithRetry(url);
+
+  if (!data || typeof data !== 'object') {
+    throw new Error('Invalid price response from API');
+  }
 
   return TRACKED_COINS.map(id => {
     const info = data[id];
@@ -165,10 +171,16 @@ async function refreshAllData() {
   console.log('[Refresh] Starting background data refresh...');
 
   try {
-    // Step 1: CoinGecko prices
-    const prices = await fetchPricesFromAPI();
-    cache.prices = { data: prices, timestamp: Date.now() };
-    console.log(`[Refresh] Got prices for ${prices.length} coins`);
+    // Step 1: CoinGecko prices (keep previous cache if rate limited or error)
+    try {
+      const prices = await fetchPricesFromAPI();
+      if (prices && prices.length > 0) {
+        cache.prices = { data: prices, timestamp: Date.now() };
+        console.log(`[Refresh] Got prices for ${prices.length} coins`);
+      }
+    } catch (priceErr) {
+      console.error('[Refresh] Price fetch failed:', priceErr.message, '- keeping previous prices');
+    }
 
     // Step 2: Binance candles for each coin (3 calls per coin, but Binance is generous)
     let successCount = 0;
