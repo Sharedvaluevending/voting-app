@@ -424,9 +424,15 @@ app.get('/performance', requireLogin, async (req, res) => {
       getPerformanceStats(req.session.userId),
       User.findById(req.session.userId).lean()
     ]);
+    const safeStats = stats || {
+      balance: 10000, initialBalance: 10000, totalPnl: 0, totalPnlPercent: '0', totalTrades: 0,
+      openTrades: 0, wins: 0, losses: 0, winRate: '0', avgWin: 0, avgLoss: 0, profitFactor: '0',
+      bestTrade: 0, worstTrade: 0, currentStreak: 0, bestStreak: 0, pnl7d: 0,
+      byStrategy: {}, byCoin: {}, equityCurve: []
+    };
     res.render('performance', {
       activePage: 'performance',
-      stats,
+      stats: safeStats,
       user: user || {},
       success: req.query.success || null,
       error: req.query.error || null

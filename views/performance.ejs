@@ -46,6 +46,40 @@
 </div>
 <% } %>
 
+<!-- Position Sizing Calculator -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Position Sizing Calculator</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Enter your trade parameters to see risk amount and recommended position size.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;align-items:end;max-width:900px;">
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Account balance ($)</label>
+      <input type="number" id="calc-balance" min="100" step="100" value="<%= stats.balance %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Risk per trade (%)</label>
+      <input type="number" id="calc-risk" min="0.5" max="10" step="0.5" value="2" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Entry price ($)</label>
+      <input type="number" id="calc-entry" min="0.0001" step="0.01" value="1" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Stop loss ($)</label>
+      <input type="number" id="calc-sl" min="0" step="0.01" value="0.98" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Leverage</label>
+      <input type="number" id="calc-lev" min="1" max="20" value="1" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+  </div>
+  <div id="calc-result" style="margin-top:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+    <span style="font-size:13px;color:#9ca3af;">Risk amount: <strong id="calc-risk-amt" style="color:#eab308;">$0</strong></span>
+    <span style="font-size:13px;color:#9ca3af;">Position size: <strong id="calc-pos" style="color:#10b981;">$0</strong></span>
+    <span style="font-size:13px;color:#9ca3af;">Margin needed: <strong id="calc-margin" style="color:#3b82f6;">$0</strong></span>
+    <span style="font-size:11px;color:#6b7280;">(Stop distance: <span id="calc-stop-pct">0</span>%)</span>
+  </div>
+</div>
+
 <div class="perf-grid">
   <div class="perf-card">
     <div class="perf-label">Balance</div>
@@ -103,7 +137,34 @@
     <div class="perf-label">Open Trades</div>
     <div class="perf-value"><%= stats.openTrades %></div>
   </div>
+  <% if (stats.sharpe != null) { %>
+  <div class="perf-card">
+    <div class="perf-label">Sharpe Ratio</div>
+    <div class="perf-value <%= stats.sharpe >= 0 ? 'up' : 'down' %>"><%= stats.sharpe %></div>
+  </div>
+  <% } %>
+  <% if (stats.sortino != null) { %>
+  <div class="perf-card">
+    <div class="perf-label">Sortino Ratio</div>
+    <div class="perf-value <%= stats.sortino >= 0 ? 'up' : 'down' %>"><%= stats.sortino %></div>
+  </div>
+  <% } %>
+  <div class="perf-card">
+    <div class="perf-label">Max Drawdown</div>
+    <div class="perf-value down">$<%= (stats.maxDrawdown || 0).toFixed(2) %> (<%= (stats.maxDrawdownPct || 0) %>% of peak)</div>
+  </div>
 </div>
+
+<% if (stats.equityCurve && stats.equityCurve.length > 1) { %>
+<div class="section">
+  <h3>Equity Curve</h3>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">Account balance over time. Drawdown shaded in red.</p>
+  <div class="equity-chart-wrap" style="position:relative;background:#0d1320;border-radius:8px;padding:12px;border:1px solid #1e2a3a;">
+    <canvas id="equity-curve" width="700" height="200"></canvas>
+    <div id="equity-legend" style="font-size:11px;color:#6b7280;margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;"></div>
+  </div>
+</div>
+<% } %>
 
 <% if (Object.keys(stats.byStrategy).length > 0) { %>
 <div class="section">
@@ -150,5 +211,89 @@
   </table>
 </div>
 <% } %>
+
+<script>
+(function() {
+  var calcInputs = ['calc-balance','calc-risk','calc-entry','calc-sl','calc-lev'];
+  function updateCalc() {
+    var bal = parseFloat(document.getElementById('calc-balance').value) || 10000;
+    var risk = parseFloat(document.getElementById('calc-risk').value) || 2;
+    var entry = parseFloat(document.getElementById('calc-entry').value) || 1;
+    var sl = parseFloat(document.getElementById('calc-sl').value) || 0.98;
+    var lev = parseFloat(document.getElementById('calc-lev').value) || 1;
+    var riskAmt = bal * (risk / 100);
+    var stopDist = entry > 0 ? Math.abs(entry - sl) / entry : 0.02;
+    if (stopDist <= 0) stopDist = 0.02;
+    var posSize = (riskAmt / stopDist) * lev;
+    var capped = Math.min(posSize, bal * lev * 0.95);
+    var margin = capped / lev;
+    document.getElementById('calc-risk-amt').textContent = '$' + riskAmt.toFixed(2);
+    document.getElementById('calc-pos').textContent = '$' + capped.toFixed(2);
+    document.getElementById('calc-margin').textContent = '$' + margin.toFixed(2);
+    document.getElementById('calc-stop-pct').textContent = (stopDist * 100).toFixed(2);
+  }
+  calcInputs.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('input', updateCalc);
+  });
+  updateCalc();
+
+  <% if (stats.equityCurve && stats.equityCurve.length > 1) { %>
+  (function() {
+    var data = <%- JSON.stringify(stats.equityCurve) %>;
+    var canvas = document.getElementById('equity-curve');
+    if (!canvas || !data || data.length < 2) return;
+    var ctx = canvas.getContext('2d');
+    var w = canvas.width, h = canvas.height;
+    var pad = { top: 10, right: 10, bottom: 24, left: 50 };
+    var plotW = w - pad.left - pad.right, plotH = h - pad.top - pad.bottom;
+    var eq = data.map(function(d) { return d.equity; });
+    var minE = Math.min.apply(null, eq);
+    var maxE = Math.max.apply(null, eq);
+    var range = maxE - minE || 1;
+    minE = Math.max(0, minE - range * 0.05);
+    maxE = maxE + range * 0.05;
+    range = maxE - minE || 1;
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = '#1e2a3a';
+    ctx.lineWidth = 0.5;
+    for (var g = 0; g <= 4; g++) {
+      var gy = pad.top + (plotH * g / 4);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, gy);
+      ctx.lineTo(pad.left + plotW, gy);
+      ctx.stroke();
+      ctx.fillStyle = '#4b5563';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText('$' + Math.round(maxE - (range * g / 4)).toLocaleString(), pad.left - 4, gy + 3);
+    }
+    ctx.beginPath();
+    for (var i = 0; i < data.length; i++) {
+      var x = pad.left + (i / (data.length - 1)) * plotW;
+      var y = pad.top + plotH - ((data[i].equity - minE) / range) * plotH;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.lineTo(pad.left + plotW, pad.top + plotH);
+    ctx.lineTo(pad.left, pad.top + plotH);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(16,185,129,0.15)';
+    ctx.fill();
+    ctx.fillStyle = '#4b5563';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'left';
+    if (data[0].date) ctx.fillText(new Date(data[0].date).toLocaleDateString(), pad.left, h - 4);
+    ctx.textAlign = 'right';
+    if (data[data.length-1].date) ctx.fillText(new Date(data[data.length-1].date).toLocaleDateString(), pad.left + plotW, h - 4);
+    var last = data[data.length-1];
+    document.getElementById('equity-legend').innerHTML = 'Current: $' + (last.equity || 0).toLocaleString() + ' | Max DD: ' + (last.drawdownPct || 0) + '%';
+  })();
+  <% } %>
+})();
+</script>
 
 <%- include('partials/footer') %>

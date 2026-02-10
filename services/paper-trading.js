@@ -611,7 +611,8 @@ async function getPerformanceStats(userId) {
   const totalPnl = closedTrades.reduce((s, t) => s + (t.pnl || 0), 0);
   const avgWin = wins.length > 0 ? wins.reduce((s, t) => s + t.pnl, 0) / wins.length : 0;
   const avgLoss = losses.length > 0 ? losses.reduce((s, t) => s + Math.abs(t.pnl), 0) / losses.length : 0;
-  const profitFactor = avgLoss > 0 ? (avgWin * wins.length) / (avgLoss * losses.length) : 0;
+  const pfNum = avgLoss > 0 && losses.length > 0 ? (avgWin * wins.length) / (avgLoss * losses.length) : 0;
+  const profitFactor = Number.isFinite(pfNum) ? pfNum : 0;
 
   const byStrategy = {};
   closedTrades.forEach(t => {
@@ -635,11 +636,52 @@ async function getPerformanceStats(userId) {
   );
   const pnl7d = last7Days.reduce((s, t) => s + (t.pnl || 0), 0);
 
+  // Sharpe, Sortino, max drawdown, equity curve
+  const initialBalance = user.initialBalance || 10000;
+  const sortedByExit = [...closedTrades].filter(t => t.exitTime).sort((a, b) => new Date(a.exitTime) - new Date(b.exitTime));
+  let equity = initialBalance;
+  let peak = initialBalance;
+  let maxDrawdown = 0;
+  let maxDrawdownPct = 0;
+  const equityCurve = [{ date: new Date(0).toISOString(), equity: initialBalance, drawdown: 0, drawdownPct: 0 }];
+
+  for (const t of sortedByExit) {
+    equity += t.pnl || 0;
+    if (equity > peak) peak = equity;
+    const dd = peak - equity;
+    const ddPct = peak > 0 ? (dd / peak) * 100 : 0;
+    if (dd > maxDrawdown) maxDrawdown = dd;
+    if (ddPct > maxDrawdownPct) maxDrawdownPct = ddPct;
+    equityCurve.push({
+      date: t.exitTime,
+      equity: Math.round(equity * 100) / 100,
+      drawdown: Math.round(dd * 100) / 100,
+      drawdownPct: Math.round(ddPct * 100) / 100,
+      pnl: t.pnl,
+      regime: t.regime,
+      symbol: t.symbol
+    });
+  }
+
+  // Sharpe & Sortino from trade returns (pnl/margin = % return per trade)
+  const returns = sortedByExit.filter(t => t.margin > 0).map(t => (t.pnl || 0) / t.margin);
+  const meanRet = returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
+  const variance = returns.length > 1 ? returns.reduce((s, r) => s + (r - meanRet) ** 2, 0) / (returns.length - 1) : 0;
+  const stdRet = Math.sqrt(variance);
+  const downsideReturns = returns.filter(r => r < 0);
+  const downsideVar = downsideReturns.length > 0
+    ? downsideReturns.reduce((s, r) => s + r * r, 0) / downsideReturns.length
+    : 0;
+  const downsideStd = Math.sqrt(downsideVar);
+
+  const sharpe = stdRet > 0 ? meanRet / stdRet : 0;
+  const sortino = downsideStd > 0 ? meanRet / downsideStd : (meanRet >= 0 ? (returns.length > 0 ? 99 : 0) : -99);
+
   return {
     balance: user.paperBalance,
-    initialBalance: user.initialBalance,
+    initialBalance,
     totalPnl: Math.round(totalPnl * 100) / 100,
-    totalPnlPercent: user.initialBalance > 0 ? ((totalPnl / user.initialBalance) * 100).toFixed(2) : '0',
+    totalPnlPercent: initialBalance > 0 ? ((totalPnl / initialBalance) * 100).toFixed(2) : '0',
     totalTrades: closedTrades.length,
     openTrades: openTrades.length,
     wins: wins.length,
@@ -647,14 +689,19 @@ async function getPerformanceStats(userId) {
     winRate: closedTrades.length > 0 ? ((wins.length / closedTrades.length) * 100).toFixed(1) : '0',
     avgWin: Math.round(avgWin * 100) / 100,
     avgLoss: Math.round(avgLoss * 100) / 100,
-    profitFactor: profitFactor.toFixed(2),
-    bestTrade: user.stats.bestTrade,
-    worstTrade: user.stats.worstTrade,
-    currentStreak: user.stats.currentStreak,
-    bestStreak: user.stats.bestStreak,
+    profitFactor: (typeof profitFactor === 'number' ? profitFactor : 0).toFixed(2),
+    bestTrade: (user.stats && user.stats.bestTrade) ?? 0,
+    worstTrade: (user.stats && user.stats.worstTrade) ?? 0,
+    currentStreak: (user.stats && user.stats.currentStreak) ?? 0,
+    bestStreak: (user.stats && user.stats.bestStreak) ?? 0,
     pnl7d: Math.round(pnl7d * 100) / 100,
     byStrategy,
-    byCoin
+    byCoin,
+    sharpe: returns.length >= 2 ? Math.round(sharpe * 100) / 100 : null,
+    sortino: returns.length >= 2 ? Math.round(sortino * 100) / 100 : null,
+    maxDrawdown: Math.round(maxDrawdown * 100) / 100,
+    maxDrawdownPct: Math.round(maxDrawdownPct * 100) / 100,
+    equityCurve
   };
 }
 
