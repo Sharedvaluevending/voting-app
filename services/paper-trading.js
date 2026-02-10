@@ -15,6 +15,45 @@ const TAKER_FEE = 0.001;
 const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
 const DEFAULT_COOLDOWN_HOURS = 4;  // no same-direction re-entry on same coin within N hours
 
+// Stepped profit lock-in: progress toward TP -> lock-in level (R-multiple)
+const LOCK_IN_LEVELS = [
+  { progress: 0.5, lockR: 0.5 },
+  { progress: 0.75, lockR: 0.75 },
+  { progress: 0.9, lockR: 1 }
+];
+
+function getProgressTowardTP(trade, currentPrice) {
+  const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
+  if (!tp || !trade.entryPrice) return 0;
+  const isLong = trade.direction === 'LONG';
+  if (isLong && tp > trade.entryPrice) {
+    return Math.min(1, (currentPrice - trade.entryPrice) / (tp - trade.entryPrice));
+  }
+  if (!isLong && tp < trade.entryPrice) {
+    return Math.min(1, (trade.entryPrice - currentPrice) / (trade.entryPrice - tp));
+  }
+  return 0;
+}
+
+function getLockInStopPrice(trade, lockR, risk) {
+  if (!risk || risk <= 0) return null;
+  const r2 = (v) => Math.round(v * 1000000) / 1000000;
+  const isLong = trade.direction === 'LONG';
+  return isLong
+    ? r2(trade.entryPrice + risk * lockR)
+    : r2(trade.entryPrice - risk * lockR);
+}
+
+function getCurrentLockR(trade, risk) {
+  if (!trade.stopLoss || !risk || risk <= 0) return 0;
+  const isLong = trade.direction === 'LONG';
+  const dist = isLong
+    ? (trade.stopLoss || 0) - trade.entryPrice
+    : trade.entryPrice - (trade.stopLoss || 0);
+  if (dist <= 0) return 0;
+  return dist / risk;
+}
+
 function suggestLeverage(score, regime, volatilityState) {
   let maxLev = 1;
 
@@ -288,10 +327,14 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
     trade.maxDrawdownPercent = Math.max(trade.maxDrawdownPercent, drawdown);
     trade.maxProfitPercent = Math.max(trade.maxProfitPercent, profit);
 
-    // Trailing stop: move stop to breakeven when price is 1R in favor
-    const risk = trade.direction === 'LONG'
+    // Risk (1R) = distance from entry to original stop; when at BE or locked in, use TP-based fallback
+    let risk = trade.direction === 'LONG'
       ? trade.entryPrice - (trade.stopLoss || 0)
       : (trade.stopLoss || 0) - trade.entryPrice;
+    if (risk <= 0) {
+      const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
+      if (tp) risk = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
+    }
     if (risk > 0 && trade.stopLoss != null && trade.stopLoss !== trade.entryPrice) {
       if (trade.direction === 'LONG' && currentPrice >= trade.entryPrice + risk) {
         trade.stopLoss = trade.entryPrice;
@@ -299,6 +342,34 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       } else if (trade.direction === 'SHORT' && currentPrice <= trade.entryPrice - risk) {
         trade.stopLoss = trade.entryPrice;
         await trade.save();
+      }
+    }
+
+    // Stepped profit lock-in: at 50%/75%/90% toward TP2, lock in 0.5R/0.75R/1R (only move stop UP)
+    if (risk > 0 && trade.stopLoss != null) {
+      const progress = getProgressTowardTP(trade, currentPrice);
+      let effectiveProgress = progress;
+      if (progress <= 0 && trade.entryPrice > 0) {
+        const pnlPct = trade.direction === 'LONG'
+          ? (currentPrice - trade.entryPrice) / trade.entryPrice * 100
+          : (trade.entryPrice - currentPrice) / trade.entryPrice * 100;
+        if (pnlPct >= 5) effectiveProgress = 0.9;
+        else if (pnlPct >= 2) effectiveProgress = 0.5;
+      }
+      const currentLockR = getCurrentLockR(trade, risk);
+      for (const level of LOCK_IN_LEVELS) {
+        if (effectiveProgress >= level.progress && currentLockR < level.lockR) {
+          const newStop = getLockInStopPrice(trade, level.lockR, risk);
+          if (newStop) {
+            const isLong = trade.direction === 'LONG';
+            const validMove = isLong ? newStop > trade.stopLoss && newStop < currentPrice : newStop < trade.stopLoss && newStop > currentPrice;
+            if (validMove) {
+              trade.stopLoss = newStop;
+              await trade.save();
+              break;
+            }
+          }
+        }
       }
     }
     await trade.save();
@@ -528,6 +599,10 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
   if (considerPartial) {
     return { level: 'medium', actionId: 'take_partial', text: 'Take partial' };
   }
+  const lockInAvailable = messages.some(m => m.text === 'Lock in profit available');
+  if (lockInAvailable) {
+    return { level: 'medium', actionId: 'lock_in_profit', text: 'Lock in profit (0.5R)' };
+  }
   if (heat === 'yellow' || effective <= -5 || considerBE) {
     return { level: 'medium', actionId: 'tighten_stop', text: 'Tighten stop' };
   }
@@ -587,9 +662,13 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
     }
     if (actionId === 'tighten_stop') {
       if (!trade.stopLoss) return { executed: false };
-      const risk = trade.direction === 'LONG'
+      let risk = trade.direction === 'LONG'
         ? trade.entryPrice - trade.stopLoss
         : trade.stopLoss - trade.entryPrice;
+      if (risk <= 0) {
+        const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
+        if (tp) risk = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
+      }
       if (risk > 0 && trade.stopLoss !== trade.entryPrice) {
         const oldStop = trade.stopLoss;
         trade.stopLoss = trade.entryPrice;
@@ -600,6 +679,47 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
         await trade.save();
         console.log(`[ScoreCheck] ${details}`);
         return { executed: true, details };
+      }
+      return { executed: false };
+    }
+    if (actionId === 'lock_in_profit') {
+      if (!trade.stopLoss) return { executed: false };
+      let risk = trade.direction === 'LONG'
+        ? trade.entryPrice - trade.stopLoss
+        : trade.stopLoss - trade.entryPrice;
+      if (risk <= 0) {
+        const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
+        if (tp) risk = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
+      }
+      if (risk <= 0) return { executed: false };
+      const currentLockR = getCurrentLockR(trade, risk);
+      const progress = getProgressTowardTP(trade, price);
+      let effectiveProgress = progress;
+      if (progress <= 0 && trade.entryPrice > 0) {
+        const pnlPct = trade.direction === 'LONG' ? (price - trade.entryPrice) / trade.entryPrice * 100 : (trade.entryPrice - price) / trade.entryPrice * 100;
+        if (pnlPct >= 5) effectiveProgress = 0.9;
+        else if (pnlPct >= 2) effectiveProgress = 0.5;
+      }
+      for (const level of LOCK_IN_LEVELS) {
+        if (effectiveProgress >= level.progress && currentLockR < level.lockR) {
+          const newStop = getLockInStopPrice(trade, level.lockR, risk);
+          if (newStop) {
+            const isLong = trade.direction === 'LONG';
+            const validMove = isLong ? newStop > trade.stopLoss && newStop < price : newStop < trade.stopLoss && newStop > price;
+            if (validMove) {
+              const oldStop = trade.stopLoss;
+              trade.stopLoss = newStop;
+              trade.lastExecutedActionId = actionId;
+              const details = `Locked in ${level.lockR}R: $${fp(oldStop)} → $${fp(newStop)}`;
+              trade.scoreCheck = trade.scoreCheck || {};
+              trade.scoreCheck.lastActionDetails = details;
+              await trade.save();
+              console.log(`[ScoreCheck] ${details}`);
+              return { executed: true, details };
+            }
+          }
+          break;
+        }
       }
       return { executed: false };
     }
@@ -688,18 +808,36 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
 
   // 7. Consider BE stop (1R+ in profit, stop not yet at breakeven)
   const sl = trade.stopLoss;
-  if (sl != null) {
-    const risk = Math.abs(trade.entryPrice - sl);
-    if (risk > 0) {
-      const inProfit1R = isLong
-        ? currentPrice >= trade.entryPrice + risk
-        : currentPrice <= trade.entryPrice - risk;
-      const stopNotBE = isLong
-        ? sl < trade.entryPrice
-        : sl > trade.entryPrice;
-      if (inProfit1R && stopNotBE) {
-        messages.push({ type: 'info', text: 'Consider BE stop' });
-      }
+  let riskForLock = sl != null ? (isLong ? trade.entryPrice - sl : sl - trade.entryPrice) : 0;
+  if (riskForLock <= 0) {
+    const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
+    if (tp) riskForLock = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
+  }
+  if (sl != null && riskForLock > 0) {
+    const inProfit1R = isLong
+      ? currentPrice >= trade.entryPrice + riskForLock
+      : currentPrice <= trade.entryPrice - riskForLock;
+    const stopNotBE = isLong ? sl < trade.entryPrice : sl > trade.entryPrice;
+    if (inProfit1R && stopNotBE) {
+      messages.push({ type: 'info', text: 'Consider BE stop' });
+    }
+  }
+
+  // 8. Lock in profit: progress toward TP2 allows stepping stop to lock gains
+  const progressTowardTP = getProgressTowardTP(trade, currentPrice);
+  let effectiveProgress = progressTowardTP;
+  if (progressTowardTP <= 0 && trade.entryPrice > 0) {
+    const pnlPct = isLong ? (currentPrice - trade.entryPrice) / trade.entryPrice * 100 : (trade.entryPrice - currentPrice) / trade.entryPrice * 100;
+    if (pnlPct >= 5) effectiveProgress = 0.9;
+    else if (pnlPct >= 2) effectiveProgress = 0.5;
+  }
+  if (riskForLock > 0 && trade.stopLoss != null) {
+    const currentLockR = getCurrentLockR(trade, riskForLock);
+    if (currentLockR >= 0.5) {
+      const label = currentLockR >= 1 ? '1R' : currentLockR >= 0.75 ? '0.75R' : '0.5R';
+      messages.push({ type: 'positive', text: 'Profit locked: ' + label });
+    } else if (effectiveProgress >= 0.5) {
+      messages.push({ type: 'info', text: 'Lock in profit available' });
     }
   }
 
