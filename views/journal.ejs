@@ -11,14 +11,31 @@
   <div class="alert alert-success"><%= success %></div>
 <% } %>
 
+<% if (typeof linkedTrade !== 'undefined' && linkedTrade) { %>
+<div class="section" style="background:linear-gradient(135deg,#1e3a5f 0%,#0d1320 100%);border:1px solid #334155;border-radius:8px;padding:14px;margin-bottom:16px;">
+  <h4 style="margin:0 0 10px 0;color:#3b82f6;">Journaling: <%= linkedTrade.symbol %> <%= linkedTrade.direction %></h4>
+  <div style="font-size:12px;color:#9ca3af;display:flex;flex-wrap:wrap;gap:12px;">
+    <span>Entry: $<%= formatPrice(linkedTrade.entryPrice) %></span>
+    <span>Exit: $<%= formatPrice(linkedTrade.exitPrice) %></span>
+    <span class="<%= (linkedTrade.pnl||0) >= 0 ? 'up' : 'down' %>"><%= (linkedTrade.pnl||0) >= 0 ? '+' : '' %>$<%= (linkedTrade.pnl||0).toFixed(2) %> (<%= (linkedTrade.pnlPercent||0) >= 0 ? '+' : '' %><%= (linkedTrade.pnlPercent||0).toFixed(1) %>%)</span>
+    <span>Score: <%= linkedTrade.score || '-' %></span>
+    <span>Strategy: <%= linkedTrade.strategyType || '-' %></span>
+    <span>Status: <%= linkedTrade.status ? linkedTrade.status.replace('_',' ') : '-' %></span>
+  </div>
+</div>
+<% } %>
+
 <div class="section">
   <h3>New Entry</h3>
   <form action="/journal" method="POST">
+    <% if (typeof linkedTrade !== 'undefined' && linkedTrade) { %>
+    <input type="hidden" name="tradeId" value="<%= linkedTrade._id %>">
+    <% } %>
     <div class="form-group">
       <label>Type</label>
       <select name="type">
         <option value="daily_review">Daily Review</option>
-        <option value="trade_note">Trade Note</option>
+        <option value="trade_note" <%= typeof linkedTrade !== 'undefined' && linkedTrade ? 'selected' : '' %>>Trade Note</option>
         <option value="lesson">Lesson Learned</option>
         <option value="mistake">Mistake</option>
         <option value="win_analysis">Win Analysis</option>
@@ -46,7 +63,7 @@
     </div>
     <div class="form-group">
       <label>What happened? What did you learn?</label>
-      <textarea name="content" required placeholder="Today I..."></textarea>
+      <textarea name="content" required placeholder="<%= typeof linkedTrade !== 'undefined' && linkedTrade ? 'e.g. Took this ' + linkedTrade.direction + ' on ' + linkedTrade.symbol + '. What went right? What went wrong? What would you do differently?' : 'Today I...' %>"></textarea>
     </div>
     <div class="form-group">
       <label>Session Rating (1-10)</label>
@@ -72,6 +89,38 @@
 </div>
 <% } %>
 
+<% if (typeof analytics !== 'undefined' && (Object.keys(analytics.byEmotion).length > 0 || analytics.byRules.followed.total > 0 || analytics.byRules.broke.total > 0)) { %>
+<div class="section">
+  <h3>Journal Insights</h3>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:12px;">Win rates from trade-linked journal entries.</p>
+  <div class="perf-grid">
+    <% if (analytics.byRules.followed.total > 0 || analytics.byRules.broke.total > 0) { %>
+    <div class="perf-card">
+      <div class="perf-label">When you followed rules</div>
+      <div class="perf-value <%= analytics.byRules.followed.total > 0 && (analytics.byRules.followed.wins / analytics.byRules.followed.total) >= 0.5 ? 'up' : 'down' %>">
+        <%= analytics.byRules.followed.total > 0 ? ((analytics.byRules.followed.wins / analytics.byRules.followed.total) * 100).toFixed(0) : 0 %>% (<%= analytics.byRules.followed.wins %>/<%= analytics.byRules.followed.total %>)
+      </div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">When you broke rules</div>
+      <div class="perf-value <%= analytics.byRules.broke.total > 0 && (analytics.byRules.broke.wins / analytics.byRules.broke.total) >= 0.5 ? 'up' : 'down' %>">
+        <%= analytics.byRules.broke.total > 0 ? ((analytics.byRules.broke.wins / analytics.byRules.broke.total) * 100).toFixed(0) : 0 %>% (<%= analytics.byRules.broke.wins %>/<%= analytics.byRules.broke.total %>)
+      </div>
+    </div>
+    <% } %>
+    <% Object.keys(analytics.byEmotion).forEach(function(em) {
+      var d = analytics.byEmotion[em];
+      var pct = d.total > 0 ? (d.wins / d.total) * 100 : 0;
+    %>
+    <div class="perf-card">
+      <div class="perf-label">When feeling <%= em %></div>
+      <div class="perf-value <%= pct >= 50 ? 'up' : 'down' %>"><%= pct.toFixed(0) %>% (<%= d.wins %>/<%= d.total %>)</div>
+    </div>
+    <% }); %>
+  </div>
+</div>
+<% } %>
+
 <% if (entries.length > 0) { %>
 <div class="section">
   <h3>Recent Entries</h3>
@@ -79,6 +128,7 @@
     <div class="journal-entry">
       <div class="je-header">
         <span class="je-type"><%= entry.type.replace('_',' ') %></span>
+        <% if (entry.tradeId) { %><span class="je-type" style="background:#1e3a5f;color:#60a5fa;margin-left:6px;">Linked</span><% } %>
         <span class="je-date"><%= new Date(entry.createdAt).toLocaleDateString() %> <%= new Date(entry.createdAt).toLocaleTimeString() %></span>
       </div>
       <div class="je-content"><%= entry.content %></div>

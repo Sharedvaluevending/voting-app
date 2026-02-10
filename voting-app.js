@@ -495,6 +495,13 @@ app.get('/journal', requireLogin, async (req, res) => {
       .limit(50)
       .lean();
 
+    // Load trade if coming from "Journal this trade" link
+    let linkedTrade = null;
+    const tradeId = req.query.tradeId;
+    if (tradeId) {
+      linkedTrade = await Trade.findOne({ _id: tradeId, userId: req.session.userId }).lean();
+    }
+
     // Discipline stats
     const allEntries = await Journal.find({ userId: req.session.userId }).lean();
     const withRules = allEntries.filter(e => e.followedRules !== undefined);
@@ -506,10 +513,37 @@ app.get('/journal', requireLogin, async (req, res) => {
         : '0'
     };
 
+    // Analytics: win rate by emotion, win rate by rules followed (from trade-linked entries)
+    const entriesWithTrade = await Journal.find({ userId: req.session.userId, tradeId: { $exists: true, $ne: null } }).lean();
+    const tradeIds = [...new Set(entriesWithTrade.map(e => e.tradeId && e.tradeId.toString()).filter(Boolean))];
+    const trades = tradeIds.length > 0 ? await Trade.find({ _id: { $in: tradeIds }, userId: req.session.userId }).lean() : [];
+    const tradeMap = Object.fromEntries(trades.map(t => [t._id.toString(), t]));
+
+    const byEmotion = {};
+    const byRules = { followed: { wins: 0, total: 0 }, broke: { wins: 0, total: 0 } };
+    for (const entry of entriesWithTrade) {
+      const tid = entry.tradeId && entry.tradeId.toString();
+      const trade = tid ? tradeMap[tid] : null;
+      if (!trade || trade.pnl == null) continue;
+      const isWin = trade.pnl > 0;
+      if (entry.emotion) {
+        byEmotion[entry.emotion] = byEmotion[entry.emotion] || { wins: 0, total: 0 };
+        byEmotion[entry.emotion].total++;
+        if (isWin) byEmotion[entry.emotion].wins++;
+      }
+      if (entry.followedRules !== undefined) {
+        const bucket = entry.followedRules ? byRules.followed : byRules.broke;
+        bucket.total++;
+        if (isWin) bucket.wins++;
+      }
+    }
+
     res.render('journal', {
       activePage: 'journal',
       entries,
       ruleStats,
+      linkedTrade,
+      analytics: { byEmotion, byRules },
       error: req.query.error || null,
       success: req.query.success || null
     });
@@ -521,19 +555,25 @@ app.get('/journal', requireLogin, async (req, res) => {
 
 app.post('/journal', requireLogin, async (req, res) => {
   try {
-    const { type, emotion, followedRules, content, rating } = req.body;
+    const { type, emotion, followedRules, content, rating, tradeId } = req.body;
     if (!content || !content.trim()) {
       return res.redirect('/journal?error=' + encodeURIComponent('Content is required'));
     }
 
-    const entry = new Journal({
+    const entryData = {
       userId: req.session.userId,
       type: type || 'trade_note',
       emotion: emotion || 'neutral',
       followedRules: followedRules === 'true',
       content: content.trim(),
       rating: parseInt(rating) || undefined
-    });
+    };
+    if (tradeId && mongoose.Types.ObjectId.isValid(tradeId)) {
+      const trade = await Trade.findOne({ _id: tradeId, userId: req.session.userId });
+      if (trade) entryData.tradeId = trade._id;
+    }
+
+    const entry = new Journal(entryData);
     await entry.save();
 
     res.redirect('/journal?success=' + encodeURIComponent('Journal entry saved'));
