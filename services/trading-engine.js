@@ -11,7 +11,7 @@
 
 // Config: quality gates and filters (quant-desk upgrades)
 const ENGINE_CONFIG = {
-  MIN_SIGNAL_SCORE: 52,
+  MIN_SIGNAL_SCORE: 50,
   MIN_CONFLUENCE_FOR_SIGNAL: 2,
   MTF_DIVERGENCE_PENALTY: 10,
   SESSION_START_UTC: 12,
@@ -118,7 +118,13 @@ function analyzeWithCandles(coinData, candles, options) {
   const bullCount = directions.filter(d => d === 'BULL').length;
   const bearCount = directions.filter(d => d === 'BEAR').length;
   const confluenceLevel = Math.max(bullCount, bearCount);
-  const dominantDir = bullCount >= bearCount ? 'BULL' : 'BEAR';
+  // Tie-breaker: when 1-1, use score to infer direction (avoid BULL bias). Score high = bullish bias, low = bearish bias.
+  let dominantDir;
+  if (bullCount > bearCount) dominantDir = 'BULL';
+  else if (bearCount > bullCount) dominantDir = 'BEAR';
+  else {
+    dominantDir = finalScore >= 55 ? 'BULL' : finalScore <= 45 ? 'BEAR' : 'NEUTRAL';
+  }
   if (scores1h.direction !== scores4h.direction && scores1h.direction !== 'NEUTRAL' && scores4h.direction !== 'NEUTRAL') {
     finalScore = Math.max(0, finalScore - ENGINE_CONFIG.MTF_DIVERGENCE_PENALTY);
   }
@@ -148,15 +154,36 @@ function analyzeWithCandles(coinData, candles, options) {
     }
   }
 
+  // Strategy-specific direction: use the timeframes that strategy actually uses
+  const stratDirMap = {
+    scalping: scores15m ? [scores15m, scores1h] : [scores1h],
+    momentum: [scores1h],
+    breakout: [scores1h],
+    mean_revert: [scores1h],
+    trend_follow: [scores4h, scores1d],
+    swing: [scores4h, scores1d],
+    position: scores1w ? [scores1d, scores1w] : [scores1d]
+  };
+  function getStratDominantDirAndConfluence(stratId) {
+    const scores = stratDirMap[stratId] || [scores1h, scores4h, scores1d];
+    const dirs = scores.map(sc => sc && sc.direction).filter(Boolean);
+    const bull = dirs.filter(d => d === 'BULL').length;
+    const bear = dirs.filter(d => d === 'BEAR').length;
+    const conf = Math.max(bull, bear);
+    const dir = bear > bull ? 'BEAR' : bull > bear ? 'BULL' : dominantDir;
+    return { dir, confluence: conf || 1 };
+  }
+
   // All strategies with display score, sorted by score (so user can pick any)
   const topStrategiesRaw = allStrategiesWithScores
     .filter(s => s.displayScore != null)
     .sort((a, b) => b.displayScore - a.displayScore);
   const topStrategies = topStrategiesRaw.map(s => {
     const stratScore = Math.round(s.displayScore);
-    const stratSignal = scoreToSignal(stratScore, Math.min(2, confluenceLevel), dominantDir).signal;
-    const stratDir = stratSignal === 'STRONG_BUY' || stratSignal === 'BUY' ? 'BULL' : stratSignal === 'STRONG_SELL' || stratSignal === 'SELL' ? 'BEAR' : dominantDir;
-    const levelsForStrat = calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, stratSignal, stratDir, regime, s.id);
+    const { dir: stratDir, confluence: stratConfluence } = getStratDominantDirAndConfluence(s.id);
+    const stratSignal = scoreToSignal(stratScore, Math.max(1, stratConfluence), stratDir).signal;
+    const stratDirForLevels = stratSignal === 'STRONG_BUY' || stratSignal === 'BUY' ? 'BULL' : stratSignal === 'STRONG_SELL' || stratSignal === 'SELL' ? 'BEAR' : dominantDir;
+    const levelsForStrat = calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, stratSignal, stratDirForLevels, regime, s.id);
     return {
       id: s.id,
       name: s.name,
@@ -532,9 +559,9 @@ function scoreCandles(analysis, currentPrice, timeframe) {
   // TOTAL
   const total = trend + momentum + volume + structure + volatility + riskQuality;
 
-  // Direction
-  if (bullPoints > bearPoints + 2) direction = 'BULL';
-  else if (bearPoints > bullPoints + 2) direction = 'BEAR';
+  // Direction: require +1 margin (was +2) to reduce excessive NEUTRAL
+  if (bullPoints > bearPoints + 1) direction = 'BULL';
+  else if (bearPoints > bullPoints + 1) direction = 'BEAR';
 
   // Label
   let label;
