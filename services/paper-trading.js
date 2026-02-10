@@ -474,27 +474,91 @@ function determineHeat(scoreDiff, messages, isLong) {
 
 // ---- Suggested Action Ladder ----
 // For SHORT: negative scoreDiff = more bearish = favorable. When score strongly in favor, don't suggest exit.
+// Each action has actionId for execution (when autoExecuteActions enabled).
 function determineSuggestedAction(scoreDiff, heat, messages, isLong) {
   const effective = isLong ? scoreDiff : -scoreDiff;
   const structureBreaking = messages.some(m => m.text === 'Structure breaking');
+  const considerPartial = messages.some(m => m.text === 'Consider partial');
+  const considerBE = messages.some(m => m.text === 'Consider BE stop');
   // When score moved 20+ in our favor (we're in profit, thesis strong), never suggest exit
   if (effective >= 20) {
-    if (structureBreaking) return { level: 'medium', text: 'Hold — monitor structure' };
-    return { level: 'positive', text: 'Hold — strengthening' };
+    if (structureBreaking) return { level: 'medium', actionId: 'hold_monitor', text: 'Hold — monitor structure' };
+    return { level: 'positive', actionId: 'hold', text: 'Hold — strengthening' };
   }
   if (heat === 'red' || effective <= -20) {
-    return { level: 'extreme', text: 'Consider exit' };
+    return { level: 'extreme', actionId: 'consider_exit', text: 'Consider exit' };
   }
   if (effective <= -15 || structureBreaking) {
-    return { level: 'high', text: 'Reduce position' };
+    return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
   }
-  if (heat === 'yellow' || effective <= -5) {
-    return { level: 'medium', text: 'Tighten stop' };
+  if (considerPartial) {
+    return { level: 'medium', actionId: 'take_partial', text: 'Take partial' };
+  }
+  if (heat === 'yellow' || effective <= -5 || considerBE) {
+    return { level: 'medium', actionId: 'tighten_stop', text: 'Tighten stop' };
   }
   if (effective >= 5) {
-    return { level: 'positive', text: 'Hold — strengthening' };
+    return { level: 'positive', actionId: 'hold', text: 'Hold — strengthening' };
   }
-  return { level: 'low', text: 'Monitor' };
+  return { level: 'low', actionId: 'monitor', text: 'Monitor' };
+}
+
+// ---- Execute Suggested Action (when autoExecuteActions enabled) ----
+// Only executes if actionId is actionable and different from last executed.
+async function executeScoreCheckAction(trade, suggestedAction, currentPrice, getCurrentPriceFunc) {
+  const actionId = suggestedAction?.actionId;
+  if (!actionId || ['hold', 'hold_monitor', 'monitor'].includes(actionId)) return false;
+  if (trade.lastExecutedActionId === actionId) return false;  // Already executed this action
+
+  const priceData = getCurrentPriceFunc(trade.coinId);
+  const price = priceData?.price ?? currentPrice;
+  const slippage = 1 + (SLIPPAGE_BPS / 10000);
+  const exitPrice = trade.direction === 'LONG' ? price / slippage : price * slippage;
+
+  try {
+    if (actionId === 'consider_exit') {
+      await closeTrade(trade.userId, trade._id, price, 'SCORE_CHECK_EXIT');
+      console.log(`[ScoreCheck] Auto-closed ${trade.symbol} ${trade.direction} (consider exit)`);
+      return true;
+    }
+    if (actionId === 'reduce_position') {
+      const orig = trade.originalPositionSize || trade.positionSize;
+      const portion = Math.round((orig * 0.5) * 100) / 100;
+      await closeTradePartial(trade, exitPrice, portion, 'SCORE_CHECK_PARTIAL');
+      trade.lastExecutedActionId = actionId;
+      await trade.save();
+      console.log(`[ScoreCheck] Auto-reduced ${trade.symbol} ${trade.direction} by 50%`);
+      return true;
+    }
+    if (actionId === 'take_partial') {
+      const orig = trade.originalPositionSize || trade.positionSize;
+      const portion = Math.round((orig / 3) * 100) / 100;  // 1/3 at market
+      await closeTradePartial(trade, exitPrice, portion, 'SCORE_CHECK_PARTIAL');
+      trade.lastExecutedActionId = actionId;
+      await trade.save();
+      console.log(`[ScoreCheck] Auto-partial ${trade.symbol} ${trade.direction} (1/3)`);
+      return true;
+    }
+    if (actionId === 'tighten_stop') {
+      // Move stop to breakeven (entry price)
+      if (!trade.stopLoss) return false;
+      const risk = trade.direction === 'LONG'
+        ? trade.entryPrice - trade.stopLoss
+        : trade.stopLoss - trade.entryPrice;
+      if (risk > 0 && trade.stopLoss !== trade.entryPrice) {
+        trade.stopLoss = trade.entryPrice;
+        trade.lastExecutedActionId = actionId;
+        await trade.save();
+        console.log(`[ScoreCheck] Auto-tightened stop to BE: ${trade.symbol} ${trade.direction}`);
+        return true;
+      }
+      return false;
+    }
+  } catch (err) {
+    console.error(`[ScoreCheck] Execute action ${actionId} failed:`, err.message);
+    return false;
+  }
+  return false;
 }
 
 function generateScoreCheckMessages(trade, signal, currentPrice) {
@@ -664,6 +728,12 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
       trade.updatedAt = new Date();
       await trade.save();
       checkedCount++;
+
+      // Auto-execute suggested action if user has enabled it
+      const user = await User.findById(trade.userId);
+      if (user?.settings?.autoExecuteActions && suggestedAction?.actionId) {
+        await executeScoreCheckAction(trade, suggestedAction, currentPrice, getCurrentPriceFunc);
+      }
     } catch (err) {
       console.error(`[ScoreCheck] Error rechecking ${trade.symbol}:`, err.message);
     }

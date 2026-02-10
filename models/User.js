@@ -13,7 +13,8 @@ const userSchema = new mongoose.Schema({
     riskPerTrade: { type: Number, default: 2, min: 0.5, max: 10 },
     maxOpenTrades: { type: Number, default: 3, min: 1, max: 10 },
     maxBalancePercentPerTrade: { type: Number, default: 25, min: 5, max: 100 },
-    cooldownHours: { type: Number, default: 4, min: 0, max: 168 }
+    cooldownHours: { type: Number, default: 4, min: 0, max: 168 },
+    autoExecuteActions: { type: Boolean, default: false }
   },
   stats: {
     totalTrades: { type: Number, default: 0 },

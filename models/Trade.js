@@ -41,6 +41,7 @@ const tradeSchema = new mongoose.Schema({
   scoreBreakdownAtEntry: { type: mongoose.Schema.Types.Mixed },
   scoreCheck: { type: mongoose.Schema.Types.Mixed, default: null },
   scoreHistory: [{ type: mongoose.Schema.Types.Mixed }],
+  lastExecutedActionId: { type: String },
   maxPrice: { type: Number },
   minPrice: { type: Number },
   maxDrawdownPercent: { type: Number, default: 0 },

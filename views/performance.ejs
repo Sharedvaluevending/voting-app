@@ -39,6 +39,11 @@
       <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Cooldown (hours)</label>
       <input type="number" name="cooldownHours" min="0" max="168" title="Hours to wait before re-opening same direction on same coin" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 4 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
     </div>
+    <div style="display:flex;align-items:center;gap:8px;" title="When score check suggests Tighten stop, Reduce position, Take partial, or Consider exit — execute it automatically">
+      <input type="hidden" name="autoExecuteActions" value="false">
+      <input type="checkbox" name="autoExecuteActions" id="autoExecuteActions" value="true" <%= (user.settings && user.settings.autoExecuteActions) ? 'checked' : '' %>>
+      <label for="autoExecuteActions" style="font-size:12px;color:#9ca3af;">Auto-execute score check actions</label>
+    </div>
     <div>
       <button type="submit" class="btn btn-outline btn-sm">Save</button>
     </div>
