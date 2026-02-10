@@ -104,8 +104,9 @@
             <span class="score-check-time"><%= trade.scoreCheck.checkedAt ? new Date(trade.scoreCheck.checkedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '' %></span>
           </div>
           <div class="score-check-summary">
-            <span>Now: <strong><%= trade.scoreCheck.currentScore %></strong></span>
-            <span>Entry: <strong><%= trade.scoreCheck.entryScore %></strong></span>
+            <% var isShort = trade.direction === 'SHORT'; var nowVal = isShort ? (100 - (trade.scoreCheck.currentScore || 0)) : (trade.scoreCheck.currentScore || 0); var entryVal = isShort ? (100 - (trade.scoreCheck.entryScore || 0)) : (trade.scoreCheck.entryScore || 0); %>
+            <span>Now: <strong><%= nowVal %></strong></span>
+            <span>Entry: <strong><%= entryVal %></strong></span>
             <% var diff = trade.scoreCheck.scoreDiffDisplay != null ? trade.scoreCheck.scoreDiffDisplay : trade.scoreCheck.scoreDiff; var fav = trade.scoreCheck.scoreDiffFavorable != null ? trade.scoreCheck.scoreDiffFavorable : (trade.direction === 'LONG' ? trade.scoreCheck.scoreDiff >= 0 : trade.scoreCheck.scoreDiff <= 0); %>
             <% if (diff > 0) { %>
               <span class="score-diff <%= fav ? 'score-diff-pos' : 'score-diff-neg' %>">+<%= diff %><%= fav ? ' ↑' : '' %></span>

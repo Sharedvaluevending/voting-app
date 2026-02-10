@@ -232,6 +232,7 @@
           for (var c = 0; c < cards.length; c++) {
             var card = cards[c];
             var tradeId = card.getAttribute('data-trade-id');
+            var direction = card.getAttribute('data-direction') || 'LONG';
             if (!tradeId) continue;
             var check = result.scoreChecks[tradeId];
             if (!check || !check.messages) continue;
@@ -257,12 +258,15 @@
             }
             html += '</div>';
 
-            // Score summary: use scoreDiffDisplay/scoreDiffFavorable when available (for SHORT-friendly display)
+            // Score summary: for SHORT, show 100-score so "up" = number goes up when favorable
+            var isShort = (direction || '').toUpperCase() === 'SHORT';
+            var nowVal = isShort ? (100 - (check.currentScore || 0)) : (check.currentScore || 0);
+            var entryVal = isShort ? (100 - (check.entryScore || 0)) : (check.entryScore || 0);
             var diff = check.scoreDiffDisplay != null ? check.scoreDiffDisplay : check.scoreDiff;
             var fav = check.scoreDiffFavorable != null ? check.scoreDiffFavorable : (check.scoreDiff >= 0);
             html += '<div class="score-check-summary">';
-            html += '<span>Now: <strong>' + check.currentScore + '</strong></span>';
-            html += '<span>Entry: <strong>' + check.entryScore + '</strong></span>';
+            html += '<span>Now: <strong>' + nowVal + '</strong></span>';
+            html += '<span>Entry: <strong>' + entryVal + '</strong></span>';
             if (diff > 0) {
               html += '<span class="score-diff ' + (fav ? 'score-diff-pos' : 'score-diff-neg') + '">+' + diff + (fav ? ' \u2191' : '') + '</span>';
             } else if (diff < 0) {
@@ -316,7 +320,6 @@
 
             // Timeline placeholder (pass direction so SHORT shows up=favorable)
             var history = (window.__scoreHistories && window.__scoreHistories[tradeId]) || [];
-            var direction = card.getAttribute('data-direction') || 'LONG';
             if (history.length > 1) {
               html += '<div class="health-timeline" data-trade-id="' + tradeId + '" data-direction="' + direction + '">';
               html += '<div class="timeline-title">Trade Health Timeline</div>';
