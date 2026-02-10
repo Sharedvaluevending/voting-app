@@ -1198,32 +1198,38 @@ function calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, direction,
 
   let entry, tp1, tp2, tp3, stopLoss;
 
+  // Strategy-based TPs: scalping=1 TP, momentum/breakout/mean_revert=2, swing/position=3
+  const tpCount = !strategyType ? 3
+    : strategyType === 'scalping' ? 1
+    : ['momentum', 'breakout', 'mean_revert'].includes(strategyType) ? 2
+    : 3;
+
   if (signal === 'STRONG_BUY' || signal === 'BUY') {
     entry = r2(currentPrice);
     stopLoss = r2(Math.max(support * 0.995, entry - atr * atrMult));
     if (stopLoss >= entry) stopLoss = r2(entry - atr * (atrMult + 0.5));
     const risk = entry - stopLoss;
-    tp1 = r2(entry + risk * tp1R);
-    tp2 = r2(entry + risk * tp2R);
-    tp3 = r2(entry + risk * tp3R);
+    tp1 = tpCount >= 1 ? r2(entry + risk * tp1R) : null;
+    tp2 = tpCount >= 2 ? r2(entry + risk * tp2R) : null;
+    tp3 = tpCount >= 3 ? r2(entry + risk * tp3R) : null;
   } else if (signal === 'STRONG_SELL' || signal === 'SELL') {
     entry = r2(currentPrice);
     stopLoss = r2(Math.min(resistance * 1.005, entry + atr * atrMult));
     if (stopLoss <= entry) stopLoss = r2(entry + atr * (atrMult + 0.5));
     const risk = stopLoss - entry;
-    tp1 = r2(entry - risk * tp1R);
-    tp2 = r2(entry - risk * tp2R);
-    tp3 = r2(entry - risk * tp3R);
+    tp1 = tpCount >= 1 ? r2(entry - risk * tp1R) : null;
+    tp2 = tpCount >= 2 ? r2(entry - risk * tp2R) : null;
+    tp3 = tpCount >= 3 ? r2(entry - risk * tp3R) : null;
   } else {
     entry = r2(currentPrice);
     stopLoss = r2(support * 0.995);
-    tp1 = r2(resistance);
-    tp2 = r2(resistance * 1.03);
-    tp3 = r2(resistance * 1.06);
+    tp1 = tpCount >= 1 ? r2(resistance) : null;
+    tp2 = tpCount >= 2 ? r2(resistance * 1.03) : null;
+    tp3 = tpCount >= 3 ? r2(resistance * 1.06) : null;
   }
 
   const risk = Math.abs(entry - stopLoss);
-  const reward = Math.abs(tp2 - entry);
+  const reward = Math.abs((tp2 || tp1) - entry);
   const riskReward = risk > 0 ? r2(reward / risk) : 0;
 
   return { entry, tp1, tp2, tp3, stopLoss, riskReward };

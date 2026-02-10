@@ -137,6 +137,7 @@ async function openTrade(userId, signalData) {
     direction: signalData.direction,
     entryPrice,
     positionSize,
+    originalPositionSize: positionSize,
     leverage,
     margin,
     stopLoss,
@@ -166,6 +167,38 @@ async function openTrade(userId, signalData) {
   return trade;
 }
 
+// Partial close: take a portion at TP, reduce position, don't count as full trade close
+async function closeTradePartial(trade, exitPrice, portionSize, reason) {
+  const user = await User.findById(trade.userId);
+  if (!user) throw new Error('User not found');
+
+  // Clamp portion to remaining size (avoid rounding issues)
+  const portion = Math.min(portionSize, Math.max(0, trade.positionSize - 0.01));
+  if (portion <= 0) return;
+
+  let pnl;
+  if (trade.direction === 'LONG') {
+    pnl = ((exitPrice - trade.entryPrice) / trade.entryPrice) * portion;
+  } else {
+    pnl = ((trade.entryPrice - exitPrice) / trade.entryPrice) * portion;
+  }
+  const exitFees = portion * TAKER_FEE;
+  pnl -= exitFees;
+
+  const marginPortion = portion / trade.leverage;
+  user.paperBalance += marginPortion + pnl;
+  await user.save();
+
+  trade.positionSize -= portion;
+  trade.margin -= marginPortion;
+  trade.fees += exitFees;
+  trade.partialPnl = (trade.partialPnl || 0) + pnl;
+  if (reason === 'TP1') trade.partialTakenAtTP1 = true;
+  if (reason === 'TP2') trade.partialTakenAtTP2 = true;
+  trade.updatedAt = new Date();
+  await trade.save();
+}
+
 async function closeTrade(userId, tradeId, currentPrice, reason) {
   const trade = await Trade.findOne({ _id: tradeId, userId, status: 'OPEN' });
   if (!trade) throw new Error('Trade not found or already closed');
@@ -188,13 +221,14 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
 
   const exitFees = trade.positionSize * TAKER_FEE;
   pnl -= exitFees;
-
-  const pnlPercent = (pnl / trade.margin) * 100;
+  const totalPnl = (trade.partialPnl || 0) + pnl;
+  const originalMargin = (trade.originalPositionSize || trade.positionSize) / trade.leverage;
+  const pnlPercent = originalMargin > 0 ? (totalPnl / originalMargin) * 100 : 0;
 
   trade.exitPrice = exitPrice;
   trade.exitTime = new Date();
   trade.closeReason = reason;
-  trade.pnl = Math.round(pnl * 100) / 100;
+  trade.pnl = Math.round(totalPnl * 100) / 100;
   trade.pnlPercent = Math.round(pnlPercent * 100) / 100;
   trade.fees += exitFees;
   trade.status = reason === 'STOPPED_OUT' ? 'STOPPED_OUT'
@@ -208,17 +242,17 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
 
   user.paperBalance += trade.margin + pnl;
   user.stats.totalTrades += 1;
-  if (pnl > 0) {
+  if (totalPnl > 0) {
     user.stats.wins += 1;
     user.stats.currentStreak = Math.max(0, user.stats.currentStreak) + 1;
     user.stats.bestStreak = Math.max(user.stats.bestStreak, user.stats.currentStreak);
-    user.stats.bestTrade = Math.max(user.stats.bestTrade, pnl);
+    user.stats.bestTrade = Math.max(user.stats.bestTrade, totalPnl);
   } else {
     user.stats.losses += 1;
     user.stats.currentStreak = Math.min(0, user.stats.currentStreak) - 1;
-    user.stats.worstTrade = Math.min(user.stats.worstTrade, pnl);
+    user.stats.worstTrade = Math.min(user.stats.worstTrade, totalPnl);
   }
-  user.stats.totalPnl += pnl;
+  user.stats.totalPnl += totalPnl;
   await user.save();
 
   recordTradeOutcome(trade)
@@ -267,38 +301,91 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
     }
     await trade.save();
 
+    const hitTP1Long = trade.direction === 'LONG' && trade.takeProfit1 && currentPrice >= trade.takeProfit1;
+    const hitTP2Long = trade.direction === 'LONG' && trade.takeProfit2 && currentPrice >= trade.takeProfit2;
+    const hitTP3Long = trade.direction === 'LONG' && trade.takeProfit3 && currentPrice >= trade.takeProfit3;
+    const hitTP1Short = trade.direction === 'SHORT' && trade.takeProfit1 && currentPrice <= trade.takeProfit1;
+    const hitTP2Short = trade.direction === 'SHORT' && trade.takeProfit2 && currentPrice <= trade.takeProfit2;
+    const hitTP3Short = trade.direction === 'SHORT' && trade.takeProfit3 && currentPrice <= trade.takeProfit3;
+
+    const slippage = 1 + (SLIPPAGE_BPS / 10000);
     if (trade.direction === 'LONG') {
       if (trade.stopLoss != null && currentPrice <= trade.stopLoss) {
         await closeTrade(trade.userId, trade._id, trade.stopLoss, 'STOPPED_OUT');
         closedCount++;
         continue;
       }
-      if (trade.takeProfit3 && currentPrice >= trade.takeProfit3) {
-        await closeTrade(trade.userId, trade._id, trade.takeProfit3, 'TP3');
+      let handled = false;
+      const orig = trade.originalPositionSize || trade.positionSize;
+      const exit3 = trade.takeProfit3 ? trade.takeProfit3 / slippage : 0;
+      const exit2 = trade.takeProfit2 ? trade.takeProfit2 / slippage : 0;
+      const exit1 = trade.takeProfit1 ? trade.takeProfit1 / slippage : 0;
+      if (trade.takeProfit3 && hitTP3Long) {
+        const exitPx = trade.takeProfit3 / slippage;
+        await closeTrade(trade.userId, trade._id, exitPx, 'TP3');
         closedCount++;
-      } else if (trade.takeProfit2 && currentPrice >= trade.takeProfit2) {
-        await closeTrade(trade.userId, trade._id, trade.takeProfit2, 'TP2');
+        handled = true;
+      } else if (trade.takeProfit2 && hitTP2Long && !trade.partialTakenAtTP2) {
+        if (!trade.takeProfit3) {
+          await closeTrade(trade.userId, trade._id, trade.takeProfit2 / slippage, 'TP2');
+        } else {
+          const portion = Math.round((orig / 3) * 100) / 100;
+          await closeTradePartial(trade, exit2, portion, 'TP2');
+        }
         closedCount++;
-      } else if (trade.takeProfit1 && currentPrice >= trade.takeProfit1) {
-        await closeTrade(trade.userId, trade._id, trade.takeProfit1, 'TP1');
+        handled = true;
+      } else if (trade.takeProfit1 && hitTP1Long && !trade.partialTakenAtTP1) {
+        if (!trade.takeProfit2 && !trade.takeProfit3) {
+          await closeTrade(trade.userId, trade._id, trade.takeProfit1 / slippage, 'TP1');
+        } else if (trade.takeProfit2 && !trade.takeProfit3) {
+          const portion = Math.round((orig / 2) * 100) / 100;
+          await closeTradePartial(trade, exit1, portion, 'TP1');
+        } else {
+          const portion = Math.round((orig / 3) * 100) / 100;
+          await closeTradePartial(trade, exit1, portion, 'TP1');
+        }
         closedCount++;
+        handled = true;
       }
+      if (handled) continue;
     } else {
       if (trade.stopLoss && currentPrice >= trade.stopLoss) {
         await closeTrade(trade.userId, trade._id, trade.stopLoss, 'STOPPED_OUT');
         closedCount++;
         continue;
       }
-      if (trade.takeProfit3 && currentPrice <= trade.takeProfit3) {
-        await closeTrade(trade.userId, trade._id, trade.takeProfit3, 'TP3');
+      let handled = false;
+      const orig = trade.originalPositionSize || trade.positionSize;
+      const exit3 = trade.takeProfit3 ? trade.takeProfit3 * slippage : 0;
+      const exit2 = trade.takeProfit2 ? trade.takeProfit2 * slippage : 0;
+      const exit1 = trade.takeProfit1 ? trade.takeProfit1 * slippage : 0;
+      if (trade.takeProfit3 && hitTP3Short) {
+        await closeTrade(trade.userId, trade._id, trade.takeProfit3 * slippage, 'TP3');
         closedCount++;
-      } else if (trade.takeProfit2 && currentPrice <= trade.takeProfit2) {
-        await closeTrade(trade.userId, trade._id, trade.takeProfit2, 'TP2');
+        handled = true;
+      } else if (trade.takeProfit2 && hitTP2Short && !trade.partialTakenAtTP2) {
+        if (!trade.takeProfit3) {
+          await closeTrade(trade.userId, trade._id, trade.takeProfit2 * slippage, 'TP2');
+        } else {
+          const portion = Math.round((orig / 3) * 100) / 100;
+          await closeTradePartial(trade, exit2, portion, 'TP2');
+        }
         closedCount++;
-      } else if (trade.takeProfit1 && currentPrice <= trade.takeProfit1) {
-        await closeTrade(trade.userId, trade._id, trade.takeProfit1, 'TP1');
+        handled = true;
+      } else if (trade.takeProfit1 && hitTP1Short && !trade.partialTakenAtTP1) {
+        if (!trade.takeProfit2 && !trade.takeProfit3) {
+          await closeTrade(trade.userId, trade._id, trade.takeProfit1 * slippage, 'TP1');
+        } else if (trade.takeProfit2 && !trade.takeProfit3) {
+          const portion = Math.round((orig / 2) * 100) / 100;
+          await closeTradePartial(trade, exit1, portion, 'TP1');
+        } else {
+          const portion = Math.round((orig / 3) * 100) / 100;
+          await closeTradePartial(trade, exit1, portion, 'TP1');
+        }
         closedCount++;
+        handled = true;
       }
+      if (handled) continue;
     }
   }
 
