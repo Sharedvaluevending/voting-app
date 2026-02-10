@@ -426,12 +426,12 @@ function determineChangeReasons(trade, signal) {
   const isLong = trade.direction === 'LONG';
 
   const dims = [
-    { key: 'trend',      negText: 'HTF lost alignment',   posText: 'HTF trend strengthened', shortFavText: 'HTF bullish bias fading' },
-    { key: 'momentum',   negText: 'Momentum divergence',  posText: 'Momentum increasing', shortFavText: 'Bullish momentum fading' },
-    { key: 'volume',     negText: 'Volume fading',        posText: 'Volume confirming', shortFavText: 'Buying volume fading' },
+    { key: 'trend',      negText: 'HTF lost alignment',   posText: 'HTF trend strengthened', shortFavText: 'HTF bullish bias fading', shortUnfavText: 'HTF bullish bias strengthening' },
+    { key: 'momentum',   negText: 'Momentum divergence',  posText: 'Momentum increasing', shortFavText: 'Bullish momentum fading', shortUnfavText: 'Bullish momentum building' },
+    { key: 'volume',     negText: 'Volume fading',        posText: 'Volume confirming', shortFavText: 'Buying volume fading', shortUnfavText: 'Buying volume confirming' },
     { key: 'structure',  negText: 'Structure break',      posText: 'Structure improved', invertForShort: false },
     { key: 'volatility', negText: 'Volatility spike',     posText: 'Volatility normalized', shortFavText: 'Volatility spike' },
-    { key: 'riskQuality',negText: 'Risk/reward degraded', posText: 'Risk/reward improved', shortFavText: 'Risk/reward shifted' }
+    { key: 'riskQuality',negText: 'Risk/reward degraded', posText: 'Risk/reward improved', shortFavText: 'Risk/reward shifted', shortUnfavText: 'Risk/reward shifting against short' }
   ];
 
   for (const d of dims) {
@@ -446,7 +446,7 @@ function determineChangeReasons(trade, signal) {
       if (d.invertForShort === false) {
         reasons.push({ type: 'positive', text: d.posText });
       } else {
-        reasons.push({ type: isLong ? 'positive' : 'negative', text: d.posText });
+        reasons.push({ type: isLong ? 'positive' : 'negative', text: isLong ? d.posText : (d.shortUnfavText || d.posText) });
       }
     }
   }

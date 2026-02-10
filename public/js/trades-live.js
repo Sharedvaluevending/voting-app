@@ -28,7 +28,7 @@
   }
 
   // ---- Timeline Chart Drawing ----
-  // For SHORT: plot 100-score so "up" = favorable (when raw score drops, market more bearish = good for short)
+  // Plot win probability (0-100): "up" = healthier for BOTH LONG and SHORT. No direction transform needed.
   function drawTimeline(canvas, history, direction) {
     if (!canvas || !canvas.getContext || !history || history.length < 2) return;
     var ctx = canvas.getContext('2d');
@@ -37,12 +37,14 @@
     var pad = { top: 8, right: 8, bottom: 14, left: 28 };
     var plotW = w - pad.left - pad.right;
     var plotH = h - pad.top - pad.bottom;
-    var isShort = (direction || '').toUpperCase() === 'SHORT';
 
     ctx.clearRect(0, 0, w, h);
 
+    var isShort = (direction || '').toUpperCase() === 'SHORT';
     var scores = history.map(function(p) {
-      return isShort ? (100 - (p.score || 0)) : (p.score || 0);
+      if (p.probability != null) return p.probability;
+      var s = p.score != null ? p.score : 0;
+      return isShort ? (100 - s) : s;
     });
     var minS = Math.max(0, Math.min.apply(null, scores) - 5);
     var maxS = Math.min(100, Math.max.apply(null, scores) + 5);
@@ -64,7 +66,7 @@
     // Line + gradient
     ctx.beginPath();
     for (var i = 0; i < history.length; i++) {
-      var plotVal = isShort ? (100 - (history[i].score || 0)) : (history[i].score || 0);
+      var plotVal = history[i].probability != null ? history[i].probability : (isShort ? (100 - (history[i].score || 0)) : (history[i].score || 0));
       var x = pad.left + (i / (history.length - 1)) * plotW;
       var y = pad.top + plotH - ((plotVal - minS) / range) * plotH;
       if (i === 0) ctx.moveTo(x, y);
@@ -87,7 +89,7 @@
 
     // Dots at each point
     for (var j = 0; j < history.length; j++) {
-      var plotVal = isShort ? (100 - (history[j].score || 0)) : (history[j].score || 0);
+      var plotVal = history[j].probability != null ? history[j].probability : (isShort ? (100 - (history[j].score || 0)) : (history[j].score || 0));
       var dx = pad.left + (j / (history.length - 1)) * plotW;
       var dy = pad.top + plotH - ((plotVal - minS) / range) * plotH;
       var dotColor = history[j].heat === 'red' ? '#ef4444' : history[j].heat === 'yellow' ? '#eab308' : '#10b981';
