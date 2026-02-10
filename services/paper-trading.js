@@ -268,8 +268,10 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
 
   for (const trade of openTrades) {
     const priceData = getCurrentPriceFunc(trade.coinId);
-    if (!priceData) continue;
-
+    if (!priceData) {
+      console.warn(`[StopTP] No price for ${trade.symbol} (${trade.coinId}) – skipping`);
+      continue;
+    }
     const currentPrice = priceData.price;
 
     if (currentPrice > trade.maxPrice) trade.maxPrice = currentPrice;
@@ -688,11 +690,17 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
   for (const trade of openTrades) {
     try {
       const priceData = getCurrentPriceFunc(trade.coinId);
-      if (!priceData) continue;
+      if (!priceData) {
+        console.warn(`[ScoreCheck] No price data for ${trade.symbol} (${trade.coinId}) – skipping`);
+        continue;
+      }
       const currentPrice = priceData.price;
 
       const signal = await getSignalForCoin(trade.coinId);
-      if (!signal) continue;
+      if (!signal) {
+        console.warn(`[ScoreCheck] No signal for ${trade.symbol} (${trade.coinId}) – skipping`);
+        continue;
+      }
 
       const messages = generateScoreCheckMessages(trade, signal, currentPrice);
       const scoreDiff = (signal.score || 0) - (trade.score || 0);

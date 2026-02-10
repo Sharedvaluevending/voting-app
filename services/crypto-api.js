@@ -216,11 +216,11 @@ async function fetchPricesFromCoinCap() {
   }
 }
 
-// Kraken pair names (they use X/Z prefixes)
+// Kraken pair names — use the RESPONSE key (not always the same as the request param)
 const KRAKEN_PAIRS = {
-  'bitcoin': 'XXBTZUSD', 'ethereum': 'XETHZUSD', 'solana': 'SOLUSD', 'dogecoin': 'DOGEUSD',
+  'bitcoin': 'XXBTZUSD', 'ethereum': 'XETHZUSD', 'solana': 'SOLUSD', 'dogecoin': 'XDGUSD',
   'ripple': 'XXRPZUSD', 'cardano': 'ADAUSD', 'polkadot': 'DOTUSD', 'avalanche-2': 'AVAXUSD',
-  'chainlink': 'LINKUSD', 'polygon': 'MATICUSD',
+  'chainlink': 'LINKUSD', 'polygon': 'POLUSD',
   'binancecoin': 'BNBUSD', 'litecoin': 'XLTCZUSD', 'uniswap': 'UNIUSD', 'cosmos': 'ATOMUSD'
 };
 
@@ -242,7 +242,8 @@ async function fetchPricesFromKraken() {
       const pair = KRAKEN_PAIRS[coinId];
       const meta = COIN_META[coinId];
       if (!pair || !meta) return;
-      const t = result[pair] || result[pair.replace('Z', '')];
+      // Kraken response keys can differ from request params; try multiple variants
+      const t = result[pair] || result[pair.replace('Z', '')] || result['X' + pair] || result[pair.replace('X', '').replace('Z', '')];
       if (!t || !t.c) return;
       const price = parseFloat(t.c[0]);
       const open = t.o ? parseFloat(t.o) : price;
@@ -577,22 +578,42 @@ function getCurrentPrice(coinId) {
   return prices.find(p => p.id === coinId) || null;
 }
 
-/** Fetch live price for one coin (e.g. for closing a trade). Tries Binance then cache. */
+/** Fetch live price for one coin (e.g. for closing a trade). Tries Binance → Kraken → cache. */
 async function fetchLivePrice(coinId) {
   const meta = COIN_META[coinId];
+  // Try Binance first
   if (meta && meta.binance && !binanceRestricted) {
     try {
       const url = `https://api.binance.com/api/v3/ticker/price?symbol=${meta.binance}`;
       const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 8000 });
-      if (res.status === 451) { binanceRestricted = true; return null; }
-      if (!res.ok) return null;
-      const data = await res.json();
-      const price = parseFloat(data.price);
-      return Number.isFinite(price) && price > 0 ? price : null;
+      if (res.status === 451) { binanceRestricted = true; }
+      else if (res.ok) {
+        const data = await res.json();
+        const price = parseFloat(data.price);
+        if (Number.isFinite(price) && price > 0) return price;
+      }
     } catch (err) {
       if (err.message && err.message.includes('451')) binanceRestricted = true;
     }
   }
+  // Fallback: Kraken single-pair ticker
+  const krakenPair = KRAKEN_PAIRS[coinId];
+  if (krakenPair) {
+    try {
+      const url = `https://api.kraken.com/0/public/Ticker?pair=${krakenPair}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 8000 });
+      if (res.ok) {
+        const json = await res.json();
+        const result = json.result || {};
+        const t = result[krakenPair];
+        if (t && t.c) {
+          const price = parseFloat(t.c[0]);
+          if (Number.isFinite(price) && price > 0) return price;
+        }
+      }
+    } catch (err) { /* fall through to cache */ }
+  }
+  // Last resort: cache
   const cached = getCurrentPrice(coinId);
   return cached && Number.isFinite(cached.price) ? cached.price : null;
 }
