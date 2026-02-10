@@ -318,6 +318,9 @@
               html += '<span class="action-label">Action:</span>';
               html += '<span class="action-text">' + check.suggestedAction.text + '</span>';
               html += '</div>';
+              if (check.lastActionDetails) {
+                html += '<div class="action-details">' + check.lastActionDetails + '</div>';
+              }
             }
 
             // Timeline placeholder (pass direction so SHORT shows up=favorable)

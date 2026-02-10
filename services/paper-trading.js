@@ -505,60 +505,75 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong) {
 
 // ---- Execute Suggested Action (when autoExecuteActions enabled) ----
 // Only executes if actionId is actionable and different from last executed.
+// Returns { executed, details } where details describes what changed.
 async function executeScoreCheckAction(trade, suggestedAction, currentPrice, getCurrentPriceFunc) {
   const actionId = suggestedAction?.actionId;
-  if (!actionId || ['hold', 'hold_monitor', 'monitor'].includes(actionId)) return false;
-  if (trade.lastExecutedActionId === actionId) return false;  // Already executed this action
+  if (!actionId || ['hold', 'hold_monitor', 'monitor'].includes(actionId)) return { executed: false };
+  if (trade.lastExecutedActionId === actionId) return { executed: false };
 
   const priceData = getCurrentPriceFunc(trade.coinId);
   const price = priceData?.price ?? currentPrice;
   const slippage = 1 + (SLIPPAGE_BPS / 10000);
   const exitPrice = trade.direction === 'LONG' ? price / slippage : price * slippage;
+  const fp = (v) => typeof v === 'number' ? v.toFixed(v >= 1 ? 2 : 6) : String(v);
 
   try {
     if (actionId === 'consider_exit') {
+      const sizeBefore = trade.positionSize;
       await closeTrade(trade.userId, trade._id, price, 'SCORE_CHECK_EXIT');
-      console.log(`[ScoreCheck] Auto-closed ${trade.symbol} ${trade.direction} (consider exit)`);
-      return true;
+      const details = `Closed entire position ($${fp(sizeBefore)}) at $${fp(price)}`;
+      console.log(`[ScoreCheck] ${details}`);
+      return { executed: true, details };
     }
     if (actionId === 'reduce_position') {
       const orig = trade.originalPositionSize || trade.positionSize;
       const portion = Math.round((orig * 0.5) * 100) / 100;
+      const sizeBefore = trade.positionSize;
       await closeTradePartial(trade, exitPrice, portion, 'SCORE_CHECK_PARTIAL');
       trade.lastExecutedActionId = actionId;
+      const details = `Reduced 50%: $${fp(sizeBefore)} → $${fp(trade.positionSize)} at $${fp(exitPrice)}`;
+      trade.scoreCheck = trade.scoreCheck || {};
+      trade.scoreCheck.lastActionDetails = details;
       await trade.save();
-      console.log(`[ScoreCheck] Auto-reduced ${trade.symbol} ${trade.direction} by 50%`);
-      return true;
+      console.log(`[ScoreCheck] ${details}`);
+      return { executed: true, details };
     }
     if (actionId === 'take_partial') {
       const orig = trade.originalPositionSize || trade.positionSize;
-      const portion = Math.round((orig / 3) * 100) / 100;  // 1/3 at market
+      const portion = Math.round((orig / 3) * 100) / 100;
+      const sizeBefore = trade.positionSize;
       await closeTradePartial(trade, exitPrice, portion, 'SCORE_CHECK_PARTIAL');
       trade.lastExecutedActionId = actionId;
+      const details = `Partial 1/3: $${fp(sizeBefore)} → $${fp(trade.positionSize)} at $${fp(exitPrice)}`;
+      trade.scoreCheck = trade.scoreCheck || {};
+      trade.scoreCheck.lastActionDetails = details;
       await trade.save();
-      console.log(`[ScoreCheck] Auto-partial ${trade.symbol} ${trade.direction} (1/3)`);
-      return true;
+      console.log(`[ScoreCheck] ${details}`);
+      return { executed: true, details };
     }
     if (actionId === 'tighten_stop') {
-      // Move stop to breakeven (entry price)
-      if (!trade.stopLoss) return false;
+      if (!trade.stopLoss) return { executed: false };
       const risk = trade.direction === 'LONG'
         ? trade.entryPrice - trade.stopLoss
         : trade.stopLoss - trade.entryPrice;
       if (risk > 0 && trade.stopLoss !== trade.entryPrice) {
+        const oldStop = trade.stopLoss;
         trade.stopLoss = trade.entryPrice;
         trade.lastExecutedActionId = actionId;
+        const details = `Stop tightened: $${fp(oldStop)} → $${fp(trade.entryPrice)} (breakeven)`;
+        trade.scoreCheck = trade.scoreCheck || {};
+        trade.scoreCheck.lastActionDetails = details;
         await trade.save();
-        console.log(`[ScoreCheck] Auto-tightened stop to BE: ${trade.symbol} ${trade.direction}`);
-        return true;
+        console.log(`[ScoreCheck] ${details}`);
+        return { executed: true, details };
       }
-      return false;
+      return { executed: false };
     }
   } catch (err) {
     console.error(`[ScoreCheck] Execute action ${actionId} failed:`, err.message);
-    return false;
+    return { executed: false };
   }
-  return false;
+  return { executed: false };
 }
 
 function generateScoreCheckMessages(trade, signal, currentPrice) {
@@ -582,7 +597,9 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
   const scoreDiffAgainstUs = isLong ? scoreDiff : -scoreDiff;  // Negative = bad for our trade
 
   // 1. Setup invalidated (most severe) - score moved heavily against our direction
-  if (signalFlipped || currentScore < 35 || scoreDiffAgainstUs <= -20) {
+  // For LONG: low score = bearish = bad. For SHORT: high score = bullish = bad.
+  const scoreAgainstUs = isLong ? currentScore < 35 : currentScore > 65;
+  if (signalFlipped || scoreAgainstUs || scoreDiffAgainstUs <= -20) {
     messages.push({ type: 'danger', text: 'Setup invalidated' });
   }
 
@@ -615,7 +632,7 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
     } else if (!isLong && tp2 < trade.entryPrice) {
       progress = (trade.entryPrice - currentPrice) / (trade.entryPrice - tp2);
     }
-    const scoreInFavor = isLong ? currentScore >= 50 : currentScore <= 50;  // Long: bullish; Short: bearish
+    const scoreInFavor = isLong ? currentScore >= 50 : currentScore < 50;  // Long: bullish; Short: bearish
     if (progress >= 0.5 && scoreInFavor) {
       messages.push({ type: 'positive', text: 'TP probability rising' });
     }

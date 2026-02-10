@@ -268,6 +268,74 @@ async function fetchPricesFromKraken() {
 }
 
 // ====================================================
+// KRAKEN - OHLCV Candles (free, no API key, good fallback)
+// interval: 1,5,15,30,60,240,1440,10080
+// ====================================================
+const KRAKEN_INTERVAL_MAP = { '15m': 15, '1h': 60, '4h': 240, '1d': 1440, '1w': 10080 };
+
+async function fetchKrakenCandles(pair, interval, limit) {
+  const krakenInterval = KRAKEN_INTERVAL_MAP[interval];
+  if (!krakenInterval || !pair) return [];
+  try {
+    const url = `https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=${krakenInterval}`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
+    if (!res.ok) return [];
+    const json = await res.json();
+    if (json.error && json.error.length > 0) return [];
+    const result = json.result || {};
+    // Kraken uses variable key names, get the first array that isn't "last"
+    const keys = Object.keys(result).filter(k => k !== 'last');
+    if (keys.length === 0) return [];
+    const raw = result[keys[0]];
+    if (!Array.isArray(raw)) return [];
+    // Each entry: [time, open, high, low, close, vwap, volume, count]
+    const candles = raw.slice(-limit).map(c => ({
+      openTime: c[0] * 1000,
+      open: parseFloat(c[1]),
+      high: parseFloat(c[2]),
+      low: parseFloat(c[3]),
+      close: parseFloat(c[4]),
+      volume: parseFloat(c[6]),
+      closeTime: (c[0] + krakenInterval * 60) * 1000,
+      quoteVolume: 0,
+      trades: c[7] || 0,
+      takerBuyVolume: 0,
+      takerBuyQuoteVolume: 0
+    }));
+    return candles;
+  } catch (err) {
+    console.error(`[Kraken] OHLC ${pair} ${interval} failed:`, err.message);
+    return [];
+  }
+}
+
+async function fetchAllKrakenCandlesForCoin(coinId) {
+  const pair = KRAKEN_PAIRS[coinId];
+  if (!pair) return null;
+  try {
+    const [candles15m, candles1h, candles4h, candles1d, candles1w] = await Promise.all([
+      fetchKrakenCandles(pair, '15m', 96),
+      fetchKrakenCandles(pair, '1h', 168),
+      fetchKrakenCandles(pair, '4h', 100),
+      fetchKrakenCandles(pair, '1d', 30),
+      fetchKrakenCandles(pair, '1w', 26)
+    ]);
+    // Only return if we got at least 1h candles
+    if (!candles1h || candles1h.length < 20) return null;
+    return {
+      '15m': candles15m.length >= 20 ? candles15m : null,
+      '1h': candles1h,
+      '4h': candles4h.length >= 5 ? candles4h : null,
+      '1d': candles1d.length >= 5 ? candles1d : null,
+      '1w': candles1w.length >= 3 ? candles1w : null
+    };
+  } catch (err) {
+    console.error(`[Kraken] Candles failed for ${coinId}:`, err.message);
+    return null;
+  }
+}
+
+// ====================================================
 // BINANCE - OHLCV Candles (no API key needed!)
 // Returns proper Open/High/Low/Close/Volume candles
 // ====================================================
@@ -291,36 +359,44 @@ async function fetchBinanceCandles(symbol, interval, limit) {
 }
 
 async function fetchAllCandlesForCoin(coinId, retriesLeft = 1) {
-  if (binanceRestricted) return null;
-  const meta = COIN_META[coinId];
-  if (!meta?.binance) return null;
-
-  try {
-    const [candles15m, candles1h, candles4h, candles1d, candles1w] = await Promise.all([
-      fetchBinanceCandles(meta.binance, '15m', 96),   // 24h of 15m
-      fetchBinanceCandles(meta.binance, '1h', 168),
-      fetchBinanceCandles(meta.binance, '4h', 100),
-      fetchBinanceCandles(meta.binance, '1d', 30),
-      fetchBinanceCandles(meta.binance, '1w', 26)     // ~6 months weekly
-    ]);
-
-    return {
-      '15m': candles15m,
-      '1h': candles1h,
-      '4h': candles4h,
-      '1d': candles1d,
-      '1w': candles1w
-    };
-  } catch (err) {
-    if (err.message && err.message.includes('451')) binanceRestricted = true;
-    if (retriesLeft > 0 && !binanceRestricted) {
-      console.log(`[Binance] Retrying ${COIN_META[coinId].symbol} in ${BINANCE_CANDLE_RETRY_DELAY / 1000}s...`);
-      await sleep(BINANCE_CANDLE_RETRY_DELAY);
-      return fetchAllCandlesForCoin(coinId, retriesLeft - 1);
+  // Try Binance first (if not restricted), then Kraken as fallback
+  if (!binanceRestricted) {
+    const meta = COIN_META[coinId];
+    if (meta?.binance) {
+      try {
+        const [candles15m, candles1h, candles4h, candles1d, candles1w] = await Promise.all([
+          fetchBinanceCandles(meta.binance, '15m', 96),
+          fetchBinanceCandles(meta.binance, '1h', 168),
+          fetchBinanceCandles(meta.binance, '4h', 100),
+          fetchBinanceCandles(meta.binance, '1d', 30),
+          fetchBinanceCandles(meta.binance, '1w', 26)
+        ]);
+        if (candles1h && candles1h.length >= 20) {
+          return { '15m': candles15m, '1h': candles1h, '4h': candles4h, '1d': candles1d, '1w': candles1w };
+        }
+      } catch (err) {
+        if (err.message && err.message.includes('451')) binanceRestricted = true;
+        if (retriesLeft > 0 && !binanceRestricted) {
+          console.log(`[Binance] Retrying ${COIN_META[coinId]?.symbol} in ${BINANCE_CANDLE_RETRY_DELAY / 1000}s...`);
+          await sleep(BINANCE_CANDLE_RETRY_DELAY);
+          return fetchAllCandlesForCoin(coinId, retriesLeft - 1);
+        }
+        console.error(`Binance candles failed for ${coinId}: ${err.message}`);
+      }
     }
-    console.error(`Binance candles failed for ${coinId}: ${err.message}`);
-    return null;
   }
+
+  // Fallback: Kraken OHLCV
+  try {
+    const krakenCandles = await fetchAllKrakenCandlesForCoin(coinId);
+    if (krakenCandles) {
+      console.log(`[Kraken] Got candles for ${coinId} (fallback)`);
+      return krakenCandles;
+    }
+  } catch (err) {
+    console.error(`[Kraken] Candle fallback failed for ${coinId}: ${err.message}`);
+  }
+  return null;
 }
 
 // ====================================================
@@ -405,29 +481,24 @@ async function refreshAllData() {
       pricesReadyResolve = null;
     }
 
-    // Step 2: Binance candles – skipped entirely if we already got 451 (binanceRestricted)
-    if (binanceRestricted) {
-      console.log('[Refresh] Skipping Binance candles (unavailable in this region)');
-    } else {
-      for (const coinId of TRACKED_COINS) {
-        try {
-          await sleep(BINANCE_DELAY);
-          const candles = await fetchAllCandlesForCoin(coinId);
-          if (candles) {
-            cache.candles[coinId] = candles;
-            successCount++;
-            console.log(`[Refresh] Candles: ${COIN_META[coinId].symbol} (${successCount}/${TRACKED_COINS.length})`);
-          }
-        } catch (err) {
-          if (err.message && err.message.includes('451')) {
-            binanceRestricted = true;
-            console.log('[Refresh] Binance unavailable (451) – skipping candles for rest of session');
-            break;
-          } else {
-            console.error(`[Refresh] Candles failed for ${coinId}: ${err.message}`);
-          }
+    // Step 2: OHLCV candles – try Binance first, fall back to Kraken
+    // fetchAllCandlesForCoin already handles the Binance → Kraken fallback internally
+    for (const coinId of TRACKED_COINS) {
+      try {
+        await sleep(binanceRestricted ? 500 : BINANCE_DELAY);  // Shorter delay for Kraken
+        const candles = await fetchAllCandlesForCoin(coinId);
+        if (candles) {
+          cache.candles[coinId] = candles;
+          successCount++;
+          console.log(`[Refresh] Candles: ${COIN_META[coinId].symbol} (${successCount}/${TRACKED_COINS.length})`);
         }
-        if (binanceRestricted) break;
+      } catch (err) {
+        if (err.message && err.message.includes('451')) {
+          binanceRestricted = true;
+          console.log('[Refresh] Binance unavailable (451) – falling back to Kraken');
+        } else {
+          console.error(`[Refresh] Candles failed for ${coinId}: ${err.message}`);
+        }
       }
     }
 
@@ -457,7 +528,7 @@ async function refreshAllData() {
     }
 
     cache.lastRefresh = Date.now();
-    console.log(`[Refresh] Complete. ${successCount}/${TRACKED_COINS.length} coins with Binance candles.`);
+    console.log(`[Refresh] Complete. ${successCount}/${TRACKED_COINS.length} coins with OHLCV candles${binanceRestricted ? ' (Kraken)' : ' (Binance)'}.`);
   } catch (err) {
     console.error('[Refresh] Error:', err.message);
   } finally {

@@ -268,7 +268,15 @@ app.get('/chart/:coinId', (req, res) => {
   if (!meta || !meta.binance) {
     return res.status(404).send('Chart not available for this coin. <a href="/">Back to Dashboard</a>');
   }
-  const tvSymbol = 'BINANCE:' + meta.binance;
+  // Use Kraken for TradingView symbol if Binance is unavailable
+  const KRAKEN_TV_PAIRS = {
+    'BTCUSDT': 'KRAKEN:BTCUSD', 'ETHUSDT': 'KRAKEN:ETHUSD', 'SOLUSDT': 'KRAKEN:SOLUSD',
+    'DOGEUSDT': 'KRAKEN:DOGEUSD', 'XRPUSDT': 'KRAKEN:XRPUSD', 'ADAUSDT': 'KRAKEN:ADAUSD',
+    'DOTUSDT': 'KRAKEN:DOTUSD', 'AVAXUSDT': 'KRAKEN:AVAXUSD', 'LINKUSDT': 'KRAKEN:LINKUSD',
+    'MATICUSDT': 'KRAKEN:MATICUSD', 'BNBUSDT': 'BINANCE:BNBUSDT', 'LTCUSDT': 'KRAKEN:LTCUSD',
+    'UNIUSDT': 'KRAKEN:UNIUSD', 'ATOMUSDT': 'KRAKEN:ATOMUSD'
+  };
+  const tvSymbol = KRAKEN_TV_PAIRS[meta.binance] || ('BINANCE:' + meta.binance);
   const entry = req.query.entry ? Number(req.query.entry) : null;
   const sl = req.query.sl ? Number(req.query.sl) : null;
   const tp1 = req.query.tp1 ? Number(req.query.tp1) : null;

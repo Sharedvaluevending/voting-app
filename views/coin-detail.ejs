@@ -148,15 +148,16 @@
 <% if (typeof user !== 'undefined' && user) { %>
 <div class="section">
   <h3>Take This Trade</h3>
-  <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">Main signal uses blended 1H/4H/1D score and levels. Or use a strategy-specific trade above (Scalping, Momentum, etc.) for that strategy&rsquo;s levels.</p>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">Best strategy: <strong style="color:#3b82f6;"><%= sig.strategyName || 'N/A' %></strong> (score <%= sig.score || 0 %>). Or pick a specific strategy above.</p>
   <% if (canTrade) { %>
-  <div style="display:flex;gap:12px;flex-wrap:wrap;">
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
     <% if (sig.signal === 'BUY' || sig.signal === 'STRONG_BUY') { %>
       <form action="/trades/open" method="POST">
         <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
         <input type="hidden" name="direction" value="LONG">
         <input type="hidden" name="score" value="<%= sig.score %>">
-        <button type="submit" class="btn btn-buy">Open Long (main signal)</button>
+        <input type="hidden" name="strategyType" value="<%= sig.strategyType || '' %>">
+        <button type="submit" class="btn btn-buy">Open Long – <%= sig.strategyName || 'Main' %></button>
       </form>
     <% } %>
     <% if (sig.signal === 'SELL' || sig.signal === 'STRONG_SELL') { %>
@@ -164,7 +165,8 @@
         <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
         <input type="hidden" name="direction" value="SHORT">
         <input type="hidden" name="score" value="<%= sig.score %>">
-        <button type="submit" class="btn btn-sell">Open Short (main signal)</button>
+        <input type="hidden" name="strategyType" value="<%= sig.strategyType || '' %>">
+        <button type="submit" class="btn btn-sell">Open Short – <%= sig.strategyName || 'Main' %></button>
       </form>
     <% } %>
   </div>

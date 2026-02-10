@@ -152,6 +152,9 @@
             <span class="action-label">Action:</span>
             <span class="action-text"><%= trade.scoreCheck.suggestedAction.text %></span>
           </div>
+          <% if (trade.scoreCheck.lastActionDetails) { %>
+          <div class="action-details"><%= trade.scoreCheck.lastActionDetails %></div>
+          <% } %>
           <% } %>
 
           <% if (trade.scoreHistory && trade.scoreHistory.length > 1) { %>

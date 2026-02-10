@@ -36,8 +36,8 @@ const DEFAULT_STRATEGIES = [
   {
     strategyId: 'scalping',
     name: 'Scalping',
-    description: 'Short-term 15m/1H: tight structure, volatility, quick momentum',
-    weights: { trend: 10, momentum: 25, volume: 20, structure: 25, volatility: 15, riskQuality: 5 }
+    description: 'Short-term 15m/1H: needs volatility and volume for quick entries',
+    weights: { trend: 5, momentum: 20, volume: 20, structure: 15, volatility: 25, riskQuality: 15 }
   },
   {
     strategyId: 'swing',
@@ -57,11 +57,11 @@ async function initializeStrategies() {
   for (const strategy of DEFAULT_STRATEGIES) {
     await StrategyWeight.findOneAndUpdate(
       { strategyId: strategy.strategyId },
-      { $setOnInsert: strategy },
+      { $set: { weights: strategy.weights, description: strategy.description }, $setOnInsert: { name: strategy.name } },
       { upsert: true, new: true }
     );
   }
-  console.log('[Learning] Strategies initialized');
+  console.log('[Learning] Strategies initialized/updated');
 }
 
 async function getActiveStrategies() {

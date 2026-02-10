@@ -436,9 +436,8 @@ function scoreCandles(analysis, currentPrice, timeframe) {
     momentum += 3; bearPoints += 1;
   }
 
-  // MACD histogram direction
-  if (analysis.macdHistogram > 0) { momentum += 2; bullPoints += 1; }
-  else { momentum += 2; bearPoints += 1; }
+  // MACD histogram magnitude (already checked direction above; this scores strength)
+  if (Math.abs(analysis.macdHistogram) > 0) { momentum += 2; }
 
   momentum = Math.min(20, momentum);
 
@@ -1000,7 +999,7 @@ const REGIME_STRATEGY_BLOCK = {
   trend_follow: ['ranging'],
   momentum: ['ranging'],
   breakout: [],
-  scalping: [],
+  scalping: ['trending', 'ranging'],  // Scalping needs volatility/compression, not sustained trends or flat ranges
   swing: [],
   position: []
 };
@@ -1027,13 +1026,14 @@ function pickStrategy(s1h, s4h, s1d, regime, scores15m, scores1w, strategyWeight
   };
 
   // Default dimension weights per strategy (used when no learned weights exist)
-  // Each strategy emphasizes the dimensions it cares about most
+  // Each strategy emphasizes the dimensions it cares about most.
+  // Scalping needs volatility + volume (short-term opportunities). Trend follow needs trend. Etc.
   const DEFAULT_WEIGHTS = {
     trend_follow: { trend: 30, momentum: 20, volume: 10, structure: 15, volatility: 10, riskQuality: 15 },
     breakout:     { trend: 10, momentum: 15, volume: 25, structure: 25, volatility: 15, riskQuality: 10 },
     mean_revert:  { trend: 10, momentum: 30, volume: 10, structure: 20, volatility: 20, riskQuality: 10 },
     momentum:     { trend: 15, momentum: 30, volume: 25, structure: 10, volatility: 10, riskQuality: 10 },
-    scalping:     { trend: 10, momentum: 25, volume: 15, structure: 25, volatility: 15, riskQuality: 10 },
+    scalping:     { trend: 5, momentum: 20, volume: 20, structure: 15, volatility: 25, riskQuality: 15 },
     swing:        { trend: 25, momentum: 15, volume: 10, structure: 25, volatility: 15, riskQuality: 10 },
     position:     { trend: 30, momentum: 10, volume: 10, structure: 20, volatility: 10, riskQuality: 20 }
   };
@@ -1072,13 +1072,19 @@ function pickStrategy(s1h, s4h, s1d, regime, scores15m, scores1w, strategyWeight
   if (regime === 'trending') strategies.momentum.score += 10;
   strategies.momentum.displayScore = weightedScore(s1h, getWeights('momentum'));
 
-  // Scalping
+  // Scalping: primarily 15m when available, 1h fallback.
+  // Apply short-timeframe noise penalty (15m is noisier, shouldn't inflate score).
   if (scores15m) {
     strategies.scalping.score = scores15m.volatility * 1.5 + scores15m.structure * 1.2 + s1h.momentum * 1.0;
     if (regime === 'volatile' || regime === 'compression') strategies.scalping.score += 15;
-    strategies.scalping.displayScore = weightedScore(scores15m, getWeights('scalping')) * 0.5 + weightedScore(s1h, getWeights('scalping')) * 0.5;
+    const raw15m = weightedScore(scores15m, getWeights('scalping'));
+    const raw1h = weightedScore(s1h, getWeights('scalping'));
+    // Use 15m as primary (70%) with 1h confirmation (30%), then apply 0.92 noise discount
+    strategies.scalping.displayScore = Math.round((raw15m * 0.7 + raw1h * 0.3) * 0.92);
   } else {
-    strategies.scalping.displayScore = weightedScore(s1h, getWeights('scalping'));
+    // Without 15m data, scalping has less edge — discount vs strategies that use their native timeframe
+    const raw = weightedScore(s1h, getWeights('scalping'));
+    strategies.scalping.displayScore = Math.round(raw * 0.90);
   }
 
   // Swing: 4H + 1D
@@ -1106,8 +1112,8 @@ function pickStrategy(s1h, s4h, s1d, regime, scores15m, scores1w, strategyWeight
     trend_follow: { trending: 5 },
     breakout:     { compression: 5 },
     mean_revert:  { ranging: 5 },
-    momentum:     { trending: 3 },
-    scalping:     { volatile: 3, compression: 3 },
+    momentum:     { trending: 3, volatile: 2 },
+    scalping:     { volatile: 2 },           // Only a small bonus in volatile (its niche)
     swing:        { trending: 3, compression: 3 },
     position:     { trending: 3 }
   };
@@ -1221,11 +1227,19 @@ function calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, direction,
     tp2 = tpCount >= 2 ? r2(entry - risk * tp2R) : null;
     tp3 = tpCount >= 3 ? r2(entry - risk * tp3R) : null;
   } else {
+    // HOLD / unknown direction: use direction hint to set levels
     entry = r2(currentPrice);
-    stopLoss = r2(support * 0.995);
-    tp1 = tpCount >= 1 ? r2(resistance) : null;
-    tp2 = tpCount >= 2 ? r2(resistance * 1.03) : null;
-    tp3 = tpCount >= 3 ? r2(resistance * 1.06) : null;
+    if (direction === 'SHORT') {
+      stopLoss = r2(resistance * 1.005);
+      tp1 = tpCount >= 1 ? r2(support) : null;
+      tp2 = tpCount >= 2 ? r2(support * 0.97) : null;
+      tp3 = tpCount >= 3 ? r2(support * 0.94) : null;
+    } else {
+      stopLoss = r2(support * 0.995);
+      tp1 = tpCount >= 1 ? r2(resistance) : null;
+      tp2 = tpCount >= 2 ? r2(resistance * 1.03) : null;
+      tp3 = tpCount >= 3 ? r2(resistance * 1.06) : null;
+    }
   }
 
   const risk = Math.abs(entry - stopLoss);

@@ -250,6 +250,7 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 .action-high .action-text { color: #f97316; }
 .action-extreme { background: #451a1a33; border: 1px solid #451a1a; }
 .action-extreme .action-text { color: #ef4444; }
+.action-details { margin: 4px 0 0 0; padding: 4px 10px; font-size: 11px; color: #9ca3af; background: #0d132066; border-radius: 4px; border-left: 2px solid #3b82f6; }
 
 /* TRADE HEALTH TIMELINE */
 .health-timeline { margin-top: 8px; padding-top: 6px; border-top: 1px solid #1e2a3a; }
