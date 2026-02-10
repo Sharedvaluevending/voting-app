@@ -331,11 +331,13 @@ function calculateWinProbability(score) {
 // ---- What Changed? ----
 // Compares each breakdown dimension (entry vs current) and explains
 // the specific reasons WHY the score changed.
+// For SHORT: lower score = more bearish = favorable, so we invert type (neg->pos, pos->neg)
 function determineChangeReasons(trade, signal) {
   const reasons = [];
   const eb = trade.scoreBreakdownAtEntry || {};
   const cb = signal.scoreBreakdown || {};
   if (typeof eb.trend !== 'number') return reasons;
+  const isLong = trade.direction === 'LONG';
 
   const dims = [
     { key: 'trend',      negText: 'HTF lost alignment',   posText: 'HTF trend strengthened' },
@@ -348,8 +350,13 @@ function determineChangeReasons(trade, signal) {
 
   for (const d of dims) {
     const diff = (cb[d.key] || 0) - (eb[d.key] || 0);
-    if (diff <= -3) reasons.push({ type: 'negative', text: d.negText });
-    else if (diff >= 3) reasons.push({ type: 'positive', text: d.posText });
+    if (diff <= -3) {
+      // Dimension dropped: bad for long, good for short (more bearish)
+      reasons.push({ type: isLong ? 'negative' : 'positive', text: d.negText });
+    } else if (diff >= 3) {
+      // Dimension rose: good for long, bad for short (more bullish)
+      reasons.push({ type: isLong ? 'positive' : 'negative', text: d.posText });
+    }
   }
 
   if (reasons.length === 0) {
@@ -360,27 +367,31 @@ function determineChangeReasons(trade, signal) {
 
 // ---- Heat Indicator ----
 // Green = stable, Yellow = weakening, Red = danger
-function determineHeat(scoreDiff, messages) {
+// For SHORT: negative scoreDiff = more bearish = favorable, so we invert
+function determineHeat(scoreDiff, messages, isLong) {
+  const effective = isLong ? scoreDiff : -scoreDiff;  // For short, neg diff = good
   const hasDanger = messages.some(m => m.type === 'danger');
   const hasWarning = messages.some(m => m.type === 'warning');
-  if (hasDanger || scoreDiff <= -15) return 'red';
-  if (hasWarning || scoreDiff <= -5) return 'yellow';
+  if (hasDanger || effective <= -15) return 'red';
+  if (hasWarning || effective <= -5) return 'yellow';
   return 'green';
 }
 
 // ---- Suggested Action Ladder ----
 // Maps severity to a recommended action.
-function determineSuggestedAction(scoreDiff, heat, messages) {
-  if (heat === 'red' || scoreDiff <= -20) {
+// For SHORT: negative scoreDiff = more bearish = favorable (hold), positive = unfavorable (exit)
+function determineSuggestedAction(scoreDiff, heat, messages, isLong) {
+  const effective = isLong ? scoreDiff : -scoreDiff;
+  if (heat === 'red' || effective <= -20) {
     return { level: 'extreme', text: 'Consider exit' };
   }
-  if (scoreDiff <= -15 || messages.some(m => m.text === 'Structure breaking')) {
+  if (effective <= -15 || messages.some(m => m.text === 'Structure breaking')) {
     return { level: 'high', text: 'Reduce position' };
   }
-  if (heat === 'yellow' || scoreDiff <= -5) {
+  if (heat === 'yellow' || effective <= -5) {
     return { level: 'medium', text: 'Tighten stop' };
   }
-  if (scoreDiff >= 5) {
+  if (effective >= 5) {
     return { level: 'positive', text: 'Hold — strengthening' };
   }
   return { level: 'low', text: 'Monitor' };
@@ -398,13 +409,16 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
 
   const isLong = trade.direction === 'LONG';
 
-  // Signal direction flipped?
+  // Signal direction flipped? (market now says opposite of our trade)
   const signalFlipped = isLong
     ? (signal.signal === 'SELL' || signal.signal === 'STRONG_SELL')
     : (signal.signal === 'BUY' || signal.signal === 'STRONG_BUY');
 
-  // 1. Setup invalidated (most severe)
-  if (signalFlipped || currentScore < 35 || scoreDiff <= -20) {
+  // For SHORT: negative scoreDiff = more bearish = favorable. Only "setup invalidated" when score moves AGAINST us.
+  const scoreDiffAgainstUs = isLong ? scoreDiff : -scoreDiff;  // Negative = bad for our trade
+
+  // 1. Setup invalidated (most severe) - score moved heavily against our direction
+  if (signalFlipped || currentScore < 35 || scoreDiffAgainstUs <= -20) {
     messages.push({ type: 'danger', text: 'Setup invalidated' });
   }
 
@@ -418,12 +432,13 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
     messages.push({ type: 'warning', text: 'Momentum weakening' });
   }
 
-  // 4. Confidence increasing
-  if (scoreDiff >= 5 && !signalFlipped) {
+  // 4. Confidence increasing - score moved in our favor
+  const scoreDiffInFavor = isLong ? scoreDiff : -scoreDiff;
+  if (scoreDiffInFavor >= 5 && !signalFlipped) {
     messages.push({ type: 'positive', text: 'Confidence increasing' });
   }
 
-  // 5. TP probability rising (price progressing toward TP2 & score solid)
+  // 5. TP probability rising (price progressing toward TP2 & score in our favor)
   const tp2 = trade.takeProfit2;
   if (tp2) {
     let progress = 0;
@@ -432,18 +447,19 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
     } else if (!isLong && tp2 < trade.entryPrice) {
       progress = (trade.entryPrice - currentPrice) / (trade.entryPrice - tp2);
     }
-    if (progress >= 0.5 && currentScore >= 50) {
+    const scoreInFavor = isLong ? currentScore >= 50 : currentScore <= 50;  // Long: bullish; Short: bearish
+    if (progress >= 0.5 && scoreInFavor) {
       messages.push({ type: 'positive', text: 'TP probability rising' });
     }
   }
 
-  // 6. Consider partial (near TP1 with weakening signals)
+  // 6. Consider partial (near TP1 with signals weakening for our direction)
   const tp1 = trade.takeProfit1;
   if (tp1) {
     const nearTP1 = isLong
       ? currentPrice >= tp1 * 0.98
       : currentPrice <= tp1 * 1.02;
-    const weakening = scoreDiff < 0 ||
+    const weakening = scoreDiffAgainstUs < 0 ||  // score moved against us
       (hasEntryBreakdown && (cb.momentum || 0) < (eb.momentum || 0));
     if (nearTP1 && weakening) {
       messages.push({ type: 'info', text: 'Consider partial' });
@@ -469,7 +485,7 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
 
   // Default: neutral status when nothing noteworthy
   if (messages.length === 0) {
-    if (scoreDiff >= 0) {
+    if (scoreDiffInFavor >= 0) {
       messages.push({ type: 'positive', text: 'Score holding steady' });
     } else {
       messages.push({ type: 'warning', text: 'Score slightly lower' });
@@ -496,10 +512,16 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
       const messages = generateScoreCheckMessages(trade, signal, currentPrice);
       const scoreDiff = (signal.score || 0) - (trade.score || 0);
       const changeReasons = determineChangeReasons(trade, signal);
-      const heat = determineHeat(scoreDiff, messages);
-      const suggestedAction = determineSuggestedAction(scoreDiff, heat, messages);
-      const entryProbability = calculateWinProbability(trade.score || 0);
-      const currentProbability = calculateWinProbability(signal.score || 0);
+      const isLong = trade.direction === 'LONG';
+      const heat = determineHeat(scoreDiff, messages, isLong);
+      const suggestedAction = determineSuggestedAction(scoreDiff, heat, messages, isLong);
+      // Win prob: for LONG, high score = high prob. For SHORT, low score (bearish) = high prob.
+      const entryScore = trade.score || 0;
+      const currentScore = signal.score || 0;
+      const entryProbRaw = calculateWinProbability(entryScore);
+      const currentProbRaw = calculateWinProbability(currentScore);
+      const entryProbability = Math.min(100, Math.max(0, isLong ? entryProbRaw : 100 - entryProbRaw));
+      const currentProbability = Math.min(100, Math.max(0, isLong ? currentProbRaw : 100 - currentProbRaw));
 
       trade.scoreCheck = {
         currentScore: signal.score,
