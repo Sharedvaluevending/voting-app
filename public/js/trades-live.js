@@ -254,14 +254,16 @@
             }
             html += '</div>';
 
-            // Score summary
+            // Score summary: use scoreDiffDisplay/scoreDiffFavorable when available (for SHORT-friendly display)
+            var diff = check.scoreDiffDisplay != null ? check.scoreDiffDisplay : check.scoreDiff;
+            var fav = check.scoreDiffFavorable != null ? check.scoreDiffFavorable : (check.scoreDiff >= 0);
             html += '<div class="score-check-summary">';
             html += '<span>Now: <strong>' + check.currentScore + '</strong></span>';
             html += '<span>Entry: <strong>' + check.entryScore + '</strong></span>';
-            if (check.scoreDiff > 0) {
-              html += '<span class="score-diff score-diff-pos">+' + check.scoreDiff + '</span>';
-            } else if (check.scoreDiff < 0) {
-              html += '<span class="score-diff score-diff-neg">' + check.scoreDiff + '</span>';
+            if (diff > 0) {
+              html += '<span class="score-diff ' + (fav ? 'score-diff-pos' : 'score-diff-neg') + '">+' + diff + (fav ? ' \u2191' : '') + '</span>';
+            } else if (diff < 0) {
+              html += '<span class="score-diff ' + (fav ? 'score-diff-pos' : 'score-diff-neg') + '">' + diff + (fav ? ' \u2191' : '') + '</span>';
             } else {
               html += '<span class="score-diff score-diff-neutral">0</span>';
             }

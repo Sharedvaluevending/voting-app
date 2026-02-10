@@ -329,9 +329,8 @@ function calculateWinProbability(score) {
 }
 
 // ---- What Changed? ----
-// Compares each breakdown dimension (entry vs current) and explains
-// the specific reasons WHY the score changed.
-// For SHORT: lower score = more bearish = favorable, so we invert type (neg->pos, pos->neg)
+// Compares each breakdown dimension (entry vs current) and explains WHY.
+// For SHORT: dimension drop = more bearish = favorable. Use SHORT-specific text so green makes sense.
 function determineChangeReasons(trade, signal) {
   const reasons = [];
   const eb = trade.scoreBreakdownAtEntry || {};
@@ -340,22 +339,28 @@ function determineChangeReasons(trade, signal) {
   const isLong = trade.direction === 'LONG';
 
   const dims = [
-    { key: 'trend',      negText: 'HTF lost alignment',   posText: 'HTF trend strengthened' },
-    { key: 'momentum',   negText: 'Momentum divergence',  posText: 'Momentum increasing' },
-    { key: 'volume',     negText: 'Volume fading',        posText: 'Volume confirming' },
-    { key: 'structure',  negText: 'Structure break',       posText: 'Structure improved' },
-    { key: 'volatility', negText: 'Volatility spike',     posText: 'Volatility normalized' },
-    { key: 'riskQuality',negText: 'Risk/reward degraded', posText: 'Risk/reward improved' }
+    { key: 'trend',      negText: 'HTF lost alignment',   posText: 'HTF trend strengthened', shortFavText: 'HTF bullish bias fading' },
+    { key: 'momentum',   negText: 'Momentum divergence',  posText: 'Momentum increasing', shortFavText: 'Bullish momentum fading' },
+    { key: 'volume',     negText: 'Volume fading',        posText: 'Volume confirming', shortFavText: 'Buying volume fading' },
+    { key: 'structure',  negText: 'Structure break',      posText: 'Structure improved', invertForShort: false },
+    { key: 'volatility', negText: 'Volatility spike',     posText: 'Volatility normalized', shortFavText: 'Volatility spike' },
+    { key: 'riskQuality',negText: 'Risk/reward degraded', posText: 'Risk/reward improved', shortFavText: 'Risk/reward shifted' }
   ];
 
   for (const d of dims) {
     const diff = (cb[d.key] || 0) - (eb[d.key] || 0);
     if (diff <= -3) {
-      // Dimension dropped: bad for long, good for short (more bearish)
-      reasons.push({ type: isLong ? 'negative' : 'positive', text: d.negText });
+      if (d.invertForShort === false) {
+        reasons.push({ type: 'negative', text: d.negText });
+      } else {
+        reasons.push({ type: isLong ? 'negative' : 'positive', text: isLong ? d.negText : (d.shortFavText || d.negText) });
+      }
     } else if (diff >= 3) {
-      // Dimension rose: good for long, bad for short (more bullish)
-      reasons.push({ type: isLong ? 'positive' : 'negative', text: d.posText });
+      if (d.invertForShort === false) {
+        reasons.push({ type: 'positive', text: d.posText });
+      } else {
+        reasons.push({ type: isLong ? 'positive' : 'negative', text: d.posText });
+      }
     }
   }
 
@@ -372,20 +377,28 @@ function determineHeat(scoreDiff, messages, isLong) {
   const effective = isLong ? scoreDiff : -scoreDiff;  // For short, neg diff = good
   const hasDanger = messages.some(m => m.type === 'danger');
   const hasWarning = messages.some(m => m.type === 'warning');
+  // When score moved 20+ in our favor, downgrade danger – thesis still strong
+  if (effective >= 20 && hasDanger) return 'yellow';
+  if (effective >= 20 && hasWarning) return 'green';
   if (hasDanger || effective <= -15) return 'red';
   if (hasWarning || effective <= -5) return 'yellow';
   return 'green';
 }
 
 // ---- Suggested Action Ladder ----
-// Maps severity to a recommended action.
-// For SHORT: negative scoreDiff = more bearish = favorable (hold), positive = unfavorable (exit)
+// For SHORT: negative scoreDiff = more bearish = favorable. When score strongly in favor, don't suggest exit.
 function determineSuggestedAction(scoreDiff, heat, messages, isLong) {
   const effective = isLong ? scoreDiff : -scoreDiff;
+  const structureBreaking = messages.some(m => m.text === 'Structure breaking');
+  // When score moved 20+ in our favor (we're in profit, thesis strong), never suggest exit
+  if (effective >= 20) {
+    if (structureBreaking) return { level: 'medium', text: 'Hold — monitor structure' };
+    return { level: 'positive', text: 'Hold — strengthening' };
+  }
   if (heat === 'red' || effective <= -20) {
     return { level: 'extreme', text: 'Consider exit' };
   }
-  if (effective <= -15 || messages.some(m => m.text === 'Structure breaking')) {
+  if (effective <= -15 || structureBreaking) {
     return { level: 'high', text: 'Reduce position' };
   }
   if (heat === 'yellow' || effective <= -5) {
@@ -523,10 +536,15 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
       const entryProbability = Math.min(100, Math.max(0, isLong ? entryProbRaw : 100 - entryProbRaw));
       const currentProbability = Math.min(100, Math.max(0, isLong ? currentProbRaw : 100 - currentProbRaw));
 
+      const scoreDiffFavorable = isLong ? scoreDiff >= 0 : scoreDiff <= 0;
+      const scoreDiffDisplay = isLong ? scoreDiff : -scoreDiff;  // For short, show as positive when favorable
+
       trade.scoreCheck = {
         currentScore: signal.score,
         entryScore: trade.score || 0,
         scoreDiff,
+        scoreDiffFavorable,
+        scoreDiffDisplay,
         currentBreakdown: signal.scoreBreakdown || {},
         regime: signal.regime,
         signal: signal.signal,
