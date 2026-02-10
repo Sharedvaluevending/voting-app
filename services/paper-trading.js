@@ -435,14 +435,18 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
     messages.push({ type: 'danger', text: 'Setup invalidated' });
   }
 
-  // 2. Structure breaking
+  // 2. Structure breaking (bad for both directions)
   if (hasEntryBreakdown && (cb.structure || 0) <= (eb.structure || 0) - 4) {
     messages.push({ type: 'danger', text: 'Structure breaking' });
   }
 
-  // 3. Momentum weakening
+  // 3. Momentum: for LONG, drop = warning. For SHORT, drop = favorable (bullish momentum fading)
   if (hasEntryBreakdown && (cb.momentum || 0) <= (eb.momentum || 0) - 3) {
-    messages.push({ type: 'warning', text: 'Momentum weakening' });
+    if (isLong) {
+      messages.push({ type: 'warning', text: 'Momentum weakening' });
+    } else {
+      messages.push({ type: 'positive', text: 'Bullish momentum fading' });
+    }
   }
 
   // 4. Confidence increasing - score moved in our favor

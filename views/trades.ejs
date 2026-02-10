@@ -154,7 +154,7 @@
           <% } %>
 
           <% if (trade.scoreHistory && trade.scoreHistory.length > 1) { %>
-          <div class="health-timeline" data-trade-id="<%= trade._id %>">
+          <div class="health-timeline" data-trade-id="<%= trade._id %>" data-direction="<%= trade.direction %>">
             <div class="timeline-title">Trade Health Timeline</div>
             <canvas class="timeline-canvas" width="360" height="80"></canvas>
           </div>

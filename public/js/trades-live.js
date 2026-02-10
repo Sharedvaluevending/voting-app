@@ -28,7 +28,8 @@
   }
 
   // ---- Timeline Chart Drawing ----
-  function drawTimeline(canvas, history) {
+  // For SHORT: plot 100-score so "up" = favorable (when raw score drops, market more bearish = good for short)
+  function drawTimeline(canvas, history, direction) {
     if (!canvas || !canvas.getContext || !history || history.length < 2) return;
     var ctx = canvas.getContext('2d');
     var w = canvas.width;
@@ -36,10 +37,13 @@
     var pad = { top: 8, right: 8, bottom: 14, left: 28 };
     var plotW = w - pad.left - pad.right;
     var plotH = h - pad.top - pad.bottom;
+    var isShort = (direction || '').toUpperCase() === 'SHORT';
 
     ctx.clearRect(0, 0, w, h);
 
-    var scores = history.map(function(p) { return p.score; });
+    var scores = history.map(function(p) {
+      return isShort ? (100 - (p.score || 0)) : (p.score || 0);
+    });
     var minS = Math.max(0, Math.min.apply(null, scores) - 5);
     var maxS = Math.min(100, Math.max.apply(null, scores) + 5);
     if (maxS - minS < 10) { minS = Math.max(0, minS - 5); maxS = Math.min(100, maxS + 5); }
@@ -60,8 +64,9 @@
     // Line + gradient
     ctx.beginPath();
     for (var i = 0; i < history.length; i++) {
+      var plotVal = isShort ? (100 - (history[i].score || 0)) : (history[i].score || 0);
       var x = pad.left + (i / (history.length - 1)) * plotW;
-      var y = pad.top + plotH - ((history[i].score - minS) / range) * plotH;
+      var y = pad.top + plotH - ((plotVal - minS) / range) * plotH;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
@@ -74,10 +79,6 @@
     ctx.stroke();
 
     // Fill under line
-    var grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotH);
-    grad.addColorStop(0, lineColor.replace(')', ',0.2)').replace('rgb', 'rgba').replace('#ef4444', 'rgba(239,68,68,0.2)').replace('#eab308', 'rgba(234,179,8,0.2)').replace('#10b981', 'rgba(16,185,129,0.2)'));
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-    // Simpler approach: use rgba directly
     ctx.lineTo(pad.left + plotW, pad.top + plotH);
     ctx.lineTo(pad.left, pad.top + plotH);
     ctx.closePath();
@@ -86,8 +87,9 @@
 
     // Dots at each point
     for (var j = 0; j < history.length; j++) {
+      var plotVal = isShort ? (100 - (history[j].score || 0)) : (history[j].score || 0);
       var dx = pad.left + (j / (history.length - 1)) * plotW;
-      var dy = pad.top + plotH - ((history[j].score - minS) / range) * plotH;
+      var dy = pad.top + plotH - ((plotVal - minS) / range) * plotH;
       var dotColor = history[j].heat === 'red' ? '#ef4444' : history[j].heat === 'yellow' ? '#eab308' : '#10b981';
       ctx.beginPath();
       ctx.arc(dx, dy, 2.5, 0, Math.PI * 2);
@@ -116,9 +118,10 @@
     for (var i = 0; i < canvases.length; i++) {
       var el = canvases[i];
       var tid = el.getAttribute('data-trade-id');
+      var direction = el.getAttribute('data-direction') || 'LONG';
       var canvas = el.querySelector('.timeline-canvas');
       if (tid && histories[tid] && histories[tid].length > 1) {
-        drawTimeline(canvas, histories[tid]);
+        drawTimeline(canvas, histories[tid], direction);
       }
     }
   }
@@ -311,10 +314,11 @@
               html += '</div>';
             }
 
-            // Timeline placeholder
+            // Timeline placeholder (pass direction so SHORT shows up=favorable)
             var history = (window.__scoreHistories && window.__scoreHistories[tradeId]) || [];
+            var direction = card.getAttribute('data-direction') || 'LONG';
             if (history.length > 1) {
-              html += '<div class="health-timeline" data-trade-id="' + tradeId + '">';
+              html += '<div class="health-timeline" data-trade-id="' + tradeId + '" data-direction="' + direction + '">';
               html += '<div class="timeline-title">Trade Health Timeline</div>';
               html += '<canvas class="timeline-canvas" width="360" height="80"></canvas>';
               html += '</div>';
@@ -327,7 +331,7 @@
               var timelineEl = el.querySelector('.health-timeline');
               if (timelineEl) {
                 var canvas = timelineEl.querySelector('.timeline-canvas');
-                drawTimeline(canvas, history);
+                drawTimeline(canvas, history, direction);
               }
             }
           }
