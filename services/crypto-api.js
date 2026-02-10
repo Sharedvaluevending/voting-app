@@ -543,7 +543,7 @@ refreshAllData().catch(err => console.error('[CryptoAPI] Initial error:', err.me
 
 module.exports = {
   fetchAllPrices, fetchPriceHistory, fetchAllHistory,
-  fetchCandles, fetchAllCandles, getCurrentPrice, fetchLivePrice, isDataReady,
+  fetchCandles, fetchAllCandles, fetchAllCandlesForCoin, getCurrentPrice, fetchLivePrice, isDataReady,
   pricesReadyPromise,
   TRACKED_COINS, COIN_META
 };

@@ -17,7 +17,7 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const path = require('path');
 
-const { fetchAllPrices, fetchAllCandles, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
+const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
 const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
@@ -677,6 +677,35 @@ app.get('/api/status', (req, res) => {
     coins: TRACKED_COINS.length,
     version: '3.0.0'
   });
+});
+
+// Candles for chart (Lightweight Charts format)
+app.get('/api/candles/:coinId', async (req, res) => {
+  try {
+    const { coinId } = req.params;
+    const interval = req.query.interval || '1h';
+    if (!TRACKED_COINS.includes(coinId)) {
+      return res.status(404).json({ error: 'Coin not found' });
+    }
+    let allCandles = fetchCandles(coinId);
+    if (!allCandles) {
+      allCandles = await fetchAllCandlesForCoin(coinId);
+    }
+    if (!allCandles || !allCandles[interval]) {
+      return res.json({ success: true, candles: [] });
+    }
+    const raw = allCandles[interval];
+    const candles = raw.map(c => ({
+      time: Math.floor(c.openTime / 1000),
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close
+    }));
+    res.json({ success: true, candles });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // ====================================================
