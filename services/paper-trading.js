@@ -313,6 +313,78 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
 // ====================================================
 const SCORE_RECHECK_MINUTES = 5;
 
+// ---- Win Probability ----
+// Maps score (0-100) to an estimated win probability percentage.
+// Non-linear: higher scores yield disproportionately higher probability.
+function calculateWinProbability(score) {
+  if (score >= 85) return 88;
+  if (score >= 75) return 75;
+  if (score >= 65) return 62;
+  if (score >= 55) return 52;
+  if (score >= 45) return 40;
+  if (score >= 35) return 28;
+  if (score >= 25) return 18;
+  return 12;
+}
+
+// ---- What Changed? ----
+// Compares each breakdown dimension (entry vs current) and explains
+// the specific reasons WHY the score changed.
+function determineChangeReasons(trade, signal) {
+  const reasons = [];
+  const eb = trade.scoreBreakdownAtEntry || {};
+  const cb = signal.scoreBreakdown || {};
+  if (typeof eb.trend !== 'number') return reasons;
+
+  const dims = [
+    { key: 'trend',      negText: 'HTF lost alignment',   posText: 'HTF trend strengthened' },
+    { key: 'momentum',   negText: 'Momentum divergence',  posText: 'Momentum increasing' },
+    { key: 'volume',     negText: 'Volume fading',        posText: 'Volume confirming' },
+    { key: 'structure',  negText: 'Structure break',       posText: 'Structure improved' },
+    { key: 'volatility', negText: 'Volatility spike',     posText: 'Volatility normalized' },
+    { key: 'riskQuality',negText: 'Risk/reward degraded', posText: 'Risk/reward improved' }
+  ];
+
+  for (const d of dims) {
+    const diff = (cb[d.key] || 0) - (eb[d.key] || 0);
+    if (diff <= -3) reasons.push({ type: 'negative', text: d.negText });
+    else if (diff >= 3) reasons.push({ type: 'positive', text: d.posText });
+  }
+
+  if (reasons.length === 0) {
+    reasons.push({ type: 'neutral', text: 'No significant changes detected' });
+  }
+  return reasons;
+}
+
+// ---- Heat Indicator ----
+// Green = stable, Yellow = weakening, Red = danger
+function determineHeat(scoreDiff, messages) {
+  const hasDanger = messages.some(m => m.type === 'danger');
+  const hasWarning = messages.some(m => m.type === 'warning');
+  if (hasDanger || scoreDiff <= -15) return 'red';
+  if (hasWarning || scoreDiff <= -5) return 'yellow';
+  return 'green';
+}
+
+// ---- Suggested Action Ladder ----
+// Maps severity to a recommended action.
+function determineSuggestedAction(scoreDiff, heat, messages) {
+  if (heat === 'red' || scoreDiff <= -20) {
+    return { level: 'extreme', text: 'Consider exit' };
+  }
+  if (scoreDiff <= -15 || messages.some(m => m.text === 'Structure breaking')) {
+    return { level: 'high', text: 'Reduce position' };
+  }
+  if (heat === 'yellow' || scoreDiff <= -5) {
+    return { level: 'medium', text: 'Tighten stop' };
+  }
+  if (scoreDiff >= 5) {
+    return { level: 'positive', text: 'Hold — strengthening' };
+  }
+  return { level: 'low', text: 'Monitor' };
+}
+
 function generateScoreCheckMessages(trade, signal, currentPrice) {
   const messages = [];
   const entryScore = trade.score || 0;
@@ -421,18 +493,42 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
       if (!signal) continue;
 
       const messages = generateScoreCheckMessages(trade, signal, currentPrice);
+      const scoreDiff = (signal.score || 0) - (trade.score || 0);
+      const changeReasons = determineChangeReasons(trade, signal);
+      const heat = determineHeat(scoreDiff, messages);
+      const suggestedAction = determineSuggestedAction(scoreDiff, heat, messages);
+      const entryProbability = calculateWinProbability(trade.score || 0);
+      const currentProbability = calculateWinProbability(signal.score || 0);
 
       trade.scoreCheck = {
         currentScore: signal.score,
         entryScore: trade.score || 0,
-        scoreDiff: (signal.score || 0) - (trade.score || 0),
+        scoreDiff,
         currentBreakdown: signal.scoreBreakdown || {},
         regime: signal.regime,
         signal: signal.signal,
         confidence: signal.confidence,
         messages,
+        entryProbability,
+        currentProbability,
+        changeReasons,
+        suggestedAction,
+        heat,
         checkedAt: new Date()
       };
+
+      // Append to score history for timeline (cap at 100 entries)
+      if (!Array.isArray(trade.scoreHistory)) trade.scoreHistory = [];
+      trade.scoreHistory.push({
+        score: signal.score || 0,
+        probability: currentProbability,
+        heat,
+        checkedAt: new Date()
+      });
+      if (trade.scoreHistory.length > 100) {
+        trade.scoreHistory = trade.scoreHistory.slice(-100);
+      }
+
       trade.updatedAt = new Date();
       await trade.save();
       checkedCount++;

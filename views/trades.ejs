@@ -98,6 +98,9 @@
         <div class="score-check" data-trade-id="<%= trade._id %>">
           <div class="score-check-header">
             <h4>Score Check</h4>
+            <% if (trade.scoreCheck.heat) { %>
+              <span class="heat-dot heat-<%= trade.scoreCheck.heat %>"></span>
+            <% } %>
             <span class="score-check-time"><%= trade.scoreCheck.checkedAt ? new Date(trade.scoreCheck.checkedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '' %></span>
           </div>
           <div class="score-check-summary">
@@ -111,11 +114,50 @@
               <span class="score-diff score-diff-neutral">0</span>
             <% } %>
           </div>
+
+          <% if (trade.scoreCheck.entryProbability != null) { %>
+          <div class="prob-meter">
+            <div class="prob-row">
+              <span class="prob-label">Win prob at entry</span>
+              <div class="prob-bar-outer"><div class="prob-bar-inner prob-bar-entry" style="width:<%= trade.scoreCheck.entryProbability %>%"></div></div>
+              <span class="prob-value"><%= trade.scoreCheck.entryProbability %>%</span>
+            </div>
+            <div class="prob-row">
+              <span class="prob-label">Current probability</span>
+              <div class="prob-bar-outer"><div class="prob-bar-inner prob-bar-current prob-bar-<%= trade.scoreCheck.heat || 'green' %>" style="width:<%= trade.scoreCheck.currentProbability %>%"></div></div>
+              <span class="prob-value"><%= trade.scoreCheck.currentProbability %>%</span>
+            </div>
+          </div>
+          <% } %>
+
           <div class="score-check-messages">
             <% trade.scoreCheck.messages.forEach(function(msg) { %>
               <span class="score-msg score-msg-<%= msg.type %>"><%= msg.text %></span>
             <% }); %>
           </div>
+
+          <% if (trade.scoreCheck.changeReasons && trade.scoreCheck.changeReasons.length > 0) { %>
+          <div class="change-reasons">
+            <div class="change-reasons-title">What changed?</div>
+            <% trade.scoreCheck.changeReasons.forEach(function(r) { %>
+              <span class="change-reason change-reason-<%= r.type %>"><%= r.text %></span>
+            <% }); %>
+          </div>
+          <% } %>
+
+          <% if (trade.scoreCheck.suggestedAction) { %>
+          <div class="action-ladder action-<%= trade.scoreCheck.suggestedAction.level %>">
+            <span class="action-label">Action:</span>
+            <span class="action-text"><%= trade.scoreCheck.suggestedAction.text %></span>
+          </div>
+          <% } %>
+
+          <% if (trade.scoreHistory && trade.scoreHistory.length > 1) { %>
+          <div class="health-timeline" data-trade-id="<%= trade._id %>">
+            <div class="timeline-title">Trade Health Timeline</div>
+            <canvas class="timeline-canvas" width="360" height="80"></canvas>
+          </div>
+          <% } %>
         </div>
         <% } else { %>
         <div class="score-check score-check-pending" data-trade-id="<%= trade._id %>">
@@ -141,7 +183,15 @@
 <% } %>
 
 <% if (trades.length > 0) { %>
-<script src="/js/trades-live.js?v=4" defer></script>
+<script>
+  window.__scoreHistories = {};
+  <% trades.forEach(function(trade) { %>
+    <% if (trade.scoreHistory && trade.scoreHistory.length > 0) { %>
+      window.__scoreHistories['<%= trade._id %>'] = <%- JSON.stringify(trade.scoreHistory) %>;
+    <% } %>
+  <% }); %>
+</script>
+<script src="/js/trades-live.js?v=5" defer></script>
 <% } %>
 
 <%- include('partials/footer') %>

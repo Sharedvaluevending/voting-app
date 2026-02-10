@@ -606,10 +606,12 @@ app.get('/api/trade-scores', async (req, res) => {
     }
     const trades = await Trade.find({ userId: req.session.userId, status: 'OPEN' }).lean();
     const scoreChecks = {};
+    const scoreHistories = {};
     trades.forEach(t => {
       scoreChecks[t._id.toString()] = t.scoreCheck || null;
+      scoreHistories[t._id.toString()] = t.scoreHistory || [];
     });
-    res.json({ success: true, scoreChecks });
+    res.json({ success: true, scoreChecks, scoreHistories });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
