@@ -480,7 +480,8 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       s.cooldownHours = v;
     }
     if (req.body.autoExecuteActions !== undefined) {
-      s.autoExecuteActions = req.body.autoExecuteActions === 'true';
+      const val = req.body.autoExecuteActions;
+      s.autoExecuteActions = val === 'true' || (Array.isArray(val) && val.includes('true'));
     }
     u.settings = s;
     await u.save();
