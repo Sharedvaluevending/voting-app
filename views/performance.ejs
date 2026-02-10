@@ -36,6 +36,10 @@
       <input type="number" name="defaultLeverage" min="1" max="20" value="<%= (user.settings && user.settings.defaultLeverage) || 1 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
     </div>
     <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Cooldown (hours)</label>
+      <input type="number" name="cooldownHours" min="0" max="168" title="Hours to wait before re-opening same direction on same coin" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 4 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
       <button type="submit" class="btn btn-outline btn-sm">Save</button>
     </div>
   </form>

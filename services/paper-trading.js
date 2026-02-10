@@ -13,7 +13,7 @@ const { recordTradeOutcome, adjustWeights } = require('./learning-engine');
 const MAKER_FEE = 0.001;
 const TAKER_FEE = 0.001;
 const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
-const COOLDOWN_HOURS = 4;         // no same-direction re-entry on same coin within 4h
+const DEFAULT_COOLDOWN_HOURS = 4;  // no same-direction re-entry on same coin within N hours
 
 function suggestLeverage(score, regime, volatilityState) {
   let maxLev = 1;
@@ -58,8 +58,9 @@ async function openTrade(userId, signalData) {
   });
   if (existing) throw new Error(`Already have an open ${existing.direction} on ${existing.symbol}`);
 
-  // Cooldown: no same-direction re-entry on this coin within COOLDOWN_HOURS
-  const cooldownSince = new Date(Date.now() - COOLDOWN_HOURS * 60 * 60 * 1000);
+  // Cooldown: no same-direction re-entry on this coin within N hours (user setting)
+  const cooldownHours = user.settings?.cooldownHours ?? DEFAULT_COOLDOWN_HOURS;
+  const cooldownSince = new Date(Date.now() - cooldownHours * 60 * 60 * 1000);
   const lastClosed = await Trade.findOne({
     userId,
     coinId: signalData.coinId,
@@ -68,7 +69,7 @@ async function openTrade(userId, signalData) {
     exitTime: { $gte: cooldownSince }
   }).sort({ exitTime: -1 }).lean();
   if (lastClosed) {
-    throw new Error(`${signalData.direction} on ${signalData.symbol} in cooldown. Wait ${COOLDOWN_HOURS}h after last close.`);
+    throw new Error(`${signalData.direction} on ${signalData.symbol} in cooldown. Wait ${cooldownHours}h after last close.`);
   }
 
   const openCount = await Trade.countDocuments({ userId, status: 'OPEN' });

@@ -461,6 +461,10 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       const v = Math.min(20, Math.max(1, parseInt(req.body.defaultLeverage, 10) || 1));
       s.defaultLeverage = v;
     }
+    if (req.body.cooldownHours != null) {
+      const v = Math.min(168, Math.max(0, parseInt(req.body.cooldownHours, 10) ?? 4));
+      s.cooldownHours = v;
+    }
     u.settings = s;
     await u.save();
     res.redirect('/performance?success=Settings+saved');
