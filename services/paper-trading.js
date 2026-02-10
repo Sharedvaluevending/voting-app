@@ -462,6 +462,7 @@ function determineChangeReasons(trade, signal) {
 // ---- Heat Indicator ----
 // Green = stable, Yellow = weakening, Red = danger
 // For SHORT: negative scoreDiff = more bearish = favorable, so we invert
+// Relaxed: -15→-20 for red (need bigger score drop before danger)
 function determineHeat(scoreDiff, messages, isLong) {
   const effective = isLong ? scoreDiff : -scoreDiff;  // For short, neg diff = good
   const hasDanger = messages.some(m => m.type === 'danger');
@@ -469,7 +470,7 @@ function determineHeat(scoreDiff, messages, isLong) {
   // When score moved 20+ in our favor, downgrade danger – thesis still strong
   if (effective >= 20 && hasDanger) return 'yellow';
   if (effective >= 20 && hasWarning) return 'green';
-  if (hasDanger || effective <= -15) return 'red';
+  if (hasDanger || effective <= -20) return 'red';
   if (hasWarning || effective <= -5) return 'yellow';
   return 'green';
 }
@@ -477,19 +478,50 @@ function determineHeat(scoreDiff, messages, isLong) {
 // ---- Suggested Action Ladder ----
 // For SHORT: negative scoreDiff = more bearish = favorable. When score strongly in favor, don't suggest exit.
 // Each action has actionId for execution (when autoExecuteActions enabled).
-function determineSuggestedAction(scoreDiff, heat, messages, isLong) {
+// Confluence: P&L and price progress block aggressive actions on favorable trades.
+function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, currentPrice) {
   const effective = isLong ? scoreDiff : -scoreDiff;
   const structureBreaking = messages.some(m => m.text === 'Structure breaking');
   const considerPartial = messages.some(m => m.text === 'Consider partial');
   const considerBE = messages.some(m => m.text === 'Consider BE stop');
-  // When score moved 20+ in our favor (we're in profit, thesis strong), never suggest exit
+  const hasDanger = messages.some(m => m.type === 'danger');
+
+  // P&L in percent (positive = profit)
+  const pnlPct = trade.entryPrice > 0
+    ? (isLong ? (currentPrice - trade.entryPrice) : (trade.entryPrice - currentPrice)) / trade.entryPrice * 100
+    : 0;
+  const inProfit2Pct = pnlPct >= 2;
+
+  // Progress toward TP2 (0–1)
+  const tp2 = trade.takeProfit2;
+  let progressToTP2 = 0;
+  if (tp2) {
+    if (isLong && tp2 > trade.entryPrice) {
+      progressToTP2 = (currentPrice - trade.entryPrice) / (tp2 - trade.entryPrice);
+    } else if (!isLong && tp2 < trade.entryPrice) {
+      progressToTP2 = (trade.entryPrice - currentPrice) / (trade.entryPrice - tp2);
+    }
+  }
+  const nearTP2 = progressToTP2 >= 0.5;
+
+  // When score moved 20+ in our favor (thesis strong), never suggest exit
   if (effective >= 20) {
     if (structureBreaking) return { level: 'medium', actionId: 'hold_monitor', text: 'Hold — monitor structure' };
     return { level: 'positive', actionId: 'hold', text: 'Hold — strengthening' };
   }
-  if (heat === 'red' || effective <= -20) {
+
+  // Consider exit: require multiple confirmations AND block when trade is favorable
+  // Block if: in profit 2%+ OR 50%+ toward TP2 (don't kick out winning trades)
+  const wouldConsiderExit = (heat === 'red' && hasDanger && effective <= -25) || effective <= -30;
+  const blockExit = inProfit2Pct || nearTP2;
+  if (wouldConsiderExit && !blockExit) {
     return { level: 'extreme', actionId: 'consider_exit', text: 'Consider exit' };
   }
+  // Downgrade to reduce if we would exit but trade is favorable
+  if (wouldConsiderExit && blockExit && (effective <= -15 || structureBreaking)) {
+    return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
+  }
+
   if (effective <= -15 || structureBreaking) {
     return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
   }
@@ -600,13 +632,14 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
 
   // 1. Setup invalidated (most severe) - score moved heavily against our direction
   // For LONG: low score = bearish = bad. For SHORT: high score = bullish = bad.
-  const scoreAgainstUs = isLong ? currentScore < 35 : currentScore > 65;
-  if (signalFlipped || scoreAgainstUs || scoreDiffAgainstUs <= -20) {
+  // Relaxed: 35→30 / 65→70; scoreDiff -20→-25 to reduce false positives
+  const scoreAgainstUs = isLong ? currentScore < 30 : currentScore > 70;
+  if (signalFlipped || scoreAgainstUs || scoreDiffAgainstUs <= -25) {
     messages.push({ type: 'danger', text: 'Setup invalidated' });
   }
 
-  // 2. Structure breaking (bad for both directions)
-  if (hasEntryBreakdown && (cb.structure || 0) <= (eb.structure || 0) - 4) {
+  // 2. Structure breaking (bad for both directions) – relaxed 4→6 to reduce noise
+  if (hasEntryBreakdown && (cb.structure || 0) <= (eb.structure || 0) - 6) {
     messages.push({ type: 'danger', text: 'Structure breaking' });
   }
 
@@ -707,7 +740,7 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
       const changeReasons = determineChangeReasons(trade, signal);
       const isLong = trade.direction === 'LONG';
       const heat = determineHeat(scoreDiff, messages, isLong);
-      const suggestedAction = determineSuggestedAction(scoreDiff, heat, messages, isLong);
+      const suggestedAction = determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, currentPrice);
       // Win prob: for LONG, high score = high prob. For SHORT, low score (bearish) = high prob.
       const entryScore = trade.score || 0;
       const currentScore = signal.score || 0;
