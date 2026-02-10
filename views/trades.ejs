@@ -46,11 +46,14 @@
             : secs + 's';
     %>
       <div class="signal-card trade-card <%= pnl >= 0 ? 'buy' : 'sell' %>"
+           data-trade-id="<%= trade._id %>"
            data-coin-id="<%= trade.coinId %>"
            data-direction="<%= trade.direction %>"
            data-entry-price="<%= trade.entryPrice %>"
            data-position-size="<%= trade.positionSize %>"
            data-margin="<%= trade.margin %>"
+           data-stop-loss="<%= trade.stopLoss || '' %>"
+           data-original-sl="<%= trade.originalStopLoss || trade.stopLoss || '' %>"
            data-entry-time="<%= trade.entryTime ? new Date(trade.entryTime).toISOString() : new Date().toISOString() %>">
         <div class="card-header">
           <div class="coin-info">
@@ -79,12 +82,39 @@
 
         <div class="levels">
           <div class="level"><div class="level-label">Entry</div><div class="level-value entry">$<%= formatPrice(trade.entryPrice) %></div></div>
-          <div class="level"><div class="level-label">SL</div><div class="level-value sl"><%= trade.stopLoss ? '$' + formatPrice(trade.stopLoss) : '-' %></div></div>
+          <div class="level">
+            <div class="level-label">SL<% if (trade.originalStopLoss && trade.stopLoss !== trade.originalStopLoss) { %> <span style="color:#3b82f6;font-size:10px;">(moved)</span><% } %></div>
+            <div class="level-value sl trade-sl-value">
+              <%= trade.stopLoss ? '$' + formatPrice(trade.stopLoss) : '-' %>
+              <% if (trade.originalStopLoss && trade.stopLoss !== trade.originalStopLoss) { %>
+                <div style="font-size:10px;color:#6b7280;text-decoration:line-through;">$<%= formatPrice(trade.originalStopLoss) %></div>
+              <% } %>
+            </div>
+          </div>
           <div class="level"><div class="level-label">Current</div><div class="level-value trade-current-level <%= pnl >= 0 ? 'tp' : 'sl' %>">$<%= formatPrice(currentPrice) %></div></div>
           <div class="level"><div class="level-label">TP1</div><div class="level-value tp"><%= trade.takeProfit1 ? '$' + formatPrice(trade.takeProfit1) : '-' %></div></div>
           <div class="level"><div class="level-label">TP2</div><div class="level-value tp"><%= trade.takeProfit2 ? '$' + formatPrice(trade.takeProfit2) : '-' %></div></div>
           <div class="level"><div class="level-label">TP3</div><div class="level-value tp"><%= trade.takeProfit3 ? '$' + formatPrice(trade.takeProfit3) : '-' %></div></div>
         </div>
+
+        <% if (trade.actions && trade.actions.length > 0) { %>
+        <div class="trade-actions-log" style="margin:10px 0;padding:8px 12px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:8px;">
+          <h4 style="color:#93c5fd;font-size:12px;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.5px;">Actions Taken</h4>
+          <% trade.actions.forEach(function(action) { %>
+            <div style="font-size:12px;color:#d1d5db;padding:3px 0;display:flex;align-items:center;gap:6px;">
+              <span style="color:<%= action.type === 'BREAKEVEN' ? '#10b981' : '#3b82f6' %>;font-size:11px;font-weight:700;"><%= action.type === 'BREAKEVEN' ? 'BE' : 'TS' %></span>
+              <span><%= action.description %></span>
+              <% if (action.timestamp) { %>
+                <span style="color:#6b7280;font-size:10px;margin-left:auto;white-space:nowrap;"><%= new Date(action.timestamp).toLocaleString() %></span>
+              <% } %>
+            </div>
+          <% }); %>
+        </div>
+        <% } else { %>
+        <div class="trade-actions-log" style="margin:10px 0;padding:6px 12px;background:rgba(107,114,128,0.08);border:1px solid rgba(107,114,128,0.15);border-radius:8px;">
+          <span style="font-size:11px;color:#6b7280;">No actions yet — monitoring for breakeven &amp; trailing stop triggers</span>
+        </div>
+        <% } %>
 
         <% if (trade.reasoning && trade.reasoning.length > 0) { %>
         <div class="reasoning">
@@ -94,8 +124,8 @@
         <% } %>
 
         <div class="trade-actions">
-          <% var chartUrl = '/chart/' + trade.coinId + '?entry=' + trade.entryPrice + (trade.stopLoss ? '&sl=' + trade.stopLoss : '') + (trade.takeProfit1 ? '&tp1=' + trade.takeProfit1 : '') + (trade.takeProfit2 ? '&tp2=' + trade.takeProfit2 : '') + (trade.takeProfit3 ? '&tp3=' + trade.takeProfit3 : ''); %>
-          <a href="<%= chartUrl %>" class="btn btn-outline btn-sm" target="_blank" rel="noopener">View chart</a>
+          <% var chartUrl = '/chart/' + trade.coinId + '?tradeId=' + trade._id; %>
+          <a href="<%= chartUrl %>" class="btn btn-outline btn-sm trade-chart-link" target="_blank" rel="noopener">View chart</a>
           <form action="/trades/close/<%= trade._id %>" method="POST" style="display:inline;">
             <button type="submit" class="btn btn-close btn-sm">Close at Market</button>
           </form>
@@ -106,7 +136,7 @@
 <% } %>
 
 <% if (trades.length > 0) { %>
-<script src="/js/trades-live.js?v=3" defer></script>
+<script src="/js/trades-live.js?v=4" defer></script>
 <% } %>
 
 <%- include('partials/footer') %>

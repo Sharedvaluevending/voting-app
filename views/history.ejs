@@ -21,6 +21,7 @@
           <th>Lev</th>
           <th>Score</th>
           <th>Strategy</th>
+          <th>Actions</th>
           <th>Time Held</th>
           <th>Status</th>
           <th>Date</th>
@@ -42,6 +43,17 @@
             <td><%= trade.leverage || 1 %>x</td>
             <td><%= trade.score || '-' %></td>
             <td style="font-size:11px;"><%= trade.strategyType || '-' %></td>
+            <td style="font-size:10px;max-width:200px;">
+              <% if (trade.actions && trade.actions.length > 0) { %>
+                <% trade.actions.forEach(function(a) { %>
+                  <div style="color:<%= a.type === 'BREAKEVEN' ? '#10b981' : '#3b82f6' %>;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="<%= a.description %>">
+                    <strong><%= a.type === 'BREAKEVEN' ? 'BE' : 'TS' %></strong> <%= a.description %>
+                  </div>
+                <% }); %>
+              <% } else { %>
+                <span style="color:#6b7280;">-</span>
+              <% } %>
+            </td>
             <td><%= timeStr %></td>
             <td style="font-size:11px;"><%= trade.status.replace('_',' ') %></td>
             <td style="font-size:11px;color:#6b7280;"><%= trade.exitTime ? new Date(trade.exitTime).toLocaleDateString() : '-' %></td>

@@ -1,5 +1,6 @@
 /**
- * Active Trades live updates: time every 1s, price and PnL every 10s
+ * Active Trades live updates: time every 1s, price and PnL every 10s,
+ * trade actions and SL updates every 10s
  */
 (function() {
   'use strict';
@@ -24,6 +25,12 @@
     if (hours > 0) return hours + 'h ' + mins + 'm ' + secs + 's';
     if (mins > 0) return mins + 'm ' + secs + 's';
     return secs + 's';
+  }
+
+  function formatActionTime(ts) {
+    if (!ts) return '';
+    var d = new Date(ts);
+    return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   }
 
   function runWhenReady(fn) {
@@ -103,8 +110,85 @@
         })
         .catch(function() {});
     }
+
+    // Fetch live trade data (actions, updated SL) every 10 seconds
+    function updateTradeActions() {
+      var url = (window.location.origin || '') + '/api/trades/active';
+      fetch(url, { credentials: 'same-origin' })
+        .then(function(r) {
+          if (!r.ok) throw new Error('API ' + r.status);
+          return r.json();
+        })
+        .then(function(result) {
+          if (!result || !result.success || !Array.isArray(result.trades)) return;
+          var tradeMap = {};
+          for (var i = 0; i < result.trades.length; i++) {
+            var t = result.trades[i];
+            tradeMap[t._id] = t;
+          }
+          for (var c = 0; c < cards.length; c++) {
+            var card = cards[c];
+            var tradeId = card.getAttribute('data-trade-id');
+            if (!tradeId || !tradeMap[tradeId]) continue;
+            var trade = tradeMap[tradeId];
+
+            // Update SL display if it changed
+            var currentSLAttr = card.getAttribute('data-stop-loss');
+            var newSL = trade.stopLoss;
+            if (newSL != null && String(newSL) !== currentSLAttr) {
+              card.setAttribute('data-stop-loss', String(newSL));
+              var slEl = card.querySelector('.trade-sl-value');
+              if (slEl) {
+                var origSL = card.getAttribute('data-original-sl');
+                var slChanged = origSL && String(newSL) !== origSL;
+                var html = '$' + formatPrice(newSL);
+                if (slChanged) {
+                  html += '<div style="font-size:10px;color:#6b7280;text-decoration:line-through;">$' + formatPrice(Number(origSL)) + '</div>';
+                }
+                slEl.innerHTML = html;
+                // Update the SL label to show (moved)
+                var slLabel = slEl.parentElement ? slEl.parentElement.querySelector('.level-label') : null;
+                if (slLabel) {
+                  slLabel.innerHTML = slChanged
+                    ? 'SL <span style="color:#3b82f6;font-size:10px;">(moved)</span>'
+                    : 'SL';
+                }
+              }
+            }
+
+            // Update actions log
+            var actionsLog = card.querySelector('.trade-actions-log');
+            if (actionsLog && trade.actions && trade.actions.length > 0) {
+              var html = '<h4 style="color:#93c5fd;font-size:12px;margin:0 0 6px 0;text-transform:uppercase;letter-spacing:0.5px;">Actions Taken</h4>';
+              for (var a = 0; a < trade.actions.length; a++) {
+                var action = trade.actions[a];
+                var typeColor = action.type === 'BREAKEVEN' ? '#10b981' : '#3b82f6';
+                var typeLabel = action.type === 'BREAKEVEN' ? 'BE' : 'TS';
+                var timeStr = action.timestamp ? formatActionTime(action.timestamp) : '';
+                html += '<div style="font-size:12px;color:#d1d5db;padding:3px 0;display:flex;align-items:center;gap:6px;">';
+                html += '<span style="color:' + typeColor + ';font-size:11px;font-weight:700;">' + typeLabel + '</span>';
+                html += '<span>' + action.description + '</span>';
+                if (timeStr) {
+                  html += '<span style="color:#6b7280;font-size:10px;margin-left:auto;white-space:nowrap;">' + timeStr + '</span>';
+                }
+                html += '</div>';
+              }
+              actionsLog.innerHTML = html;
+              actionsLog.style.background = 'rgba(59,130,246,0.08)';
+              actionsLog.style.borderColor = 'rgba(59,130,246,0.2)';
+            }
+          }
+        })
+        .catch(function() {});
+    }
+
     setInterval(updatePrices, 10000);
-    setTimeout(updatePrices, 1000);
+    setInterval(updateTradeActions, 10000);
+    setTimeout(function() {
+      updatePrices();
+      updateTradeActions();
+    }, 1000);
     updatePrices();
+    updateTradeActions();
   });
 })();

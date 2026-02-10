@@ -12,7 +12,9 @@ const userSchema = new mongoose.Schema({
     defaultLeverage: { type: Number, default: 1, min: 1, max: 20 },
     riskPerTrade: { type: Number, default: 2, min: 0.5, max: 10 },
     maxOpenTrades: { type: Number, default: 3, min: 1, max: 10 },
-    maxBalancePercentPerTrade: { type: Number, default: 25, min: 5, max: 100 }
+    maxBalancePercentPerTrade: { type: Number, default: 25, min: 5, max: 100 },
+    autoMoveBreakeven: { type: Boolean, default: true },
+    autoTrailingStop: { type: Boolean, default: true }
   },
   stats: {
     totalTrades: { type: Number, default: 0 },

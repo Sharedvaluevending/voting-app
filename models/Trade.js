@@ -16,6 +16,16 @@ const tradeSchema = new mongoose.Schema({
   leverage: { type: Number, default: 1, min: 1, max: 50 },
   margin: { type: Number, required: true },
   stopLoss: { type: Number },
+  originalStopLoss: { type: Number },
+  trailingActivated: { type: Boolean, default: false },
+  actions: [{
+    type: { type: String },        // 'BREAKEVEN', 'TRAILING_STOP', 'TP_PARTIAL'
+    description: { type: String },
+    oldValue: { type: Number },
+    newValue: { type: Number },
+    price: { type: Number },        // market price when action occurred
+    timestamp: { type: Date, default: Date.now }
+  }],
   takeProfit1: { type: Number },
   takeProfit2: { type: Number },
   takeProfit3: { type: Number },

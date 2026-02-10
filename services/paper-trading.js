@@ -10,6 +10,20 @@ const Trade = require('../models/Trade');
 const User = require('../models/User');
 const { recordTradeOutcome, adjustWeights } = require('./learning-engine');
 
+// Cache user settings to avoid repeated DB lookups during monitoring loop
+const userSettingsCache = new Map();
+const SETTINGS_CACHE_TTL = 60000; // 1 minute
+
+async function getUserSettings(userId) {
+  const key = userId.toString();
+  const cached = userSettingsCache.get(key);
+  if (cached && Date.now() - cached.ts < SETTINGS_CACHE_TTL) return cached.settings;
+  const user = await User.findById(userId).lean();
+  const settings = user?.settings || {};
+  userSettingsCache.set(key, { settings, ts: Date.now() });
+  return settings;
+}
+
 const MAKER_FEE = 0.001;
 const TAKER_FEE = 0.001;
 const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
@@ -139,6 +153,7 @@ async function openTrade(userId, signalData) {
     leverage,
     margin,
     stopLoss,
+    originalStopLoss: stopLoss,
     takeProfit1: signalData.takeProfit1,
     takeProfit2: signalData.takeProfit2,
     takeProfit3: signalData.takeProfit3,
@@ -229,6 +244,7 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
 async function checkStopsAndTPs(getCurrentPriceFunc) {
   const openTrades = await Trade.find({ status: 'OPEN' });
   let closedCount = 0;
+  let actionsCount = 0;
 
   for (const trade of openTrades) {
     const priceData = getCurrentPriceFunc(trade.coinId);
@@ -236,9 +252,11 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
 
     const currentPrice = priceData.price;
 
+    // Update max/min price tracking
     if (currentPrice > trade.maxPrice) trade.maxPrice = currentPrice;
     if (currentPrice < trade.minPrice) trade.minPrice = currentPrice;
 
+    // Compute drawdown and profit stats
     let drawdown, profit;
     if (trade.direction === 'LONG') {
       drawdown = ((trade.entryPrice - trade.minPrice) / trade.entryPrice) * 100 * trade.leverage;
@@ -250,21 +268,116 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
     trade.maxDrawdownPercent = Math.max(trade.maxDrawdownPercent, drawdown);
     trade.maxProfitPercent = Math.max(trade.maxProfitPercent, profit);
 
-    // Trailing stop: move stop to breakeven when price is 1R in favor
+    // Backfill originalStopLoss for trades created before this update
+    if (trade.originalStopLoss == null && trade.stopLoss != null) {
+      trade.originalStopLoss = trade.stopLoss;
+    }
+
+    // Get user settings to check if auto-actions are enabled
+    let settings = {};
+    try {
+      settings = await getUserSettings(trade.userId);
+    } catch (e) { /* use defaults */ }
+    const autoBreakeven = settings.autoMoveBreakeven !== false; // default true
+    const autoTrailing = settings.autoTrailingStop !== false;   // default true
+
+    // Calculate original risk (1R) from original stop loss
+    const origSL = trade.originalStopLoss != null ? trade.originalStopLoss : trade.stopLoss;
     const risk = trade.direction === 'LONG'
-      ? trade.entryPrice - (trade.stopLoss || 0)
-      : (trade.stopLoss || 0) - trade.entryPrice;
-    if (risk > 0 && trade.stopLoss != null && trade.stopLoss !== trade.entryPrice) {
-      if (trade.direction === 'LONG' && currentPrice >= trade.entryPrice + risk) {
-        trade.stopLoss = trade.entryPrice;
-        await trade.save();
-      } else if (trade.direction === 'SHORT' && currentPrice <= trade.entryPrice - risk) {
-        trade.stopLoss = trade.entryPrice;
-        await trade.save();
+      ? trade.entryPrice - (origSL || 0)
+      : (origSL || 0) - trade.entryPrice;
+
+    if (risk > 0 && trade.stopLoss != null) {
+      if (trade.direction === 'LONG') {
+        // --- LONG: Breakeven at 1R, then trail at 1R below maxPrice ---
+        const priceInFavor = currentPrice - trade.entryPrice;
+        const rMultiple = priceInFavor / risk;
+
+        if (autoBreakeven && !trade.trailingActivated && rMultiple >= 1) {
+          // Move stop to breakeven
+          const oldSL = trade.stopLoss;
+          trade.stopLoss = trade.entryPrice;
+          trade.trailingActivated = true;
+          if (!trade.actions) trade.actions = [];
+          trade.actions.push({
+            type: 'BREAKEVEN',
+            description: `Stop moved to breakeven at $${formatNum(trade.entryPrice)} (was $${formatNum(oldSL)})`,
+            oldValue: oldSL,
+            newValue: trade.entryPrice,
+            price: currentPrice,
+            timestamp: new Date()
+          });
+          actionsCount++;
+          console.log(`[Actions] ${trade.symbol} LONG: SL moved to breakeven $${formatNum(trade.entryPrice)}`);
+        }
+
+        if (autoTrailing && trade.trailingActivated && rMultiple >= 1.5) {
+          // Trail stop: maxPrice - risk, but never move stop backwards
+          const trailSL = trade.maxPrice - risk;
+          if (trailSL > trade.stopLoss) {
+            const oldSL = trade.stopLoss;
+            trade.stopLoss = Math.round(trailSL * 1e8) / 1e8;
+            if (!trade.actions) trade.actions = [];
+            trade.actions.push({
+              type: 'TRAILING_STOP',
+              description: `Trailing stop moved to $${formatNum(trade.stopLoss)} (was $${formatNum(oldSL)}, price: $${formatNum(currentPrice)})`,
+              oldValue: oldSL,
+              newValue: trade.stopLoss,
+              price: currentPrice,
+              timestamp: new Date()
+            });
+            actionsCount++;
+            console.log(`[Actions] ${trade.symbol} LONG: Trailing SL → $${formatNum(trade.stopLoss)}`);
+          }
+        }
+      } else {
+        // --- SHORT: Breakeven at 1R, then trail at 1R above minPrice ---
+        const priceInFavor = trade.entryPrice - currentPrice;
+        const rMultiple = priceInFavor / risk;
+
+        if (autoBreakeven && !trade.trailingActivated && rMultiple >= 1) {
+          // Move stop to breakeven
+          const oldSL = trade.stopLoss;
+          trade.stopLoss = trade.entryPrice;
+          trade.trailingActivated = true;
+          if (!trade.actions) trade.actions = [];
+          trade.actions.push({
+            type: 'BREAKEVEN',
+            description: `Stop moved to breakeven at $${formatNum(trade.entryPrice)} (was $${formatNum(oldSL)})`,
+            oldValue: oldSL,
+            newValue: trade.entryPrice,
+            price: currentPrice,
+            timestamp: new Date()
+          });
+          actionsCount++;
+          console.log(`[Actions] ${trade.symbol} SHORT: SL moved to breakeven $${formatNum(trade.entryPrice)}`);
+        }
+
+        if (autoTrailing && trade.trailingActivated && rMultiple >= 1.5) {
+          // Trail stop: minPrice + risk, but never move stop upwards (for shorts, lower is worse)
+          const trailSL = trade.minPrice + risk;
+          if (trailSL < trade.stopLoss) {
+            const oldSL = trade.stopLoss;
+            trade.stopLoss = Math.round(trailSL * 1e8) / 1e8;
+            if (!trade.actions) trade.actions = [];
+            trade.actions.push({
+              type: 'TRAILING_STOP',
+              description: `Trailing stop moved to $${formatNum(trade.stopLoss)} (was $${formatNum(oldSL)}, price: $${formatNum(currentPrice)})`,
+              oldValue: oldSL,
+              newValue: trade.stopLoss,
+              price: currentPrice,
+              timestamp: new Date()
+            });
+            actionsCount++;
+            console.log(`[Actions] ${trade.symbol} SHORT: Trailing SL → $${formatNum(trade.stopLoss)}`);
+          }
+        }
       }
     }
+
     await trade.save();
 
+    // --- Check SL and TP hits ---
     if (trade.direction === 'LONG') {
       if (trade.stopLoss != null && currentPrice <= trade.stopLoss) {
         await closeTrade(trade.userId, trade._id, trade.stopLoss, 'STOPPED_OUT');
@@ -303,6 +416,17 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
   if (closedCount > 0) {
     console.log(`[PaperTrading] Auto-closed ${closedCount} trades`);
   }
+  if (actionsCount > 0) {
+    console.log(`[PaperTrading] Executed ${actionsCount} trade actions`);
+  }
+}
+
+function formatNum(n) {
+  if (n == null || isNaN(n)) return '0.00';
+  if (n >= 1000) return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (n >= 1) return n.toFixed(2);
+  if (n >= 0.01) return n.toFixed(4);
+  return n.toFixed(8);
 }
 
 async function getOpenTrades(userId) {
