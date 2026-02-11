@@ -360,8 +360,8 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
     }
 
     if (risk > 0 && trade.stopLoss != null) {
-      // Breakeven at 1R (if autoMoveBreakeven)
-      if (autoBE && trade.stopLoss !== trade.entryPrice) {
+      // Breakeven at 1R (if autoMoveBreakeven) — only if trailing hasn't started yet
+      if (autoBE && !trade.trailingActivated && trade.stopLoss !== trade.entryPrice) {
         const at1R = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk : currentPrice <= trade.entryPrice - risk;
         if (at1R) {
           const oldSl = trade.stopLoss;
@@ -372,7 +372,7 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       }
 
       // Trailing stop at 1.5R+ (if autoTrailingStop) - trail at 1R behind max favorable price
-      if (autoTrail && trade.stopLoss === trade.entryPrice) {
+      if (autoTrail && (trade.stopLoss === trade.entryPrice || trade.trailingActivated)) {
         const at1_5R = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * 1.5 : currentPrice <= trade.entryPrice - risk * 1.5;
         if (at1_5R) {
           trade.trailingActivated = true;

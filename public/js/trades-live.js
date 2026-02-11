@@ -193,12 +193,14 @@
                 if (levels) card.insertBefore(actionsWrap, levels);
                 else card.appendChild(actionsWrap);
               }
-              var badges = t.actions.map(function(a) {
+              var latest = t.actions.slice(-2);
+              var totalLabel = t.actions.length > 2 ? ' <span style="font-weight:normal;font-size:10px;color:#6b7280;">(' + t.actions.length + ' total)</span>' : '';
+              var badges = latest.map(function(a) {
                 var label = (a.type || '?') + (a.newValue != null ? ' $' + formatPrice(a.newValue) : '') + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
                 var cls = 'action-badge action-' + (a.type || '').toLowerCase();
                 return '<span class="' + cls + '" title="' + (a.description || '').replace(/"/g, '&quot;') + '">' + label + '</span>';
               }).join('');
-              actionsWrap.innerHTML = '<h4>Actions Taken</h4><div class="actions-badges">' + badges + '</div>';
+              actionsWrap.innerHTML = '<h4>Actions Taken' + totalLabel + '</h4><div class="actions-badges">' + badges + '</div>';
             }
           }
         })

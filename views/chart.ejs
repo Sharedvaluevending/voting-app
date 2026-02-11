@@ -27,7 +27,7 @@
     </div>
     <div class="chart-actions-bar" id="chart-actions-bar"<%= (typeof tradeActions === 'undefined' || !tradeActions || tradeActions.length === 0) ? ' style="display:none;"' : '' %>>
       <% if (typeof tradeActions !== 'undefined' && tradeActions && tradeActions.length > 0) { %>
-        <% tradeActions.forEach(function(a) { %>
+        <% tradeActions.slice(-2).forEach(function(a) { %>
           <span class="action-badge action-<%= (a.type || '').toLowerCase() %>" title="<%= a.description || '' %>"><%= a.type || '?' %><%= a.newValue != null ? ' $' + (typeof formatPrice !== 'undefined' ? formatPrice(a.newValue) : a.newValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 6})) : '' %> <%= a.timestamp ? new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '' %></span>
         <% }); %>
       <% } %>
@@ -253,7 +253,8 @@
             }
           }
           if (t.actions && t.actions.length > 0 && actionsBar) {
-            var html = t.actions.map(function(a) {
+            var latest = t.actions.slice(-2);
+            var html = latest.map(function(a) {
               var lbl = (a.type || '?') + (a.newValue != null ? ' $' + fmt(a.newValue) : '') + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
               return '<span class="action-badge action-' + (a.type || '').toLowerCase() + '" title="' + (a.description || '').replace(/"/g, '&quot;') + '">' + lbl + '</span>';
             }).join('');

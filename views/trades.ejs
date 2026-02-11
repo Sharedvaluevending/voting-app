@@ -80,9 +80,9 @@
 
         <% if (trade.actions && trade.actions.length > 0) { %>
         <div class="trade-actions-taken">
-          <h4>Actions Taken</h4>
+          <h4>Actions Taken<% if (trade.actions.length > 2) { %> <span style="font-weight:normal;font-size:10px;color:#6b7280;">(<%= trade.actions.length %> total)</span><% } %></h4>
           <div class="actions-badges">
-            <% trade.actions.forEach(function(a) {
+            <% trade.actions.slice(-2).forEach(function(a) {
               var label = (a.type || '?') + (a.newValue != null ? ' $' + formatPrice(a.newValue) : '') + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
             %>
               <span class="action-badge action-<%= (a.type || '').toLowerCase() %>" title="<%= a.description || '' %>"><%= label %></span>
