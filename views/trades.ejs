@@ -97,10 +97,14 @@
           var stopAtBE = trade.stopLoss && Math.abs(trade.stopLoss - trade.entryPrice) < 0.000001;
         %>
         <div class="trade-actions-taken">
-          <% if (trade.actions && trade.actions.length > 0) { %>
-          <h4>Actions Taken<% if (trade.actions.length > 2) { %> <span style="font-weight:normal;font-size:10px;color:#6b7280;">(<%= trade.actions.length %> total)</span><% } %></h4>
+          <% if (trade.actions && trade.actions.length > 0) {
+            var latestByType = {};
+            trade.actions.forEach(function(a) { if (a.type) latestByType[a.type] = a; });
+            var deduped = Object.values(latestByType);
+          %>
+          <h4>Actions Taken</h4>
           <div class="actions-badges">
-            <% trade.actions.slice(-2).forEach(function(a) {
+            <% deduped.forEach(function(a) {
               var label = (a.type || '?') + (a.newValue != null ? ' $' + formatPrice(a.newValue) : '') + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
             %>
               <span class="action-badge action-<%= (a.type || '').toLowerCase() %>" title="<%= a.description || '' %>"><%= label %></span>
