@@ -12,6 +12,7 @@ const cache = {
   prices: { data: [], timestamp: 0 },
   candles: {},
   history: {},
+  fundingRates: {},   // coinId -> { rate, time }
   lastRefresh: 0,
   refreshing: false
 };
@@ -528,6 +529,9 @@ async function refreshAllData() {
       }
     }
 
+    // Step 4: Funding rates (Binance Futures – single API call for all coins)
+    await fetchFundingRates();
+
     cache.lastRefresh = Date.now();
     console.log(`[Refresh] Complete. ${successCount}/${TRACKED_COINS.length} coins with OHLCV candles${binanceRestricted ? ' (Kraken)' : ' (Binance)'}.`);
   } catch (err) {
@@ -618,6 +622,43 @@ async function fetchLivePrice(coinId) {
   return cached && Number.isFinite(cached.price) ? cached.price : null;
 }
 
+// ====================================================
+// FUNDING RATES (Binance Futures - free, no key)
+// Extreme funding = contrarian signal (high positive = overleveraged longs, likely top)
+// ====================================================
+async function fetchFundingRates() {
+  if (binanceRestricted) return;
+  try {
+    const url = 'https://fapi.binance.com/fapi/v1/premiumIndex';
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 10000 });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!Array.isArray(data)) return;
+    for (const coinId of TRACKED_COINS) {
+      const meta = COIN_META[coinId];
+      if (!meta || !meta.binance) continue;
+      const item = data.find(d => d.symbol === meta.binance);
+      if (item && item.lastFundingRate != null) {
+        cache.fundingRates[coinId] = {
+          rate: parseFloat(item.lastFundingRate),
+          time: Date.now()
+        };
+      }
+    }
+    console.log(`[Refresh] Funding rates updated for ${Object.keys(cache.fundingRates).length} coins`);
+  } catch (err) {
+    console.error('[Refresh] Funding rates failed:', err.message);
+  }
+}
+
+function getFundingRate(coinId) {
+  return cache.fundingRates[coinId] || null;
+}
+
+function getAllFundingRates() {
+  return { ...cache.fundingRates };
+}
+
 function isDataReady() {
   return cache.lastRefresh > 0 && Object.keys(cache.candles).length > 0;
 }
@@ -636,6 +677,7 @@ refreshAllData().catch(err => console.error('[CryptoAPI] Initial error:', err.me
 module.exports = {
   fetchAllPrices, fetchPriceHistory, fetchAllHistory,
   fetchCandles, fetchAllCandles, fetchAllCandlesForCoin, getCurrentPrice, fetchLivePrice, isDataReady,
+  getFundingRate, getAllFundingRates,
   pricesReadyPromise,
   TRACKED_COINS, COIN_META
 };

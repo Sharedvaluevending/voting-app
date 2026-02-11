@@ -136,10 +136,61 @@
     <h3>Quant-Desk Upgrades (v4)</h3>
     <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">21 upgrades for better signals and fewer losing trades.</p>
     <div class="journal-entry"><strong>Signals &amp; scoring</strong><br>1. Learned strategy weights used in scoring. 2. Min score (52) and confluence (2) gate – weak setups show HOLD. 3. BTC regime filter – no alt longs when BTC STRONG_SELL, no alt shorts when BTC STRONG_BUY. 4. MTF divergence penalty when 1H and 4H disagree. 5. RSI, MACD, OBV &amp; Stochastic divergence – weighted toward bottoms/tops; bullish div boosts longs, bearish boosts shorts; 2+ types agreeing = stronger modifier; penalizes counter-trend at extremes. 6. Top/bottom detection – penalizes shorts at potential bottoms and longs at potential tops. 7. Session filter – small score reduction outside 12–22 UTC. 8. Regime–strategy gating – e.g. no Mean Reversion in trending. 9. Min 5 trades per strategy before it can be selected.</div>
-    <div class="journal-entry"><strong>Levels &amp; risk</strong><br>8. Dynamic ATR stops by regime (tighter in trending, wider in volatile). 9. Multi-timeframe S/R (1D/4H used for stops when available). 10. VWAP bands – bonus when price is in value zone (within 0.5 ATR of VWAP).</div>
-    <div class="journal-entry"><strong>Execution &amp; position</strong><br>11. Trade buttons only when score ≥55 and confluence ≥2. 12. <strong>Entry at live price</strong> – entry uses current market price when you open. 13. <strong>Multi-strategy trades</strong> – on each coin’s detail page you can open a trade using the main signal or any top strategy (Scalping, Momentum, Breakout, etc.) that scores ≥55; each strategy has its own stop and take-profit levels (scalping = tighter, swing/position = wider). 14. Trailing stop – stop moves to breakeven after 1R profit. 15. Slippage simulation (0.05%) on entry and exit. 16. Confidence-weighted position size (higher score = slightly larger size, cap 1.2×). 17. Cooldown – no same-direction re-entry on same coin for 4 hours after close.</div>
-    <div class="journal-entry"><strong>Data &amp; learning</strong><br>16. Strategy weights from AI Engine feed back into signal scoring. 17. Expectancy and regime stats drive which strategies get selected. 18. Quality gate and session messages appear in “Why This Trade” when relevant.</div>
+    <div class="journal-entry"><strong>Levels &amp; risk</strong><br>8. Dynamic ATR stops by regime (tighter in trending, wider in volatile). 9. Multi-timeframe S/R (1D/4H used for stops when available). 10. VWAP bands – bonus when price is in value zone (within 0.5 ATR of VWAP). 11. <strong>Fibonacci retracement</strong> – stops refined using 0.618 and key fib levels. 12. <strong>Volume Profile/POC</strong> – point of control adds S/R confluence.</div>
+    <div class="journal-entry"><strong>Execution &amp; position</strong><br>13. Trade buttons only when score ≥55 and confluence ≥2. 12. <strong>Entry at live price</strong> – entry uses current market price when you open. 13. <strong>Multi-strategy trades</strong> – on each coin’s detail page you can open a trade using the main signal or any top strategy (Scalping, Momentum, Breakout, etc.) that scores ≥55; each strategy has its own stop and take-profit levels (scalping = tighter, swing/position = wider). 14. Trailing stop – stop moves to breakeven after 1R profit. 15. Slippage simulation (0.05%) on entry and exit. 16. Confidence-weighted position size (higher score = slightly larger size, cap 1.2×). 17. Slippage simulation (0.05%). 18. <strong>Streak-aware + Kelly sizing</strong> – position size adjusts for win/loss streaks and uses fractional Kelly criterion. 19. Cooldown – 4h same-direction re-entry block.</div>
+    <div class="journal-entry"><strong>Data &amp; learning</strong><br>20. Strategy weights from AI Engine feed into scoring. 21. Expectancy drives strategy selection. 18. Quality gate and session messages appear in “Why This Trade” when relevant. 23. <strong>Faster weight learning</strong> for strategies. 24. <strong>Funding rate</strong> contrarian signals. 25. <strong>BTC correlation</strong> scoring.</div>
     <div class="journal-entry"><strong>Order blocks, FVG and liquidity clusters</strong><br>19. Order blocks – last opposing candle before a strong move (bullish OB = support, bearish OB = resistance); structure bonus when price is near a valid OB. 20. Fair value gaps (FVG) – 3-candle imbalances; price in or near a FVG zone adds confluence. 21. Liquidity clusters – swing highs/lows grouped by proximity; near a cluster adds structure context and appears in reasoning.</div>
+  </div>
+
+  <div class="section">
+    <h3>v5 Upgrades — Institutional Edge</h3>
+    <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">7 new features for smarter entries, better risk management, and data-driven sizing.</p>
+
+    <div class="journal-entry">
+      <strong>1. Funding Rate Contrarian Signal</strong><br>
+      Fetched from Binance Futures every 60 seconds for all tracked coins. Extreme positive funding (&gt;0.1%) means the market is overleveraged long — bearish contrarian signal. Extreme negative (&lt;-0.1%) means overleveraged short — bullish contrarian. The score penalizes trades going with the crowd and rewards contrarian positions. During trade monitoring, funding rate warnings appear in the score check.
+    </div>
+
+    <div class="journal-entry">
+      <strong>2. BTC Correlation Score</strong><br>
+      Calculates Pearson correlation between each alt's hourly returns and BTC's returns. When correlation is high (&gt;0.7) and BTC's direction disagrees with the alt's signal, the score is penalized. This prevents entering alt trades that are likely to be overridden by BTC's movement. During monitoring, a "High BTC correlation — watch BTC" message appears for correlated pairs.
+    </div>
+
+    <div class="journal-entry">
+      <strong>3. Volume Profile / Point of Control (POC)</strong><br>
+      Calculates the price level with the highest traded volume across the last 100+ candles. The POC acts as a strong support/resistance level — price tends to gravitate back to it. When price is within 0.5% of POC, the score gets a bonus (+3). POC is also used as additional S/R when calculating stop loss and take profit levels.
+    </div>
+
+    <div class="journal-entry">
+      <strong>4. Fibonacci Retracement Levels</strong><br>
+      Calculates key Fibonacci levels (23.6%, 38.2%, 50%, 61.8%, 78.6%) from the 4H swing high/low. These levels refine stop loss placement — if a strong fib level (especially 0.618, the golden ratio) sits between your entry and calculated stop, the stop is tightened to just below/above that fib level. Fibonacci levels also provide additional S/R for trade level calculations.
+    </div>
+
+    <div class="journal-entry">
+      <strong>5. Win/Loss Streak Awareness</strong><br>
+      The system tracks your consecutive wins and losses. After a losing streak:<br>
+      &bull; 2 consecutive losses: position size reduced by 25%<br>
+      &bull; 3+ consecutive losses: position size reduced by 40%<br>
+      After a winning streak (3+ wins): position size boosted up to 15%. This protects capital during drawdowns and lets you lean in when you're on a roll.
+    </div>
+
+    <div class="journal-entry">
+      <strong>6. Adaptive Position Sizing (Kelly Criterion)</strong><br>
+      Uses the fractional Kelly criterion (25% of full Kelly) based on each strategy's win rate and average risk/reward ratio from the learning engine:<br>
+      <strong>Kelly% = WinRate - (1 - WinRate) / AvgRR</strong><br>
+      If Kelly is positive, position size is capped to 25% of Kelly × balance. If Kelly is negative (strategy is losing money), position size is reduced by 50%. This ensures profitable strategies get more capital while unprofitable ones are de-risked automatically. Requires at least 15 trades of data.
+    </div>
+
+    <div class="journal-entry">
+      <strong>7. Stricter Regime-Strategy Gating</strong><br>
+      Strategies are now more aggressively blocked in wrong market conditions:<br>
+      &bull; Mean Reversion: blocked in trending AND compression (only allowed in ranging/mixed/volatile)<br>
+      &bull; Trend Following: blocked in ranging AND volatile<br>
+      &bull; Breakout: blocked in trending (needs consolidation first)<br>
+      &bull; Swing: blocked in volatile (gets stopped out)<br>
+      &bull; Position: blocked in volatile AND compression<br>
+      This reduces false signals from strategies being used in the wrong market regime.
+    </div>
   </div>
 
   <div class="section">

@@ -174,6 +174,14 @@
     if (levels.tp3 != null) {
       chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp3, color: '#22c55e', title: 'TP3' })));
     }
+    // Fibonacci levels (dotted, subtle)
+    <% if (fibLevels) { %>
+    var fibOpts = Object.assign({}, lineOpts, { lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted });
+    <% if (fibLevels.fib236) { %>chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, fibOpts, { price: <%= fibLevels.fib236 %>, color: '#a78bfa', title: 'Fib 23.6%' })));<% } %>
+    <% if (fibLevels.fib382) { %>chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, fibOpts, { price: <%= fibLevels.fib382 %>, color: '#a78bfa', title: 'Fib 38.2%' })));<% } %>
+    <% if (fibLevels.fib500) { %>chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, fibOpts, { price: <%= fibLevels.fib500 %>, color: '#c084fc', title: 'Fib 50%' })));<% } %>
+    <% if (fibLevels.fib618) { %>chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, fibOpts, { price: <%= fibLevels.fib618 %>, color: '#e879f9', title: 'Fib 61.8%' })));<% } %>
+    <% } %>
   }
 
   function loadCandles(tf) {

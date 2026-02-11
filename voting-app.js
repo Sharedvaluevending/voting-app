@@ -17,7 +17,7 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const path = require('path');
 
-const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
+const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
 const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
@@ -179,7 +179,7 @@ app.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/'));
 });
 
-// Build engine options: strategy weights, BTC signal, strategy stats (for regime gating + learned weights)
+// Build engine options: strategy weights, BTC signal, strategy stats, funding rates, BTC candles
 async function buildEngineOptions(prices, allCandles, allHistory) {
   const strategyWeights = await StrategyWeight.find({ active: true }).lean();
   const strategyStats = {};
@@ -187,14 +187,21 @@ async function buildEngineOptions(prices, allCandles, allHistory) {
     strategyStats[s.strategyId] = { totalTrades: s.performance.totalTrades || 0 };
   });
   let btcSignal = null;
+  let btcDirection = null;
   const btcData = prices.find(p => p.id === 'bitcoin');
+  const btcCandles = allCandles && allCandles.bitcoin ? allCandles.bitcoin['1h'] || null : null;
   if (btcData) {
-    const btcCandles = allCandles && allCandles.bitcoin;
+    const btcCandlesAll = allCandles && allCandles.bitcoin;
     const btcHistory = allHistory && allHistory.bitcoin || { prices: [], volumes: [] };
-    const btcSig = analyzeCoin(btcData, btcCandles, btcHistory, { strategyWeights, strategyStats });
+    const btcSig = analyzeCoin(btcData, btcCandlesAll, btcHistory, { strategyWeights, strategyStats });
     btcSignal = btcSig.signal;
+    // BTC direction for correlation scoring
+    if (btcSig.signal === 'STRONG_BUY' || btcSig.signal === 'BUY') btcDirection = 'BULL';
+    else if (btcSig.signal === 'STRONG_SELL' || btcSig.signal === 'SELL') btcDirection = 'BEAR';
   }
-  return { strategyWeights, strategyStats, btcSignal };
+  // Funding rates for contrarian signal
+  const fundingRates = getAllFundingRates();
+  return { strategyWeights, strategyStats, btcSignal, btcCandles, btcDirection, fundingRates };
 }
 
 // ====================================================
@@ -296,6 +303,26 @@ app.get('/chart/:coinId', async (req, res) => {
       if (!entry && trade.entryPrice) entry = trade.entryPrice;
     }
   }
+  // Calculate Fibonacci levels for chart overlay
+  const chartCandles = fetchCandles(coinId);
+  let fibLevels = null;
+  if (chartCandles && chartCandles['4h'] && chartCandles['4h'].length >= 10) {
+    const highs = chartCandles['4h'].map(c => c.high);
+    const lows = chartCandles['4h'].map(c => c.low);
+    const lookback = Math.min(50, highs.length);
+    const swingHigh = Math.max(...highs.slice(-lookback));
+    const swingLow = Math.min(...lows.slice(-lookback));
+    const range = swingHigh - swingLow;
+    if (range > 0) {
+      fibLevels = {
+        fib236: swingHigh - range * 0.236,
+        fib382: swingHigh - range * 0.382,
+        fib500: swingHigh - range * 0.5,
+        fib618: swingHigh - range * 0.618
+      };
+    }
+  }
+
   res.render('chart', {
     activePage: 'dashboard',
     pageTitle: meta.name + ' Chart',
@@ -311,7 +338,8 @@ app.get('/chart/:coinId', async (req, res) => {
     tradeId: tradeId || null,
     tp1,
     tp2,
-    tp3
+    tp3,
+    fibLevels
   });
 });
 
@@ -386,6 +414,17 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       }
     }
 
+    // Build strategy performance stats for Kelly criterion sizing
+    const allStratWeights = await StrategyWeight.find({ active: true }).lean();
+    const strategyStatsForKelly = {};
+    allStratWeights.forEach(s => {
+      strategyStatsForKelly[s.strategyId] = {
+        totalTrades: s.performance.totalTrades || 0,
+        winRate: s.performance.winRate || 0,
+        avgRR: s.performance.avgRR || 0
+      };
+    });
+
     const tradeData = {
       coinId,
       symbol: COIN_META[coinId]?.symbol || coinId.toUpperCase(),
@@ -402,10 +441,11 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       reasoning: signal.reasoning || [],
       indicators: signal.indicators || {},
       scoreBreakdown: signal.scoreBreakdown || {},
-      stopType: signal.stopType || 'ATR_SR',
-      stopLabel: signal.stopLabel || 'ATR + S/R',
+      stopType: signal.stopType || 'ATR_SR_FIB',
+      stopLabel: signal.stopLabel || 'ATR + S/R + Fib',
       tpType: signal.tpType || 'R_multiple',
-      tpLabel: signal.tpLabel || 'R multiples'
+      tpLabel: signal.tpLabel || 'R multiples',
+      strategyStats: strategyStatsForKelly
     };
 
     await openTrade(req.session.userId, tradeData);

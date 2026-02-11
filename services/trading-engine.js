@@ -46,10 +46,14 @@ function analyzeAllCoins(allPrices, allCandles, allHistory, options) {
   const strategyWeights = options.strategyWeights || [];
   const btcSignal = options.btcSignal || null;
 
+  const fundingRates = options.fundingRates || {};
   const signals = allPrices.map(coinData => {
     const candles = allCandles[coinData.id] || null;
     const history = allHistory[coinData.id] || { prices: [], volumes: [] };
-    return analyzeCoin(coinData, candles, history, options);
+    const coinOptions = Object.assign({}, options, {
+      fundingRate: fundingRates[coinData.id] || null
+    });
+    return analyzeCoin(coinData, candles, history, coinOptions);
   });
 
   // BTC regime filter: don't LONG alts when BTC is STRONG_SELL, don't SHORT when BTC is STRONG_BUY
@@ -164,6 +168,54 @@ function analyzeWithCandles(coinData, candles, options) {
     else if (dominantDir === 'BEAR') finalScore = Math.min(100, finalScore + 6);
   }
 
+  // Funding rate modifier: extreme funding = contrarian signal
+  const fundingData = options.fundingRate || null;
+  if (fundingData && fundingData.rate != null) {
+    const fr = fundingData.rate;
+    // Positive funding > 0.05% = overleveraged longs (bearish contrarian)
+    // Negative funding < -0.05% = overleveraged shorts (bullish contrarian)
+    if (fr > 0.001) {  // >0.1% = extreme positive
+      if (dominantDir === 'BULL') finalScore = Math.max(0, finalScore - 8);
+      else if (dominantDir === 'BEAR') finalScore = Math.min(100, finalScore + 5);
+    } else if (fr > 0.0005) {  // >0.05%
+      if (dominantDir === 'BULL') finalScore = Math.max(0, finalScore - 4);
+      else if (dominantDir === 'BEAR') finalScore = Math.min(100, finalScore + 3);
+    } else if (fr < -0.001) {  // <-0.1% extreme negative
+      if (dominantDir === 'BEAR') finalScore = Math.max(0, finalScore - 8);
+      else if (dominantDir === 'BULL') finalScore = Math.min(100, finalScore + 5);
+    } else if (fr < -0.0005) {  // <-0.05%
+      if (dominantDir === 'BEAR') finalScore = Math.max(0, finalScore - 4);
+      else if (dominantDir === 'BULL') finalScore = Math.min(100, finalScore + 3);
+    }
+  }
+
+  // BTC correlation modifier: alts correlated with BTC should respect BTC direction
+  const btcCandles = options.btcCandles || null;
+  let btcCorrelation = null;
+  if (btcCandles && candles['1h'] && coinData.id !== 'bitcoin') {
+    btcCorrelation = calculateCorrelation(candles['1h'], btcCandles);
+    // If correlation > 0.7 and BTC direction disagrees with signal, penalize
+    if (btcCorrelation > 0.7 && options.btcDirection) {
+      const btcAgrees = (options.btcDirection === 'BULL' && dominantDir === 'BULL') ||
+                         (options.btcDirection === 'BEAR' && dominantDir === 'BEAR');
+      if (!btcAgrees) {
+        finalScore = Math.max(0, finalScore - Math.round(btcCorrelation * 8));
+      }
+    }
+  }
+
+  // Volume Profile / POC: adds confluence when price near high-volume node
+  const poc = calculatePOC(candles['1h'] || []);
+  if (poc > 0) {
+    const distFromPOC = Math.abs(currentPrice - poc) / poc;
+    if (distFromPOC < 0.005) {  // within 0.5% of POC = strong level
+      finalScore = Math.min(100, finalScore + 3);
+    }
+  }
+
+  // Fibonacci retracement levels (used in trade levels calculation too)
+  const fibLevels = calculateFibonacci(tf4h.highs || [], tf4h.lows || []);
+
   // Detect market regime
   const regime = detectRegime(tf1d, tf4h);
 
@@ -232,8 +284,10 @@ function analyzeWithCandles(coinData, candles, options) {
   // Suggest leverage
   const suggestedLev = suggestLeverage(finalScore, regime, tf1h.volatilityState);
 
-  // Build reasoning (include session, MTF divergence, quality gate if applicable)
-  const reasoning = buildReasoning(scores1h, scores4h, scores1d, confluenceLevel, regime, bestStrategy, signal, finalScore, inSession, tf1h, tf4h, tf1d);
+  // Build reasoning (include session, MTF divergence, quality gate, new features)
+  const reasoning = buildReasoning(scores1h, scores4h, scores1d, confluenceLevel, regime, bestStrategy, signal, finalScore, inSession, tf1h, tf4h, tf1d, {
+    btcCorrelation, poc, fibLevels, fundingRate: fundingData ? fundingData.rate : null
+  });
 
   // Confidence
   const confidence = calculateConfidence(finalScore, confluenceLevel, regime, candles['1h'].length);
@@ -309,7 +363,11 @@ function analyzeWithCandles(coinData, candles, options) {
       resistance: r2(tf1h.resistance),
       volumeTrend: tf1h.volumeTrend,
       relativeVolume: r2(tf1h.relativeVolume),
-      regime
+      regime,
+      btcCorrelation: btcCorrelation != null ? r2(btcCorrelation) : null,
+      poc: poc > 0 ? r2(poc) : null,
+      fundingRate: fundingData ? fundingData.rate : null,
+      fibLevels
     },
     timestamp: new Date().toISOString()
   };
@@ -1252,6 +1310,99 @@ function classifyVolatility(atr, closes) {
 }
 
 // ====================================================
+// BTC CORRELATION - Pearson correlation of close returns
+// ====================================================
+function calculateCorrelation(coinCandles, btcCandles) {
+  if (!coinCandles || !btcCandles || coinCandles.length < 20 || btcCandles.length < 20) return null;
+  // Match by time, calculate returns
+  const btcMap = {};
+  btcCandles.forEach(c => { btcMap[c.openTime] = c.close; });
+  const matched = [];
+  for (let i = 1; i < coinCandles.length; i++) {
+    const t = coinCandles[i].openTime;
+    const tPrev = coinCandles[i - 1].openTime;
+    if (btcMap[t] && btcMap[tPrev] && coinCandles[i - 1].close > 0 && btcMap[tPrev] > 0) {
+      matched.push({
+        coinRet: (coinCandles[i].close - coinCandles[i - 1].close) / coinCandles[i - 1].close,
+        btcRet: (btcMap[t] - btcMap[tPrev]) / btcMap[tPrev]
+      });
+    }
+  }
+  if (matched.length < 10) return null;
+  const n = matched.length;
+  const meanCoin = matched.reduce((s, m) => s + m.coinRet, 0) / n;
+  const meanBtc = matched.reduce((s, m) => s + m.btcRet, 0) / n;
+  let num = 0, denCoin = 0, denBtc = 0;
+  for (const m of matched) {
+    const dc = m.coinRet - meanCoin;
+    const db = m.btcRet - meanBtc;
+    num += dc * db;
+    denCoin += dc * dc;
+    denBtc += db * db;
+  }
+  const den = Math.sqrt(denCoin * denBtc);
+  return den > 0 ? num / den : 0;
+}
+
+// ====================================================
+// VOLUME PROFILE / POINT OF CONTROL (POC)
+// POC = price level with highest volume traded — strong S/R
+// ====================================================
+function calculatePOC(candles) {
+  if (!candles || candles.length < 10) return 0;
+  // Bucket prices by volume
+  const allPrices = [];
+  let minP = Infinity, maxP = -Infinity;
+  for (const c of candles) {
+    if (c.high > maxP) maxP = c.high;
+    if (c.low < minP) minP = c.low;
+  }
+  if (maxP <= minP || minP <= 0) return 0;
+  const range = maxP - minP;
+  const bucketSize = range / 50;  // 50 price buckets
+  const buckets = new Array(50).fill(0);
+  for (const c of candles) {
+    const mid = (c.high + c.low) / 2;
+    const idx = Math.min(49, Math.floor((mid - minP) / bucketSize));
+    buckets[idx] += c.volume || 0;
+  }
+  let maxVol = 0, maxIdx = 0;
+  for (let i = 0; i < buckets.length; i++) {
+    if (buckets[i] > maxVol) { maxVol = buckets[i]; maxIdx = i; }
+  }
+  return minP + (maxIdx + 0.5) * bucketSize;
+}
+
+// ====================================================
+// FIBONACCI RETRACEMENT LEVELS
+// Uses swing high/low from recent candles to calculate key fib levels
+// ====================================================
+function calculateFibonacci(highs, lows) {
+  if (!highs || !lows || highs.length < 10 || lows.length < 10) {
+    return { fib236: 0, fib382: 0, fib500: 0, fib618: 0, fib786: 0, swingHigh: 0, swingLow: 0 };
+  }
+  // Use last 50 candles for swing detection
+  const lookback = Math.min(50, highs.length);
+  const recentHighs = highs.slice(-lookback);
+  const recentLows = lows.slice(-lookback);
+  const swingHigh = Math.max(...recentHighs);
+  const swingLow = Math.min(...recentLows);
+  const range = swingHigh - swingLow;
+  if (range <= 0) {
+    return { fib236: 0, fib382: 0, fib500: 0, fib618: 0, fib786: 0, swingHigh, swingLow };
+  }
+  return {
+    fib236: swingHigh - range * 0.236,
+    fib382: swingHigh - range * 0.382,
+    fib500: swingHigh - range * 0.5,
+    fib618: swingHigh - range * 0.618,
+    fib786: swingHigh - range * 0.786,
+    swingHigh,
+    swingLow
+  };
+}
+
+// ====================================================
 // REGIME DETECTION (use both 1D and 4H so we don't default everything to ranging)
 // ====================================================
 function detectRegime(tf1d, tf4h) {
@@ -1270,15 +1421,15 @@ function detectRegime(tf1d, tf4h) {
   return 'mixed';
 }
 
-// Regime–strategy gating: strategies not allowed in wrong regime (min sample still applies)
+// Regime–strategy gating: strategies blocked in wrong regime (stricter)
 const REGIME_STRATEGY_BLOCK = {
-  mean_revert: ['trending'],
-  trend_follow: ['ranging'],
-  momentum: ['ranging'],
-  breakout: [],
-  scalping: ['trending', 'ranging'],  // Scalping needs volatility/compression, not sustained trends or flat ranges
-  swing: [],
-  position: []
+  mean_revert: ['trending', 'compression'],  // MR fails in trends & breakouts
+  trend_follow: ['ranging', 'volatile'],     // TF fails in choppy markets
+  momentum: ['ranging'],                      // Momentum needs directional moves
+  breakout: ['trending'],                     // Breakout needs consolidation, not existing trends
+  scalping: ['trending', 'ranging'],          // Scalping needs vol/compression
+  swing: ['volatile'],                        // Swing gets stopped out in wild vol
+  position: ['volatile', 'compression']       // Position needs stable macro trends
 };
 
 const MIN_TRADES_FOR_STRATEGY = 5;
@@ -1459,8 +1610,30 @@ function calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, direction,
   const resistance1d = tf1d && tf1d.resistance > 0 ? tf1d.resistance : null;
   const support4h = tf4h && tf4h.support > 0 ? tf4h.support : null;
   const resistance4h = tf4h && tf4h.resistance > 0 ? tf4h.resistance : null;
-  const support = support1d || support4h || tf1h.support || currentPrice * 0.95;
-  const resistance = resistance1d || resistance4h || tf1h.resistance || currentPrice * 1.05;
+
+  // Fibonacci levels for additional S/R confluence
+  const fib = calculateFibonacci(tf4h.highs || [], tf4h.lows || []);
+  // Use fibonacci as support/resistance when close to price (within 2% and closer than ATR-based S/R)
+  let fibSupport = null, fibResist = null;
+  if (fib.fib618 > 0 && fib.fib618 < currentPrice && currentPrice - fib.fib618 < atr * 3) {
+    fibSupport = fib.fib618;  // 0.618 is the golden ratio level — strongest fib
+  } else if (fib.fib500 > 0 && fib.fib500 < currentPrice && currentPrice - fib.fib500 < atr * 3) {
+    fibSupport = fib.fib500;
+  }
+  if (fib.fib382 > 0 && fib.fib382 > currentPrice && fib.fib382 - currentPrice < atr * 3) {
+    fibResist = fib.fib382;
+  } else if (fib.fib236 > 0 && fib.fib236 > currentPrice && fib.fib236 - currentPrice < atr * 3) {
+    fibResist = fib.fib236;
+  }
+
+  // Volume Profile POC for additional confluence
+  const poc = calculatePOC(tf4h.closes ? tf4h.closes.map((c, i) => ({
+    high: (tf4h.highs || [])[i] || c, low: (tf4h.lows || [])[i] || c,
+    close: c, volume: (tf4h.volumes || [])[i] || 0
+  })) : []);
+
+  const support = support1d || support4h || tf1h.support || fibSupport || currentPrice * 0.95;
+  const resistance = resistance1d || resistance4h || tf1h.resistance || fibResist || currentPrice * 1.05;
 
   let atrMult, tp1R, tp2R, tp3R;
   if (strategyType && STRATEGY_LEVELS[strategyType]) {
@@ -1519,15 +1692,46 @@ function calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, direction,
     }
   }
 
+  // Fibonacci stop refinement: if a strong fib level (0.618, 0.786) sits between entry and stop, use it
+  if (entry && stopLoss) {
+    const fibLevelsArr = [fib.fib618, fib.fib786, fib.fib500].filter(f => f > 0);
+    if (signal === 'STRONG_BUY' || signal === 'BUY') {
+      // For longs: fib level below entry but above our calculated stop = tighter, stronger stop
+      for (const fl of fibLevelsArr) {
+        if (fl < entry && fl > stopLoss && (entry - fl) > atr * 0.3) {
+          stopLoss = r2(fl - atr * 0.2);  // Place stop just below fib level
+          break;
+        }
+      }
+    } else if (signal === 'STRONG_SELL' || signal === 'SELL') {
+      // For shorts: fib level above entry but below our calculated stop
+      for (const fl of fibLevelsArr) {
+        if (fl > entry && fl < stopLoss && (fl - entry) > atr * 0.3) {
+          stopLoss = r2(fl + atr * 0.2);  // Place stop just above fib level
+          break;
+        }
+      }
+    }
+  }
+
+  // POC as additional TP target: if POC is between entry and TP1, use it
+  if (poc > 0 && entry && tp1) {
+    if ((signal === 'STRONG_BUY' || signal === 'BUY') && poc > entry && poc < tp1) {
+      // POC is between entry and TP1 — acts as potential resistance/magnet
+    } else if ((signal === 'STRONG_SELL' || signal === 'SELL') && poc < entry && poc > tp1) {
+      // POC acts as support/magnet for shorts
+    }
+  }
+
   const risk = Math.abs(entry - stopLoss);
   const reward = Math.abs((tp2 || tp1) - entry);
   const riskReward = risk > 0 ? r2(reward / risk) : 0;
 
-  return { entry, tp1, tp2, tp3, stopLoss, riskReward };
+  return { entry, tp1, tp2, tp3, stopLoss, riskReward, fibLevels: fib, poc: poc > 0 ? r2(poc) : null };
 }
 
-// Labels for UI: we use ATR with S/R bounds (fixed, not trailing); TP = R multiples
-const STOP_TP_LABELS = { stopType: 'ATR_SR', stopLabel: 'ATR + S/R', tpType: 'R_multiple', tpLabel: 'R multiples' };
+// Labels for UI: we use ATR with S/R bounds (fixed, not trailing); TP = R multiples + Fib
+const STOP_TP_LABELS = { stopType: 'ATR_SR_FIB', stopLabel: 'ATR + S/R + Fib', tpType: 'R_multiple', tpLabel: 'R multiples' };
 
 // ====================================================
 // CONFIDENCE
@@ -1547,7 +1751,8 @@ function calculateConfidence(score, confluenceLevel, regime, dataPoints) {
 // ====================================================
 // REASONING BUILDER
 // ====================================================
-function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal, finalScore, inSession, tf1h, tf4h, tf1d) {
+function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal, finalScore, inSession, tf1h, tf4h, tf1d, extras) {
+  extras = extras || {};
   const reasons = [];
 
   if (confluenceLevel === 3) reasons.push('All 3 timeframes agree - strong confluence');
@@ -1602,6 +1807,24 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
     }
     if (a.liquidityClusters && (a.liquidityClusters.above != null || a.liquidityClusters.below != null))
       reasons.push(`${name}: Liquidity clusters (above/below) in view`);
+  }
+
+  // v5 features context
+  if (extras.fundingRate != null) {
+    const fr = extras.fundingRate;
+    if (Math.abs(fr) > 0.0005) {
+      const pct = (fr * 100).toFixed(3);
+      reasons.push(`Funding rate: ${pct}% (${fr > 0 ? 'longs crowded' : 'shorts crowded'})`);
+    }
+  }
+  if (extras.btcCorrelation != null && extras.btcCorrelation > 0.5) {
+    reasons.push(`BTC correlation: ${(extras.btcCorrelation * 100).toFixed(0)}% — ${extras.btcCorrelation > 0.7 ? 'high, watch BTC' : 'moderate'}`);
+  }
+  if (extras.poc > 0) {
+    reasons.push(`Volume POC at $${extras.poc.toFixed(2)}`);
+  }
+  if (extras.fibLevels && extras.fibLevels.fib618 > 0) {
+    reasons.push(`Fib 0.618 at $${extras.fibLevels.fib618.toFixed(2)}`);
   }
 
   return reasons;

@@ -140,6 +140,10 @@
     <% if (sig.indicators.resistance) { %><div class="perf-card"><div class="perf-label">Resistance</div><div class="perf-value">$<%= formatPrice(sig.indicators.resistance) %></div></div><% } %>
     <% if (sig.indicators.volumeTrend) { %><div class="perf-card"><div class="perf-label">Volume</div><div class="perf-value" style="font-size:16px;"><%= sig.indicators.volumeTrend %></div></div><% } %>
     <% if (sig.indicators.relativeVolume) { %><div class="perf-card"><div class="perf-label">Rel Volume</div><div class="perf-value"><%= sig.indicators.relativeVolume %>x</div></div><% } %>
+    <% if (sig.indicators.fundingRate != null) { %><div class="perf-card"><div class="perf-label">Funding Rate</div><div class="perf-value <%= sig.indicators.fundingRate > 0.0005 ? 'down' : sig.indicators.fundingRate < -0.0005 ? 'up' : '' %>"><%= (sig.indicators.fundingRate * 100).toFixed(4) %>%</div></div><% } %>
+    <% if (sig.indicators.btcCorrelation != null) { %><div class="perf-card"><div class="perf-label">BTC Corr</div><div class="perf-value"><%= (sig.indicators.btcCorrelation * 100).toFixed(0) %>%</div></div><% } %>
+    <% if (sig.indicators.poc) { %><div class="perf-card"><div class="perf-label">Vol POC</div><div class="perf-value">$<%= formatPrice(sig.indicators.poc) %></div></div><% } %>
+    <% if (sig.indicators.fibLevels && sig.indicators.fibLevels.fib618 > 0) { %><div class="perf-card"><div class="perf-label">Fib 0.618</div><div class="perf-value">$<%= formatPrice(sig.indicators.fibLevels.fib618) %></div></div><% } %>
   </div>
 </div>
 <% } %>

@@ -134,6 +134,40 @@ async function openTrade(userId, signalData) {
   const confidenceMult = Math.min(1.2, 0.5 + score / 100);
   positionSize = positionSize * confidenceMult;
 
+  // Win/loss streak adjustment: reduce size after consecutive losses, slight boost after wins
+  const streak = user.stats?.currentStreak || 0;
+  if (streak <= -3) {
+    // 3+ consecutive losses: reduce position by 40%
+    positionSize *= 0.6;
+  } else if (streak <= -2) {
+    // 2 consecutive losses: reduce by 25%
+    positionSize *= 0.75;
+  } else if (streak >= 3) {
+    // 3+ wins: small boost (max 15%)
+    positionSize *= Math.min(1.15, 1 + streak * 0.03);
+  }
+
+  // Kelly criterion sizing: uses strategy win rate & avg R:R from learning engine
+  // Kelly% = W - (1-W)/R, where W=winRate, R=avgRR
+  // We use fractional Kelly (25%) to be conservative
+  if (signalData.strategyStats) {
+    const strat = signalData.strategyStats[signalData.strategyType];
+    if (strat && strat.totalTrades >= 15 && strat.winRate > 0 && strat.avgRR > 0) {
+      const w = strat.winRate / 100;
+      const r = strat.avgRR;
+      const kellyFull = w - ((1 - w) / r);
+      if (kellyFull > 0) {
+        const kellyFraction = Math.min(0.25, kellyFull * 0.25);  // 25% of Kelly, cap at 25%
+        const kellySize = user.paperBalance * kellyFraction * leverage;
+        // Use the smaller of risk-based and Kelly-based sizing
+        positionSize = Math.min(positionSize, kellySize);
+      } else if (kellyFull < -0.1) {
+        // Negative Kelly = strategy is losing money, reduce size by 50%
+        positionSize *= 0.5;
+      }
+    }
+  }
+
   // Cap margin to max % of balance so we don't use all balance on one trade
   const maxMarginByPct = user.paperBalance * (Math.min(100, Math.max(5, maxBalancePct)) / 100);
   const maxPositionByMarginPct = maxMarginByPct * leverage;
@@ -965,7 +999,26 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
     messages.push({ type: 'warning', text: 'High leverage \u2014 tighten risk' });
   }
 
-  // 10. Stale trade: open > 48h with < 1% raw P&L
+  // 10. Funding rate warning: extreme funding = potential reversal
+  if (signal.indicators && signal.indicators.fundingRate != null) {
+    const fr = signal.indicators.fundingRate;
+    if (isLong && fr > 0.001) {
+      messages.push({ type: 'warning', text: 'Funding rate extreme positive — longs crowded' });
+    } else if (!isLong && fr < -0.001) {
+      messages.push({ type: 'warning', text: 'Funding rate extreme negative — shorts crowded' });
+    } else if (isLong && fr < -0.0005) {
+      messages.push({ type: 'positive', text: 'Funding rate favors longs' });
+    } else if (!isLong && fr > 0.0005) {
+      messages.push({ type: 'positive', text: 'Funding rate favors shorts' });
+    }
+  }
+
+  // 11. BTC correlation warning
+  if (signal.indicators && signal.indicators.btcCorrelation != null && signal.indicators.btcCorrelation > 0.7) {
+    messages.push({ type: 'info', text: `High BTC correlation (${(signal.indicators.btcCorrelation * 100).toFixed(0)}%) \u2014 watch BTC` });
+  }
+
+  // 12. Stale trade: open > 48h with < 1% raw P&L
   if (trade.entryTime) {
     const hoursOpen = (Date.now() - new Date(trade.entryTime).getTime()) / (1000 * 60 * 60);
     if (hoursOpen >= 48) {
