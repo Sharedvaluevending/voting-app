@@ -227,8 +227,8 @@
         })
         .catch(function() {});
     }
-    setInterval(updateActiveTrades, 10000);
-    setTimeout(updateActiveTrades, 3000);
+    setInterval(updateActiveTrades, 5000);
+    setTimeout(updateActiveTrades, 2000);
 
     // Price & PnL: fetch every 10 seconds
     function updatePrices() {
@@ -280,7 +280,7 @@
         })
         .catch(function() {});
     }
-    setInterval(updatePrices, 10000);
+    setInterval(updatePrices, 5000);
     setTimeout(updatePrices, 1000);
     updatePrices();
 

@@ -152,7 +152,10 @@
         <span class="action-badge action-be" style="font-size:11px;padding:4px 10px;">BE</span> <span style="color:#9ca3af;font-size:13px;">Stop moved to breakeven (entry price). Triggers when trade reaches 1R profit.</span>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;">
-        <span class="action-badge action-ts" style="font-size:11px;padding:4px 10px;">TS</span> <span style="color:#9ca3af;font-size:13px;">Trailing stop or profit lock-in. Stop follows price at 1R distance, locking in gains.</span>
+        <span class="action-badge action-ts" style="font-size:11px;padding:4px 10px;">TS</span> <span style="color:#9ca3af;font-size:13px;">Trailing stop. Stop follows price at 1R distance behind the best price.</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;">
+        <span class="action-badge action-lock" style="font-size:11px;padding:4px 10px;">LOCK</span> <span style="color:#9ca3af;font-size:13px;">Profit locked in. Stop moved to 0.5R / 0.75R / 1R above entry as trade progresses toward TP.</span>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;">
         <span class="action-badge action-pp" style="font-size:11px;padding:4px 10px;">PP</span> <span style="color:#9ca3af;font-size:13px;">Partial profit taken. Closes 1/3 of the position to secure gains.</span>

@@ -394,7 +394,9 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       }
 
       // Trailing stop at 1.5R+ (if autoTrailingStop) - trail at 1R behind max favorable price
-      if (autoTrail && (trade.stopLoss === trade.entryPrice || trade.trailingActivated)) {
+      // Activates if: stop already at BE, trailing already running, OR stop has been locked past entry
+      const stopPastEntry = trade.direction === 'LONG' ? trade.stopLoss >= trade.entryPrice : trade.stopLoss <= trade.entryPrice;
+      if (autoTrail && (stopPastEntry || trade.trailingActivated)) {
         const at1_5R = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * 1.5 : currentPrice <= trade.entryPrice - risk * 1.5;
         if (at1_5R) {
           trade.trailingActivated = true;
@@ -414,8 +416,8 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
         }
       }
 
-      // Stepped profit lock-in when trailing is OFF
-      if (!autoTrail || !trade.trailingActivated) {
+      // Stepped profit lock-in (ALWAYS runs — works alongside trailing)
+      {
         const progress = getProgressTowardTP(trade, currentPrice);
         let effectiveProgress = progress;
         if (progress <= 0 && trade.entryPrice > 0) {
@@ -436,8 +438,9 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
               if (validMove) {
                 const oldSl = trade.stopLoss;
                 trade.stopLoss = newStop;
-                logTradeAction(trade, 'TS', `Stop locked in ${level.lockR}R: $${newStop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, newStop, currentPrice);
+                logTradeAction(trade, 'LOCK', `Locked in ${level.lockR}R profit: $${newStop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, newStop, currentPrice);
                 await trade.save();
+                console.log(`[StopTP] ${trade.symbol}: LOCK-IN ${level.lockR}R → SL $${newStop}`);
                 break;
               }
             }
@@ -814,7 +817,7 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
               trade.stopLoss = newStop;
               trade.lastExecutedActionId = actionId;
               const details = `Locked in ${level.lockR}R: $${fp(oldStop)} → $${fp(newStop)}`;
-              logTradeAction(trade, 'TS', details, oldStop, newStop, price);
+              logTradeAction(trade, 'LOCK', details, oldStop, newStop, price);
               trade.scoreCheck = trade.scoreCheck || {};
               trade.scoreCheck.lastActionDetails = details;
               await trade.save();

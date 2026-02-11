@@ -218,6 +218,7 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 .action-badge.action-pp { background: #4a2463; color: #a78bfa; }
 .action-badge.action-rp { background: #78350f; color: #fbbf24; }
 .action-badge.action-exit { background: #7f1d1d; color: #f87171; }
+.action-badge.action-lock { background: #0c4a6e; color: #38bdf8; }
 
 /* PROBABILITY METER */
 .prob-meter { margin: 8px 0 6px; }

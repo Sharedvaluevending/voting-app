@@ -767,13 +767,13 @@ app.get('/api/candles/:coinId', async (req, res) => {
 });
 
 // ====================================================
-// AUTO-CHECK STOPS & TPs (runs every 60 seconds)
+// AUTO-CHECK STOPS & TPs (runs every 30 seconds)
 // ====================================================
 setInterval(() => {
   checkStopsAndTPs(getCurrentPrice).catch(err =>
     console.error('[AutoCheck] Error:', err.message)
   );
-}, 60 * 1000);
+}, 30 * 1000);
 // Run first check 15s after startup
 setTimeout(() => {
   checkStopsAndTPs(getCurrentPrice).catch(err =>
