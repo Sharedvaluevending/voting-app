@@ -24,7 +24,7 @@ const LOCK_IN_LEVELS = [
 
 function getProgressTowardTP(trade, currentPrice) {
   const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
-  if (!tp || !trade.entryPrice) return 0;
+  if (!tp || !trade.entryPrice || tp === trade.entryPrice) return 0;
   const isLong = trade.direction === 'LONG';
   if (isLong && tp > trade.entryPrice) {
     return Math.min(1, (currentPrice - trade.entryPrice) / (tp - trade.entryPrice));
@@ -862,10 +862,11 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
 
   // 7. Consider BE stop (1R+ in profit, stop not yet at breakeven)
   const sl = trade.stopLoss;
-  let riskForLock = sl != null ? (isLong ? trade.entryPrice - sl : sl - trade.entryPrice) : 0;
+  const origSlForLock = trade.originalStopLoss || sl;
+  let riskForLock = origSlForLock != null ? (isLong ? trade.entryPrice - origSlForLock : origSlForLock - trade.entryPrice) : 0;
   if (riskForLock <= 0) {
     const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
-    if (tp) riskForLock = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
+    if (tp && tp !== trade.entryPrice) riskForLock = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
   }
   if (sl != null && riskForLock > 0) {
     const inProfit1R = isLong

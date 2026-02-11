@@ -1018,7 +1018,6 @@ function detectMACDDivergence(closes, lows, highs, macdHistHistory) {
 function detectPotentialBottom(closes, lows, rsi, allDivs, support, currentPrice) {
   if (!support || support <= 0) return false;
   const bullishDiv = (allDivs.rsiDiv?.bullish || allDivs.macdDiv?.bullish || allDivs.obvDiv?.bullish || allDivs.stochDiv?.bullish) || false;
-  const divCount = [allDivs.rsiDiv?.bullish, allDivs.macdDiv?.bullish, allDivs.obvDiv?.bullish, allDivs.stochDiv?.bullish].filter(Boolean).length;
   const oversold = rsi < 35;
   const nearSupport = currentPrice <= support * 1.02 && currentPrice >= support * 0.98;
   return bullishDiv && (oversold || nearSupport);
@@ -1474,7 +1473,7 @@ function calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, direction,
   } else {
     // HOLD / unknown direction: use direction hint to set levels
     entry = r2(currentPrice);
-    if (direction === 'SHORT') {
+    if (direction === 'BEAR') {
       stopLoss = r2(resistance * 1.005);
       tp1 = tpCount >= 1 ? r2(support) : null;
       tp2 = tpCount >= 2 ? r2(support * 0.97) : null;

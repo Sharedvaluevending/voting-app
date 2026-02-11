@@ -314,7 +314,7 @@
             var nowVal = isShort ? (100 - (check.currentScore || 0)) : (check.currentScore || 0);
             var entryVal = isShort ? (100 - (check.entryScore || 0)) : (check.entryScore || 0);
             var diff = check.scoreDiffDisplay != null ? check.scoreDiffDisplay : check.scoreDiff;
-            var fav = check.scoreDiffFavorable != null ? check.scoreDiffFavorable : (check.scoreDiff >= 0);
+            var fav = check.scoreDiffFavorable != null ? check.scoreDiffFavorable : (isShort ? (check.scoreDiff <= 0) : (check.scoreDiff >= 0));
             html += '<div class="score-check-summary">';
             html += '<span>Now: <strong>' + nowVal + '</strong></span>';
             html += '<span>Entry: <strong>' + entryVal + '</strong></span>';
