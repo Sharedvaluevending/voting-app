@@ -141,6 +141,67 @@
     <div class="journal-entry"><strong>Data &amp; learning</strong><br>16. Strategy weights from AI Engine feed back into signal scoring. 17. Expectancy and regime stats drive which strategies get selected. 18. Quality gate and session messages appear in “Why This Trade” when relevant.</div>
     <div class="journal-entry"><strong>Order blocks, FVG and liquidity clusters</strong><br>19. Order blocks – last opposing candle before a strong move (bullish OB = support, bearish OB = resistance); structure bonus when price is near a valid OB. 20. Fair value gaps (FVG) – 3-candle imbalances; price in or near a FVG zone adds confluence. 21. Liquidity clusters – swing highs/lows grouped by proximity; near a cluster adds structure context and appears in reasoning.</div>
   </div>
+
+  <div class="section">
+    <h3>Trade Actions &amp; Auto-Management</h3>
+    <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">The platform automatically monitors your open trades and can take actions to protect profit and manage risk. Actions appear as colored badges on your trade cards and chart page.</p>
+
+    <div class="journal-entry">
+      <strong>Action Badges</strong><br>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;">
+        <span class="action-badge action-be" style="font-size:11px;padding:4px 10px;">BE</span> <span style="color:#9ca3af;font-size:13px;">Stop moved to breakeven (entry price). Triggers when trade reaches 1R profit.</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;">
+        <span class="action-badge action-ts" style="font-size:11px;padding:4px 10px;">TS</span> <span style="color:#9ca3af;font-size:13px;">Trailing stop or profit lock-in. Stop follows price at 1R distance, locking in gains.</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;">
+        <span class="action-badge action-pp" style="font-size:11px;padding:4px 10px;">PP</span> <span style="color:#9ca3af;font-size:13px;">Partial profit taken. Closes 1/3 of the position to secure gains.</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;">
+        <span class="action-badge action-rp" style="font-size:11px;padding:4px 10px;">RP</span> <span style="color:#9ca3af;font-size:13px;">Reduced position by 50%. De-risks when score moves against the trade.</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;">
+        <span class="action-badge action-exit" style="font-size:11px;padding:4px 10px;">EXIT</span> <span style="color:#9ca3af;font-size:13px;">Auto-closed entire position. Triggers when score drops severely against the trade.</span>
+      </div>
+    </div>
+
+    <div class="journal-entry">
+      <strong>How Auto-Actions Work</strong><br>
+      Two systems run in the background:<br><br>
+      <strong>1. Stop Management (every 60 seconds)</strong><br>
+      &bull; <strong>Breakeven (BE)</strong> – When price moves 1R in your favor (1R = distance from entry to your original stop loss), your stop automatically moves to your entry price. Zero risk from this point.<br>
+      &bull; <strong>Trailing Stop (TS)</strong> – At 1.5R profit, the stop begins trailing 1R behind the best price. As price makes new highs (longs) or new lows (shorts), the stop follows, locking in gains.<br>
+      &bull; <strong>Stepped Lock-in</strong> – If trailing is off, stops lock at 0.5R, 0.75R, and 1R as the trade progresses 50%, 75%, 90% toward TP2.<br>
+      These are controlled by "Auto move to breakeven" and "Auto trailing stop" in your <a href="/performance" style="color:#3b82f6;">Settings</a>.<br><br>
+      <strong>2. Score Check Actions (every 5 minutes)</strong><br>
+      The engine re-analyzes the market and compares the current score to your entry score. Based on how the score has shifted:<br>
+      &bull; <strong>Hold</strong> – Score moved 20+ in your favor. Thesis is strong, hold.<br>
+      &bull; <strong>Tighten stop</strong> – Score dipped slightly (-5) or heat is yellow. Moves stop to breakeven.<br>
+      &bull; <strong>Lock in profit</strong> – 50%+ progress toward TP2. Steps stop to lock 0.5R/0.75R/1R.<br>
+      &bull; <strong>Take partial (PP)</strong> – Near TP1 and signals weakening. Closes 1/3 of position.<br>
+      &bull; <strong>Reduce position (RP)</strong> – Score dropped -15+ against the trade. Closes 50%.<br>
+      &bull; <strong>Consider exit (EXIT)</strong> – Red heat + danger + score -25+ against. Closes entire position.<br><br>
+      Score check actions only auto-execute if "Auto-execute score check actions" is enabled in <a href="/performance" style="color:#3b82f6;">Settings</a>. Otherwise they appear as suggestions only.
+    </div>
+
+    <div class="journal-entry">
+      <strong>Leverage-Aware Thresholds</strong><br>
+      At 3x+ leverage, the system uses tighter thresholds because losses are amplified:<br>
+      &bull; Exit threshold: -20 (vs -25 at 1x)<br>
+      &bull; Reduce threshold: -10 (vs -15 at 1x)<br>
+      &bull; Yellow heat + score slipping at 3x+ = automatic "Reduce position" suggestion.<br>
+      &bull; Trades open 48+ hours with less than 1% price movement get a "Trade stale" warning.
+    </div>
+
+    <div class="journal-entry">
+      <strong>Progress Indicator</strong><br>
+      Each trade card shows how close the trade is to triggering the next action:<br>
+      &bull; "BE at 1R: 45%" – Trade is 45% of the way to breakeven trigger.<br>
+      &bull; "Stop at breakeven" – BE already triggered, showing progress to trailing (1.5R).<br>
+      &bull; "Trailing active" – Stop is actively following the price.<br>
+      &bull; "(underwater)" – Trade is in the red, no auto-action will fire yet.
+    </div>
+  </div>
 </div>
 
 <%- include('partials/footer') %>
