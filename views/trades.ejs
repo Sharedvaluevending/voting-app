@@ -105,7 +105,15 @@
           <h4>Actions Taken</h4>
           <div class="actions-badges">
             <% deduped.forEach(function(a) {
-              var label = (a.type || '?') + (a.newValue != null ? ' $' + formatPrice(a.newValue) : '') + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
+              var displayVal = '';
+              if (['BE','TS','LOCK'].includes(a.type) && a.newValue != null) {
+                displayVal = ' $' + formatPrice(a.newValue);
+              } else if (a.type === 'EXIT' && a.marketPrice != null) {
+                displayVal = ' @$' + formatPrice(a.marketPrice);
+              } else if (['PP','RP'].includes(a.type) && a.marketPrice != null) {
+                displayVal = ' @$' + formatPrice(a.marketPrice);
+              }
+              var label = (a.type || '?') + displayVal + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
             %>
               <span class="action-badge action-<%= (a.type || '').toLowerCase() %>" title="<%= a.description || '' %>"><%= label %></span>
             <% }); %>

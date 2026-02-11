@@ -31,7 +31,15 @@
         tradeActions.forEach(function(a) { if (a.type) latestByType[a.type] = a; });
         var deduped = Object.values(latestByType);
         deduped.forEach(function(a) { %>
-          <span class="action-badge action-<%= (a.type || '').toLowerCase() %>" title="<%= a.description || '' %>"><%= a.type || '?' %><%= a.newValue != null ? ' $' + (typeof formatPrice !== 'undefined' ? formatPrice(a.newValue) : a.newValue.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 6})) : '' %> <%= a.timestamp ? new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '' %></span>
+          <%
+            var chartDisplayVal = '';
+            if (['BE','TS','LOCK'].indexOf(a.type) >= 0 && a.newValue != null) {
+              chartDisplayVal = ' $' + (typeof formatPrice !== 'undefined' ? formatPrice(a.newValue) : a.newValue);
+            } else if (['EXIT','PP','RP'].indexOf(a.type) >= 0 && a.marketPrice != null) {
+              chartDisplayVal = ' @$' + (typeof formatPrice !== 'undefined' ? formatPrice(a.marketPrice) : a.marketPrice);
+            }
+          %>
+          <span class="action-badge action-<%= (a.type || '').toLowerCase() %>" title="<%= a.description || '' %>"><%= (a.type || '?') + chartDisplayVal %> <%= a.timestamp ? new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '' %></span>
         <% }); %>
       <% } %>
     </div>
@@ -290,7 +298,13 @@
             t.actions.forEach(function(a) { if (a.type) latestByType[a.type] = a; });
             var deduped = Object.keys(latestByType).map(function(k) { return latestByType[k]; });
             var html = deduped.map(function(a) {
-              var lbl = (a.type || '?') + (a.newValue != null ? ' $' + fmt(a.newValue) : '') + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
+              var dv = '';
+              if (['BE','TS','LOCK'].indexOf(a.type) >= 0 && a.newValue != null) {
+                dv = ' $' + fmt(a.newValue);
+              } else if (['EXIT','PP','RP'].indexOf(a.type) >= 0 && a.marketPrice != null) {
+                dv = ' @$' + fmt(a.marketPrice);
+              }
+              var lbl = (a.type || '?') + dv + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
               return '<span class="action-badge action-' + (a.type || '').toLowerCase() + '" title="' + (a.description || '').replace(/"/g, '&quot;') + '">' + lbl + '</span>';
             }).join('');
             actionsBar.innerHTML = html;

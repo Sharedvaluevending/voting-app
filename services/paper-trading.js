@@ -759,7 +759,7 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
   try {
     if (actionId === 'consider_exit') {
       const sizeBefore = trade.positionSize;
-      logTradeAction(trade, 'EXIT', `Auto-closed position ($${fp(sizeBefore)}) at $${fp(price)}`, sizeBefore, 0, price);
+      logTradeAction(trade, 'EXIT', `Auto-closed position ($${fp(sizeBefore)}) at $${fp(price)}`, sizeBefore, price, price);
       await trade.save();
       await closeTrade(trade.userId, trade._id, price, 'SCORE_CHECK_EXIT');
       const details = `Closed entire position ($${fp(sizeBefore)}) at $${fp(price)}`;

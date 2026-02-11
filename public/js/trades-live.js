@@ -217,7 +217,15 @@
               t.actions.forEach(function(a) { if (a.type) latestByType[a.type] = a; });
               var deduped = Object.keys(latestByType).map(function(k) { return latestByType[k]; });
               var badges = deduped.map(function(a) {
-                var label = (a.type || '?') + (a.newValue != null ? ' $' + formatPrice(a.newValue) : '') + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
+                var displayVal = '';
+                if (['BE','TS','LOCK'].indexOf(a.type) >= 0 && a.newValue != null) {
+                  displayVal = ' $' + formatPrice(a.newValue);
+                } else if (a.type === 'EXIT' && a.marketPrice != null) {
+                  displayVal = ' @$' + formatPrice(a.marketPrice);
+                } else if (['PP','RP'].indexOf(a.type) >= 0 && a.marketPrice != null) {
+                  displayVal = ' @$' + formatPrice(a.marketPrice);
+                }
+                var label = (a.type || '?') + displayVal + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
                 var cls = 'action-badge action-' + (a.type || '').toLowerCase();
                 return '<span class="' + cls + '" title="' + (a.description || '').replace(/"/g, '&quot;') + '">' + label + '</span>';
               }).join('');
