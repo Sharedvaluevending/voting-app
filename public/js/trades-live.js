@@ -158,6 +158,55 @@
     setInterval(tickTime, 1000);
     tickTime();
 
+    // Active trades data (actions, stopLoss, originalStopLoss): poll every 10s
+    function updateActiveTrades() {
+      var url = (window.location.origin || '') + '/api/trades/active';
+      fetch(url, { credentials: 'same-origin' })
+        .then(function(r) {
+          if (!r.ok) throw new Error('API ' + r.status);
+          return r.json();
+        })
+        .then(function(result) {
+          if (!result || !result.success || !result.trades) return;
+          for (var c = 0; c < cards.length; c++) {
+            var card = cards[c];
+            var tradeId = card.getAttribute('data-trade-id');
+            if (!tradeId) continue;
+            var t = result.trades[tradeId];
+            if (!t) continue;
+
+            var slEl = card.querySelector('.level-value.sl');
+            if (slEl && t.stopLoss != null) {
+              var slHtml = '$' + formatPrice(t.stopLoss);
+              if (t.originalStopLoss && t.originalStopLoss !== t.stopLoss) {
+                slHtml += ' <span style="font-size:11px;color:#6b7280;">(<s>$' + formatPrice(t.originalStopLoss) + '</s> moved)</span>';
+              }
+              slEl.innerHTML = slHtml;
+            }
+
+            if (t.actions && t.actions.length > 0) {
+              var actionsWrap = card.querySelector('.trade-actions-taken');
+              if (!actionsWrap) {
+                actionsWrap = document.createElement('div');
+                actionsWrap.className = 'trade-actions-taken';
+                var levels = card.querySelector('.levels');
+                if (levels) card.insertBefore(actionsWrap, levels);
+                else card.appendChild(actionsWrap);
+              }
+              var badges = t.actions.map(function(a) {
+                var label = (a.type || '?') + (a.newValue != null ? ' $' + formatPrice(a.newValue) : '') + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
+                var cls = 'action-badge action-' + (a.type || '').toLowerCase();
+                return '<span class="' + cls + '" title="' + (a.description || '').replace(/"/g, '&quot;') + '">' + label + '</span>';
+              }).join('');
+              actionsWrap.innerHTML = '<h4>Actions Taken</h4><div class="actions-badges">' + badges + '</div>';
+            }
+          }
+        })
+        .catch(function() {});
+    }
+    setInterval(updateActiveTrades, 10000);
+    setTimeout(updateActiveTrades, 3000);
+
     // Price & PnL: fetch every 10 seconds
     function updatePrices() {
       var url = (window.location.origin || '') + '/api/prices';

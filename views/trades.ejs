@@ -78,9 +78,28 @@
           <% if (trade.stopLabel || trade.tpLabel) { %><span style="color:#6b7280;">Stop: <%= trade.stopLabel || 'ATR+S/R' %> · TP: <%= trade.tpLabel || 'R mult' %></span><% } %>
         </div>
 
+        <% if (trade.actions && trade.actions.length > 0) { %>
+        <div class="trade-actions-taken">
+          <h4>Actions Taken</h4>
+          <div class="actions-badges">
+            <% trade.actions.forEach(function(a) {
+              var label = (a.type || '?') + (a.newValue != null ? ' $' + formatPrice(a.newValue) : '') + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
+            %>
+              <span class="action-badge action-<%= (a.type || '').toLowerCase() %>" title="<%= a.description || '' %>"><%= label %></span>
+            <% }); %>
+          </div>
+        </div>
+        <% } %>
         <div class="levels">
           <div class="level"><div class="level-label">Entry</div><div class="level-value entry">$<%= formatPrice(trade.entryPrice) %></div></div>
-          <div class="level"><div class="level-label">SL</div><div class="level-value sl"><%= trade.stopLoss ? '$' + formatPrice(trade.stopLoss) : '-' %></div></div>
+          <div class="level"><div class="level-label">SL</div><div class="level-value sl">
+            <% if (trade.stopLoss) { %>
+              $<%= formatPrice(trade.stopLoss) %>
+              <% if (trade.originalStopLoss && trade.originalStopLoss !== trade.stopLoss) { %>
+                <span style="font-size:11px;color:#6b7280;">(<s>$<%= formatPrice(trade.originalStopLoss) %></s> moved)</span>
+              <% } %>
+            <% } else { %>-<% } %>
+          </div></div>
           <div class="level"><div class="level-label">Current</div><div class="level-value trade-current-level <%= pnl >= 0 ? 'tp' : 'sl' %>">$<%= formatPrice(currentPrice) %></div></div>
           <div class="level"><div class="level-label">TP1</div><div class="level-value tp"><%= trade.takeProfit1 ? '$' + formatPrice(trade.takeProfit1) : '-' %></div></div>
           <div class="level"><div class="level-label">TP2</div><div class="level-value tp"><%= trade.takeProfit2 ? '$' + formatPrice(trade.takeProfit2) : '-' %></div></div>
@@ -176,7 +195,7 @@
         <% } %>
 
         <div class="trade-actions">
-          <% var chartUrl = '/chart/' + trade.coinId + '?entry=' + trade.entryPrice + (trade.stopLoss ? '&sl=' + trade.stopLoss : '') + (trade.takeProfit1 ? '&tp1=' + trade.takeProfit1 : '') + (trade.takeProfit2 ? '&tp2=' + trade.takeProfit2 : '') + (trade.takeProfit3 ? '&tp3=' + trade.takeProfit3 : ''); %>
+          <% var chartUrl = '/chart/' + trade.coinId + '?tradeId=' + trade._id + '&entry=' + trade.entryPrice + (trade.stopLoss ? '&sl=' + trade.stopLoss : '') + (trade.takeProfit1 ? '&tp1=' + trade.takeProfit1 : '') + (trade.takeProfit2 ? '&tp2=' + trade.takeProfit2 : '') + (trade.takeProfit3 ? '&tp3=' + trade.takeProfit3 : ''); %>
           <a href="<%= chartUrl %>" class="btn btn-outline btn-sm" target="_blank" rel="noopener">View chart</a>
           <form action="/trades/close/<%= trade._id %>" method="POST" style="display:inline;">
             <button type="submit" class="btn btn-close btn-sm">Close at Market</button>

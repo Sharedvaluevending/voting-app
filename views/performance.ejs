@@ -44,6 +44,16 @@
       <input type="checkbox" name="autoExecuteActions" id="autoExecuteActions" value="true" <%= (user.settings && user.settings.autoExecuteActions) ? 'checked' : '' %>>
       <label for="autoExecuteActions" style="font-size:12px;color:#9ca3af;">Auto-execute score check actions</label>
     </div>
+    <div style="display:flex;align-items:center;gap:8px;" title="Move stop to breakeven when price reaches 1R in profit">
+      <input type="hidden" name="autoMoveBreakeven" value="false">
+      <input type="checkbox" name="autoMoveBreakeven" id="autoMoveBreakeven" value="true" <%= (user.settings && user.settings.autoMoveBreakeven) !== false ? 'checked' : '' %>>
+      <label for="autoMoveBreakeven" style="font-size:12px;color:#9ca3af;">Auto move to breakeven</label>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;" title="Trail stop at 1.5R when price reaches 1R in profit">
+      <input type="hidden" name="autoTrailingStop" value="false">
+      <input type="checkbox" name="autoTrailingStop" id="autoTrailingStop" value="true" <%= (user.settings && user.settings.autoTrailingStop) !== false ? 'checked' : '' %>>
+      <label for="autoTrailingStop" style="font-size:12px;color:#9ca3af;">Auto trailing stop</label>
+    </div>
     <div>
       <button type="submit" class="btn btn-outline btn-sm">Save</button>
     </div>

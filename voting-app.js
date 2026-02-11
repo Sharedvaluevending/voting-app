@@ -259,7 +259,7 @@ app.get('/coin/:coinId', async (req, res) => {
 // ====================================================
 // CHART (TradingView embed; optional trade levels from query)
 // ====================================================
-app.get('/chart/:coinId', (req, res) => {
+app.get('/chart/:coinId', async (req, res) => {
   const coinId = req.params.coinId;
   if (!TRACKED_COINS.includes(coinId)) {
     return res.status(404).send('Coin not found. <a href="/">Back to Dashboard</a>');
@@ -277,11 +277,25 @@ app.get('/chart/:coinId', (req, res) => {
     'UNIUSDT': 'KRAKEN:UNIUSD', 'ATOMUSDT': 'KRAKEN:ATOMUSD'
   };
   const tvSymbol = KRAKEN_TV_PAIRS[meta.binance] || ('BINANCE:' + meta.binance);
-  const entry = req.query.entry ? Number(req.query.entry) : null;
-  const sl = req.query.sl ? Number(req.query.sl) : null;
+  let entry = req.query.entry ? Number(req.query.entry) : null;
+  let sl = req.query.sl ? Number(req.query.sl) : null;
   const tp1 = req.query.tp1 ? Number(req.query.tp1) : null;
   const tp2 = req.query.tp2 ? Number(req.query.tp2) : null;
   const tp3 = req.query.tp3 ? Number(req.query.tp3) : null;
+  let originalSl = null;
+  let tradeActions = [];
+  let direction = null;
+  const tradeId = req.query.tradeId;
+  if (tradeId && req.session && req.session.userId) {
+    const trade = await Trade.findOne({ _id: tradeId, userId: req.session.userId }).lean();
+    if (trade) {
+      originalSl = trade.originalStopLoss || trade.stopLoss;
+      tradeActions = trade.actions || [];
+      direction = trade.direction;
+      if (!sl && trade.stopLoss) sl = trade.stopLoss;
+      if (!entry && trade.entryPrice) entry = trade.entryPrice;
+    }
+  }
   res.render('chart', {
     activePage: 'dashboard',
     pageTitle: meta.name + ' Chart',
@@ -291,6 +305,10 @@ app.get('/chart/:coinId', (req, res) => {
     tvSymbol,
     entry,
     sl,
+    originalSl,
+    tradeActions,
+    direction,
+    tradeId: tradeId || null,
     tp1,
     tp2,
     tp3
@@ -483,6 +501,14 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       const val = req.body.autoExecuteActions;
       s.autoExecuteActions = val === 'true' || (Array.isArray(val) && val.includes('true'));
     }
+    if (req.body.autoMoveBreakeven !== undefined) {
+      const val = req.body.autoMoveBreakeven;
+      s.autoMoveBreakeven = val === 'true' || (Array.isArray(val) && val.includes('true'));
+    }
+    if (req.body.autoTrailingStop !== undefined) {
+      const val = req.body.autoTrailingStop;
+      s.autoTrailingStop = val === 'true' || (Array.isArray(val) && val.includes('true'));
+    }
     u.settings = s;
     await u.save();
     res.redirect('/performance?success=Settings+saved');
@@ -656,6 +682,19 @@ app.get('/api/prices', async (req, res) => {
   try {
     const prices = await fetchAllPrices();
     res.json({ success: true, data: prices });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/trades/active', requireLogin, async (req, res) => {
+  try {
+    const trades = await Trade.find({ userId: req.session.userId, status: 'OPEN' })
+      .select('_id coinId direction entryPrice stopLoss originalStopLoss actions')
+      .lean();
+    const map = {};
+    trades.forEach(t => { map[t._id.toString()] = t; });
+    res.json({ success: true, trades: map });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

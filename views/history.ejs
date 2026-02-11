@@ -22,6 +22,7 @@
           <th>Score</th>
           <th>Strategy</th>
           <th>Time Held</th>
+          <th>Actions</th>
           <th>Status</th>
           <th>Date</th>
           <th></th>
@@ -44,6 +45,11 @@
             <td><%= trade.score || '-' %></td>
             <td style="font-size:11px;"><%= trade.strategyType || '-' %></td>
             <td><%= timeStr %></td>
+            <td style="font-size:10px;">
+              <% if (trade.actions && trade.actions.length > 0) { %>
+                <% trade.actions.forEach(function(a) { %><span class="action-badge action-<%= (a.type || '').toLowerCase() %>" style="font-size:9px;padding:1px 4px;margin-right:2px;"><%= a.type || '?' %></span><% }); %>
+              <% } else { %>-<% } %>
+            </td>
             <td style="font-size:11px;"><%= trade.status.replace('_',' ') %></td>
             <td style="font-size:11px;color:#6b7280;"><%= trade.exitTime ? new Date(trade.exitTime).toLocaleDateString() : '-' %></td>
             <td><a href="/journal?tradeId=<%= trade._id %>" class="btn btn-outline btn-sm" style="font-size:10px;padding:4px 8px;">Journal</a></td>

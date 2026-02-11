@@ -180,6 +180,7 @@ async function openTrade(userId, signalData) {
     leverage,
     margin,
     stopLoss,
+    originalStopLoss: stopLoss,
     takeProfit1: signalData.takeProfit1,
     takeProfit2: signalData.takeProfit2,
     takeProfit3: signalData.takeProfit3,
@@ -301,6 +302,18 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
   return trade;
 }
 
+function logTradeAction(trade, type, description, oldValue, newValue, marketPrice) {
+  if (!Array.isArray(trade.actions)) trade.actions = [];
+  trade.actions.push({
+    type,
+    description,
+    oldValue: oldValue != null ? oldValue : undefined,
+    newValue: newValue != null ? newValue : undefined,
+    marketPrice: marketPrice != null ? marketPrice : undefined,
+    timestamp: new Date()
+  });
+}
+
 async function checkStopsAndTPs(getCurrentPriceFunc) {
   const openTrades = await Trade.find({ status: 'OPEN' });
   let closedCount = 0;
@@ -327,46 +340,83 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
     trade.maxDrawdownPercent = Math.max(trade.maxDrawdownPercent, drawdown);
     trade.maxProfitPercent = Math.max(trade.maxProfitPercent, profit);
 
-    // Risk (1R) = distance from entry to original stop; when at BE or locked in, use TP-based fallback
+    // Backfill originalStopLoss for existing trades
+    if (trade.originalStopLoss == null && trade.stopLoss != null) {
+      trade.originalStopLoss = trade.stopLoss;
+    }
+
+    const user = await User.findById(trade.userId);
+    const autoBE = user?.settings?.autoMoveBreakeven !== false;
+    const autoTrail = user?.settings?.autoTrailingStop !== false;
+
+    // Risk (1R) = distance from entry to original stop
+    const origSl = trade.originalStopLoss || trade.stopLoss;
     let risk = trade.direction === 'LONG'
-      ? trade.entryPrice - (trade.stopLoss || 0)
-      : (trade.stopLoss || 0) - trade.entryPrice;
+      ? trade.entryPrice - (origSl || 0)
+      : (origSl || 0) - trade.entryPrice;
     if (risk <= 0) {
       const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
       if (tp) risk = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
     }
-    if (risk > 0 && trade.stopLoss != null && trade.stopLoss !== trade.entryPrice) {
-      if (trade.direction === 'LONG' && currentPrice >= trade.entryPrice + risk) {
-        trade.stopLoss = trade.entryPrice;
-        await trade.save();
-      } else if (trade.direction === 'SHORT' && currentPrice <= trade.entryPrice - risk) {
-        trade.stopLoss = trade.entryPrice;
-        await trade.save();
-      }
-    }
 
-    // Stepped profit lock-in: at 50%/75%/90% toward TP2, lock in 0.5R/0.75R/1R (only move stop UP)
     if (risk > 0 && trade.stopLoss != null) {
-      const progress = getProgressTowardTP(trade, currentPrice);
-      let effectiveProgress = progress;
-      if (progress <= 0 && trade.entryPrice > 0) {
-        const pnlPct = trade.direction === 'LONG'
-          ? (currentPrice - trade.entryPrice) / trade.entryPrice * 100
-          : (trade.entryPrice - currentPrice) / trade.entryPrice * 100;
-        if (pnlPct >= 5) effectiveProgress = 0.9;
-        else if (pnlPct >= 2) effectiveProgress = 0.5;
+      // Breakeven at 1R (if autoMoveBreakeven)
+      if (autoBE && trade.stopLoss !== trade.entryPrice) {
+        const at1R = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk : currentPrice <= trade.entryPrice - risk;
+        if (at1R) {
+          const oldSl = trade.stopLoss;
+          trade.stopLoss = trade.entryPrice;
+          logTradeAction(trade, 'BE', `Stop moved to breakeven at $${trade.entryPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, trade.entryPrice, currentPrice);
+          await trade.save();
+        }
       }
-      const currentLockR = getCurrentLockR(trade, risk);
-      for (const level of LOCK_IN_LEVELS) {
-        if (effectiveProgress >= level.progress && currentLockR < level.lockR) {
-          const newStop = getLockInStopPrice(trade, level.lockR, risk);
-          if (newStop) {
-            const isLong = trade.direction === 'LONG';
-            const validMove = isLong ? newStop > trade.stopLoss && newStop < currentPrice : newStop < trade.stopLoss && newStop > currentPrice;
-            if (validMove) {
-              trade.stopLoss = newStop;
-              await trade.save();
-              break;
+
+      // Trailing stop at 1.5R+ (if autoTrailingStop) - trail at 1R behind max favorable price
+      if (autoTrail && trade.stopLoss === trade.entryPrice) {
+        const at1_5R = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * 1.5 : currentPrice <= trade.entryPrice - risk * 1.5;
+        if (at1_5R) {
+          trade.trailingActivated = true;
+          const trailSL = trade.direction === 'LONG'
+            ? trade.maxPrice - risk
+            : trade.minPrice + risk;
+          const r2 = (v) => Math.round(v * 1000000) / 1000000;
+          const newStop = r2(trailSL);
+          const isLong = trade.direction === 'LONG';
+          const validMove = isLong ? newStop > trade.stopLoss && newStop < currentPrice : newStop < trade.stopLoss && newStop > currentPrice;
+          if (validMove) {
+            const oldSl = trade.stopLoss;
+            trade.stopLoss = newStop;
+            logTradeAction(trade, 'TS', `Stop trailed to $${newStop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, newStop, currentPrice);
+            await trade.save();
+          }
+        }
+      }
+
+      // Stepped profit lock-in when trailing is OFF
+      if (!autoTrail || !trade.trailingActivated) {
+        const progress = getProgressTowardTP(trade, currentPrice);
+        let effectiveProgress = progress;
+        if (progress <= 0 && trade.entryPrice > 0) {
+          const pnlPct = trade.direction === 'LONG'
+            ? (currentPrice - trade.entryPrice) / trade.entryPrice * 100
+            : (trade.entryPrice - currentPrice) / trade.entryPrice * 100;
+          if (pnlPct >= 5) effectiveProgress = 0.9;
+          else if (pnlPct >= 2) effectiveProgress = 0.5;
+        }
+        const currentLockR = getCurrentLockR(trade, risk);
+        for (const level of LOCK_IN_LEVELS) {
+          if (effectiveProgress >= level.progress && currentLockR < level.lockR) {
+            const newStop = getLockInStopPrice(trade, level.lockR, risk);
+            if (newStop) {
+              const isLong = trade.direction === 'LONG';
+              const validMove = isLong ? newStop > trade.stopLoss && newStop < currentPrice : newStop < trade.stopLoss && newStop > currentPrice;
+              if (validMove) {
+                const oldSl = trade.stopLoss;
+                trade.stopLoss = newStop;
+                logTradeAction(trade, 'TS', `Stop locked in ${level.lockR}R: $${newStop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, newStop, currentPrice);
+                await trade.save();
+                break;
+              }
             }
           }
         }
@@ -662,9 +712,10 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
     }
     if (actionId === 'tighten_stop') {
       if (!trade.stopLoss) return { executed: false };
+      const origSl = trade.originalStopLoss || trade.stopLoss;
       let risk = trade.direction === 'LONG'
-        ? trade.entryPrice - trade.stopLoss
-        : trade.stopLoss - trade.entryPrice;
+        ? trade.entryPrice - (origSl || 0)
+        : (origSl || 0) - trade.entryPrice;
       if (risk <= 0) {
         const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
         if (tp) risk = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
@@ -674,6 +725,7 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
         trade.stopLoss = trade.entryPrice;
         trade.lastExecutedActionId = actionId;
         const details = `Stop tightened: $${fp(oldStop)} → $${fp(trade.entryPrice)} (breakeven)`;
+        logTradeAction(trade, 'BE', details, oldStop, trade.entryPrice, price);
         trade.scoreCheck = trade.scoreCheck || {};
         trade.scoreCheck.lastActionDetails = details;
         await trade.save();
@@ -684,9 +736,10 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
     }
     if (actionId === 'lock_in_profit') {
       if (!trade.stopLoss) return { executed: false };
+      const origSl = trade.originalStopLoss || trade.stopLoss;
       let risk = trade.direction === 'LONG'
-        ? trade.entryPrice - trade.stopLoss
-        : trade.stopLoss - trade.entryPrice;
+        ? trade.entryPrice - (origSl || 0)
+        : (origSl || 0) - trade.entryPrice;
       if (risk <= 0) {
         const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
         if (tp) risk = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
@@ -711,6 +764,7 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
               trade.stopLoss = newStop;
               trade.lastExecutedActionId = actionId;
               const details = `Locked in ${level.lockR}R: $${fp(oldStop)} → $${fp(newStop)}`;
+              logTradeAction(trade, 'TS', details, oldStop, newStop, price);
               trade.scoreCheck = trade.scoreCheck || {};
               trade.scoreCheck.lastActionDetails = details;
               await trade.save();
