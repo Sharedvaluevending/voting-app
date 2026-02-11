@@ -396,6 +396,7 @@
               }
             }
 
+
             // Timeline placeholder (pass direction so SHORT shows up=favorable)
             var history = (window.__scoreHistories && window.__scoreHistories[tradeId]) || [];
             if (history.length > 1) {

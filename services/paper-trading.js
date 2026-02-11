@@ -346,6 +346,21 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       trade.originalStopLoss = trade.stopLoss;
     }
 
+    // Fix stale trailingActivated from ping-pong bug:
+    // If trailingActivated is true but stop hasn't actually moved past breakeven,
+    // reset it so BE/lock-in can function again.
+    if (trade.trailingActivated && trade.stopLoss != null) {
+      const isLong = trade.direction === 'LONG';
+      const stopAtOrWorseEntry = isLong
+        ? trade.stopLoss <= trade.entryPrice
+        : trade.stopLoss >= trade.entryPrice;
+      if (stopAtOrWorseEntry) {
+        trade.trailingActivated = false;
+        await trade.save();
+        console.log(`[StopTP] ${trade.symbol}: Reset stale trailingActivated (stop ${trade.stopLoss} still at/before entry ${trade.entryPrice})`);
+      }
+    }
+
     const user = await User.findById(trade.userId);
     const autoBE = user?.settings?.autoMoveBreakeven !== false;
     const autoTrail = user?.settings?.autoTrailingStop !== false;
@@ -423,6 +438,10 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
           }
         }
       }
+    } else if (trade.stopLoss == null) {
+      console.log(`[StopTP] ${trade.symbol}: No stopLoss set — skipping BE/TS`);
+    } else if (risk <= 0) {
+      console.log(`[StopTP] ${trade.symbol}: risk=${risk.toFixed(4)} (<=0) — skipping BE/TS`);
     }
     await trade.save();
 

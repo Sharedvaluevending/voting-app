@@ -170,14 +170,20 @@
           <div class="action-ladder action-<%= trade.scoreCheck.suggestedAction.level %>">
             <span class="action-label">Action:</span>
             <span class="action-text"><%= trade.scoreCheck.suggestedAction.text %></span>
-            <% if (typeof user !== 'undefined' && user && user.settings && user.settings.autoExecuteActions) { %>
+            <% var autoOn = typeof user !== 'undefined' && user && user.settings && user.settings.autoExecuteActions; %>
+            <% if (autoOn) { %>
               <span style="font-size:9px;padding:2px 5px;border-radius:3px;background:rgba(16,185,129,0.15);color:#10b981;margin-left:6px;font-weight:600;">AUTO</span>
+            <% } else { %>
+              <span style="font-size:9px;padding:2px 5px;border-radius:3px;background:rgba(234,179,8,0.15);color:#eab308;margin-left:6px;font-weight:600;">SUGGESTION</span>
             <% } %>
           </div>
           <% if (trade.scoreCheck.lastActionDetails) { %>
           <div class="action-details" style="background:rgba(16,185,129,0.08);border-left:2px solid #10b981;padding:4px 8px;margin-top:4px;border-radius:4px;font-size:11px;color:#d1d5db;">
             <span style="color:#10b981;font-weight:600;">Executed:</span> <%= trade.scoreCheck.lastActionDetails %>
           </div>
+          <% } %>
+          <% if (!autoOn && ['consider_exit','reduce_position','take_partial','tighten_stop','lock_in_profit'].indexOf(trade.scoreCheck.suggestedAction.actionId) >= 0) { %>
+          <div style="font-size:10px;color:#6b7280;margin-top:3px;">Enable "Auto-execute" in <a href="/performance" style="color:#3b82f6;">Settings</a> to act on this automatically</div>
           <% } %>
           <% } %>
 
