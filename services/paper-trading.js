@@ -275,6 +275,7 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
     : reason === 'TP1' ? 'TP1_HIT'
     : reason === 'TP2' ? 'TP2_HIT'
     : reason === 'TP3' ? 'TP3_HIT'
+    : reason === 'SCORE_CHECK_EXIT' ? 'SCORE_EXIT'
     : 'CLOSED_MANUAL';
   trade.updatedAt = new Date();
 
@@ -696,6 +697,8 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
   try {
     if (actionId === 'consider_exit') {
       const sizeBefore = trade.positionSize;
+      logTradeAction(trade, 'EXIT', `Auto-closed position ($${fp(sizeBefore)}) at $${fp(price)}`, sizeBefore, 0, price);
+      await trade.save();
       await closeTrade(trade.userId, trade._id, price, 'SCORE_CHECK_EXIT');
       const details = `Closed entire position ($${fp(sizeBefore)}) at $${fp(price)}`;
       console.log(`[ScoreCheck] ${details}`);
@@ -704,10 +707,12 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
     if (actionId === 'reduce_position') {
       const orig = trade.originalPositionSize || trade.positionSize;
       const portion = Math.round((orig * 0.5) * 100) / 100;
+      if (portion <= 0 || portion >= trade.positionSize) return { executed: false };
       const sizeBefore = trade.positionSize;
       await closeTradePartial(trade, exitPrice, portion, 'SCORE_CHECK_PARTIAL');
       trade.lastExecutedActionId = actionId;
-      const details = `Reduced 50%: $${fp(sizeBefore)} → $${fp(trade.positionSize)} at $${fp(exitPrice)}`;
+      const details = `Reduced 50%: $${fp(sizeBefore)} \u2192 $${fp(trade.positionSize)} at $${fp(exitPrice)}`;
+      logTradeAction(trade, 'RP', details, sizeBefore, trade.positionSize, price);
       trade.scoreCheck = trade.scoreCheck || {};
       trade.scoreCheck.lastActionDetails = details;
       await trade.save();
@@ -717,10 +722,12 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
     if (actionId === 'take_partial') {
       const orig = trade.originalPositionSize || trade.positionSize;
       const portion = Math.round((orig / 3) * 100) / 100;
+      if (portion <= 0 || portion >= trade.positionSize) return { executed: false };
       const sizeBefore = trade.positionSize;
       await closeTradePartial(trade, exitPrice, portion, 'SCORE_CHECK_PARTIAL');
       trade.lastExecutedActionId = actionId;
-      const details = `Partial 1/3: $${fp(sizeBefore)} → $${fp(trade.positionSize)} at $${fp(exitPrice)}`;
+      const details = `Partial 1/3: $${fp(sizeBefore)} \u2192 $${fp(trade.positionSize)} at $${fp(exitPrice)}`;
+      logTradeAction(trade, 'PP', details, sizeBefore, trade.positionSize, price);
       trade.scoreCheck = trade.scoreCheck || {};
       trade.scoreCheck.lastActionDetails = details;
       await trade.save();

@@ -184,6 +184,26 @@
               slEl.innerHTML = slHtml;
             }
 
+            // Update position size & margin if changed (after partial closes)
+            if (t.positionSize != null) {
+              card.setAttribute('data-position-size', t.positionSize);
+              card.setAttribute('data-margin', t.margin || t.positionSize);
+              var sizeEl = card.querySelector('.signal-meta');
+              if (sizeEl) {
+                var sizeSpans = sizeEl.querySelectorAll('span');
+                for (var s = 0; s < sizeSpans.length; s++) {
+                  if (sizeSpans[s].textContent.indexOf('Size:') >= 0) {
+                    var sizeHtml = 'Size: <strong>$' + t.positionSize.toFixed(2) + '</strong>';
+                    if (t.originalPositionSize && t.originalPositionSize > t.positionSize) {
+                      sizeHtml += ' <span style="font-size:11px;color:#6b7280;">(of $' + t.originalPositionSize.toFixed(2) + ')</span>';
+                    }
+                    sizeSpans[s].innerHTML = sizeHtml;
+                    break;
+                  }
+                }
+              }
+            }
+
             if (t.actions && t.actions.length > 0) {
               var actionsWrap = card.querySelector('.trade-actions-taken');
               if (!actionsWrap) {
@@ -370,7 +390,9 @@
               html += '<span class="action-text">' + check.suggestedAction.text + '</span>';
               html += '</div>';
               if (check.lastActionDetails) {
-                html += '<div class="action-details">' + check.lastActionDetails + '</div>';
+                html += '<div class="action-details" style="background:rgba(16,185,129,0.08);border-left:2px solid #10b981;padding:4px 8px;margin-top:4px;border-radius:4px;font-size:11px;color:#d1d5db;">';
+                html += '<span style="color:#10b981;font-weight:600;">Executed:</span> ' + check.lastActionDetails;
+                html += '</div>';
               }
             }
 

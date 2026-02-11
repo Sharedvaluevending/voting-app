@@ -320,12 +320,16 @@ app.get('/chart/:coinId', async (req, res) => {
 // ====================================================
 app.get('/trades', requireLogin, async (req, res) => {
   try {
-    const trades = await getOpenTrades(req.session.userId);
-    const prices = await fetchAllPrices();
+    const [trades, prices, user] = await Promise.all([
+      getOpenTrades(req.session.userId),
+      fetchAllPrices(),
+      User.findById(req.session.userId).lean()
+    ]);
     res.render('trades', {
       activePage: 'trades',
       trades,
       prices,
+      user,
       error: req.query.error || null,
       success: req.query.success || null
     });
@@ -696,7 +700,7 @@ app.get('/api/prices', async (req, res) => {
 app.get('/api/trades/active', requireLogin, async (req, res) => {
   try {
     const trades = await Trade.find({ userId: req.session.userId, status: 'OPEN' })
-      .select('_id coinId direction entryPrice stopLoss originalStopLoss actions')
+      .select('_id coinId direction entryPrice stopLoss originalStopLoss actions positionSize originalPositionSize margin')
       .lean();
     const map = {};
     trades.forEach(t => { map[t._id.toString()] = t; });

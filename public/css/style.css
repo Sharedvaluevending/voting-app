@@ -215,6 +215,9 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 .action-badge { font-size: 10px; padding: 3px 8px; border-radius: 4px; font-weight: 600; }
 .action-badge.action-be { background: #064e3b; color: #10b981; }
 .action-badge.action-ts { background: #1e3a5f; color: #3b82f6; }
+.action-badge.action-pp { background: #4a2463; color: #a78bfa; }
+.action-badge.action-rp { background: #78350f; color: #fbbf24; }
+.action-badge.action-exit { background: #7f1d1d; color: #f87171; }
 
 /* PROBABILITY METER */
 .prob-meter { margin: 8px 0 6px; }
