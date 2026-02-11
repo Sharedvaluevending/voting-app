@@ -78,8 +78,26 @@
           <% if (trade.stopLabel || trade.tpLabel) { %><span style="color:#6b7280;">Stop: <%= trade.stopLabel || 'ATR+S/R' %> · TP: <%= trade.tpLabel || 'R mult' %></span><% } %>
         </div>
 
-        <% if (trade.actions && trade.actions.length > 0) { %>
+        <%
+          // Calculate progress toward BE (1R)
+          var origSlForProgress = trade.originalStopLoss || trade.stopLoss;
+          var riskForProgress = 0;
+          if (origSlForProgress && trade.entryPrice) {
+            riskForProgress = trade.direction === 'LONG'
+              ? trade.entryPrice - origSlForProgress
+              : origSlForProgress - trade.entryPrice;
+          }
+          if (riskForProgress <= 0 && trade.takeProfit2) {
+            riskForProgress = Math.abs(trade.entryPrice - trade.takeProfit2) / 2;
+          }
+          var profitDist = trade.direction === 'LONG'
+            ? currentPrice - trade.entryPrice
+            : trade.entryPrice - currentPrice;
+          var profitR = riskForProgress > 0 ? profitDist / riskForProgress : 0;
+          var stopAtBE = trade.stopLoss && Math.abs(trade.stopLoss - trade.entryPrice) < 0.000001;
+        %>
         <div class="trade-actions-taken">
+          <% if (trade.actions && trade.actions.length > 0) { %>
           <h4>Actions Taken<% if (trade.actions.length > 2) { %> <span style="font-weight:normal;font-size:10px;color:#6b7280;">(<%= trade.actions.length %> total)</span><% } %></h4>
           <div class="actions-badges">
             <% trade.actions.slice(-2).forEach(function(a) {
@@ -88,8 +106,21 @@
               <span class="action-badge action-<%= (a.type || '').toLowerCase() %>" title="<%= a.description || '' %>"><%= label %></span>
             <% }); %>
           </div>
+          <% } %>
+          <% if (riskForProgress > 0) { %>
+          <div style="margin-top:4px;font-size:10px;color:#6b7280;">
+            <% if (stopAtBE) { %>
+              <span style="color:#10b981;">&#10003; Stop at breakeven</span> · <%= profitR >= 1.5 ? '<span style="color:#3b82f6;">Trailing active</span>' : 'Trailing at 1.5R (' + Math.min(100, (profitR / 1.5 * 100)).toFixed(0) + '%)' %>
+            <% } else if (trade.trailingActivated) { %>
+              <span style="color:#3b82f6;">&#10003; Trailing active</span> · <%= profitR.toFixed(2) %>R profit
+            <% } else { %>
+              BE at 1R: <strong><%= Math.min(100, Math.max(0, profitR * 100)).toFixed(0) %>%</strong>
+              <% if (profitR < 0) { %><span style="color:#ef4444;"> (underwater)</span><% } %>
+              <% if (profitR >= 0.5 && profitR < 1) { %><span style="color:#eab308;"> (getting close)</span><% } %>
+            <% } %>
+          </div>
+          <% } %>
         </div>
-        <% } %>
         <div class="levels">
           <div class="level"><div class="level-label">Entry</div><div class="level-value entry">$<%= formatPrice(trade.entryPrice) %></div></div>
           <div class="level"><div class="level-label">SL</div><div class="level-value sl">

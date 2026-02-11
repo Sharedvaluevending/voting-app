@@ -375,6 +375,12 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       if (tp) risk = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
     }
 
+    // === DIAGNOSTIC LOG for every trade every cycle ===
+    const isLongDiag = trade.direction === 'LONG';
+    const profitRaw = isLongDiag ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice;
+    const profitR = risk > 0 ? (profitRaw / risk).toFixed(2) : 'N/A';
+    console.log(`[StopTP] ${trade.symbol} ${trade.direction} | price=$${currentPrice} entry=$${trade.entryPrice} | SL=$${trade.stopLoss} origSL=$${origSl} | risk=${risk > 0 ? risk.toFixed(4) : '0'} profitR=${profitR} | trailing=${trade.trailingActivated} autoBE=${autoBE} autoTrail=${autoTrail} | actions=${(trade.actions||[]).length}`);
+
     if (risk > 0 && trade.stopLoss != null) {
       // Breakeven at 1R (if autoMoveBreakeven) — only if trailing hasn't started yet
       if (autoBE && !trade.trailingActivated && trade.stopLoss !== trade.entryPrice) {

@@ -774,6 +774,12 @@ setInterval(() => {
     console.error('[AutoCheck] Error:', err.message)
   );
 }, 60 * 1000);
+// Run first check 15s after startup
+setTimeout(() => {
+  checkStopsAndTPs(getCurrentPrice).catch(err =>
+    console.error('[AutoCheck] Initial check error:', err.message)
+  );
+}, 15 * 1000);
 
 // ====================================================
 // TRADE SCORE RE-CHECK (runs every SCORE_RECHECK_MINUTES)
