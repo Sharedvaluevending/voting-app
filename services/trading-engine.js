@@ -397,6 +397,20 @@ function analyzeOHLCV(candles, currentPrice) {
   // Volatility state
   const volatilityState = classifyVolatility(atr, closes);
 
+  // Momentum acceleration: is momentum speeding up or slowing down?
+  // MACD histogram slope (last 3 bars) — positive = momentum accelerating bullish
+  let macdHistSlope = 0;
+  if (macdHistHistory && macdHistHistory.length >= 3) {
+    const last3 = macdHistHistory.slice(-3);
+    macdHistSlope = (last3[2] - last3[0]) / 2;
+  }
+  // RSI rate of change (last 5 bars)
+  let rsiROC = 0;
+  if (rsiHistory && rsiHistory.length >= 5) {
+    const last5 = rsiHistory.slice(-5);
+    rsiROC = last5[4] - last5[0];
+  }
+
   return {
     rsi, sma20, sma50, ema9, ema21,
     macdLine, macdSignal, macdHistogram,
@@ -419,6 +433,8 @@ function analyzeOHLCV(candles, currentPrice) {
     volumeClimax: volumeAnalysis.climax,
     accDist: volumeAnalysis.accDist,
     volatilityState,
+    macdHistSlope,
+    rsiROC,
     currentPrice,
     closes, highs, lows, volumes
   };
@@ -464,13 +480,14 @@ function scoreCandles(analysis, currentPrice, timeframe) {
   trend = Math.min(20, trend);
 
   // === MOMENTUM (0-20) ===
-  // RSI
-  if (analysis.rsi < 25) { momentum += 6; bullPoints += 2; }
-  else if (analysis.rsi < 35) { momentum += 4; bullPoints += 1; }
-  else if (analysis.rsi > 75) { momentum += 6; bearPoints += 2; }
-  else if (analysis.rsi > 65) { momentum += 4; bearPoints += 1; }
-  else if (analysis.rsi > 45 && analysis.rsi < 55) { momentum += 1; }
-  else { momentum += 2; }
+  // RSI — extreme levels + directional bias
+  if (analysis.rsi < 20) { momentum += 7; bullPoints += 2; }  // deeply oversold = strong reversal signal
+  else if (analysis.rsi < 30) { momentum += 5; bullPoints += 2; }
+  else if (analysis.rsi < 40) { momentum += 3; bullPoints += 1; }
+  else if (analysis.rsi > 80) { momentum += 7; bearPoints += 2; }  // deeply overbought
+  else if (analysis.rsi > 70) { momentum += 5; bearPoints += 2; }
+  else if (analysis.rsi > 60) { momentum += 3; bearPoints += 1; }
+  else { momentum += 1; }  // 40-60 = dead zone, minimal score
 
   // MACD
   if (analysis.macdHistogram > 0 && analysis.macdLine > analysis.macdSignal) {
@@ -484,15 +501,20 @@ function scoreCandles(analysis, currentPrice, timeframe) {
   else if (analysis.stochK > 80) { momentum += 4; bearPoints += 1; }
   else { momentum += 1; }
 
-  // Stochastic crossover
+  // Stochastic crossover — directional momentum confirmation
   if (analysis.stochK > analysis.stochD && analysis.stochK < 40) {
     momentum += 3; bullPoints += 1;
   } else if (analysis.stochK < analysis.stochD && analysis.stochK > 60) {
     momentum += 3; bearPoints += 1;
   }
 
-  // MACD histogram magnitude (already checked direction above; this scores strength)
-  if (Math.abs(analysis.macdHistogram) > 0) { momentum += 2; }
+  // Momentum acceleration — MACD histogram slope (is momentum speeding up?)
+  if (analysis.macdHistSlope > 0 && analysis.macdHistogram > 0) {
+    momentum += 2; bullPoints += 1;  // bullish momentum accelerating
+  } else if (analysis.macdHistSlope < 0 && analysis.macdHistogram < 0) {
+    momentum += 2; bearPoints += 1;  // bearish momentum accelerating
+  }
+  // Decelerating momentum = early warning (no points, but no penalty either)
 
   momentum = Math.min(20, momentum);
 
@@ -588,25 +610,36 @@ function scoreCandles(analysis, currentPrice, timeframe) {
   structure = Math.min(20, structure);
 
   // === VOLATILITY (0-10) ===
+  // BB squeeze = pending move = high quality setup
   if (analysis.bbSqueeze) { volatility += 5; }
+  // Low/normal vol = predictable, good for entries. High/extreme = risky, penalize
   if (analysis.volatilityState === 'low') { volatility += 3; }
-  else if (analysis.volatilityState === 'normal') { volatility += 2; }
-  else if (analysis.volatilityState === 'high') { volatility += 3; }
-  else { volatility += 1; }
+  else if (analysis.volatilityState === 'normal') { volatility += 3; }
+  else if (analysis.volatilityState === 'high') { volatility += 1; }  // high vol = risky
+  else { volatility += 0; }  // extreme = dangerous
 
-  if (analysis.adx > 25 && analysis.volatilityState !== 'extreme') { volatility += 2; }
+  // Strong trend + manageable vol = good setup
+  if (analysis.adx > 25 && analysis.volatilityState !== 'extreme' && analysis.volatilityState !== 'high') { volatility += 2; }
 
   volatility = Math.min(10, volatility);
 
   // === RISK QUALITY (0-10) ===
+  // Clear S/R = defined risk. Tight range = better R:R
   if (analysis.support > 0 && analysis.resistance > analysis.support) {
-    riskQuality += 3;
+    const srPct = (analysis.resistance - analysis.support) / analysis.support * 100;
+    if (srPct > 0 && srPct < 5) riskQuality += 4;     // tight range = precise levels
+    else if (srPct < 10) riskQuality += 3;             // reasonable range
+    else riskQuality += 2;                              // wide range = less precise
   }
-  if (analysis.atr > 0) { riskQuality += 2; }
-  if (analysis.adx > 20) { riskQuality += 2; }
-  if (analysis.closes && analysis.closes.length >= 50) { riskQuality += 3; }
-  else if (analysis.closes && analysis.closes.length >= 20) { riskQuality += 2; }
-  else { riskQuality += 1; }
+  // ATR present = can size stops properly
+  if (analysis.atr > 0) { riskQuality += 1; }
+  // Clear trend (ADX) = more predictable movement
+  if (analysis.adx > 30) { riskQuality += 2; }
+  else if (analysis.adx > 20) { riskQuality += 1; }
+  // Enough data for reliable indicators
+  if (analysis.closes && analysis.closes.length >= 100) { riskQuality += 3; }
+  else if (analysis.closes && analysis.closes.length >= 50) { riskQuality += 2; }
+  else if (analysis.closes && analysis.closes.length >= 20) { riskQuality += 1; }
 
   riskQuality = Math.min(10, riskQuality);
 
@@ -647,12 +680,12 @@ function scoreToSignal(score, confluenceLevel, dominantDir) {
   if (dominantDir === 'BULL') {
     if (adjScore >= 75) { signal = 'STRONG_BUY'; strength = Math.min(98, adjScore); }
     else if (adjScore >= 55) { signal = 'BUY'; strength = adjScore; }
-    else if (adjScore >= 45) { signal = 'BUY'; strength = adjScore; }
+    else if (adjScore >= 48) { signal = 'BUY'; strength = adjScore; }  // mild bullish lean (was 45)
     else { signal = 'HOLD'; strength = adjScore; }
   } else if (dominantDir === 'BEAR') {
     if (adjScore >= 75) { signal = 'STRONG_SELL'; strength = Math.min(98, adjScore); }
     else if (adjScore >= 55) { signal = 'SELL'; strength = adjScore; }
-    else if (adjScore >= 45) { signal = 'SELL'; strength = adjScore; }
+    else if (adjScore >= 48) { signal = 'SELL'; strength = adjScore; }  // mild bearish lean (was 45)
     else { signal = 'HOLD'; strength = adjScore; }
   } else {
     signal = 'HOLD';

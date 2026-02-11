@@ -134,12 +134,26 @@ async function adjustWeights() {
     const avgRR = strategy.performance.avgRR;
     const expectancy = (winRate * avgRR) - ((1 - winRate) * 1);
 
-    if (expectancy < 0 && strategy.performance.totalTrades > 20) {
+    if (expectancy < -0.3 && strategy.performance.totalTrades > 20) {
+      // Strongly negative — faster decay
+      const adjustment = 0.90;
+      for (const key of Object.keys(strategy.weights)) {
+        strategy.weights[key] = Math.max(5, Math.round(strategy.weights[key] * adjustment));
+      }
+    } else if (expectancy < 0 && strategy.performance.totalTrades > 15) {
+      // Mildly negative — moderate decay
       const adjustment = 0.95;
       for (const key of Object.keys(strategy.weights)) {
-        strategy.weights[key] = Math.round(strategy.weights[key] * adjustment);
+        strategy.weights[key] = Math.max(5, Math.round(strategy.weights[key] * adjustment));
       }
-    } else if (expectancy > 0.5) {
+    } else if (expectancy > 1.0) {
+      // Strongly positive — boost faster
+      const adjustment = 1.05;
+      for (const key of Object.keys(strategy.weights)) {
+        strategy.weights[key] = Math.min(45, Math.round(strategy.weights[key] * adjustment));
+      }
+    } else if (expectancy > 0.3) {
+      // Mildly positive — steady growth
       const adjustment = 1.02;
       for (const key of Object.keys(strategy.weights)) {
         strategy.weights[key] = Math.min(40, Math.round(strategy.weights[key] * adjustment));

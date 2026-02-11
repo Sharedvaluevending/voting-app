@@ -158,7 +158,7 @@
     setInterval(tickTime, 1000);
     tickTime();
 
-    // Active trades data (actions, stopLoss, originalStopLoss): poll every 10s
+    // Active trades data (actions, stopLoss, originalStopLoss): poll every 5s
     function updateActiveTrades() {
       var url = (window.location.origin || '') + '/api/trades/active';
       fetch(url, { credentials: 'same-origin' })
@@ -230,7 +230,7 @@
     setInterval(updateActiveTrades, 5000);
     setTimeout(updateActiveTrades, 2000);
 
-    // Price & PnL: fetch every 10 seconds
+    // Price & PnL: fetch every 5 seconds
     function updatePrices() {
       var url = (window.location.origin || '') + '/api/prices';
       fetch(url, { credentials: 'same-origin' })

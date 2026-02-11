@@ -38,6 +38,15 @@
   </div>
   <% } %>
 
+  <!-- Timeframe selector -->
+  <div class="tf-selector" id="tf-selector">
+    <button class="tf-btn" data-tf="15m">15m</button>
+    <button class="tf-btn tf-active" data-tf="1h">1H</button>
+    <button class="tf-btn" data-tf="4h">4H</button>
+    <button class="tf-btn" data-tf="1d">1D</button>
+    <button class="tf-btn" data-tf="1w">1W</button>
+  </div>
+
   <!-- Lightweight Charts (primary – with trade level lines) -->
   <div class="chart-container" id="lw-chart-container" style="display:none;">
     <div id="lw-chart" style="width:100%;height:100%;"></div>
@@ -68,7 +77,11 @@
 .chart-actions-bar .action-badge { font-size: 10px; padding: 3px 8px; border-radius: 4px; font-weight: 600; }
 .chart-actions-bar .action-badge.action-be { background: #064e3b; color: #10b981; }
 .chart-actions-bar .action-badge.action-ts { background: #1e3a5f; color: #3b82f6; }
-.chart-container { position: relative; width: 100%; height: calc(100vh - 200px); min-height: 400px; border-radius: 8px; overflow: hidden; background: #0f172a; }
+.chart-container { position: relative; width: 100%; height: calc(100vh - 240px); min-height: 400px; border-radius: 8px; overflow: hidden; background: #0f172a; }
+.tf-selector { display: flex; gap: 4px; margin-bottom: 8px; }
+.tf-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+.tf-btn:hover { background: rgba(51,65,85,0.8); color: #e5e7eb; }
+.tf-btn.tf-active { background: rgba(59,130,246,0.25); border-color: #3b82f6; color: #93c5fd; }
 </style>
 
 <!-- Try Lightweight Charts first (draws price level lines on chart) -->
@@ -87,18 +100,23 @@
     tp3: <%- JSON.stringify(tp3) %>
   };
   var tradeId = <%- JSON.stringify(typeof tradeId !== 'undefined' ? tradeId : null) %>;
-  var chartRef = { chart: null, series: null, slLine: null, origSlLine: null };
+  var chartRef = { chart: null, series: null, slLine: null, origSlLine: null, priceLines: [] };
+  var currentTF = '1h';
 
   var lwContainer = document.getElementById('lw-chart-container');
   var tvContainer = document.getElementById('tv-chart-container');
+  var tfSelector = document.getElementById('tf-selector');
+
+  // TradingView interval map for timeframe selector
+  var tvIntervalMap = { '15m': '15', '1h': '60', '4h': '240', '1d': 'D', '1w': 'W' };
 
   // ---- Fallback: show TradingView widget ----
   function showTradingViewFallback() {
     lwContainer.style.display = 'none';
     tvContainer.style.display = '';
+    tfSelector.style.display = 'none';
     document.getElementById('tv-loading').style.display = 'none';
     document.getElementById('tv-widget-wrap').style.display = '';
-    // Load TradingView widget script
     var script = document.createElement('script');
     script.src = 'https://s3.tradingview.com/tv.js';
     script.onload = function() {
@@ -106,7 +124,7 @@
         container_id: 'tradingview_widget',
         autosize: true,
         symbol: tvSymbol,
-        interval: '60',
+        interval: tvIntervalMap[currentTF] || '60',
         timezone: 'Etc/UTC',
         theme: 'dark',
         style: '1',
@@ -131,89 +149,93 @@
     return;
   }
 
-  // Fetch candle data
-  fetch('/api/candles/' + coinId + '?interval=1h')
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (!data.success || !data.candles || data.candles.length === 0) {
-        console.warn('No candle data, falling back to TradingView');
-        showTradingViewFallback();
-        return;
-      }
-
-      // Show Lightweight Charts container, hide TradingView
-      lwContainer.style.display = '';
-      tvContainer.style.display = 'none';
-
-      // Wait one frame for browser to reflow (container was display:none)
-      requestAnimationFrame(function() {
-
-      var chartEl = document.getElementById('lw-chart');
-      var chart = LightweightCharts.createChart(chartEl, {
-        layout: {
-          background: { type: 'solid', color: '#0f172a' },
-          textColor: '#9ca3af'
-        },
-        grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
-        autoSize: true,
-        timeScale: {
-          timeVisible: true,
-          secondsVisible: false,
-          borderColor: '#334155'
-        },
-        rightPriceScale: {
-          borderColor: '#334155',
-          scaleMargins: { top: 0.1, bottom: 0.2 }
-        }
-      });
-
-      var series = chart.addCandlestickSeries({
-        upColor: '#22c55e',
-        downColor: '#ef4444',
-        borderDownColor: '#ef4444',
-        borderUpColor: '#22c55e',
-        wickDownColor: '#ef4444',
-        wickUpColor: '#22c55e'
-      });
-
-      series.setData(data.candles);
-      chartRef.chart = chart;
-      chartRef.series = series;
-
-      // Add price lines for trade levels
-      var lineOpts = {
-        lineWidth: 2,
-        lineStyle: LightweightCharts.LineStyle.Dashed,
-        axisLabelVisible: true
-      };
-
-      if (levels.sl != null) {
-        chartRef.slLine = series.createPriceLine(Object.assign({}, lineOpts, { price: levels.sl, color: '#ef4444', title: 'SL' }));
-      }
-      if (levels.originalSl != null && levels.originalSl !== levels.sl) {
-        chartRef.origSlLine = series.createPriceLine(Object.assign({}, lineOpts, { price: levels.originalSl, color: '#78716c', title: 'Orig SL', lineStyle: LightweightCharts.LineStyle.Dotted }));
-      }
-      if (levels.entry != null) {
-        series.createPriceLine(Object.assign({}, lineOpts, { price: levels.entry, color: '#3b82f6', title: 'Entry' }));
-      }
-      if (levels.tp1 != null) {
-        series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp1, color: '#22c55e', title: 'TP1' }));
-      }
-      if (levels.tp2 != null) {
-        series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp2, color: '#22c55e', title: 'TP2' }));
-      }
-      if (levels.tp3 != null) {
-        series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp3, color: '#22c55e', title: 'TP3' }));
-      }
-
-      chart.timeScale().fitContent();
-
-      }); // end requestAnimationFrame
-    })
-    .catch(function(err) {
-      console.error('Chart load error:', err);
-      showTradingViewFallback();
+  function addPriceLines() {
+    // Clear old lines (except SL/origSL which are managed separately)
+    chartRef.priceLines.forEach(function(pl) {
+      try { chartRef.series.removePriceLine(pl); } catch(e) {}
     });
+    chartRef.priceLines = [];
+    var lineOpts = { lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true };
+    if (levels.sl != null) {
+      chartRef.slLine = chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.sl, color: '#ef4444', title: 'SL' }));
+    }
+    if (levels.originalSl != null && levels.originalSl !== levels.sl) {
+      chartRef.origSlLine = chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.originalSl, color: '#78716c', title: 'Orig SL', lineStyle: LightweightCharts.LineStyle.Dotted }));
+    }
+    if (levels.entry != null) {
+      chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.entry, color: '#3b82f6', title: 'Entry' })));
+    }
+    if (levels.tp1 != null) {
+      chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp1, color: '#22c55e', title: 'TP1' })));
+    }
+    if (levels.tp2 != null) {
+      chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp2, color: '#22c55e', title: 'TP2' })));
+    }
+    if (levels.tp3 != null) {
+      chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp3, color: '#22c55e', title: 'TP3' })));
+    }
+  }
+
+  function loadCandles(tf) {
+    currentTF = tf;
+    fetch('/api/candles/' + coinId + '?interval=' + tf)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.success || !data.candles || data.candles.length === 0) {
+          if (!chartRef.chart) showTradingViewFallback();
+          return;
+        }
+
+        if (!chartRef.chart) {
+          // First load — create the chart
+          lwContainer.style.display = '';
+          tvContainer.style.display = 'none';
+          requestAnimationFrame(function() {
+            var chartEl = document.getElementById('lw-chart');
+            var chart = LightweightCharts.createChart(chartEl, {
+              layout: { background: { type: 'solid', color: '#0f172a' }, textColor: '#9ca3af' },
+              grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
+              autoSize: true,
+              timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#334155' },
+              rightPriceScale: { borderColor: '#334155', scaleMargins: { top: 0.1, bottom: 0.2 } }
+            });
+            var series = chart.addCandlestickSeries({
+              upColor: '#22c55e', downColor: '#ef4444',
+              borderDownColor: '#ef4444', borderUpColor: '#22c55e',
+              wickDownColor: '#ef4444', wickUpColor: '#22c55e'
+            });
+            series.setData(data.candles);
+            chartRef.chart = chart;
+            chartRef.series = series;
+            addPriceLines();
+            chart.timeScale().fitContent();
+          });
+        } else {
+          // Timeframe switch — just update data
+          chartRef.series.setData(data.candles);
+          chartRef.chart.timeScale().fitContent();
+        }
+      })
+      .catch(function(err) {
+        console.error('Chart load error:', err);
+        if (!chartRef.chart) showTradingViewFallback();
+      });
+  }
+
+  // Timeframe button clicks
+  var tfBtns = tfSelector.querySelectorAll('.tf-btn');
+  for (var i = 0; i < tfBtns.length; i++) {
+    tfBtns[i].addEventListener('click', function() {
+      var tf = this.getAttribute('data-tf');
+      if (tf === currentTF) return;
+      for (var j = 0; j < tfBtns.length; j++) tfBtns[j].classList.remove('tf-active');
+      this.classList.add('tf-active');
+      loadCandles(tf);
+    });
+  }
+
+  // Initial load
+  loadCandles('1h');
 
   // Poll for trade updates when tradeId present (stop moved, actions, etc.)
   if (tradeId && typeof fetch === 'function') {
@@ -247,8 +269,8 @@
               } else if (origEl) origEl.style.display = 'none';
             }
             if (chartRef.series) {
-              if (chartRef.slLine) { chartRef.series.removePriceLine(chartRef.slLine); chartRef.slLine = null; }
-              if (chartRef.origSlLine) { chartRef.series.removePriceLine(chartRef.origSlLine); chartRef.origSlLine = null; }
+              if (chartRef.slLine) { try { chartRef.series.removePriceLine(chartRef.slLine); } catch(e) {} chartRef.slLine = null; }
+              if (chartRef.origSlLine) { try { chartRef.series.removePriceLine(chartRef.origSlLine); } catch(e) {} chartRef.origSlLine = null; }
               var lineOpts = { lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true };
               chartRef.slLine = chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: newSl, color: '#ef4444', title: 'SL' }));
               if (newOrig != null && newOrig !== newSl)
@@ -268,7 +290,7 @@
           }
         })
         .catch(function() {});
-    }, 10000);
+    }, 5000);
   }
 })();
 </script>
