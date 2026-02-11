@@ -136,6 +136,29 @@ function analyzeWithCandles(coinData, candles, options) {
     finalScore = Math.max(0, finalScore - ENGINE_CONFIG.SESSION_PENALTY);
   }
 
+  // Divergence & top/bottom modifiers – avoid getting trapped at extremes
+  const mergeDiv = (rsi, macd) => ({
+    bullish: (rsi?.bullish || macd?.bullish) || false,
+    bearish: (rsi?.bearish || macd?.bearish) || false
+  });
+  const div1h = mergeDiv(tf1h.rsiDivergence, tf1h.macdDivergence);
+  const div4h = mergeDiv(tf4h.rsiDivergence, tf4h.macdDivergence);
+  const divMod = (d) => {
+    let delta = 0;
+    if (d.bullish) { delta += dominantDir === 'BULL' ? 8 : (dominantDir === 'BEAR' ? -6 : 4); }
+    if (d.bearish) { delta += dominantDir === 'BEAR' ? 8 : (dominantDir === 'BULL' ? -6 : -4); }
+    return delta;
+  };
+  finalScore += Math.round((divMod(div1h) * 0.6 + divMod(div4h) * 0.4));
+  if (tf1h.potentialBottom) {
+    if (dominantDir === 'BEAR') finalScore = Math.max(0, finalScore - 12);
+    else if (dominantDir === 'BULL') finalScore = Math.min(100, finalScore + 6);
+  }
+  if (tf1h.potentialTop) {
+    if (dominantDir === 'BULL') finalScore = Math.max(0, finalScore - 12);
+    else if (dominantDir === 'BEAR') finalScore = Math.min(100, finalScore + 6);
+  }
+
   // Detect market regime
   const regime = detectRegime(tf1d, tf4h);
 
@@ -271,6 +294,10 @@ function analyzeWithCandles(coinData, candles, options) {
       vwap: r2(tf1h.vwap),
       trend: tf1h.trend,
       structure: tf1h.marketStructure,
+      rsiDivergence: tf1h.rsiDivergence,
+      macdDivergence: tf1h.macdDivergence,
+      potentialBottom: tf1h.potentialBottom,
+      potentialTop: tf1h.potentialTop,
       support: r2(tf1h.support),
       resistance: r2(tf1h.resistance),
       volumeTrend: tf1h.volumeTrend,
@@ -339,6 +366,16 @@ function analyzeOHLCV(candles, currentPrice) {
   // Market Structure: HH/HL/LH/LL
   const marketStructure = detectMarketStructure(highs, lows);
 
+  // Divergence detection (RSI, MACD) - helps identify tops/bottoms
+  const rsiHistory = buildRSIHistory(closes, 14);
+  const macdHistHistory = buildMACDHistogramHistory(closes);
+  const rsiDiv = detectRSIDivergence(closes, lows, highs, rsiHistory);
+  const macdDiv = detectMACDDivergence(closes, lows, highs, macdHistHistory);
+
+  // Top/bottom warnings: reversal likely against current trend
+  const potentialBottom = detectPotentialBottom(closes, lows, rsi, rsiDiv, macdDiv, sr.support, currentPrice);
+  const potentialTop = detectPotentialTop(closes, highs, rsi, rsiDiv, macdDiv, sr.resistance, currentPrice);
+
   // Trend determination
   const trend = determineTrend(closes, sma20, sma50, ema9, ema21, adx);
 
@@ -358,6 +395,10 @@ function analyzeOHLCV(candles, currentPrice) {
     support: sr.support, resistance: sr.resistance,
     orderBlocks, fvgs, liquidityClusters,
     marketStructure,
+    rsiDivergence: rsiDiv,
+    macdDivergence: macdDiv,
+    potentialBottom,
+    potentialTop,
     trend,
     volumeTrend: volumeAnalysis.trend,
     relativeVolume: volumeAnalysis.relativeVolume,
@@ -785,6 +826,113 @@ function detectMarketStructure(highs, lows) {
   if (higherHighs && lowerLows) return 'BREAK_UP';
   if (lowerHighs && higherLows) return 'BREAK_DOWN';
   return 'RANGING';
+}
+
+// ====================================================
+// DIVERGENCE DETECTION (RSI, MACD) - identify tops/bottoms
+// ====================================================
+function buildRSIHistory(prices, period) {
+  const result = [];
+  for (let i = period + 1; i <= prices.length; i++) {
+    result.push(RSI(prices.slice(0, i), period));
+  }
+  return result;
+}
+
+function buildMACDHistogramHistory(prices) {
+  const macdLine = buildMACDHistory(prices);
+  const result = [];
+  for (let i = 0; i < macdLine.length; i++) {
+    const signal = i >= 9 ? EMA(macdLine.slice(0, i + 1), 9) : macdLine[i];
+    result.push(macdLine[i] - signal);
+  }
+  return result;
+}
+
+function getSwingPoints(lows, highs, lookback) {
+  const swingLows = [];
+  const swingHighs = [];
+  const start = Math.max(2, (lows.length || 0) - lookback);
+  for (let i = start; i < (lows.length || 0) - 2; i++) {
+    if (lows[i] < lows[i - 1] && lows[i] < lows[i - 2] && lows[i] < lows[i + 1] && lows[i] < lows[i + 2]) {
+      swingLows.push({ idx: i, val: lows[i] });
+    }
+    if (highs[i] > highs[i - 1] && highs[i] > highs[i - 2] && highs[i] > highs[i + 1] && highs[i] > highs[i + 2]) {
+      swingHighs.push({ idx: i, val: highs[i] });
+    }
+  }
+  return { swingLows, swingHighs };
+}
+
+function detectRSIDivergence(closes, lows, highs, rsiHistory) {
+  const result = { bullish: false, bearish: false };
+  if (!rsiHistory || rsiHistory.length < 20 || !lows || !highs) return result;
+  const lookback = Math.min(40, Math.floor(lows.length / 2));
+  const { swingLows, swingHighs } = getSwingPoints(lows, highs, lookback);
+  // RSI index offset: rsiHistory[i] corresponds to closes[14+i] roughly (RSI needs 15 candles)
+  const rsiOffset = 15;
+  if (swingLows.length >= 2) {
+    const L1 = swingLows[swingLows.length - 2];
+    const L2 = swingLows[swingLows.length - 1];
+    const idx1 = Math.min(L1.idx - rsiOffset, rsiHistory.length - 1);
+    const idx2 = Math.min(L2.idx - rsiOffset, rsiHistory.length - 1);
+    if (idx1 >= 0 && idx2 >= 0 && L2.val < L1.val && rsiHistory[idx2] > rsiHistory[idx1] + 2) {
+      result.bullish = true; // Price lower low, RSI higher low = bullish divergence
+    }
+  }
+  if (swingHighs.length >= 2) {
+    const H1 = swingHighs[swingHighs.length - 2];
+    const H2 = swingHighs[swingHighs.length - 1];
+    const idx1 = Math.min(H1.idx - rsiOffset, rsiHistory.length - 1);
+    const idx2 = Math.min(H2.idx - rsiOffset, rsiHistory.length - 1);
+    if (idx1 >= 0 && idx2 >= 0 && H2.val > H1.val && rsiHistory[idx2] < rsiHistory[idx1] - 2) {
+      result.bearish = true; // Price higher high, RSI lower high = bearish divergence
+    }
+  }
+  return result;
+}
+
+function detectMACDDivergence(closes, lows, highs, macdHistHistory) {
+  const result = { bullish: false, bearish: false };
+  if (!macdHistHistory || macdHistHistory.length < 20 || !lows || !highs) return result;
+  const lookback = Math.min(40, Math.floor(lows.length / 2));
+  const { swingLows, swingHighs } = getSwingPoints(lows, highs, lookback);
+  const macdOffset = 26;
+  if (swingLows.length >= 2) {
+    const L1 = swingLows[swingLows.length - 2];
+    const L2 = swingLows[swingLows.length - 1];
+    const idx1 = Math.min(L1.idx - macdOffset, macdHistHistory.length - 1);
+    const idx2 = Math.min(L2.idx - macdOffset, macdHistHistory.length - 1);
+    if (idx1 >= 0 && idx2 >= 0 && L2.val < L1.val && macdHistHistory[idx2] > macdHistHistory[idx1]) {
+      result.bullish = true; // Price lower low, MACD histogram higher (less negative)
+    }
+  }
+  if (swingHighs.length >= 2) {
+    const H1 = swingHighs[swingHighs.length - 2];
+    const H2 = swingHighs[swingHighs.length - 1];
+    const idx1 = Math.min(H1.idx - macdOffset, macdHistHistory.length - 1);
+    const idx2 = Math.min(H2.idx - macdOffset, macdHistHistory.length - 1);
+    if (idx1 >= 0 && idx2 >= 0 && H2.val > H1.val && macdHistHistory[idx2] < macdHistHistory[idx1]) {
+      result.bearish = true; // Price higher high, MACD histogram lower (less positive)
+    }
+  }
+  return result;
+}
+
+function detectPotentialBottom(closes, lows, rsi, rsiDiv, macdDiv, support, currentPrice) {
+  if (!support || support <= 0) return false;
+  const bullishDiv = rsiDiv.bullish || macdDiv.bullish;
+  const oversold = rsi < 35;
+  const nearSupport = currentPrice <= support * 1.02 && currentPrice >= support * 0.98;
+  return bullishDiv && (oversold || nearSupport);
+}
+
+function detectPotentialTop(closes, highs, rsi, rsiDiv, macdDiv, resistance, currentPrice) {
+  if (!resistance || resistance <= 0) return false;
+  const bearishDiv = rsiDiv.bearish || macdDiv.bearish;
+  const overbought = rsi > 65;
+  const nearResistance = currentPrice >= resistance * 0.98 && currentPrice <= resistance * 1.02;
+  return bearishDiv && (overbought || nearResistance);
 }
 
 // ====================================================
@@ -1287,6 +1435,14 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
   if (s1h.momentum >= 12) reasons.push('Momentum confirming on 1H');
   if (s4h.volume >= 12) reasons.push('Volume supporting on 4H');
   if (s1h.structure >= 12) reasons.push('Market structure favorable');
+
+  // Divergence & top/bottom context
+  const rsi1h = tf1h.rsiDivergence || {};
+  const macd1h = tf1h.macdDivergence || {};
+  if (rsi1h.bullish || macd1h.bullish) reasons.push('Bullish divergence (RSI/MACD) – potential bottom forming');
+  if (rsi1h.bearish || macd1h.bearish) reasons.push('Bearish divergence (RSI/MACD) – potential top forming');
+  if (tf1h.potentialBottom) reasons.push('Potential bottom: divergence + oversold/support – caution on shorts');
+  if (tf1h.potentialTop) reasons.push('Potential top: divergence + overbought/resistance – caution on longs');
 
   // Order blocks / FVG / liquidity clusters (price-action context)
   const tfs = [

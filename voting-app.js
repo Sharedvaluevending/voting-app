@@ -348,7 +348,11 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       return res.redirect('/trades?error=' + encodeURIComponent('Price data not available'));
     }
 
-    const [allCandles, allHistory] = await Promise.all([Promise.resolve(fetchAllCandles()), fetchAllHistory()]);
+    const [allCandles, allHistory, livePrice] = await Promise.all([
+      Promise.resolve(fetchAllCandles()),
+      fetchAllHistory(),
+      fetchLivePrice(coinId)
+    ]);
     const options = await buildEngineOptions(await fetchAllPrices(), allCandles, allHistory);
     const candles = fetchCandles(coinId);
     const history = allHistory[coinId] || { prices: [], volumes: [] };
@@ -357,7 +361,9 @@ app.post('/trades/open', requireLogin, async (req, res) => {
     const useScore = parseInt(score, 10) || signal.score || 0;
     const lev = signal.suggestedLeverage || suggestLeverage(useScore, signal.regime || 'mixed', 'normal');
 
-    let entry = signal.entry || coinData.price;
+    // Use live price as entry so trade reflects actual fill, not stale signal
+    const liveEntry = (livePrice != null && Number.isFinite(livePrice)) ? livePrice : (coinData.price || signal.entry);
+    let entry = liveEntry;
     let stopLoss = signal.stopLoss;
     let takeProfit1 = signal.takeProfit1;
     let takeProfit2 = signal.takeProfit2;
@@ -367,7 +373,7 @@ app.post('/trades/open', requireLogin, async (req, res) => {
     if (strategyType && signal.topStrategies && Array.isArray(signal.topStrategies)) {
       const strat = signal.topStrategies.find(s => s.id === strategyType);
       if (strat && strat.entry != null && strat.stopLoss != null) {
-        entry = strat.entry;
+        // Entry always uses live price; strategy provides SL/TP levels
         stopLoss = strat.stopLoss;
         takeProfit1 = strat.takeProfit1;
         takeProfit2 = strat.takeProfit2;
