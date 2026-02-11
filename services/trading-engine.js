@@ -137,16 +137,21 @@ function analyzeWithCandles(coinData, candles, options) {
   }
 
   // Divergence & top/bottom modifiers – avoid getting trapped at extremes
-  const mergeDiv = (rsi, macd) => ({
-    bullish: (rsi?.bullish || macd?.bullish) || false,
-    bearish: (rsi?.bearish || macd?.bearish) || false
-  });
-  const div1h = mergeDiv(tf1h.rsiDivergence, tf1h.macdDivergence);
-  const div4h = mergeDiv(tf4h.rsiDivergence, tf4h.macdDivergence);
+  const mergeDiv = (rsi, macd, obv, stoch) => {
+    const bull = (rsi?.bullish || macd?.bullish || obv?.bullish || stoch?.bullish) || false;
+    const bear = (rsi?.bearish || macd?.bearish || obv?.bearish || stoch?.bearish) || false;
+    const bullCount = [rsi?.bullish, macd?.bullish, obv?.bullish, stoch?.bullish].filter(Boolean).length;
+    const bearCount = [rsi?.bearish, macd?.bearish, obv?.bearish, stoch?.bearish].filter(Boolean).length;
+    const confluence = (bull && bullCount >= 2) || (bear && bearCount >= 2);
+    return { bullish: bull, bearish: bear, confluence };
+  };
+  const div1h = mergeDiv(tf1h.rsiDivergence, tf1h.macdDivergence, tf1h.obvDivergence, tf1h.stochDivergence);
+  const div4h = mergeDiv(tf4h.rsiDivergence, tf4h.macdDivergence, tf4h.obvDivergence, tf4h.stochDivergence);
   const divMod = (d) => {
     let delta = 0;
-    if (d.bullish) { delta += dominantDir === 'BULL' ? 8 : (dominantDir === 'BEAR' ? -6 : 4); }
-    if (d.bearish) { delta += dominantDir === 'BEAR' ? 8 : (dominantDir === 'BULL' ? -6 : -4); }
+    const boost = d.confluence ? 2 : 0; // 2+ divergence types = stronger
+    if (d.bullish) { delta += dominantDir === 'BULL' ? 8 + boost : (dominantDir === 'BEAR' ? -6 - boost : 4); }
+    if (d.bearish) { delta += dominantDir === 'BEAR' ? 8 + boost : (dominantDir === 'BULL' ? -6 - boost : -4); }
     return delta;
   };
   finalScore += Math.round((divMod(div1h) * 0.6 + divMod(div4h) * 0.4));
@@ -296,6 +301,8 @@ function analyzeWithCandles(coinData, candles, options) {
       structure: tf1h.marketStructure,
       rsiDivergence: tf1h.rsiDivergence,
       macdDivergence: tf1h.macdDivergence,
+      obvDivergence: tf1h.obvDivergence,
+      stochDivergence: tf1h.stochDivergence,
       potentialBottom: tf1h.potentialBottom,
       potentialTop: tf1h.potentialTop,
       support: r2(tf1h.support),
@@ -366,15 +373,20 @@ function analyzeOHLCV(candles, currentPrice) {
   // Market Structure: HH/HL/LH/LL
   const marketStructure = detectMarketStructure(highs, lows);
 
-  // Divergence detection (RSI, MACD) - helps identify tops/bottoms
+  // Divergence detection (RSI, MACD, OBV, Stochastic) - helps identify tops/bottoms
   const rsiHistory = buildRSIHistory(closes, 14);
   const macdHistHistory = buildMACDHistogramHistory(closes);
+  const obvHistory = buildOBVHistory(closes, volumes);
+  const stochHistory = buildStochasticHistory(highs, lows, closes, 14);
   const rsiDiv = detectRSIDivergence(closes, lows, highs, rsiHistory);
   const macdDiv = detectMACDDivergence(closes, lows, highs, macdHistHistory);
+  const obvDiv = detectOBVDivergence(closes, lows, highs, obvHistory);
+  const stochDiv = detectStochasticDivergence(closes, lows, highs, stochHistory);
 
-  // Top/bottom warnings: reversal likely against current trend
-  const potentialBottom = detectPotentialBottom(closes, lows, rsi, rsiDiv, macdDiv, sr.support, currentPrice);
-  const potentialTop = detectPotentialTop(closes, highs, rsi, rsiDiv, macdDiv, sr.resistance, currentPrice);
+  // Top/bottom warnings: reversal likely against current trend (2+ divergence types = stronger)
+  const allDivs = { rsiDiv, macdDiv, obvDiv, stochDiv };
+  const potentialBottom = detectPotentialBottom(closes, lows, rsi, allDivs, sr.support, currentPrice);
+  const potentialTop = detectPotentialTop(closes, highs, rsi, allDivs, sr.resistance, currentPrice);
 
   // Trend determination
   const trend = determineTrend(closes, sma20, sma50, ema9, ema21, adx);
@@ -397,6 +409,8 @@ function analyzeOHLCV(candles, currentPrice) {
     marketStructure,
     rsiDivergence: rsiDiv,
     macdDivergence: macdDiv,
+    obvDivergence: obvDiv,
+    stochDivergence: stochDiv,
     potentialBottom,
     potentialTop,
     trend,
@@ -892,6 +906,88 @@ function detectRSIDivergence(closes, lows, highs, rsiHistory) {
   return result;
 }
 
+function buildOBVHistory(closes, volumes) {
+  if (!closes || !volumes || closes.length !== volumes.length || closes.length < 5) return [];
+  const result = []; let obv = 0;
+  for (let i = 0; i < closes.length; i++) {
+    if (i > 0) {
+      if (closes[i] > closes[i - 1]) obv += volumes[i];
+      else if (closes[i] < closes[i - 1]) obv -= volumes[i];
+    }
+    result.push(obv);
+  }
+  return result;
+}
+
+function buildStochasticHistory(highs, lows, closes, period) {
+  if (!highs || !lows || !closes || closes.length < period) return [];
+  const result = [];
+  for (let i = period - 1; i < closes.length; i++) {
+    const sliceH = highs.slice(i - period + 1, i + 1);
+    const sliceL = lows.slice(i - period + 1, i + 1);
+    const h = Math.max(...sliceH);
+    const l = Math.min(...sliceL);
+    const k = h === l ? 50 : ((closes[i] - l) / (h - l)) * 100;
+    result.push(k);
+  }
+  return result;
+}
+
+function detectOBVDivergence(closes, lows, highs, obvHistory) {
+  const result = { bullish: false, bearish: false };
+  if (!obvHistory || obvHistory.length < 20 || !lows || !highs) return result;
+  const lookback = Math.min(40, Math.floor(lows.length / 2));
+  const { swingLows, swingHighs } = getSwingPoints(lows, highs, lookback);
+  // obvHistory[i] aligns with closes[i]
+  if (swingLows.length >= 2) {
+    const L1 = swingLows[swingLows.length - 2];
+    const L2 = swingLows[swingLows.length - 1];
+    const idx1 = Math.min(L1.idx, obvHistory.length - 1);
+    const idx2 = Math.min(L2.idx, obvHistory.length - 1);
+    if (idx1 >= 0 && idx2 >= 0 && L2.val < L1.val && obvHistory[idx2] > obvHistory[idx1]) {
+      result.bullish = true; // Price lower low, OBV higher low = bullish
+    }
+  }
+  if (swingHighs.length >= 2) {
+    const H1 = swingHighs[swingHighs.length - 2];
+    const H2 = swingHighs[swingHighs.length - 1];
+    const idx1 = Math.min(H1.idx, obvHistory.length - 1);
+    const idx2 = Math.min(H2.idx, obvHistory.length - 1);
+    if (idx1 >= 0 && idx2 >= 0 && H2.val > H1.val && obvHistory[idx2] < obvHistory[idx1]) {
+      result.bearish = true; // Price higher high, OBV lower high = bearish
+    }
+  }
+  return result;
+}
+
+function detectStochasticDivergence(closes, lows, highs, stochHistory) {
+  const result = { bullish: false, bearish: false };
+  if (!stochHistory || stochHistory.length < 20 || !lows || !highs) return result;
+  const lookback = Math.min(40, Math.floor(lows.length / 2));
+  const { swingLows, swingHighs } = getSwingPoints(lows, highs, lookback);
+  // stochHistory[i] corresponds to closes[period-1+i]
+  const stochOffset = 14 - 1;
+  if (swingLows.length >= 2) {
+    const L1 = swingLows[swingLows.length - 2];
+    const L2 = swingLows[swingLows.length - 1];
+    const idx1 = Math.min(L1.idx - stochOffset, stochHistory.length - 1);
+    const idx2 = Math.min(L2.idx - stochOffset, stochHistory.length - 1);
+    if (idx1 >= 0 && idx2 >= 0 && L2.val < L1.val && stochHistory[idx2] > stochHistory[idx1] + 2) {
+      result.bullish = true; // Price lower low, Stoch higher low = bullish
+    }
+  }
+  if (swingHighs.length >= 2) {
+    const H1 = swingHighs[swingHighs.length - 2];
+    const H2 = swingHighs[swingHighs.length - 1];
+    const idx1 = Math.min(H1.idx - stochOffset, stochHistory.length - 1);
+    const idx2 = Math.min(H2.idx - stochOffset, stochHistory.length - 1);
+    if (idx1 >= 0 && idx2 >= 0 && H2.val > H1.val && stochHistory[idx2] < stochHistory[idx1] - 2) {
+      result.bearish = true; // Price higher high, Stoch lower high = bearish
+    }
+  }
+  return result;
+}
+
 function detectMACDDivergence(closes, lows, highs, macdHistHistory) {
   const result = { bullish: false, bearish: false };
   if (!macdHistHistory || macdHistHistory.length < 20 || !lows || !highs) return result;
@@ -919,17 +1015,18 @@ function detectMACDDivergence(closes, lows, highs, macdHistHistory) {
   return result;
 }
 
-function detectPotentialBottom(closes, lows, rsi, rsiDiv, macdDiv, support, currentPrice) {
+function detectPotentialBottom(closes, lows, rsi, allDivs, support, currentPrice) {
   if (!support || support <= 0) return false;
-  const bullishDiv = rsiDiv.bullish || macdDiv.bullish;
+  const bullishDiv = (allDivs.rsiDiv?.bullish || allDivs.macdDiv?.bullish || allDivs.obvDiv?.bullish || allDivs.stochDiv?.bullish) || false;
+  const divCount = [allDivs.rsiDiv?.bullish, allDivs.macdDiv?.bullish, allDivs.obvDiv?.bullish, allDivs.stochDiv?.bullish].filter(Boolean).length;
   const oversold = rsi < 35;
   const nearSupport = currentPrice <= support * 1.02 && currentPrice >= support * 0.98;
   return bullishDiv && (oversold || nearSupport);
 }
 
-function detectPotentialTop(closes, highs, rsi, rsiDiv, macdDiv, resistance, currentPrice) {
+function detectPotentialTop(closes, highs, rsi, allDivs, resistance, currentPrice) {
   if (!resistance || resistance <= 0) return false;
-  const bearishDiv = rsiDiv.bearish || macdDiv.bearish;
+  const bearishDiv = (allDivs.rsiDiv?.bearish || allDivs.macdDiv?.bearish || allDivs.obvDiv?.bearish || allDivs.stochDiv?.bearish) || false;
   const overbought = rsi > 65;
   const nearResistance = currentPrice >= resistance * 0.98 && currentPrice <= resistance * 1.02;
   return bearishDiv && (overbought || nearResistance);
@@ -1437,10 +1534,20 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
   if (s1h.structure >= 12) reasons.push('Market structure favorable');
 
   // Divergence & top/bottom context
-  const rsi1h = tf1h.rsiDivergence || {};
-  const macd1h = tf1h.macdDivergence || {};
-  if (rsi1h.bullish || macd1h.bullish) reasons.push('Bullish divergence (RSI/MACD) – potential bottom forming');
-  if (rsi1h.bearish || macd1h.bearish) reasons.push('Bearish divergence (RSI/MACD) – potential top forming');
+  const r1 = tf1h.rsiDivergence || {};
+  const m1 = tf1h.macdDivergence || {};
+  const o1 = tf1h.obvDivergence || {};
+  const s1 = tf1h.stochDivergence || {};
+  const bullDiv = r1.bullish || m1.bullish || o1.bullish || s1.bullish;
+  const bearDiv = r1.bearish || m1.bearish || o1.bearish || s1.bearish;
+  if (bullDiv) {
+    const types = [r1.bullish && 'RSI', m1.bullish && 'MACD', o1.bullish && 'OBV', s1.bullish && 'Stoch'].filter(Boolean);
+    reasons.push('Bullish divergence (' + types.join('/') + ') – potential bottom forming');
+  }
+  if (bearDiv) {
+    const types = [r1.bearish && 'RSI', m1.bearish && 'MACD', o1.bearish && 'OBV', s1.bearish && 'Stoch'].filter(Boolean);
+    reasons.push('Bearish divergence (' + types.join('/') + ') – potential top forming');
+  }
   if (tf1h.potentialBottom) reasons.push('Potential bottom: divergence + oversold/support – caution on shorts');
   if (tf1h.potentialTop) reasons.push('Potential top: divergence + overbought/resistance – caution on longs');
 
