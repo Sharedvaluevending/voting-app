@@ -397,9 +397,10 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
         const progress = getProgressTowardTP(trade, currentPrice);
         let effectiveProgress = progress;
         if (progress <= 0 && trade.entryPrice > 0) {
-          const pnlPct = trade.direction === 'LONG'
+          const lev = trade.leverage || 1;
+          const pnlPct = (trade.direction === 'LONG'
             ? (currentPrice - trade.entryPrice) / trade.entryPrice * 100
-            : (trade.entryPrice - currentPrice) / trade.entryPrice * 100;
+            : (trade.entryPrice - currentPrice) / trade.entryPrice * 100) * lev;
           if (pnlPct >= 5) effectiveProgress = 0.9;
           else if (pnlPct >= 2) effectiveProgress = 0.5;
         }
@@ -607,9 +608,10 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
   const considerBE = messages.some(m => m.text === 'Consider BE stop');
   const hasDanger = messages.some(m => m.type === 'danger');
 
-  // P&L in percent (positive = profit)
+  // P&L in percent (positive = profit) – include leverage
+  const lev = trade.leverage || 1;
   const pnlPct = trade.entryPrice > 0
-    ? (isLong ? (currentPrice - trade.entryPrice) : (trade.entryPrice - currentPrice)) / trade.entryPrice * 100
+    ? ((isLong ? (currentPrice - trade.entryPrice) : (trade.entryPrice - currentPrice)) / trade.entryPrice * 100) * lev
     : 0;
   const inProfit2Pct = pnlPct >= 2;
 
@@ -625,25 +627,36 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
   }
   const nearTP2 = progressToTP2 >= 0.5;
 
+  // Leverage-adjusted thresholds: higher leverage = tighter risk management
+  const highLev = lev >= 3;
+  const exitThreshold = highLev ? -20 : -25;
+  const hardExitThreshold = highLev ? -25 : -30;
+  const reduceThreshold = highLev ? -10 : -15;
+
   // When score moved 20+ in our favor (thesis strong), never suggest exit
   if (effective >= 20) {
-    if (structureBreaking) return { level: 'medium', actionId: 'hold_monitor', text: 'Hold — monitor structure' };
-    return { level: 'positive', actionId: 'hold', text: 'Hold — strengthening' };
+    if (structureBreaking) return { level: 'medium', actionId: 'hold_monitor', text: 'Hold \u2014 monitor structure' };
+    return { level: 'positive', actionId: 'hold', text: 'Hold \u2014 strengthening' };
   }
 
   // Consider exit: require multiple confirmations AND block when trade is favorable
   // Block if: in profit 2%+ OR 50%+ toward TP2 (don't kick out winning trades)
-  const wouldConsiderExit = (heat === 'red' && hasDanger && effective <= -25) || effective <= -30;
+  const wouldConsiderExit = (heat === 'red' && hasDanger && effective <= exitThreshold) || effective <= hardExitThreshold;
   const blockExit = inProfit2Pct || nearTP2;
   if (wouldConsiderExit && !blockExit) {
     return { level: 'extreme', actionId: 'consider_exit', text: 'Consider exit' };
   }
   // Downgrade to reduce if we would exit but trade is favorable
-  if (wouldConsiderExit && blockExit && (effective <= -15 || structureBreaking)) {
+  if (wouldConsiderExit && blockExit && (effective <= reduceThreshold || structureBreaking)) {
     return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
   }
 
-  if (effective <= -15 || structureBreaking) {
+  // High leverage + yellow heat + score slipping = de-risk sooner
+  if (highLev && heat === 'yellow' && effective <= -5) {
+    return { level: 'high', actionId: 'reduce_position', text: 'Reduce position (high leverage)' };
+  }
+
+  if (effective <= reduceThreshold || structureBreaking) {
     return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
   }
   if (considerPartial) {
@@ -651,13 +664,13 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
   }
   const lockInAvailable = messages.some(m => m.text === 'Lock in profit available');
   if (lockInAvailable) {
-    return { level: 'medium', actionId: 'lock_in_profit', text: 'Lock in profit (0.5R)' };
+    return { level: 'medium', actionId: 'lock_in_profit', text: 'Lock in profit' };
   }
   if (heat === 'yellow' || effective <= -5 || considerBE) {
     return { level: 'medium', actionId: 'tighten_stop', text: 'Tighten stop' };
   }
   if (effective >= 5) {
-    return { level: 'positive', actionId: 'hold', text: 'Hold — strengthening' };
+    return { level: 'positive', actionId: 'hold', text: 'Hold \u2014 strengthening' };
   }
   return { level: 'low', actionId: 'monitor', text: 'Monitor' };
 }
@@ -668,7 +681,11 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
 async function executeScoreCheckAction(trade, suggestedAction, currentPrice, getCurrentPriceFunc) {
   const actionId = suggestedAction?.actionId;
   if (!actionId || ['hold', 'hold_monitor', 'monitor'].includes(actionId)) return { executed: false };
-  if (trade.lastExecutedActionId === actionId) return { executed: false };
+  // Block repeat for irreversible actions (partial/reduce/exit) but allow re-execution for
+  // stop management (tighten_stop has internal guard, lock_in_profit has stepped levels)
+  if (trade.lastExecutedActionId === actionId && ['reduce_position', 'take_partial', 'consider_exit'].includes(actionId)) {
+    return { executed: false };
+  }
 
   const priceData = getCurrentPriceFunc(trade.coinId);
   const price = priceData?.price ?? currentPrice;
@@ -749,7 +766,8 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
       const progress = getProgressTowardTP(trade, price);
       let effectiveProgress = progress;
       if (progress <= 0 && trade.entryPrice > 0) {
-        const pnlPct = trade.direction === 'LONG' ? (price - trade.entryPrice) / trade.entryPrice * 100 : (trade.entryPrice - price) / trade.entryPrice * 100;
+        const levExec = trade.leverage || 1;
+        const pnlPct = (trade.direction === 'LONG' ? (price - trade.entryPrice) / trade.entryPrice * 100 : (trade.entryPrice - price) / trade.entryPrice * 100) * levExec;
         if (pnlPct >= 5) effectiveProgress = 0.9;
         else if (pnlPct >= 2) effectiveProgress = 0.5;
       }
@@ -882,7 +900,8 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
   const progressTowardTP = getProgressTowardTP(trade, currentPrice);
   let effectiveProgress = progressTowardTP;
   if (progressTowardTP <= 0 && trade.entryPrice > 0) {
-    const pnlPct = isLong ? (currentPrice - trade.entryPrice) / trade.entryPrice * 100 : (trade.entryPrice - currentPrice) / trade.entryPrice * 100;
+    const levMsg = trade.leverage || 1;
+    const pnlPct = (isLong ? (currentPrice - trade.entryPrice) / trade.entryPrice * 100 : (trade.entryPrice - currentPrice) / trade.entryPrice * 100) * levMsg;
     if (pnlPct >= 5) effectiveProgress = 0.9;
     else if (pnlPct >= 2) effectiveProgress = 0.5;
   }
@@ -891,8 +910,36 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
     if (currentLockR >= 0.5) {
       const label = currentLockR >= 1 ? '1R' : currentLockR >= 0.75 ? '0.75R' : '0.5R';
       messages.push({ type: 'positive', text: 'Profit locked: ' + label });
+      // Check if a higher lock-in level is available
+      if (currentLockR < 1) {
+        for (const lvl of LOCK_IN_LEVELS) {
+          if (lvl.lockR > currentLockR && effectiveProgress >= lvl.progress) {
+            messages.push({ type: 'info', text: 'Lock in profit available' });
+            break;
+          }
+        }
+      }
     } else if (effectiveProgress >= 0.5) {
       messages.push({ type: 'info', text: 'Lock in profit available' });
+    }
+  }
+
+  // 9. High leverage warning
+  const levForMsg = trade.leverage || 1;
+  if (levForMsg >= 3 && scoreDiffAgainstUs <= -5) {
+    messages.push({ type: 'warning', text: 'High leverage \u2014 tighten risk' });
+  }
+
+  // 10. Stale trade: open > 48h with < 1% raw P&L
+  if (trade.entryTime) {
+    const hoursOpen = (Date.now() - new Date(trade.entryTime).getTime()) / (1000 * 60 * 60);
+    if (hoursOpen >= 48) {
+      const rawPnlPct = trade.entryPrice > 0
+        ? Math.abs((isLong ? (currentPrice - trade.entryPrice) : (trade.entryPrice - currentPrice)) / trade.entryPrice * 100)
+        : 0;
+      if (rawPnlPct < 1) {
+        messages.push({ type: 'info', text: 'Trade stale \u2014 consider closing' });
+      }
     }
   }
 
@@ -982,16 +1029,23 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
 
       // Auto-execute suggested action if user has enabled it
       const user = await User.findById(trade.userId);
-      if (user?.settings?.autoExecuteActions && suggestedAction?.actionId) {
-        await executeScoreCheckAction(trade, suggestedAction, currentPrice, getCurrentPriceFunc);
+      const autoExec = user?.settings?.autoExecuteActions;
+      if (autoExec && suggestedAction?.actionId) {
+        const result = await executeScoreCheckAction(trade, suggestedAction, currentPrice, getCurrentPriceFunc);
+        if (result.executed) {
+          console.log(`[ScoreCheck] AUTO-EXECUTED ${suggestedAction.actionId} on ${trade.symbol}: ${result.details}`);
+        }
       }
+
+      // Log summary for debugging
+      console.log(`[ScoreCheck] ${trade.symbol} ${trade.direction} | score: ${currentScore} (entry: ${entryScore}, diff: ${scoreDiff}) | heat: ${heat} | action: ${suggestedAction?.text || 'none'} | autoExec: ${autoExec ? 'ON' : 'OFF'}`);
     } catch (err) {
       console.error(`[ScoreCheck] Error rechecking ${trade.symbol}:`, err.message);
     }
   }
 
   if (checkedCount > 0) {
-    console.log(`[ScoreCheck] Rechecked ${checkedCount} open trades`);
+    console.log(`[ScoreCheck] Rechecked ${checkedCount} open trades at ${new Date().toLocaleTimeString()}`);
   }
 }
 
