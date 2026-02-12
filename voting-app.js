@@ -748,6 +748,22 @@ app.get('/api/signals', async (req, res) => {
 app.get('/api/prices', async (req, res) => {
   try {
     const prices = await fetchAllPrices();
+    // Overlay live exchange prices for coins with open trades so PnL doesn't flash stale values
+    if (req.session && req.session.userId) {
+      try {
+        const openTrades = await getOpenTrades(req.session.userId);
+        if (openTrades.length > 0) {
+          const coinIds = [...new Set(openTrades.map(t => t.coinId))];
+          const livePrices = await Promise.all(coinIds.map(id => fetchLivePrice(id)));
+          for (let i = 0; i < coinIds.length; i++) {
+            if (livePrices[i] != null && Number.isFinite(livePrices[i]) && livePrices[i] > 0) {
+              const idx = prices.findIndex(p => p.id === coinIds[i]);
+              if (idx >= 0) prices[idx] = { ...prices[idx], price: livePrices[i] };
+            }
+          }
+        }
+      } catch (e) { /* fall through with cached prices */ }
+    }
     res.json({ success: true, data: prices });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
