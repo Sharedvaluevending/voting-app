@@ -256,7 +256,7 @@
         .catch(function() {});
     }
     setInterval(updateActiveTrades, 5000);
-    setTimeout(updateActiveTrades, 2000);
+    setTimeout(updateActiveTrades, 3000);
 
     // Price & PnL: fetch every 5 seconds
     function updatePrices() {
@@ -417,14 +417,23 @@
 
             // Suggested action
             if (check.suggestedAction) {
+              var autoOn = window.__autoExecuteActions || false;
               html += '<div class="action-ladder action-' + check.suggestedAction.level + '">';
               html += '<span class="action-label">Action:</span>';
               html += '<span class="action-text">' + check.suggestedAction.text + '</span>';
+              if (autoOn) {
+                html += '<span style="font-size:9px;padding:2px 5px;border-radius:3px;background:rgba(16,185,129,0.15);color:#10b981;margin-left:6px;font-weight:600;">AUTO</span>';
+              } else {
+                html += '<span style="font-size:9px;padding:2px 5px;border-radius:3px;background:rgba(234,179,8,0.15);color:#eab308;margin-left:6px;font-weight:600;">SUGGESTION</span>';
+              }
               html += '</div>';
               if (check.lastActionDetails) {
                 html += '<div class="action-details" style="background:rgba(16,185,129,0.08);border-left:2px solid #10b981;padding:4px 8px;margin-top:4px;border-radius:4px;font-size:11px;color:#d1d5db;">';
                 html += '<span style="color:#10b981;font-weight:600;">Executed:</span> ' + check.lastActionDetails;
                 html += '</div>';
+              }
+              if (!autoOn && ['consider_exit','reduce_position','take_partial','tighten_stop','lock_in_profit'].indexOf(check.suggestedAction.actionId) >= 0) {
+                html += '<div style="font-size:10px;color:#6b7280;margin-top:3px;">Enable "Auto-execute" in <a href="/performance" style="color:#3b82f6;">Settings</a> to act on this automatically</div>';
               }
             }
 
@@ -438,7 +447,10 @@
               html += '</div>';
             }
 
-            el.innerHTML = html;
+            // Only update DOM if content actually changed (prevents flash on repaint)
+            if (el.innerHTML !== html) {
+              el.innerHTML = html;
+            }
 
             // Draw timeline after DOM update
             if (history.length > 1) {
@@ -453,6 +465,6 @@
         .catch(function() {});
     }
     setInterval(updateScoreChecks, 60000);
-    setTimeout(updateScoreChecks, 2000);
+    setTimeout(updateScoreChecks, 5000);
   });
 })();

@@ -268,13 +268,14 @@
 <% if (trades.length > 0) { %>
 <script>
   window.__scoreHistories = {};
+  window.__autoExecuteActions = <%= (typeof user !== 'undefined' && user && user.settings && user.settings.autoExecuteActions) ? 'true' : 'false' %>;
   <% trades.forEach(function(trade) { %>
     <% if (trade.scoreHistory && trade.scoreHistory.length > 0) { %>
       window.__scoreHistories['<%= trade._id %>'] = <%- JSON.stringify(trade.scoreHistory) %>;
     <% } %>
   <% }); %>
 </script>
-<script src="/js/trades-live.js?v=5" defer></script>
+<script src="/js/trades-live.js?v=6" defer></script>
 <% } %>
 
 <%- include('partials/footer') %>
