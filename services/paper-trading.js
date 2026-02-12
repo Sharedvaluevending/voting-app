@@ -834,9 +834,23 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
   try {
     if (actionId === 'consider_exit') {
       const sizeBefore = trade.positionSize;
-      logTradeAction(trade, 'EXIT', `Auto-closed position ($${fp(sizeBefore)}) at $${fp(price)}`, sizeBefore, price, price);
-      await trade.save();
-      await closeTrade(trade.userId, trade._id, price, 'SCORE_CHECK_EXIT');
+      // Close the trade FIRST — only log EXIT badge if close actually succeeds
+      // (previously badge was saved before close, so if close failed the trade
+      //  stayed open with a misleading EXIT badge)
+      try {
+        await closeTrade(trade.userId, trade._id, price, 'SCORE_CHECK_EXIT');
+      } catch (closeErr) {
+        console.error(`[ScoreCheck] EXIT failed for ${trade.symbol}: ${closeErr.message}`);
+        return { executed: false };
+      }
+      // Trade is now closed in DB — add EXIT badge to the closed trade record
+      try {
+        const closedTrade = await Trade.findById(trade._id);
+        if (closedTrade) {
+          logTradeAction(closedTrade, 'EXIT', `Auto-closed position ($${fp(sizeBefore)}) at $${fp(price)}`, sizeBefore, price, price);
+          await closedTrade.save();
+        }
+      } catch (logErr) { /* non-critical: trade is already closed */ }
       const details = `Closed entire position ($${fp(sizeBefore)}) at $${fp(price)}`;
       console.log(`[ScoreCheck] ${details}`);
       return { executed: true, details };
