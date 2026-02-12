@@ -79,6 +79,7 @@ app.use(session({
 app.use(async (req, res, next) => {
   res.locals.user = null;
   res.locals.balance = 10000;
+  res.locals.livePnl = null;
   if (req.session && req.session.userId) {
     try {
       const user = await User.findById(req.session.userId).lean();
@@ -86,6 +87,27 @@ app.use(async (req, res, next) => {
         res.locals.user = user;
         res.locals.balance = user.paperBalance;
         req.session.username = user.username;
+        // Compute live PNL from open trades using cached prices (no extra latency)
+        try {
+          const openTrades = await getOpenTrades(req.session.userId);
+          if (openTrades.length > 0) {
+            const prices = await fetchAllPrices();
+            const priceMap = {};
+            prices.forEach(p => { if (p && p.id != null) priceMap[p.id] = Number(p.price); });
+            let totalPnl = 0;
+            let count = 0;
+            for (const t of openTrades) {
+              const cp = priceMap[t.coinId];
+              if (cp == null || !t.entryPrice || !t.positionSize) continue;
+              const unrealized = t.direction === 'LONG'
+                ? ((cp - t.entryPrice) / t.entryPrice) * t.positionSize
+                : ((t.entryPrice - cp) / t.entryPrice) * t.positionSize;
+              totalPnl += (t.partialPnl || 0) + unrealized;
+              count++;
+            }
+            if (count > 0) res.locals.livePnl = totalPnl;
+          }
+        } catch (e) { /* non-critical, client polling will fill in */ }
       }
     } catch (err) { /* ignore */ }
   }

@@ -24,7 +24,11 @@
       <div class="nav-right">
         <% if (typeof user !== 'undefined' && user) { %>
           <span class="nav-balance">$<%= typeof balance !== 'undefined' ? balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '10,000.00' %></span>
+          <% if (typeof livePnl !== 'undefined' && livePnl !== null) { %>
+          <span class="nav-pnl <%= livePnl > 0.01 ? 'pnl-positive' : (livePnl < -0.01 ? 'pnl-negative' : 'pnl-zero') %>" id="nav-live-pnl"><%= livePnl >= 0 ? '+' : '' %>$<%= livePnl.toFixed(2) %> PNL</span>
+          <% } else { %>
           <span class="nav-pnl" id="nav-live-pnl"></span>
+          <% } %>
           <span class="nav-user"><%= user.username %></span>
           <a href="/logout" class="nav-btn">Logout</a>
         <% } else { %>
