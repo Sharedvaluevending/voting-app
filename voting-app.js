@@ -353,10 +353,24 @@ app.get('/trades', requireLogin, async (req, res) => {
       fetchAllPrices(),
       User.findById(req.session.userId).lean()
     ]);
+    // If we have open trades, fetch live prices for those coins so initial PnL is accurate
+    // (avoids 0% or wrong PnL from stale cache right after opening)
+    let pricesToUse = Array.isArray(prices) ? prices : [];
+    if (trades.length > 0 && pricesToUse.length > 0) {
+      const coinIds = [...new Set(trades.map(t => t.coinId))];
+      const livePrices = await Promise.all(coinIds.map(id => fetchLivePrice(id)));
+      pricesToUse = pricesToUse.map(x => {
+        const idx = coinIds.indexOf(x.id);
+        if (idx >= 0 && livePrices[idx] != null && Number.isFinite(livePrices[idx]) && livePrices[idx] > 0) {
+          return { ...x, price: livePrices[idx] };
+        }
+        return x;
+      });
+    }
     res.render('trades', {
       activePage: 'trades',
       trades,
-      prices,
+      prices: pricesToUse,
       user,
       error: req.query.error || null,
       success: req.query.success || null
@@ -394,8 +408,11 @@ app.post('/trades/open', requireLogin, async (req, res) => {
     const lev = signal.suggestedLeverage || suggestLeverage(useScore, signal.regime || 'mixed', 'normal');
 
     // Use live price as entry so trade reflects actual fill, not stale signal
-    const liveEntry = (livePrice != null && Number.isFinite(livePrice)) ? livePrice : (coinData.price || signal.entry);
-    let entry = liveEntry;
+    // If fetchLivePrice failed, do NOT fall back to stale cache - user would open at wrong price
+    if (livePrice == null || !Number.isFinite(livePrice) || livePrice <= 0) {
+      return res.redirect('/trades?error=' + encodeURIComponent('Live price unavailable. Please try again in a moment.'));
+    }
+    let entry = livePrice;
     let stopLoss = signal.stopLoss;
     let takeProfit1 = signal.takeProfit1;
     let takeProfit2 = signal.takeProfit2;

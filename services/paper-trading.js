@@ -616,8 +616,8 @@ function determineChangeReasons(trade, signal) {
     { key: 'trend',      negText: 'HTF lost alignment',   posText: 'HTF trend strengthened', shortFavText: 'HTF bullish bias fading', shortUnfavText: 'HTF bullish bias strengthening' },
     { key: 'momentum',   negText: 'Momentum divergence',  posText: 'Momentum increasing', shortFavText: 'Bullish momentum fading', shortUnfavText: 'Bullish momentum building' },
     { key: 'volume',     negText: 'Volume fading',        posText: 'Volume confirming', shortFavText: 'Buying volume fading', shortUnfavText: 'Buying volume confirming' },
-    { key: 'structure',  negText: 'Structure break',      posText: 'Structure improved', invertForShort: false },
-    { key: 'volatility', negText: 'Volatility spike',     posText: 'Volatility normalized', shortFavText: 'Volatility spike' },
+    { key: 'structure',  negText: 'Structure break',      posText: 'Structure improved', shortFavText: 'Bearish structure holding', shortUnfavText: 'Bullish structure forming' },
+    { key: 'volatility', negText: 'Volatility spike',     posText: 'Volatility normalized', invertForShort: false },
     { key: 'riskQuality',negText: 'Risk/reward degraded', posText: 'Risk/reward improved', shortFavText: 'Risk/reward shifted', shortUnfavText: 'Risk/reward shifting against short' }
   ];
 
