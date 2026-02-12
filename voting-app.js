@@ -773,7 +773,7 @@ app.get('/api/prices', async (req, res) => {
 app.get('/api/trades/active', requireLogin, async (req, res) => {
   try {
     const trades = await Trade.find({ userId: req.session.userId, status: 'OPEN' })
-      .select('_id coinId direction entryPrice stopLoss originalStopLoss actions positionSize originalPositionSize margin')
+      .select('_id coinId direction entryPrice stopLoss originalStopLoss actions positionSize originalPositionSize margin partialPnl leverage')
       .lean();
     const map = {};
     trades.forEach(t => { map[t._id.toString()] = t; });
@@ -841,18 +841,31 @@ app.get('/api/candles/:coinId', async (req, res) => {
 
 // ====================================================
 // AUTO-CHECK STOPS & TPs (runs every 30 seconds)
+// Uses live exchange prices so TPs/SLs aren't missed due to stale cache
 // ====================================================
-setInterval(() => {
-  checkStopsAndTPs(getCurrentPrice).catch(err =>
-    console.error('[AutoCheck] Error:', err.message)
-  );
-}, 30 * 1000);
+async function runStopTPCheck() {
+  try {
+    const openTrades = await Trade.find({ status: 'OPEN' }).select('coinId').lean();
+    if (openTrades.length === 0) return;
+    // Fetch live prices from Binance/Kraken for all coins with open trades
+    const coinIds = [...new Set(openTrades.map(t => t.coinId))];
+    const livePrices = await Promise.all(coinIds.map(id => fetchLivePrice(id)));
+    const priceMap = {};
+    coinIds.forEach((id, i) => {
+      if (livePrices[i] != null && Number.isFinite(livePrices[i]) && livePrices[i] > 0) {
+        priceMap[id] = { id, price: livePrices[i] };
+      }
+    });
+    // Fall back to cached price if live fetch failed for a coin
+    const getLivePrice = (coinId) => priceMap[coinId] || getCurrentPrice(coinId);
+    await checkStopsAndTPs(getLivePrice);
+  } catch (err) {
+    console.error('[AutoCheck] Error:', err.message);
+  }
+}
+setInterval(runStopTPCheck, 30 * 1000);
 // Run first check 15s after startup
-setTimeout(() => {
-  checkStopsAndTPs(getCurrentPrice).catch(err =>
-    console.error('[AutoCheck] Initial check error:', err.message)
-  );
-}, 15 * 1000);
+setTimeout(runStopTPCheck, 15 * 1000);
 
 // ====================================================
 // TRADE SCORE RE-CHECK (runs every SCORE_RECHECK_MINUTES)

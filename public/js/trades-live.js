@@ -184,10 +184,13 @@
               slEl.innerHTML = slHtml;
             }
 
-            // Update position size & margin if changed (after partial closes)
+            // Update position size, margin & partial PnL if changed (after partial closes)
             if (t.positionSize != null) {
               card.setAttribute('data-position-size', t.positionSize);
               card.setAttribute('data-margin', t.margin || t.positionSize);
+              if (t.partialPnl != null) card.setAttribute('data-partial-pnl', t.partialPnl);
+              var origMargin = (t.originalPositionSize || t.positionSize) / (t.leverage || 1);
+              card.setAttribute('data-original-margin', origMargin);
               var sizeEl = card.querySelector('.signal-meta');
               if (sizeEl) {
                 var sizeSpans = sizeEl.querySelectorAll('span');
@@ -229,7 +232,24 @@
                 var cls = 'action-badge action-' + (a.type || '').toLowerCase();
                 return '<span class="' + cls + '" title="' + (a.description || '').replace(/"/g, '&quot;') + '">' + label + '</span>';
               }).join('');
-              actionsWrap.innerHTML = '<h4>Actions Taken</h4><div class="actions-badges">' + badges + '</div>';
+              // Only update the badges div — don't wipe the R-progress section below it
+              var badgesDiv = actionsWrap.querySelector('.actions-badges');
+              if (badgesDiv) {
+                badgesDiv.innerHTML = badges;
+              } else {
+                // First time: add h4 + badges before any existing content (R-progress)
+                if (!actionsWrap.querySelector('h4')) {
+                  var h4 = document.createElement('h4');
+                  h4.textContent = 'Actions Taken';
+                  actionsWrap.insertBefore(h4, actionsWrap.firstChild);
+                }
+                badgesDiv = document.createElement('div');
+                badgesDiv.className = 'actions-badges';
+                badgesDiv.innerHTML = badges;
+                var h4El = actionsWrap.querySelector('h4');
+                if (h4El) h4El.insertAdjacentElement('afterend', badgesDiv);
+                else actionsWrap.insertBefore(badgesDiv, actionsWrap.firstChild);
+              }
             }
           }
         })
