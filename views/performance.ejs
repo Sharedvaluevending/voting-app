@@ -173,10 +173,11 @@
 <% if (stats.equityCurve && stats.equityCurve.length > 1) { %>
 <div class="section">
   <h3>Equity Curve</h3>
-  <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">Account balance over time. Drawdown shaded in red.</p>
-  <div class="equity-chart-wrap" style="position:relative;background:#0d1320;border-radius:8px;padding:12px;border:1px solid #1e2a3a;">
-    <canvas id="equity-curve" width="700" height="200"></canvas>
-    <div id="equity-legend" style="font-size:11px;color:#6b7280;margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;"></div>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">Account balance over time. Drawdown shaded in red. Markers show trade outcomes and actions.</p>
+  <div class="equity-chart-wrap" style="position:relative;background:#0d1320;border-radius:8px;padding:12px;border:1px solid #1e2a3a;overflow:hidden;">
+    <canvas id="equity-curve" style="width:100%;height:260px;display:block;"></canvas>
+    <div id="equity-tooltip" style="display:none;position:absolute;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:8px 10px;font-size:11px;color:#d1d5db;pointer-events:none;z-index:10;white-space:nowrap;"></div>
+    <div id="equity-legend" style="font-size:11px;color:#6b7280;margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;"></div>
   </div>
 </div>
 <% } %>
@@ -259,53 +260,226 @@
     var canvas = document.getElementById('equity-curve');
     if (!canvas || !data || data.length < 2) return;
     var ctx = canvas.getContext('2d');
-    var w = canvas.width, h = canvas.height;
-    var pad = { top: 10, right: 10, bottom: 24, left: 50 };
-    var plotW = w - pad.left - pad.right, plotH = h - pad.top - pad.bottom;
-    var eq = data.map(function(d) { return d.equity; });
-    var minE = Math.min.apply(null, eq);
-    var maxE = Math.max.apply(null, eq);
-    var range = maxE - minE || 1;
-    minE = Math.max(0, minE - range * 0.05);
-    maxE = maxE + range * 0.05;
-    range = maxE - minE || 1;
-    ctx.clearRect(0, 0, w, h);
-    ctx.strokeStyle = '#1e2a3a';
-    ctx.lineWidth = 0.5;
-    for (var g = 0; g <= 4; g++) {
-      var gy = pad.top + (plotH * g / 4);
+    var tooltip = document.getElementById('equity-tooltip');
+
+    // Responsive: set canvas pixel size from CSS layout size
+    var dpr = window.devicePixelRatio || 1;
+    function resizeCanvas() {
+      var rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+      drawChart();
+    }
+
+    // Action/status color & label map
+    var statusColors = {
+      'TP1_HIT': '#10b981', 'TP2_HIT': '#34d399', 'TP3_HIT': '#6ee7b7',
+      'STOPPED_OUT': '#ef4444', 'CLOSED_MANUAL': '#eab308', 'SCORE_EXIT': '#f97316'
+    };
+    var statusLabels = {
+      'TP1_HIT': 'TP1', 'TP2_HIT': 'TP2', 'TP3_HIT': 'TP3',
+      'STOPPED_OUT': 'SL', 'CLOSED_MANUAL': 'Manual', 'SCORE_EXIT': 'Score'
+    };
+    var actionColors = {
+      'BE': '#10b981', 'TS': '#3b82f6', 'PP': '#a78bfa',
+      'RP': '#fbbf24', 'EXIT': '#f87171', 'LOCK': '#38bdf8'
+    };
+
+    // Store point positions for hover
+    var pointPositions = [];
+
+    function drawChart() {
+      var rect = canvas.getBoundingClientRect();
+      var w = rect.width, h = rect.height;
+      var pad = { top: 14, right: 14, bottom: 28, left: 54 };
+      var plotW = w - pad.left - pad.right, plotH = h - pad.top - pad.bottom;
+      var eq = data.map(function(d) { return d.equity; });
+      var minE = Math.min.apply(null, eq);
+      var maxE = Math.max.apply(null, eq);
+      var range = maxE - minE || 1;
+      minE = Math.max(0, minE - range * 0.08);
+      maxE = maxE + range * 0.08;
+      range = maxE - minE || 1;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // Grid lines
+      ctx.strokeStyle = '#1e2a3a';
+      ctx.lineWidth = 0.5;
+      for (var g = 0; g <= 4; g++) {
+        var gy = pad.top + (plotH * g / 4);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, gy);
+        ctx.lineTo(pad.left + plotW, gy);
+        ctx.stroke();
+        ctx.fillStyle = '#4b5563';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText('$' + Math.round(maxE - (range * g / 4)).toLocaleString(), pad.left - 4, gy + 3);
+      }
+
+      // Compute XY for each data point
+      pointPositions = [];
+      var pts = [];
+      for (var i = 0; i < data.length; i++) {
+        var x = pad.left + (i / (data.length - 1)) * plotW;
+        var y = pad.top + plotH - ((data[i].equity - minE) / range) * plotH;
+        pts.push({ x: x, y: y });
+        pointPositions.push({ x: x, y: y, idx: i });
+      }
+
+      // Drawdown shading (red fill between peak line and equity when in drawdown)
+      var peak = data[0].equity;
       ctx.beginPath();
-      ctx.moveTo(pad.left, gy);
-      ctx.lineTo(pad.left + plotW, gy);
+      var inDrawdown = false;
+      for (var i = 0; i < data.length; i++) {
+        if (data[i].equity > peak) peak = data[i].equity;
+        var peakY = pad.top + plotH - ((peak - minE) / range) * plotH;
+        if (data[i].drawdown > 0) {
+          if (!inDrawdown) {
+            ctx.moveTo(pts[i].x, peakY);
+            inDrawdown = true;
+          }
+          ctx.lineTo(pts[i].x, pts[i].y);
+        } else {
+          if (inDrawdown) {
+            // Close the drawdown area back up to peak
+            ctx.lineTo(pts[i].x, peakY);
+            ctx.closePath();
+            inDrawdown = false;
+          }
+          ctx.moveTo(pts[i].x, pts[i].y);
+        }
+      }
+      if (inDrawdown) {
+        var lastPeakY = pad.top + plotH - ((peak - minE) / range) * plotH;
+        ctx.lineTo(pts[data.length - 1].x, lastPeakY);
+        ctx.closePath();
+      }
+      ctx.fillStyle = 'rgba(239,68,68,0.12)';
+      ctx.fill();
+
+      // Equity line
+      ctx.beginPath();
+      for (var i = 0; i < pts.length; i++) {
+        if (i === 0) ctx.moveTo(pts[i].x, pts[i].y);
+        else ctx.lineTo(pts[i].x, pts[i].y);
+      }
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 2;
       ctx.stroke();
+
+      // Fill under equity line
+      ctx.lineTo(pts[pts.length - 1].x, pad.top + plotH);
+      ctx.lineTo(pts[0].x, pad.top + plotH);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(16,185,129,0.1)';
+      ctx.fill();
+
+      // Draw action markers on each trade point (skip index 0 = initial balance)
+      for (var i = 1; i < data.length; i++) {
+        var d = data[i];
+        var px = pts[i].x, py = pts[i].y;
+
+        // Main status marker (circle)
+        var color = statusColors[d.status] || '#6b7280';
+        var radius = 4;
+        ctx.beginPath();
+        ctx.arc(px, py, radius, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = '#0d1320';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Action dots (small dots above the main marker for each action taken)
+        if (d.actions && d.actions.length > 0) {
+          var unique = [];
+          var seen = {};
+          for (var a = 0; a < d.actions.length; a++) {
+            if (!seen[d.actions[a]]) {
+              seen[d.actions[a]] = true;
+              unique.push(d.actions[a]);
+            }
+          }
+          var dotY = py - 8;
+          var totalWidth = (unique.length - 1) * 7;
+          var startX = px - totalWidth / 2;
+          for (var a = 0; a < unique.length; a++) {
+            var ac = actionColors[unique[a]] || '#6b7280';
+            ctx.beginPath();
+            ctx.arc(startX + a * 7, dotY, 2.5, 0, Math.PI * 2);
+            ctx.fillStyle = ac;
+            ctx.fill();
+          }
+        }
+      }
+
+      // X-axis date labels
       ctx.fillStyle = '#4b5563';
       ctx.font = '10px sans-serif';
+      ctx.textAlign = 'left';
+      if (data[0].date) ctx.fillText(new Date(data[0].date).toLocaleDateString(), pad.left, h - 4);
+      ctx.textAlign = 'center';
+      var midIdx = Math.floor(data.length / 2);
+      if (data[midIdx] && data[midIdx].date && data.length > 4) ctx.fillText(new Date(data[midIdx].date).toLocaleDateString(), pts[midIdx].x, h - 4);
       ctx.textAlign = 'right';
-      ctx.fillText('$' + Math.round(maxE - (range * g / 4)).toLocaleString(), pad.left - 4, gy + 3);
+      if (data[data.length - 1].date) ctx.fillText(new Date(data[data.length - 1].date).toLocaleDateString(), pad.left + plotW, h - 4);
     }
-    ctx.beginPath();
-    for (var i = 0; i < data.length; i++) {
-      var x = pad.left + (i / (data.length - 1)) * plotW;
-      var y = pad.top + plotH - ((data[i].equity - minE) / range) * plotH;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.strokeStyle = '#10b981';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.lineTo(pad.left + plotW, pad.top + plotH);
-    ctx.lineTo(pad.left, pad.top + plotH);
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(16,185,129,0.15)';
-    ctx.fill();
-    ctx.fillStyle = '#4b5563';
-    ctx.font = '10px sans-serif';
-    ctx.textAlign = 'left';
-    if (data[0].date) ctx.fillText(new Date(data[0].date).toLocaleDateString(), pad.left, h - 4);
-    ctx.textAlign = 'right';
-    if (data[data.length-1].date) ctx.fillText(new Date(data[data.length-1].date).toLocaleDateString(), pad.left + plotW, h - 4);
-    var last = data[data.length-1];
-    document.getElementById('equity-legend').innerHTML = 'Current: $' + (last.equity || 0).toLocaleString() + ' | Max DD: ' + (last.drawdownPct || 0) + '%';
+
+    // Tooltip on hover
+    canvas.addEventListener('mousemove', function(e) {
+      var rect = canvas.getBoundingClientRect();
+      var mx = e.clientX - rect.left;
+      var my = e.clientY - rect.top;
+      var closest = null, minDist = 20;
+      for (var i = 1; i < pointPositions.length; i++) {
+        var p = pointPositions[i];
+        var dist = Math.sqrt((p.x - mx) * (p.x - mx) + (p.y - my) * (p.y - my));
+        if (dist < minDist) { minDist = dist; closest = p; }
+      }
+      if (closest) {
+        var d = data[closest.idx];
+        var pnlStr = (d.pnl >= 0 ? '+' : '') + '$' + (d.pnl || 0).toFixed(2);
+        var pnlColor = d.pnl >= 0 ? '#10b981' : '#ef4444';
+        var label = statusLabels[d.status] || d.status || '';
+        var actStr = d.actions && d.actions.length > 0 ? d.actions.join(', ') : '';
+        var html = '<strong>' + (d.symbol || '') + '</strong> ' + (d.direction || '') + '<br>';
+        html += '<span style="color:' + pnlColor + '">' + pnlStr + '</span>';
+        html += ' → $' + (d.equity || 0).toLocaleString();
+        if (label) html += '<br>Exit: <span style="color:' + (statusColors[d.status] || '#6b7280') + '">' + label + '</span>';
+        if (actStr) html += '<br>Actions: ' + actStr;
+        if (d.drawdownPct > 0) html += '<br>DD: ' + d.drawdownPct + '%';
+        tooltip.innerHTML = html;
+        var tx = closest.x + 12, ty = closest.y - 10;
+        if (tx + 160 > rect.width) tx = closest.x - 160;
+        if (ty < 0) ty = closest.y + 12;
+        tooltip.style.left = tx + 'px';
+        tooltip.style.top = ty + 'px';
+        tooltip.style.display = 'block';
+      } else {
+        tooltip.style.display = 'none';
+      }
+    });
+    canvas.addEventListener('mouseleave', function() { tooltip.style.display = 'none'; });
+
+    // Build legend
+    var legend = document.getElementById('equity-legend');
+    var last = data[data.length - 1];
+    var legendHtml = '<span>Current: <strong style="color:#fff">$' + (last.equity || 0).toLocaleString() + '</strong></span>';
+    legendHtml += '<span>Max DD: <strong style="color:#ef4444">' + (last.drawdownPct || 0) + '%</strong></span>';
+    legendHtml += '<span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;"></span>TP</span>';
+    legendHtml += '<span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;"></span>SL</span>';
+    legendHtml += '<span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:8px;height:8px;border-radius:50%;background:#eab308;display:inline-block;"></span>Manual</span>';
+    legendHtml += '<span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:6px;height:6px;border-radius:50%;background:#3b82f6;display:inline-block;"></span>TS</span>';
+    legendHtml += '<span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:6px;height:6px;border-radius:50%;background:#a78bfa;display:inline-block;"></span>PP</span>';
+    legendHtml += '<span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:6px;height:6px;border-radius:50%;background:#38bdf8;display:inline-block;"></span>LOCK</span>';
+    legend.innerHTML = legendHtml;
+
+    // Initial draw + resize handler
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
   })();
   <% } %>
 })();

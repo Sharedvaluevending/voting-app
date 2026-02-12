@@ -366,6 +366,7 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
   let closedCount = 0;
 
   for (const trade of openTrades) {
+   try {
     const priceData = getCurrentPriceFunc(trade.coinId);
     if (!priceData) {
       console.warn(`[StopTP] No price for ${trade.symbol} (${trade.coinId}) – skipping`);
@@ -510,6 +511,7 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
     const slippage = 1 + (SLIPPAGE_BPS / 10000);
     if (trade.direction === 'LONG') {
       if (trade.stopLoss != null && currentPrice <= trade.stopLoss) {
+        console.log(`[StopTP] ${trade.symbol}: STOP LOSS HIT (LONG) price=$${currentPrice} <= SL=$${trade.stopLoss} → FULL CLOSE`);
         await closeTrade(trade.userId, trade._id, trade.stopLoss, 'STOPPED_OUT');
         closedCount++;
         continue;
@@ -520,27 +522,33 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       const exit2 = trade.takeProfit2 ? trade.takeProfit2 / slippage : 0;
       const exit1 = trade.takeProfit1 ? trade.takeProfit1 / slippage : 0;
       if (trade.takeProfit3 && hitTP3Long) {
+        console.log(`[StopTP] ${trade.symbol}: TP3 HIT (LONG) price=$${currentPrice} >= TP3=$${trade.takeProfit3} → FULL CLOSE`);
         const exitPx = trade.takeProfit3 / slippage;
         await closeTrade(trade.userId, trade._id, exitPx, 'TP3');
         closedCount++;
         handled = true;
       } else if (trade.takeProfit2 && hitTP2Long && !trade.partialTakenAtTP2) {
         if (!trade.takeProfit3) {
+          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (LONG) price=$${currentPrice} >= TP2=$${trade.takeProfit2} → FULL CLOSE (no TP3)`);
           await closeTrade(trade.userId, trade._id, trade.takeProfit2 / slippage, 'TP2');
         } else {
           const portion = Math.round((orig / 3) * 100) / 100;
+          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (LONG) price=$${currentPrice} >= TP2=$${trade.takeProfit2} → PARTIAL $${portion} of $${trade.positionSize}`);
           await closeTradePartial(trade, exit2, portion, 'TP2');
         }
         closedCount++;
         handled = true;
       } else if (trade.takeProfit1 && hitTP1Long && !trade.partialTakenAtTP1) {
         if (!trade.takeProfit2 && !trade.takeProfit3) {
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → FULL CLOSE (only TP)`);
           await closeTrade(trade.userId, trade._id, trade.takeProfit1 / slippage, 'TP1');
         } else if (trade.takeProfit2 && !trade.takeProfit3) {
           const portion = Math.round((orig / 2) * 100) / 100;
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} of $${trade.positionSize} (1/2)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         } else {
           const portion = Math.round((orig / 3) * 100) / 100;
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} of $${trade.positionSize} (1/3)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         }
         closedCount++;
@@ -549,6 +557,7 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       if (handled) continue;
     } else {
       if (trade.stopLoss && currentPrice >= trade.stopLoss) {
+        console.log(`[StopTP] ${trade.symbol}: STOP LOSS HIT (SHORT) price=$${currentPrice} >= SL=$${trade.stopLoss} → FULL CLOSE`);
         await closeTrade(trade.userId, trade._id, trade.stopLoss, 'STOPPED_OUT');
         closedCount++;
         continue;
@@ -559,26 +568,32 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       const exit2 = trade.takeProfit2 ? trade.takeProfit2 * slippage : 0;
       const exit1 = trade.takeProfit1 ? trade.takeProfit1 * slippage : 0;
       if (trade.takeProfit3 && hitTP3Short) {
+        console.log(`[StopTP] ${trade.symbol}: TP3 HIT (SHORT) price=$${currentPrice} <= TP3=$${trade.takeProfit3} → FULL CLOSE`);
         await closeTrade(trade.userId, trade._id, trade.takeProfit3 * slippage, 'TP3');
         closedCount++;
         handled = true;
       } else if (trade.takeProfit2 && hitTP2Short && !trade.partialTakenAtTP2) {
         if (!trade.takeProfit3) {
+          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (SHORT) price=$${currentPrice} <= TP2=$${trade.takeProfit2} → FULL CLOSE (no TP3)`);
           await closeTrade(trade.userId, trade._id, trade.takeProfit2 * slippage, 'TP2');
         } else {
           const portion = Math.round((orig / 3) * 100) / 100;
+          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (SHORT) price=$${currentPrice} <= TP2=$${trade.takeProfit2} → PARTIAL $${portion} of $${trade.positionSize}`);
           await closeTradePartial(trade, exit2, portion, 'TP2');
         }
         closedCount++;
         handled = true;
       } else if (trade.takeProfit1 && hitTP1Short && !trade.partialTakenAtTP1) {
         if (!trade.takeProfit2 && !trade.takeProfit3) {
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → FULL CLOSE (only TP)`);
           await closeTrade(trade.userId, trade._id, trade.takeProfit1 * slippage, 'TP1');
         } else if (trade.takeProfit2 && !trade.takeProfit3) {
           const portion = Math.round((orig / 2) * 100) / 100;
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} of $${trade.positionSize} (1/2)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         } else {
           const portion = Math.round((orig / 3) * 100) / 100;
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} of $${trade.positionSize} (1/3)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         }
         closedCount++;
@@ -586,6 +601,9 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       }
       if (handled) continue;
     }
+   } catch (tradeErr) {
+    console.error(`[StopTP] Error processing ${trade.symbol} (${trade._id}):`, tradeErr.message);
+   }
   }
 
   if (closedCount > 0) {
@@ -1357,6 +1375,8 @@ async function getPerformanceStats(userId) {
     const ddPct = peak > 0 ? (dd / peak) * 100 : 0;
     if (dd > maxDrawdown) maxDrawdown = dd;
     if (ddPct > maxDrawdownPct) maxDrawdownPct = ddPct;
+    // Summarize actions for chart markers
+    const actionTypes = (t.actions || []).map(a => a.type).filter(Boolean);
     equityCurve.push({
       date: t.exitTime,
       equity: Math.round(equity * 100) / 100,
@@ -1364,7 +1384,11 @@ async function getPerformanceStats(userId) {
       drawdownPct: Math.round(ddPct * 100) / 100,
       pnl: t.pnl,
       regime: t.regime,
-      symbol: t.symbol
+      symbol: t.symbol,
+      status: t.status,
+      closeReason: t.closeReason,
+      direction: t.direction,
+      actions: actionTypes
     });
   }
 

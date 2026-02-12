@@ -7,7 +7,7 @@ const tradeSchema = new mongoose.Schema({
   direction: { type: String, enum: ['LONG', 'SHORT'], required: true },
   status: {
     type: String,
-    enum: ['OPEN', 'CLOSED_MANUAL', 'STOPPED_OUT', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT', 'CANCELLED'],
+    enum: ['OPEN', 'CLOSED_MANUAL', 'STOPPED_OUT', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT', 'SCORE_EXIT', 'CANCELLED'],
     default: 'OPEN'
   },
   entryPrice: { type: Number, required: true },
