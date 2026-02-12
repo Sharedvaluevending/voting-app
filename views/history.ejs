@@ -29,17 +29,25 @@
         </tr>
       </thead>
       <tbody>
-        <% trades.forEach(function(trade) {
+        <% trades.forEach(function(trade, idx) {
           var timeMs = trade.exitTime ? (new Date(trade.exitTime) - new Date(trade.entryTime)) : 0;
           var hours = Math.floor(timeMs / 3600000);
           var timeStr = hours >= 24 ? Math.floor(hours/24) + 'd' : hours + 'h';
+          var hadPartials = (trade.partialPnl && trade.partialPnl !== 0) || trade.partialTakenAtTP1 || trade.partialTakenAtTP2;
+          var partialActions = (trade.actions || []).filter(function(a) { return a.type === 'PP' || a.type === 'RP'; });
+          var finalPnl = hadPartials ? ((trade.pnl || 0) - (trade.partialPnl || 0)) : null;
         %>
           <tr>
             <td style="font-weight:700;"><%= trade.symbol %></td>
             <td><span class="signal-badge <%= trade.direction === 'LONG' ? 'badge-BUY' : 'badge-SELL' %>" style="font-size:10px;padding:2px 6px;"><%= trade.direction %></span></td>
             <td>$<%= formatPrice(trade.entryPrice) %></td>
             <td>$<%= trade.exitPrice ? formatPrice(trade.exitPrice) : '-' %></td>
-            <td class="<%= (trade.pnl||0) >= 0 ? 'up' : 'down' %>" style="font-weight:700;"><%= (trade.pnl||0) >= 0 ? '+' : '' %>$<%= (trade.pnl||0).toFixed(2) %></td>
+            <td class="<%= (trade.pnl||0) >= 0 ? 'up' : 'down' %>" style="font-weight:700;">
+              <%= (trade.pnl||0) >= 0 ? '+' : '' %>$<%= (trade.pnl||0).toFixed(2) %>
+              <% if (hadPartials) { %>
+                <span style="font-size:9px;color:#a78bfa;margin-left:3px;" title="Includes partial profit">(partials)</span>
+              <% } %>
+            </td>
             <td class="<%= (trade.pnlPercent||0) >= 0 ? 'up' : 'down' %>"><%= (trade.pnlPercent||0) >= 0 ? '+' : '' %><%= (trade.pnlPercent||0).toFixed(1) %>%</td>
             <td><%= trade.leverage || 1 %>x</td>
             <td><%= trade.score || '-' %></td>
@@ -47,13 +55,84 @@
             <td><%= timeStr %></td>
             <td style="font-size:10px;">
               <% if (trade.actions && trade.actions.length > 0) { %>
-                <% trade.actions.forEach(function(a) { %><span class="action-badge action-<%= (a.type || '').toLowerCase() %>" style="font-size:9px;padding:1px 4px;margin-right:2px;"><%= a.type || '?' %></span><% }); %>
+                <% trade.actions.forEach(function(a) { %><span class="action-badge action-<%= (a.type || '').toLowerCase() %>" style="font-size:9px;padding:1px 4px;margin-right:2px;" title="<%= a.description || '' %>"><%= a.type || '?' %></span><% }); %>
               <% } else { %>-<% } %>
             </td>
             <td style="font-size:11px;"><%= trade.status.replace('_',' ') %></td>
             <td style="font-size:11px;color:#6b7280;"><%= trade.exitTime ? new Date(trade.exitTime).toLocaleDateString() : '-' %></td>
-            <td><a href="/journal?tradeId=<%= trade._id %>" class="btn btn-outline btn-sm" style="font-size:10px;padding:4px 8px;">Journal</a></td>
+            <td>
+              <a href="/journal?tradeId=<%= trade._id %>" class="btn btn-outline btn-sm" style="font-size:10px;padding:4px 8px;">Journal</a>
+              <% if (hadPartials) { %>
+                <button class="btn btn-outline btn-sm" style="font-size:10px;padding:4px 8px;margin-left:2px;cursor:pointer;" onclick="document.getElementById('partial-<%= idx %>').style.display = document.getElementById('partial-<%= idx %>').style.display === 'none' ? 'table-row' : 'none'">Details</button>
+              <% } %>
+            </td>
           </tr>
+          <% if (hadPartials) { %>
+          <tr id="partial-<%= idx %>" style="display:none;">
+            <td colspan="14" style="padding:10px 20px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;">
+              <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start;">
+                <!-- P&L Breakdown -->
+                <div style="min-width:180px;">
+                  <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">P&L Breakdown</div>
+                  <div style="font-size:12px;margin-bottom:3px;">
+                    <span style="color:#a78bfa;">Partial P&L:</span>
+                    <span class="<%= (trade.partialPnl||0) >= 0 ? 'up' : 'down' %>" style="font-weight:600;">
+                      <%= (trade.partialPnl||0) >= 0 ? '+' : '' %>$<%= (trade.partialPnl||0).toFixed(2) %>
+                    </span>
+                  </div>
+                  <div style="font-size:12px;margin-bottom:3px;">
+                    <span style="color:#6b7280;">Final Close P&L:</span>
+                    <span class="<%= (finalPnl||0) >= 0 ? 'up' : 'down' %>" style="font-weight:600;">
+                      <%= (finalPnl||0) >= 0 ? '+' : '' %>$<%= (finalPnl||0).toFixed(2) %>
+                    </span>
+                  </div>
+                  <div style="font-size:12px;border-top:1px solid #1e2a3a;padding-top:3px;margin-top:3px;">
+                    <span style="color:#fff;">Total P&L:</span>
+                    <span class="<%= (trade.pnl||0) >= 0 ? 'up' : 'down' %>" style="font-weight:700;">
+                      <%= (trade.pnl||0) >= 0 ? '+' : '' %>$<%= (trade.pnl||0).toFixed(2) %>
+                    </span>
+                  </div>
+                </div>
+                <!-- Size Info -->
+                <div style="min-width:140px;">
+                  <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Position Size</div>
+                  <div style="font-size:12px;margin-bottom:3px;">
+                    <span style="color:#6b7280;">Original:</span>
+                    <span style="color:#fff;">$<%= (trade.originalPositionSize || trade.positionSize || 0).toFixed(2) %></span>
+                  </div>
+                  <% if (trade.originalPositionSize && trade.originalPositionSize > (trade.positionSize || 0)) { %>
+                  <div style="font-size:12px;">
+                    <span style="color:#6b7280;">At close:</span>
+                    <span style="color:#fff;">$<%= (trade.positionSize || 0).toFixed(2) %></span>
+                  </div>
+                  <% } %>
+                </div>
+                <!-- Partial Close Events -->
+                <div style="flex:1;min-width:250px;">
+                  <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Partial Close Events</div>
+                  <% if (partialActions.length > 0) { %>
+                    <% partialActions.forEach(function(a) { %>
+                      <div style="font-size:11px;margin-bottom:4px;display:flex;align-items:center;gap:6px;">
+                        <span class="action-badge action-<%= (a.type || '').toLowerCase() %>" style="font-size:9px;padding:1px 5px;"><%= a.type %></span>
+                        <span style="color:#d1d5db;"><%= a.description || '-' %></span>
+                        <% if (a.timestamp) { %>
+                          <span style="color:#4b5563;font-size:10px;"><%= new Date(a.timestamp).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) %></span>
+                        <% } %>
+                      </div>
+                    <% }); %>
+                  <% } else { %>
+                    <div style="font-size:11px;color:#4b5563;">
+                      <% if (trade.partialTakenAtTP1) { %><span style="color:#a78bfa;">TP1 hit</span><% } %>
+                      <% if (trade.partialTakenAtTP1 && trade.partialTakenAtTP2) { %> + <% } %>
+                      <% if (trade.partialTakenAtTP2) { %><span style="color:#a78bfa;">TP2 hit</span><% } %>
+                      <span style="color:#4b5563;margin-left:4px;">(logged before action tracking)</span>
+                    </div>
+                  <% } %>
+                </div>
+              </div>
+            </td>
+          </tr>
+          <% } %>
         <% }); %>
       </tbody>
     </table>
