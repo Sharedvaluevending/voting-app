@@ -647,17 +647,29 @@ function determineChangeReasons(trade, signal) {
 // ---- Heat Indicator ----
 // Green = stable, Yellow = weakening, Red = danger
 // For SHORT: negative scoreDiff = more bearish = favorable, so we invert
-// Relaxed: -15→-20 for red (need bigger score drop before danger)
-function determineHeat(scoreDiff, messages, isLong) {
+// Now also considers P&L: deeply underwater = at least yellow, never green
+function determineHeat(scoreDiff, messages, isLong, pnlPct) {
   const effective = isLong ? scoreDiff : -scoreDiff;  // For short, neg diff = good
   const hasDanger = messages.some(m => m.type === 'danger');
   const hasWarning = messages.some(m => m.type === 'warning');
+
+  // P&L floors: price reality can only increase heat, never decrease it
+  const pnl = typeof pnlPct === 'number' ? pnlPct : 0;
+  const pnlFloor = pnl <= -15 ? 'red' : pnl <= -5 ? 'yellow' : null;
+
+  let heat;
   // When score moved 20+ in our favor, downgrade danger – thesis still strong
-  if (effective >= 20 && hasDanger) return 'yellow';
-  if (effective >= 20 && hasWarning) return 'green';
-  if (hasDanger || effective <= -20) return 'red';
-  if (hasWarning || effective <= -5) return 'yellow';
-  return 'green';
+  if (effective >= 20 && hasDanger) heat = 'yellow';
+  else if (effective >= 20 && hasWarning) heat = 'green';
+  else if (hasDanger || effective <= -20) heat = 'red';
+  else if (hasWarning || effective <= -5) heat = 'yellow';
+  else heat = 'green';
+
+  // Apply P&L floor: if deeply underwater, heat can only go up
+  if (pnlFloor === 'red' && heat !== 'red') heat = 'red';
+  if (pnlFloor === 'yellow' && heat === 'green') heat = 'yellow';
+
+  return heat;
 }
 
 // ---- Suggested Action Ladder ----
@@ -677,6 +689,9 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
     ? ((isLong ? (currentPrice - trade.entryPrice) : (trade.entryPrice - currentPrice)) / trade.entryPrice * 100) * lev
     : 0;
   const inProfit2Pct = pnlPct >= 2;
+  const inSignificantLoss = pnlPct < -5;
+  const inDeepLoss = pnlPct < -10;
+  const inSolidProfit = pnlPct >= 4;
 
   // Progress toward TP2 (0–1)
   const tp2 = trade.takeProfit2;
@@ -696,10 +711,27 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
   const hardExitThreshold = highLev ? -25 : -30;
   const reduceThreshold = highLev ? -10 : -15;
 
+  // ---- P&L-first overrides: deeply underwater trades get urgent actions ----
+  // When P&L says you're down 15%+ AND score isn't 20+ in your favor = consider exit
+  if (pnlPct <= -15 && effective < 20) {
+    return { level: 'extreme', actionId: 'consider_exit', text: 'Consider exit — deep loss' };
+  }
+  // Down 10%+ with high leverage = reduce regardless of score
+  if (inDeepLoss && highLev) {
+    return { level: 'high', actionId: 'reduce_position', text: 'Reduce position — deep loss + high leverage' };
+  }
+  // Down 10%+ and score isn't strongly in our favor (need 15+ to offset deep loss) = reduce
+  if (inDeepLoss && effective < 15) {
+    return { level: 'high', actionId: 'reduce_position', text: 'Reduce position — price against you' };
+  }
+
   // When score moved 20+ in our favor (thesis strong), never suggest exit
+  // Don't say "strengthening" when P&L disagrees (e.g. short down 5%+ with green candles)
   if (effective >= 20) {
-    if (structureBreaking) return { level: 'medium', actionId: 'hold_monitor', text: 'Hold \u2014 monitor structure' };
-    return { level: 'positive', actionId: 'hold', text: 'Hold \u2014 strengthening' };
+    if (structureBreaking) return { level: 'medium', actionId: 'hold_monitor', text: 'Hold — monitor structure' };
+    if (inDeepLoss) return { level: 'high', actionId: 'tighten_stop', text: 'Tighten stop — price against position' };
+    if (inSignificantLoss) return { level: 'medium', actionId: 'hold_monitor', text: 'Hold — monitor (price disagrees)' };
+    return { level: 'positive', actionId: 'hold', text: 'Hold — strengthening' };
   }
 
   // Consider exit: require multiple confirmations AND block when trade is favorable
@@ -715,25 +747,33 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
   }
 
   // High leverage + yellow heat + score slipping = de-risk sooner
-  if (highLev && heat === 'yellow' && effective <= -5) {
+  // Don't suggest reduce when in solid profit (4%+) — let winners run
+  if (highLev && heat === 'yellow' && effective <= -5 && !inSolidProfit) {
     return { level: 'high', actionId: 'reduce_position', text: 'Reduce position (high leverage)' };
   }
 
   if (effective <= reduceThreshold || structureBreaking) {
-    return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
+    if (structureBreaking) return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
+    if (inSolidProfit) { /* let winners run */ } else {
+      return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
+    }
   }
-  if (considerPartial) {
+  if (considerPartial && !inSolidProfit) {
     return { level: 'medium', actionId: 'take_partial', text: 'Take partial' };
   }
   const lockInAvailable = messages.some(m => m.text === 'Lock in profit available');
   if (lockInAvailable) {
     return { level: 'medium', actionId: 'lock_in_profit', text: 'Lock in profit' };
   }
+  // Down 5-10% with score in our favor but not strongly: cautious monitor
+  if (inSignificantLoss && effective >= 5) {
+    return { level: 'medium', actionId: 'tighten_stop', text: 'Tighten stop — price against position' };
+  }
   if (heat === 'yellow' || effective <= -5 || considerBE) {
     return { level: 'medium', actionId: 'tighten_stop', text: 'Tighten stop' };
   }
   if (effective >= 5) {
-    return { level: 'positive', actionId: 'hold', text: 'Hold \u2014 strengthening' };
+    return { level: 'positive', actionId: 'hold', text: 'Hold — strengthening' };
   }
   return { level: 'low', actionId: 'monitor', text: 'Monitor' };
 }
@@ -883,6 +923,14 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
 
   const isLong = trade.direction === 'LONG';
 
+  // P&L in percent (positive = profit) – used to gate messages when price disagrees with score
+  const lev = trade.leverage || 1;
+  const pnlPct = trade.entryPrice > 0
+    ? ((isLong ? (currentPrice - trade.entryPrice) : (trade.entryPrice - currentPrice)) / trade.entryPrice * 100) * lev
+    : 0;
+  const inSignificantLoss = pnlPct < -5;   // Short down 5%+ or long down 5%+
+  const inSolidProfit = pnlPct >= 4;       // Up 4%+ – don't suggest partial/reduce from minor score dips
+
   // Signal direction flipped? (market now says opposite of our trade)
   const signalFlipped = isLong
     ? (signal.signal === 'SELL' || signal.signal === 'STRONG_SELL')
@@ -905,23 +953,29 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
   }
 
   // 3. Momentum: for LONG, drop = warning. For SHORT, drop = favorable (bullish momentum fading)
+  // Don't show favorable short message when P&L disagrees (price up = short losing)
   if (hasEntryBreakdown && (cb.momentum || 0) <= (eb.momentum || 0) - 3) {
     if (isLong) {
       messages.push({ type: 'warning', text: 'Momentum weakening' });
-    } else {
+    } else if (!inSignificantLoss) {
       messages.push({ type: 'positive', text: 'Bullish momentum fading' });
     }
   }
 
   // 4. Confidence increasing - score moved in our favor
+  // Don't show when P&L disagrees (e.g. short down 5%+ with green candles = price says bullish)
   const scoreDiffInFavor = isLong ? scoreDiff : -scoreDiff;
-  if (scoreDiffInFavor >= 5 && !signalFlipped) {
+  if (scoreDiffInFavor >= 5 && !signalFlipped && !inSignificantLoss) {
     messages.push({ type: 'positive', text: 'Confidence increasing' });
+  }
+  if (inSignificantLoss && !messages.some(m => m.text === 'Price action against position — score may lag')) {
+    messages.push({ type: 'warning', text: 'Price action against position — score may lag' });
   }
 
   // 5. TP probability rising (price progressing toward TP2 & score in our favor)
+  // Don't show when P&L disagrees (e.g. short down 5%+ — price moving against us)
   const tp2 = trade.takeProfit2;
-  if (tp2) {
+  if (tp2 && !inSignificantLoss) {
     let progress = 0;
     if (isLong && tp2 > trade.entryPrice) {
       progress = (currentPrice - trade.entryPrice) / (tp2 - trade.entryPrice);
@@ -935,13 +989,17 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
   }
 
   // 6. Consider partial (near TP1 with signals weakening for our direction)
+  // Don't suggest when LONG is in solid profit (5%+) — let winners run
   const tp1 = trade.takeProfit1;
-  if (tp1) {
+  if (tp1 && !(isLong && inSolidProfit)) {
     const nearTP1 = isLong
       ? currentPrice >= tp1 * 0.98
       : currentPrice <= tp1 * 1.02;
-    const weakening = scoreDiffAgainstUs < 0 ||  // score moved against us
-      (hasEntryBreakdown && (cb.momentum || 0) < (eb.momentum || 0));
+    // For LONG: momentum drop = thesis weakening. For SHORT: momentum RISE = thesis weakening (bullish building).
+    const momentumWeakening = hasEntryBreakdown && (isLong
+      ? (cb.momentum || 0) < (eb.momentum || 0)       // long: momentum dropped = bad
+      : (cb.momentum || 0) > (eb.momentum || 0));      // short: momentum rose = bullish building = bad for short
+    const weakening = scoreDiffAgainstUs < 0 || momentumWeakening;
     if (nearTP1 && weakening) {
       messages.push({ type: 'info', text: 'Consider partial' });
     }
@@ -993,9 +1051,9 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
     }
   }
 
-  // 9. High leverage warning
+  // 9. High leverage warning (don't scare longs in solid profit — 5%+)
   const levForMsg = trade.leverage || 1;
-  if (levForMsg >= 3 && scoreDiffAgainstUs <= -5) {
+  if (levForMsg >= 3 && scoreDiffAgainstUs <= -5 && !(isLong && inSolidProfit)) {
     messages.push({ type: 'warning', text: 'High leverage \u2014 tighten risk' });
   }
 
@@ -1006,9 +1064,9 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
       messages.push({ type: 'warning', text: 'Funding rate extreme positive — longs crowded' });
     } else if (!isLong && fr < -0.001) {
       messages.push({ type: 'warning', text: 'Funding rate extreme negative — shorts crowded' });
-    } else if (isLong && fr < -0.0005) {
+    } else if (isLong && fr < -0.0005 && !inSignificantLoss) {
       messages.push({ type: 'positive', text: 'Funding rate favors longs' });
-    } else if (!isLong && fr > 0.0005) {
+    } else if (!isLong && fr > 0.0005 && !inSignificantLoss) {
       messages.push({ type: 'positive', text: 'Funding rate favors shorts' });
     }
   }
@@ -1032,8 +1090,11 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
   }
 
   // Default: neutral status when nothing noteworthy
+  // When in significant loss, don't say "Score holding steady" — price disagrees
   if (messages.length === 0) {
-    if (scoreDiffInFavor >= 0) {
+    if (inSignificantLoss) {
+      messages.push({ type: 'warning', text: 'Price action against position — score may lag' });
+    } else if (scoreDiffInFavor >= 0) {
       messages.push({ type: 'positive', text: 'Score holding steady' });
     } else {
       messages.push({ type: 'warning', text: 'Score slightly lower' });
@@ -1065,17 +1126,49 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
 
       const messages = generateScoreCheckMessages(trade, signal, currentPrice);
       const scoreDiff = (signal.score || 0) - (trade.score || 0);
-      const changeReasons = determineChangeReasons(trade, signal);
+      let changeReasons = determineChangeReasons(trade, signal);
       const isLong = trade.direction === 'LONG';
-      const heat = determineHeat(scoreDiff, messages, isLong);
+      const lev = trade.leverage || 1;
+      const pnlPct = trade.entryPrice > 0
+        ? ((isLong ? (currentPrice - trade.entryPrice) : (trade.entryPrice - currentPrice)) / trade.entryPrice * 100) * lev
+        : 0;
+      const inSignificantLoss = pnlPct < -5;
+      if (inSignificantLoss) {
+        // Strip positive and neutral reasons when P&L strongly disagrees — they mislead the user
+        changeReasons = changeReasons.filter(r => r.type !== 'positive' && !(r.type === 'neutral' && r.text === 'No significant changes detected'));
+        const dirLabel = isLong ? 'long' : 'short';
+        const hasPriceWarning = changeReasons.some(r => r.text && r.text.includes('Price moving'));
+        if (!hasPriceWarning) {
+          changeReasons = [{ type: 'warning', text: `Price moving against ${dirLabel} — score may lag` }, ...changeReasons];
+        }
+        // Ensure there's always at least one reason
+        if (changeReasons.length === 0) {
+          changeReasons = [{ type: 'warning', text: `Price moving against ${dirLabel} — score may lag` }];
+        }
+      }
+      const heat = determineHeat(scoreDiff, messages, isLong, pnlPct);
       const suggestedAction = determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, currentPrice);
       // Win prob: for LONG, high score = high prob. For SHORT, low score (bearish) = high prob.
+      // P&L adjustment: when deeply underwater, score-based probability gets penalized.
+      // When in solid profit, slight bonus. This prevents the UI from showing "+11 pts" probability
+      // while the trade is down 12% — the score might be right but the probability must reflect
+      // the price action reality too.
       const entryScore = trade.score || 0;
       const currentScore = signal.score || 0;
       const entryProbRaw = calculateWinProbability(entryScore);
       const currentProbRaw = calculateWinProbability(currentScore);
       const entryProbability = Math.min(100, Math.max(0, isLong ? entryProbRaw : 100 - entryProbRaw));
-      const currentProbability = Math.min(100, Math.max(0, isLong ? currentProbRaw : 100 - currentProbRaw));
+      let currentProbability = Math.min(100, Math.max(0, isLong ? currentProbRaw : 100 - currentProbRaw));
+
+      // P&L-based probability adjustment
+      let pnlProbAdj = 0;
+      if (pnlPct <= -15) pnlProbAdj = -20;
+      else if (pnlPct <= -10) pnlProbAdj = -15;
+      else if (pnlPct <= -5) pnlProbAdj = -8;
+      else if (pnlPct <= -2) pnlProbAdj = -3;
+      else if (pnlPct >= 10) pnlProbAdj = 5;
+      else if (pnlPct >= 5) pnlProbAdj = 3;
+      currentProbability = Math.min(95, Math.max(5, currentProbability + pnlProbAdj));
 
       const scoreDiffFavorable = isLong ? scoreDiff >= 0 : scoreDiff <= 0;
       const scoreDiffDisplay = isLong ? scoreDiff : -scoreDiff;  // For short, show as positive when favorable
