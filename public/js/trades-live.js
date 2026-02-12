@@ -261,12 +261,15 @@
             var entryPrice = parseFloat(card.getAttribute('data-entry-price'));
             var positionSize = parseFloat(card.getAttribute('data-position-size'));
             var margin = parseFloat(card.getAttribute('data-margin'));
+            var partialPnl = parseFloat(card.getAttribute('data-partial-pnl')) || 0;
+            var originalMargin = parseFloat(card.getAttribute('data-original-margin')) || margin;
             var direction = card.getAttribute('data-direction');
-            if (!margin || margin <= 0) continue;
-            var pnl = direction === 'LONG'
+            if (!originalMargin || originalMargin <= 0) continue;
+            var unrealizedPnl = direction === 'LONG'
               ? ((currentPrice - entryPrice) / entryPrice) * positionSize
               : ((entryPrice - currentPrice) / entryPrice) * positionSize;
-            var pnlPct = (pnl / margin) * 100;
+            var pnl = partialPnl + unrealizedPnl;
+            var pnlPct = (pnl / originalMargin) * 100;
 
             var priceEl = card.querySelector('.trade-price');
             var dollarEl = card.querySelector('.trade-pnl-dollar');

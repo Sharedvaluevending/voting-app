@@ -23,13 +23,16 @@
     <% trades.forEach(function(trade) {
       var currentPriceData = prices.find(function(p) { return p.id === trade.coinId; });
       var currentPrice = currentPriceData ? currentPriceData.price : trade.entryPrice;
-      var pnl, pnlPct;
+      var unrealizedPnl;
       if (trade.direction === 'LONG') {
-        pnl = ((currentPrice - trade.entryPrice) / trade.entryPrice) * trade.positionSize;
+        unrealizedPnl = ((currentPrice - trade.entryPrice) / trade.entryPrice) * trade.positionSize;
       } else {
-        pnl = ((trade.entryPrice - currentPrice) / trade.entryPrice) * trade.positionSize;
+        unrealizedPnl = ((trade.entryPrice - currentPrice) / trade.entryPrice) * trade.positionSize;
       }
-      pnlPct = (pnl / trade.margin) * 100;
+      var partialPnl = trade.partialPnl || 0;
+      var pnl = partialPnl + unrealizedPnl;
+      var originalMargin = (trade.originalPositionSize || trade.positionSize) / trade.leverage;
+      var pnlPct = originalMargin > 0 ? (pnl / originalMargin) * 100 : 0;
       var entryTs = trade.entryTime ? new Date(trade.entryTime).getTime() : Date.now();
       var heldMs = Date.now() - entryTs;
       var totalSecs = Math.max(0, Math.floor(heldMs / 1000));
@@ -52,6 +55,8 @@
            data-entry-price="<%= trade.entryPrice %>"
            data-position-size="<%= trade.positionSize %>"
            data-margin="<%= trade.margin %>"
+           data-partial-pnl="<%= trade.partialPnl || 0 %>"
+           data-original-margin="<%= (trade.originalPositionSize || trade.positionSize) / trade.leverage %>"
            data-entry-time="<%= trade.entryTime ? new Date(trade.entryTime).toISOString() : new Date().toISOString() %>">
         <div class="card-header">
           <div class="coin-info">
