@@ -67,6 +67,18 @@
       <div id="tradingview_widget" style="width:100%;height:100%;"></div>
     </div>
   </div>
+
+  <% if (tradeId) { %>
+  <div class="chart-marker-legend">
+    <span style="color:#6b7280;font-weight:600;">Chart Markers:</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#10b981;"></span> BE (Breakeven)</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#3b82f6;"></span> TS (Trailing Stop)</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#38bdf8;"></span> LOCK (Profit Lock)</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#f87171;"></span> EXIT</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#a78bfa;"></span> PP (Partial Profit)</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#fbbf24;"></span> RP (Reduce Position)</span>
+  </div>
+  <% } %>
 </main>
 
 <style>
@@ -85,6 +97,13 @@
 .chart-actions-bar .action-badge { font-size: 10px; padding: 3px 8px; border-radius: 4px; font-weight: 600; }
 .chart-actions-bar .action-badge.action-be { background: #064e3b; color: #10b981; }
 .chart-actions-bar .action-badge.action-ts { background: #1e3a5f; color: #3b82f6; }
+.chart-actions-bar .action-badge.action-lock { background: #0c4a6e; color: #38bdf8; }
+.chart-actions-bar .action-badge.action-exit { background: #450a0a; color: #f87171; }
+.chart-actions-bar .action-badge.action-pp { background: #2e1065; color: #a78bfa; }
+.chart-actions-bar .action-badge.action-rp { background: #422006; color: #fbbf24; }
+.chart-marker-legend { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; padding: 6px 10px; background: rgba(15,23,42,0.8); border: 1px solid #1e293b; border-radius: 6px; font-size: 10px; color: #9ca3af; }
+.chart-marker-legend .legend-item { display: flex; align-items: center; gap: 4px; }
+.chart-marker-legend .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
 .chart-container { position: relative; width: 100%; height: calc(100vh - 240px); min-height: 400px; border-radius: 8px; overflow: hidden; background: #0f172a; }
 .tf-selector { display: flex; gap: 4px; margin-bottom: 8px; }
 .tf-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
@@ -108,8 +127,63 @@
     tp3: <%- JSON.stringify(tp3) %>
   };
   var tradeId = <%- JSON.stringify(typeof tradeId !== 'undefined' ? tradeId : null) %>;
-  var chartRef = { chart: null, series: null, slLine: null, origSlLine: null, priceLines: [] };
+  var tradeDirection = <%- JSON.stringify(typeof direction !== 'undefined' ? direction : null) %>;
+  var initialActions = <%- JSON.stringify(typeof tradeActions !== 'undefined' ? tradeActions : []) %>;
+  var chartRef = { chart: null, series: null, slLine: null, origSlLine: null, priceLines: [], candleTimes: [] };
   var currentTF = '1h';
+
+  // Action marker colors and shapes for Lightweight Charts
+  var actionMarkerConfig = {
+    BE:   { color: '#10b981', shape: 'arrowUp',   position: 'belowBar', label: 'BE' },
+    TS:   { color: '#3b82f6', shape: 'arrowUp',   position: 'belowBar', label: 'TS' },
+    LOCK: { color: '#38bdf8', shape: 'arrowUp',   position: 'belowBar', label: 'LOCK' },
+    EXIT: { color: '#f87171', shape: 'arrowDown', position: 'aboveBar', label: 'EXIT' },
+    PP:   { color: '#a78bfa', shape: 'arrowDown', position: 'aboveBar', label: 'PP' },
+    RP:   { color: '#fbbf24', shape: 'arrowDown', position: 'aboveBar', label: 'RP' }
+  };
+
+  // Snap an action timestamp to the nearest candle time
+  function snapToCandle(actionTimeMs) {
+    if (!chartRef.candleTimes || chartRef.candleTimes.length === 0) return null;
+    var actionSec = Math.floor(actionTimeMs / 1000);
+    var best = chartRef.candleTimes[0];
+    var bestDiff = Math.abs(actionSec - best);
+    for (var i = 1; i < chartRef.candleTimes.length; i++) {
+      var diff = Math.abs(actionSec - chartRef.candleTimes[i]);
+      if (diff < bestDiff) { best = chartRef.candleTimes[i]; bestDiff = diff; }
+    }
+    return best;
+  }
+
+  // Build and apply chart markers from actions array
+  function applyActionMarkers(actions) {
+    if (!chartRef.series || !actions || actions.length === 0) return;
+    var markers = [];
+    for (var i = 0; i < actions.length; i++) {
+      var a = actions[i];
+      if (!a.type || !a.timestamp) continue;
+      var cfg = actionMarkerConfig[a.type];
+      if (!cfg) continue;
+      var ts = snapToCandle(new Date(a.timestamp).getTime());
+      if (ts == null) continue;
+      var priceInfo = '';
+      if (['BE','TS','LOCK'].indexOf(a.type) >= 0 && a.newValue != null) {
+        priceInfo = ' $' + (a.newValue >= 1 ? a.newValue.toFixed(2) : a.newValue.toFixed(6));
+      } else if (['EXIT','PP','RP'].indexOf(a.type) >= 0 && a.marketPrice != null) {
+        priceInfo = ' @$' + (a.marketPrice >= 1 ? a.marketPrice.toFixed(2) : a.marketPrice.toFixed(6));
+      }
+      markers.push({
+        time: ts,
+        position: cfg.position,
+        color: cfg.color,
+        shape: cfg.shape,
+        text: cfg.label + priceInfo
+      });
+    }
+    // Sort by time (required by Lightweight Charts)
+    markers.sort(function(a, b) { return a.time - b.time; });
+    try { chartRef.series.setMarkers(markers); } catch(e) { console.warn('setMarkers error:', e); }
+  }
 
   var lwContainer = document.getElementById('lw-chart-container');
   var tvContainer = document.getElementById('tv-chart-container');
@@ -223,12 +297,22 @@
             series.setData(data.candles);
             chartRef.chart = chart;
             chartRef.series = series;
+            chartRef.candleTimes = data.candles.map(function(c) { return c.time; });
             addPriceLines();
+            // Apply initial action markers from server-rendered data
+            if (initialActions && initialActions.length > 0) {
+              applyActionMarkers(initialActions);
+            }
             chart.timeScale().fitContent();
           });
         } else {
           // Timeframe switch — just update data
           chartRef.series.setData(data.candles);
+          chartRef.candleTimes = data.candles.map(function(c) { return c.time; });
+          // Re-apply action markers for new timeframe
+          if (initialActions && initialActions.length > 0) {
+            applyActionMarkers(initialActions);
+          }
           chartRef.chart.timeScale().fitContent();
         }
       })
@@ -293,22 +377,29 @@
                 chartRef.origSlLine = chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: newOrig, color: '#78716c', title: 'Orig SL', lineStyle: LightweightCharts.LineStyle.Dotted }));
             }
           }
-          if (t.actions && t.actions.length > 0 && actionsBar) {
-            var latestByType = {};
-            t.actions.forEach(function(a) { if (a.type) latestByType[a.type] = a; });
-            var deduped = Object.keys(latestByType).map(function(k) { return latestByType[k]; });
-            var html = deduped.map(function(a) {
-              var dv = '';
-              if (['BE','TS','LOCK'].indexOf(a.type) >= 0 && a.newValue != null) {
-                dv = ' $' + fmt(a.newValue);
-              } else if (['EXIT','PP','RP'].indexOf(a.type) >= 0 && a.marketPrice != null) {
-                dv = ' @$' + fmt(a.marketPrice);
-              }
-              var lbl = (a.type || '?') + dv + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
-              return '<span class="action-badge action-' + (a.type || '').toLowerCase() + '" title="' + (a.description || '').replace(/"/g, '&quot;') + '">' + lbl + '</span>';
-            }).join('');
-            actionsBar.innerHTML = html;
-            actionsBar.style.display = '';
+          if (t.actions && t.actions.length > 0) {
+            // Update chart markers with ALL actions (not deduplicated — show each event)
+            initialActions = t.actions;
+            applyActionMarkers(t.actions);
+
+            // Update badge bar (deduplicated — latest of each type)
+            if (actionsBar) {
+              var latestByType = {};
+              t.actions.forEach(function(a) { if (a.type) latestByType[a.type] = a; });
+              var deduped = Object.keys(latestByType).map(function(k) { return latestByType[k]; });
+              var html = deduped.map(function(a) {
+                var dv = '';
+                if (['BE','TS','LOCK'].indexOf(a.type) >= 0 && a.newValue != null) {
+                  dv = ' $' + fmt(a.newValue);
+                } else if (['EXIT','PP','RP'].indexOf(a.type) >= 0 && a.marketPrice != null) {
+                  dv = ' @$' + fmt(a.marketPrice);
+                }
+                var lbl = (a.type || '?') + dv + (a.timestamp ? ' ' + new Date(a.timestamp).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '');
+                return '<span class="action-badge action-' + (a.type || '').toLowerCase() + '" title="' + (a.description || '').replace(/"/g, '&quot;') + '">' + lbl + '</span>';
+              }).join('');
+              actionsBar.innerHTML = html;
+              actionsBar.style.display = '';
+            }
           }
         })
         .catch(function() {});

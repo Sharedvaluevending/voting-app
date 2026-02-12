@@ -24,6 +24,7 @@
       <div class="nav-right">
         <% if (typeof user !== 'undefined' && user) { %>
           <span class="nav-balance">$<%= typeof balance !== 'undefined' ? balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '10,000.00' %></span>
+          <span class="nav-pnl" id="nav-live-pnl"></span>
           <span class="nav-user"><%= user.username %></span>
           <a href="/logout" class="nav-btn">Logout</a>
         <% } else { %>

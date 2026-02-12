@@ -6,5 +6,68 @@
       Signals are generated from technical analysis of public market data via CoinGecko &amp; Binance APIs.
     </div>
   </footer>
+
+  <% if (typeof user !== 'undefined' && user) { %>
+  <script>
+  // Live PNL for all open trades — updates nav bar every 5s
+  (function() {
+    var pnlEl = document.getElementById('nav-live-pnl');
+    if (!pnlEl) return;
+
+    function updateNavPnl() {
+      Promise.all([
+        fetch('/api/trades/active', { credentials: 'same-origin' }).then(function(r) { return r.ok ? r.json() : null; }),
+        fetch('/api/prices', { credentials: 'same-origin' }).then(function(r) { return r.ok ? r.json() : null; })
+      ]).then(function(results) {
+        var tradesData = results[0];
+        var pricesData = results[1];
+        if (!tradesData || !tradesData.success || !tradesData.trades) return;
+        if (!pricesData || !pricesData.success || !pricesData.data) return;
+
+        var priceMap = {};
+        for (var i = 0; i < pricesData.data.length; i++) {
+          var p = pricesData.data[i];
+          if (p && p.id != null) priceMap[p.id] = Number(p.price);
+        }
+
+        var totalPnl = 0;
+        var tradeCount = 0;
+        var trades = tradesData.trades;
+        for (var tid in trades) {
+          var t = trades[tid];
+          var currentPrice = priceMap[t.coinId];
+          if (currentPrice == null || isNaN(currentPrice) || currentPrice <= 0) continue;
+          if (!t.entryPrice || !t.positionSize) continue;
+          var unrealized = t.direction === 'LONG'
+            ? ((currentPrice - t.entryPrice) / t.entryPrice) * t.positionSize
+            : ((t.entryPrice - currentPrice) / t.entryPrice) * t.positionSize;
+          totalPnl += (t.partialPnl || 0) + unrealized;
+          tradeCount++;
+        }
+
+        if (tradeCount === 0) {
+          pnlEl.style.display = 'none';
+          pnlEl.className = 'nav-pnl';
+          return;
+        }
+
+        var sign = totalPnl >= 0 ? '+' : '';
+        pnlEl.textContent = sign + '$' + totalPnl.toFixed(2) + ' PNL';
+        if (totalPnl > 0.01) {
+          pnlEl.className = 'nav-pnl pnl-positive';
+        } else if (totalPnl < -0.01) {
+          pnlEl.className = 'nav-pnl pnl-negative';
+        } else {
+          pnlEl.className = 'nav-pnl pnl-zero';
+        }
+      }).catch(function() {});
+    }
+
+    // Initial + poll
+    setTimeout(updateNavPnl, 1500);
+    setInterval(updateNavPnl, 5000);
+  })();
+  </script>
+  <% } %>
 </body>
 </html>

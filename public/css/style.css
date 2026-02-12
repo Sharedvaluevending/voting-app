@@ -11,6 +11,10 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 .nav-links a:hover, .nav-links a.active { background: #1e2a3a; color: #fff; }
 .nav-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .nav-balance { color: #10b981; font-weight: 700; font-size: 14px; }
+.nav-pnl { font-weight: 700; font-size: 13px; padding: 2px 8px; border-radius: 4px; display: none; }
+.nav-pnl.pnl-positive { display: inline; color: #10b981; background: rgba(16,185,129,0.12); }
+.nav-pnl.pnl-negative { display: inline; color: #ef4444; background: rgba(239,68,68,0.12); }
+.nav-pnl.pnl-zero { display: inline; color: #6b7280; background: rgba(107,114,128,0.12); }
 .nav-user { color: #9ca3af; font-size: 13px; }
 .nav-btn { color: #9ca3af; text-decoration: none; font-size: 13px; padding: 6px 14px; border: 1px solid #1e2a3a; border-radius: 6px; transition: all 0.2s; }
 .nav-btn:hover { background: #1e2a3a; color: #fff; }
