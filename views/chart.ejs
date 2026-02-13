@@ -102,7 +102,7 @@
   <!-- Lightweight Charts (primary – with trade level lines) -->
   <div class="chart-container" id="lw-chart-container" style="display:none;">
     <div id="lw-chart" style="width:100%;height:100%;"></div>
-    <canvas id="draw-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:5;"></canvas>
+    <canvas id="draw-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;"></canvas>
   </div>
 
   <!-- TradingView widget (fallback – always works) -->
@@ -764,6 +764,7 @@
         drawState = null;
         selectedIndex = null;
         dragState = null;
+        if (drawCanvas) drawCanvas.style.pointerEvents = 'none';
         renderDrawings();
         updateDeleteButton();
         return;
@@ -773,6 +774,7 @@
           drawings.splice(selectedIndex, 1);
           selectedIndex = null;
           dragState = null;
+          if (drawCanvas && drawings.length === 0) drawCanvas.style.pointerEvents = 'none';
           renderDrawings();
           updateDeleteButton();
         }
@@ -785,8 +787,16 @@
       for (var tj = 0; tj < toolBtns.length; tj++) toolBtns[tj].classList.remove('tool-active');
       this.classList.add('tool-active');
       if (drawCanvas) {
-        drawCanvas.style.pointerEvents = 'auto';
-        drawCanvas.style.cursor = (tool === 'cursor') ? 'default' : 'crosshair';
+        if (tool === 'cursor') {
+          // Cursor/select mode: overlay captures clicks so user can select drawings,
+          // but mousedown handler passes through if no drawing is hit
+          drawCanvas.style.pointerEvents = drawings.length > 0 ? 'auto' : 'none';
+          drawCanvas.style.cursor = 'default';
+        } else {
+          // Drawing tool active: overlay captures mouse events
+          drawCanvas.style.pointerEvents = 'auto';
+          drawCanvas.style.cursor = 'crosshair';
+        }
       }
       renderDrawings();
       updateDeleteButton();
@@ -805,6 +815,7 @@
       if (activeTool === 'cursor') {
         var idx = getDrawingAt(x, y);
         if (idx >= 0) {
+          // Hit a drawing → select it and start drag
           selectedIndex = idx;
           var d = drawings[idx];
           if (d.type === 'hline') {
@@ -812,12 +823,23 @@
           } else {
             dragState = { index: idx, startPx: x, startPy: y, origT1: d.t1, origP1: d.p1, origT2: d.t2, origP2: d.p2 };
           }
+          renderDrawings();
+          updateDeleteButton();
         } else {
+          // Missed all drawings → deselect and let chart handle the click
           selectedIndex = null;
           dragState = null;
+          renderDrawings();
+          updateDeleteButton();
+          // Pass through to chart: temporarily disable overlay so chart gets mousedown
+          if (drawCanvas) drawCanvas.style.pointerEvents = 'none';
+          // Re-enable after a tick so future clicks can still select drawings
+          setTimeout(function() {
+            if (activeTool === 'cursor' && drawCanvas && drawings.length > 0) {
+              drawCanvas.style.pointerEvents = 'auto';
+            }
+          }, 300);
         }
-        renderDrawings();
-        updateDeleteButton();
         return;
       }
 
@@ -826,7 +848,19 @@
 
       if (activeTool === 'hline') {
         drawings.push({ type: 'hline', price: coord.price, color: '#f59e0b', lineWidth: 1.5 });
+        // Auto-switch back to cursor after placing hline
+        activeTool = 'cursor';
+        selectedIndex = drawings.length - 1;
+        if (drawCanvas) {
+          drawCanvas.style.pointerEvents = drawings.length > 0 ? 'auto' : 'none';
+          drawCanvas.style.cursor = 'default';
+        }
+        for (var th = 0; th < toolBtns.length; th++) {
+          toolBtns[th].classList.remove('tool-active');
+          if (toolBtns[th].getAttribute('data-tool') === 'cursor') toolBtns[th].classList.add('tool-active');
+        }
         renderDrawings();
+        updateDeleteButton();
         return;
       }
 
@@ -894,7 +928,20 @@
       var d = Object.assign({}, drawState, { t2: coord.time, p2: coord.price, color: '#f59e0b', lineWidth: 1.5 });
       drawings.push(d);
       drawState = null;
+
+      // Auto-switch back to cursor mode after placing a drawing (like TradingView)
+      activeTool = 'cursor';
+      selectedIndex = drawings.length - 1; // select the just-drawn item
+      if (drawCanvas) {
+        drawCanvas.style.pointerEvents = drawings.length > 0 ? 'auto' : 'none';
+        drawCanvas.style.cursor = 'default';
+      }
+      for (var tb = 0; tb < toolBtns.length; tb++) {
+        toolBtns[tb].classList.remove('tool-active');
+        if (toolBtns[tb].getAttribute('data-tool') === 'cursor') toolBtns[tb].classList.add('tool-active');
+      }
       renderDrawings();
+      updateDeleteButton();
     });
 
     document.addEventListener('keydown', function(e) {
@@ -904,6 +951,7 @@
           drawings.splice(selectedIndex, 1);
           selectedIndex = null;
           dragState = null;
+          if (drawCanvas && drawings.length === 0) drawCanvas.style.pointerEvents = 'none';
           renderDrawings();
           updateDeleteButton();
         }
@@ -912,9 +960,13 @@
       if (e.key === 'Escape') {
         drawState = null;
         dragState = null;
+        selectedIndex = null;
         renderDrawings();
         activeTool = 'cursor';
-        if (drawCanvas) { drawCanvas.style.cursor = 'default'; }
+        if (drawCanvas) {
+          drawCanvas.style.pointerEvents = 'none';
+          drawCanvas.style.cursor = 'default';
+        }
         for (var tk = 0; tk < toolBtns.length; tk++) {
           toolBtns[tk].classList.remove('tool-active');
           if (toolBtns[tk].getAttribute('data-tool') === 'cursor') toolBtns[tk].classList.add('tool-active');
