@@ -749,28 +749,30 @@ function determineChangeReasons(trade, signal) {
 // Also considers P&L and signal direction
 function determineHeat(scoreDiff, messages, isLong, pnlPct, currentSignal) {
   // Effective diff: same for both LONG and SHORT (score measures setup quality)
-  // Penalize when signal direction changed against us
+  // Penalize when signal direction changed against us — but gently
   const signalFlipped = isLong
     ? (currentSignal === 'SELL' || currentSignal === 'STRONG_SELL')
     : (currentSignal === 'BUY' || currentSignal === 'STRONG_BUY');
   const isHold = currentSignal === 'HOLD';
   let effective = scoreDiff;
-  if (signalFlipped) effective = Math.min(effective, -25);
-  else if (isHold) effective -= 8;
+  if (signalFlipped) effective = Math.min(effective, -15);
+  else if (isHold) effective -= 4;
 
   const hasDanger = messages.some(m => m.type === 'danger');
   const hasWarning = messages.some(m => m.type === 'warning');
 
   // P&L floors: price reality can only increase heat, never decrease it
+  // Relaxed: only force red at -20%, yellow at -10%
   const pnl = typeof pnlPct === 'number' ? pnlPct : 0;
-  const pnlFloor = pnl <= -15 ? 'red' : pnl <= -5 ? 'yellow' : null;
+  const pnlFloor = pnl <= -20 ? 'red' : pnl <= -10 ? 'yellow' : null;
 
   let heat;
-  // When score moved 20+ in our favor AND direction still aligned, downgrade danger
-  if (effective >= 20 && !signalFlipped && hasDanger) heat = 'yellow';
-  else if (effective >= 20 && !signalFlipped && hasWarning) heat = 'green';
-  else if (hasDanger || effective <= -20) heat = 'red';
-  else if (hasWarning || effective <= -5) heat = 'yellow';
+  // When score moved 15+ in our favor AND direction still aligned, downgrade danger
+  if (effective >= 15 && !signalFlipped && hasDanger) heat = 'yellow';
+  else if (effective >= 15 && !signalFlipped && hasWarning) heat = 'green';
+  else if (hasDanger && effective <= -15) heat = 'red';   // Need BOTH danger + score drop
+  else if (effective <= -25) heat = 'red';                 // OR massive score collapse alone
+  else if (hasWarning || effective <= -8) heat = 'yellow'; // Relaxed from -5 to -8
   else heat = 'green';
 
   // Apply P&L floor: if deeply underwater, heat can only go up
@@ -786,14 +788,14 @@ function determineHeat(scoreDiff, messages, isLong, pnlPct, currentSignal) {
 // Each action has actionId for execution (when autoExecuteActions enabled).
 // Confluence: P&L and price progress block aggressive actions on favorable trades.
 function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, currentPrice, currentSignal) {
-  // Effective diff: same for both directions. Penalize on signal direction change.
+  // Effective diff: same for both directions. Penalize on signal direction change — gently.
   const signalFlipped = isLong
     ? (currentSignal === 'SELL' || currentSignal === 'STRONG_SELL')
     : (currentSignal === 'BUY' || currentSignal === 'STRONG_BUY');
   const isHold = currentSignal === 'HOLD';
   let effective = scoreDiff;
-  if (signalFlipped) effective = Math.min(effective, -25);
-  else if (isHold) effective -= 8;
+  if (signalFlipped) effective = Math.min(effective, -15);
+  else if (isHold) effective -= 4;
   const structureBreaking = messages.some(m => m.text === 'Structure breaking');
   const considerPartial = messages.some(m => m.text === 'Consider partial');
   const considerBE = messages.some(m => m.text === 'Consider BE stop');
@@ -805,8 +807,8 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
     ? ((isLong ? (currentPrice - trade.entryPrice) : (trade.entryPrice - currentPrice)) / trade.entryPrice * 100) * lev
     : 0;
   const inProfit2Pct = pnlPct >= 2;
-  const inSignificantLoss = pnlPct < -5;
-  const inDeepLoss = pnlPct < -10;
+  const inSignificantLoss = pnlPct < -8;   // Relaxed from -5 to -8
+  const inDeepLoss = pnlPct < -15;          // Relaxed from -10 to -15
   const inSolidProfit = pnlPct >= 4;
 
   // Progress toward TP2 (0–1)
@@ -819,39 +821,40 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
       progressToTP2 = (trade.entryPrice - currentPrice) / (trade.entryPrice - tp2);
     }
   }
-  const nearTP2 = progressToTP2 >= 0.5;
+  const nearTP2 = progressToTP2 >= 0.4;  // Relaxed from 0.5 to 0.4
 
-  // Leverage-adjusted thresholds: higher leverage = tighter risk management
-  const highLev = lev >= 3;
-  const exitThreshold = highLev ? -20 : -25;
-  const hardExitThreshold = highLev ? -25 : -30;
-  const reduceThreshold = highLev ? -10 : -15;
+  // Leverage-adjusted thresholds: higher leverage = tighter, but overall much wider
+  const highLev = lev >= 5;  // Raised from 3 to 5
+  const exitThreshold = highLev ? -30 : -35;       // Was -20/-25
+  const hardExitThreshold = highLev ? -35 : -45;   // Was -25/-30
+  const reduceThreshold = highLev ? -20 : -25;     // Was -10/-15
 
-  // ---- P&L-first overrides: deeply underwater trades get urgent actions ----
-  // When P&L says you're down 15%+ AND score isn't 20+ in your favor = consider exit
-  if (pnlPct <= -15 && effective < 20) {
-    return { level: 'extreme', actionId: 'consider_exit', text: 'Consider exit — deep loss' };
+  // ---- P&L-first overrides: only for truly catastrophic losses ----
+  // When P&L says you're down 25%+ AND score is against you = consider exit
+  if (pnlPct <= -25 && effective < 10) {
+    return { level: 'extreme', actionId: 'consider_exit', text: 'Consider exit — severe loss' };
   }
-  // Down 10%+ with high leverage = reduce regardless of score
-  if (inDeepLoss && highLev) {
+  // Down 20%+ with high leverage = reduce regardless of score
+  if (pnlPct <= -20 && highLev) {
     return { level: 'high', actionId: 'reduce_position', text: 'Reduce position — deep loss + high leverage' };
   }
-  // Down 10%+ and score isn't strongly in our favor (need 15+ to offset deep loss) = reduce
-  if (inDeepLoss && effective < 15) {
+  // Down 15%+ and score isn't strongly in our favor = reduce
+  if (inDeepLoss && effective < 10) {
     return { level: 'high', actionId: 'reduce_position', text: 'Reduce position — price against you' };
   }
 
-  // When score moved 20+ in our favor (thesis strong), never suggest exit
-  // Don't say "strengthening" when P&L disagrees (e.g. short down 5%+ with green candles)
-  if (effective >= 20) {
-    if (structureBreaking) return { level: 'medium', actionId: 'hold_monitor', text: 'Hold — monitor structure' };
+  // When score moved 15+ in our favor (thesis strong), never suggest exit
+  if (effective >= 15) {
+    if (structureBreaking && inDeepLoss) return { level: 'medium', actionId: 'hold_monitor', text: 'Hold — monitor structure' };
     if (inDeepLoss) return { level: 'high', actionId: 'tighten_stop', text: 'Tighten stop — price against position' };
     if (inSignificantLoss) return { level: 'medium', actionId: 'hold_monitor', text: 'Hold — monitor (price disagrees)' };
     return { level: 'positive', actionId: 'hold', text: 'Hold — strengthening' };
   }
 
-  // Consider exit: require multiple confirmations AND block when trade is favorable
-  // Block if: in profit 2%+ OR 50%+ toward TP2 (don't kick out winning trades)
+  // Consider exit: require STRONG confirmation — multiple signals agreeing
+  // Need: red heat + danger message + score dropped past exit threshold
+  // OR score absolutely collapsed past hard exit threshold
+  // Block if: in profit OR making progress toward TP2
   const wouldConsiderExit = (heat === 'red' && hasDanger && effective <= exitThreshold) || effective <= hardExitThreshold;
   const blockExit = inProfit2Pct || nearTP2;
   if (wouldConsiderExit && !blockExit) {
@@ -862,15 +865,14 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
     return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
   }
 
-  // High leverage + yellow heat + score slipping = de-risk sooner
-  // Don't suggest reduce when in solid profit (4%+) — let winners run
-  if (highLev && heat === 'yellow' && effective <= -5 && !inSolidProfit) {
+  // High leverage + red heat + score slipping = de-risk
+  if (highLev && heat === 'red' && effective <= -10 && !inSolidProfit) {
     return { level: 'high', actionId: 'reduce_position', text: 'Reduce position (high leverage)' };
   }
 
-  if (effective <= reduceThreshold || structureBreaking) {
-    if (structureBreaking) return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
-    if (inSolidProfit) { /* let winners run */ } else {
+  if (effective <= reduceThreshold || (structureBreaking && effective <= -10)) {
+    if (structureBreaking && !inSolidProfit) return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
+    if (inSolidProfit) { /* let winners run */ } else if (effective <= reduceThreshold) {
       return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
     }
   }
@@ -881,15 +883,21 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
   if (lockInAvailable) {
     return { level: 'medium', actionId: 'lock_in_profit', text: 'Lock in profit' };
   }
-  // Down 5-10% with score in our favor but not strongly: cautious monitor
+  // Down 8-15% with score in our favor but not strongly: cautious monitor
   if (inSignificantLoss && effective >= 5) {
     return { level: 'medium', actionId: 'tighten_stop', text: 'Tighten stop — price against position' };
   }
-  if (heat === 'yellow' || effective <= -5 || considerBE) {
+  if (considerBE) {
+    return { level: 'medium', actionId: 'tighten_stop', text: 'Tighten stop' };
+  }
+  if (heat === 'red' && effective <= -10) {
     return { level: 'medium', actionId: 'tighten_stop', text: 'Tighten stop' };
   }
   if (effective >= 5) {
     return { level: 'positive', actionId: 'hold', text: 'Hold — strengthening' };
+  }
+  if (heat === 'yellow' && effective <= -8) {
+    return { level: 'low', actionId: 'monitor', text: 'Monitor — score dipping' };
   }
   return { level: 'low', actionId: 'monitor', text: 'Monitor' };
 }
@@ -1081,29 +1089,31 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
 
   // Effective score diff: positive = setup quality improved, negative = degraded.
   // SAME formula for LONG and SHORT — score measures setup quality for both directions.
-  // When signal direction flips or goes neutral, we penalize because our directional thesis weakened.
+  // When signal direction flips or goes neutral, we penalize — but not so harshly that
+  // normal crypto volatility triggers exits. Signals flip often in ranging markets.
   let effectiveDiff = scoreDiff;
-  if (signalFlipped) effectiveDiff = Math.min(effectiveDiff, -25);  // Direction reversed = very bad
-  else if (isNowHold) effectiveDiff -= 8;  // Direction went neutral = thesis weakening
+  if (signalFlipped) effectiveDiff = Math.min(effectiveDiff, -15);  // Direction reversed — moderate penalty
+  else if (isNowHold) effectiveDiff -= 4;  // Direction went neutral — mild penalty
 
   // 1. Setup invalidated (most severe)
-  // For LONG: low score AND bearish signal = bad. For SHORT: signal flipped to BUY.
-  // (Don't trigger on high score alone for shorts — a high score with BEAR direction is GOOD for shorts)
+  // Only trigger when signal STRONGLY reversed AND score dropped significantly.
+  // A brief flip to SELL during a LONG is normal noise — require score confirmation.
   const scoreAgainstUs = isLong
-    ? currentScore < 30
-    : (signalFlipped);  // For shorts, rely on signal direction, not raw score
-  if (signalFlipped || scoreAgainstUs || effectiveDiff <= -25) {
+    ? currentScore < 25 && signalFlipped  // LONG needs both low score AND bearish signal
+    : (signal.signal === 'STRONG_BUY' && currentScore >= 70);  // SHORT needs strong reversal
+  if ((signalFlipped && effectiveDiff <= -20) || scoreAgainstUs) {
     messages.push({ type: 'danger', text: 'Setup invalidated' });
   }
 
-  // 2. Structure breaking (bad for both directions) – relaxed 4→6 to reduce noise
-  if (hasEntryBreakdown && (cb.structure || 0) <= (eb.structure || 0) - 6) {
+  // 2. Structure breaking (bad for both directions) – relaxed 6→8 to reduce noise
+  // Structure scores fluctuate a lot; only flag when a large shift occurs
+  if (hasEntryBreakdown && (cb.structure || 0) <= (eb.structure || 0) - 8) {
     messages.push({ type: 'danger', text: 'Structure breaking' });
   }
 
   // 3. Momentum dropped: the momentum signal weakened (direction-agnostic).
-  // For BOTH LONG and SHORT this means the indicators that drove the score are fading.
-  if (hasEntryBreakdown && (cb.momentum || 0) <= (eb.momentum || 0) - 3) {
+  // Raised threshold from 3→5 — small momentum dips are normal in crypto
+  if (hasEntryBreakdown && (cb.momentum || 0) <= (eb.momentum || 0) - 5) {
     messages.push({ type: 'warning', text: 'Momentum weakening' });
   }
 
