@@ -619,6 +619,11 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
     const hitTP2Short = trade.direction === 'SHORT' && trade.takeProfit2 && currentPrice <= trade.takeProfit2;
     const hitTP3Short = trade.direction === 'SHORT' && trade.takeProfit3 && currentPrice <= trade.takeProfit3;
 
+    // TP CHECK: Process from LOWEST to HIGHEST so none are skipped if price gaps.
+    // TP1 → partial 1/3 (or 1/2 if only 2 TPs, or full close if only 1 TP)
+    // TP2 → partial 1/3 (or full close if no TP3)
+    // TP3 → full close (take remaining profit)
+    // Multiple TPs can fire in the same cycle if price gapped past several levels.
     const slippage = 1 + (SLIPPAGE_BPS / 10000);
     if (trade.direction === 'LONG') {
       if (trade.stopLoss != null && currentPrice <= trade.stopLoss) {
@@ -627,45 +632,52 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
         closedCount++;
         continue;
       }
-      let handled = false;
       const orig = trade.originalPositionSize || trade.positionSize;
-      const exit3 = trade.takeProfit3 ? trade.takeProfit3 / slippage : 0;
-      const exit2 = trade.takeProfit2 ? trade.takeProfit2 / slippage : 0;
-      const exit1 = trade.takeProfit1 ? trade.takeProfit1 / slippage : 0;
-      if (trade.takeProfit3 && hitTP3Long) {
-        console.log(`[StopTP] ${trade.symbol}: TP3 HIT (LONG) price=$${currentPrice} >= TP3=$${trade.takeProfit3} → FULL CLOSE`);
-        const exitPx = trade.takeProfit3 / slippage;
-        await closeTrade(trade.userId, trade._id, exitPx, 'TP3');
-        closedCount++;
-        handled = true;
-      } else if (trade.takeProfit2 && hitTP2Long && !trade.partialTakenAtTP2) {
-        if (!trade.takeProfit3) {
-          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (LONG) price=$${currentPrice} >= TP2=$${trade.takeProfit2} → FULL CLOSE (no TP3)`);
-          await closeTrade(trade.userId, trade._id, trade.takeProfit2 / slippage, 'TP2');
-        } else {
-          const portion = Math.round((orig / 3) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (LONG) price=$${currentPrice} >= TP2=$${trade.takeProfit2} → PARTIAL $${portion} of $${trade.positionSize}`);
-          await closeTradePartial(trade, exit2, portion, 'TP2');
-        }
-        closedCount++;
-        handled = true;
-      } else if (trade.takeProfit1 && hitTP1Long && !trade.partialTakenAtTP1) {
+
+      // TP1: take partial (or full if only TP)
+      if (hitTP1Long && !trade.partialTakenAtTP1 && trade.takeProfit1) {
+        const exit1 = trade.takeProfit1 / slippage;
         if (!trade.takeProfit2 && !trade.takeProfit3) {
           console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → FULL CLOSE (only TP)`);
-          await closeTrade(trade.userId, trade._id, trade.takeProfit1 / slippage, 'TP1');
+          await closeTrade(trade.userId, trade._id, exit1, 'TP1');
+          closedCount++;
+          continue; // trade closed, skip rest
         } else if (trade.takeProfit2 && !trade.takeProfit3) {
           const portion = Math.round((orig / 2) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} of $${trade.positionSize} (1/2)`);
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (1/2)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         } else {
           const portion = Math.round((orig / 3) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} of $${trade.positionSize} (1/3)`);
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (1/3)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         }
         closedCount++;
-        handled = true;
       }
-      if (handled) continue;
+
+      // TP2: take partial (or full if no TP3) — can fire same cycle as TP1 if price gapped
+      if (hitTP2Long && !trade.partialTakenAtTP2 && trade.takeProfit2) {
+        const exit2 = trade.takeProfit2 / slippage;
+        if (!trade.takeProfit3) {
+          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (LONG) price=$${currentPrice} >= TP2=$${trade.takeProfit2} → FULL CLOSE (no TP3)`);
+          await closeTrade(trade.userId, trade._id, exit2, 'TP2');
+          closedCount++;
+          continue; // trade closed
+        } else {
+          const portion = Math.round((orig / 3) * 100) / 100;
+          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (LONG) price=$${currentPrice} >= TP2=$${trade.takeProfit2} → PARTIAL $${portion} (1/3)`);
+          await closeTradePartial(trade, exit2, portion, 'TP2');
+          closedCount++;
+        }
+      }
+
+      // TP3: full close on remaining position
+      if (hitTP3Long && trade.takeProfit3) {
+        const exit3 = trade.takeProfit3 / slippage;
+        console.log(`[StopTP] ${trade.symbol}: TP3 HIT (LONG) price=$${currentPrice} >= TP3=$${trade.takeProfit3} → FULL CLOSE`);
+        await closeTrade(trade.userId, trade._id, exit3, 'TP3');
+        closedCount++;
+        continue; // trade closed
+      }
     } else {
       if (trade.stopLoss && currentPrice >= trade.stopLoss) {
         console.log(`[StopTP] ${trade.symbol}: STOP LOSS HIT (SHORT) price=$${currentPrice} >= SL=$${trade.stopLoss} → FULL CLOSE`);
@@ -673,44 +685,52 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
         closedCount++;
         continue;
       }
-      let handled = false;
       const orig = trade.originalPositionSize || trade.positionSize;
-      const exit3 = trade.takeProfit3 ? trade.takeProfit3 * slippage : 0;
-      const exit2 = trade.takeProfit2 ? trade.takeProfit2 * slippage : 0;
-      const exit1 = trade.takeProfit1 ? trade.takeProfit1 * slippage : 0;
-      if (trade.takeProfit3 && hitTP3Short) {
-        console.log(`[StopTP] ${trade.symbol}: TP3 HIT (SHORT) price=$${currentPrice} <= TP3=$${trade.takeProfit3} → FULL CLOSE`);
-        await closeTrade(trade.userId, trade._id, trade.takeProfit3 * slippage, 'TP3');
-        closedCount++;
-        handled = true;
-      } else if (trade.takeProfit2 && hitTP2Short && !trade.partialTakenAtTP2) {
-        if (!trade.takeProfit3) {
-          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (SHORT) price=$${currentPrice} <= TP2=$${trade.takeProfit2} → FULL CLOSE (no TP3)`);
-          await closeTrade(trade.userId, trade._id, trade.takeProfit2 * slippage, 'TP2');
-        } else {
-          const portion = Math.round((orig / 3) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (SHORT) price=$${currentPrice} <= TP2=$${trade.takeProfit2} → PARTIAL $${portion} of $${trade.positionSize}`);
-          await closeTradePartial(trade, exit2, portion, 'TP2');
-        }
-        closedCount++;
-        handled = true;
-      } else if (trade.takeProfit1 && hitTP1Short && !trade.partialTakenAtTP1) {
+
+      // TP1: take partial (or full if only TP)
+      if (hitTP1Short && !trade.partialTakenAtTP1 && trade.takeProfit1) {
+        const exit1 = trade.takeProfit1 * slippage;
         if (!trade.takeProfit2 && !trade.takeProfit3) {
           console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → FULL CLOSE (only TP)`);
-          await closeTrade(trade.userId, trade._id, trade.takeProfit1 * slippage, 'TP1');
+          await closeTrade(trade.userId, trade._id, exit1, 'TP1');
+          closedCount++;
+          continue;
         } else if (trade.takeProfit2 && !trade.takeProfit3) {
           const portion = Math.round((orig / 2) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} of $${trade.positionSize} (1/2)`);
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (1/2)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         } else {
           const portion = Math.round((orig / 3) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} of $${trade.positionSize} (1/3)`);
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (1/3)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         }
         closedCount++;
-        handled = true;
       }
-      if (handled) continue;
+
+      // TP2: take partial (or full if no TP3)
+      if (hitTP2Short && !trade.partialTakenAtTP2 && trade.takeProfit2) {
+        const exit2 = trade.takeProfit2 * slippage;
+        if (!trade.takeProfit3) {
+          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (SHORT) price=$${currentPrice} <= TP2=$${trade.takeProfit2} → FULL CLOSE (no TP3)`);
+          await closeTrade(trade.userId, trade._id, exit2, 'TP2');
+          closedCount++;
+          continue;
+        } else {
+          const portion = Math.round((orig / 3) * 100) / 100;
+          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (SHORT) price=$${currentPrice} <= TP2=$${trade.takeProfit2} → PARTIAL $${portion} (1/3)`);
+          await closeTradePartial(trade, exit2, portion, 'TP2');
+          closedCount++;
+        }
+      }
+
+      // TP3: full close on remaining position
+      if (hitTP3Short && trade.takeProfit3) {
+        const exit3 = trade.takeProfit3 * slippage;
+        console.log(`[StopTP] ${trade.symbol}: TP3 HIT (SHORT) price=$${currentPrice} <= TP3=$${trade.takeProfit3} → FULL CLOSE`);
+        await closeTrade(trade.userId, trade._id, exit3, 'TP3');
+        closedCount++;
+        continue;
+      }
     }
    } catch (tradeErr) {
     console.error(`[StopTP] Error processing ${trade.symbol} (${trade._id}):`, tradeErr.message);
