@@ -1271,22 +1271,49 @@ async function runAutoTrade() {
             const livePrice = await fetchLivePrice(coinId);
             if (livePrice == null || !Number.isFinite(livePrice) || livePrice <= 0) continue;
 
-            // Use the best strategy's levels if available, otherwise use overall signal levels
+            // Use the best strategy's levels ONLY — do NOT fall back to overall signal levels.
+            // The overall signal might be in the OPPOSITE direction (e.g. overall SELL but
+            // best strategy says BUY). Mixing SHORT TPs with a LONG trade causes instant
+            // TP3 "hits" at prices below entry, closing with massive losses.
             const strat = sig._bestStrat;
-            let useSL = (strat && strat.stopLoss) || sig.stopLoss;
-            let useTP1 = (strat && strat.takeProfit1) || sig.takeProfit1;
-            let useTP2 = (strat && strat.takeProfit2) || sig.takeProfit2;
-            let useTP3 = (strat && strat.takeProfit3) || sig.takeProfit3;
             const useStratType = (strat && strat.id) || sig.strategyType || 'auto';
 
-            // CRITICAL FIX: Recalculate SL/TP relative to live price
-            // The signal analysis used cached prices. If livePrice differs from the
-            // price used to calculate SL/TP, the levels will be wrong relative to entry.
-            const analysisEntry = (strat && strat.entry) || sig.entry || sig.price || (coinData && coinData.price);
-            if (analysisEntry && analysisEntry > 0 && Math.abs(livePrice - analysisEntry) / analysisEntry > 0.005) {
-              // Price moved since analysis — scale SL/TP proportionally
+            // Only use levels from the SAME direction as our trade
+            const sigDirMatchesTrade = (sig._direction === 'LONG')
+              ? (sig.signal === 'STRONG_BUY' || sig.signal === 'BUY')
+              : (sig.signal === 'STRONG_SELL' || sig.signal === 'SELL');
+
+            let useSL = (strat && strat.stopLoss) || (sigDirMatchesTrade ? sig.stopLoss : null);
+            let useTP1 = (strat && strat.takeProfit1) || (sigDirMatchesTrade ? sig.takeProfit1 : null);
+            let useTP2 = (strat && strat.takeProfit2) || (sigDirMatchesTrade ? sig.takeProfit2 : null);
+            let useTP3 = (strat && strat.takeProfit3) || (sigDirMatchesTrade ? sig.takeProfit3 : null);
+
+            // Sanity: for LONG, TPs must be ABOVE entry; for SHORT, TPs must be BELOW entry.
+            // If any TP is on the wrong side (from a direction mismatch), null it out.
+            if (sig._direction === 'LONG') {
+              if (useTP1 && useTP1 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP1 $${useTP1} below entry $${livePrice} for LONG — removed`); useTP1 = null; }
+              if (useTP2 && useTP2 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP2 $${useTP2} below entry $${livePrice} for LONG — removed`); useTP2 = null; }
+              if (useTP3 && useTP3 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP3 $${useTP3} below entry $${livePrice} for LONG — removed`); useTP3 = null; }
+              if (useSL && useSL >= livePrice * 1.01) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: SL $${useSL} above entry $${livePrice} for LONG — removed`); useSL = null; }
+            } else {
+              if (useTP1 && useTP1 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP1 $${useTP1} above entry $${livePrice} for SHORT — removed`); useTP1 = null; }
+              if (useTP2 && useTP2 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP2 $${useTP2} above entry $${livePrice} for SHORT — removed`); useTP2 = null; }
+              if (useTP3 && useTP3 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP3 $${useTP3} above entry $${livePrice} for SHORT — removed`); useTP3 = null; }
+              if (useSL && useSL <= livePrice * 0.99) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: SL $${useSL} below entry $${livePrice} for SHORT — removed`); useSL = null; }
+            }
+
+            // If no SL from strategy, calculate a default ATR-based one
+            if (!useSL) {
+              const defaultSlPct = 0.05; // 5% default stop
+              useSL = sig._direction === 'LONG' ? livePrice * (1 - defaultSlPct) : livePrice * (1 + defaultSlPct);
+              useSL = parseFloat(useSL.toFixed(6));
+            }
+
+            // Recalculate SL/TP relative to live price if analysis used a different price
+            const analysisEntry = (strat && strat.entry) || (sigDirMatchesTrade ? sig.entry : null) || (coinData && coinData.price);
+            if (analysisEntry && analysisEntry > 0 && useSL && Math.abs(livePrice - analysisEntry) / analysisEntry > 0.005) {
               const ratio = livePrice / analysisEntry;
-              if (useSL) useSL = parseFloat((useSL * ratio).toFixed(6));
+              useSL = parseFloat((useSL * ratio).toFixed(6));
               if (useTP1) useTP1 = parseFloat((useTP1 * ratio).toFixed(6));
               if (useTP2) useTP2 = parseFloat((useTP2 * ratio).toFixed(6));
               if (useTP3) useTP3 = parseFloat((useTP3 * ratio).toFixed(6));

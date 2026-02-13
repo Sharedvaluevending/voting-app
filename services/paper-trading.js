@@ -219,6 +219,21 @@ async function openTrade(userId, signalData) {
     throw new Error(`Insufficient balance. Need $${required.toFixed(2)}, have $${user.paperBalance.toFixed(2)}. Try resetting paper account.`);
   }
 
+  // Sanity-check TPs: for LONG, TPs must be above entry; for SHORT, below.
+  // If a TP is on the wrong side (direction mismatch from strategy fallback), null it out.
+  let safeTP1 = signalData.takeProfit1 || null;
+  let safeTP2 = signalData.takeProfit2 || null;
+  let safeTP3 = signalData.takeProfit3 || null;
+  if (signalData.direction === 'LONG') {
+    if (safeTP1 && safeTP1 < entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP1 $${safeTP1} < entry $${entryPrice} for LONG — removed`); safeTP1 = null; }
+    if (safeTP2 && safeTP2 < entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP2 $${safeTP2} < entry $${entryPrice} for LONG — removed`); safeTP2 = null; }
+    if (safeTP3 && safeTP3 < entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP3 $${safeTP3} < entry $${entryPrice} for LONG — removed`); safeTP3 = null; }
+  } else {
+    if (safeTP1 && safeTP1 > entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP1 $${safeTP1} > entry $${entryPrice} for SHORT — removed`); safeTP1 = null; }
+    if (safeTP2 && safeTP2 > entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP2 $${safeTP2} > entry $${entryPrice} for SHORT — removed`); safeTP2 = null; }
+    if (safeTP3 && safeTP3 > entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP3 $${safeTP3} > entry $${entryPrice} for SHORT — removed`); safeTP3 = null; }
+  }
+
   const trade = new Trade({
     userId,
     coinId: signalData.coinId,
@@ -231,9 +246,9 @@ async function openTrade(userId, signalData) {
     margin,
     stopLoss,
     originalStopLoss: stopLoss,
-    takeProfit1: signalData.takeProfit1,
-    takeProfit2: signalData.takeProfit2,
-    takeProfit3: signalData.takeProfit3,
+    takeProfit1: safeTP1,
+    takeProfit2: safeTP2,
+    takeProfit3: safeTP3,
     fees,
     score: signalData.score,
     strategyType: signalData.strategyType,
@@ -251,7 +266,7 @@ async function openTrade(userId, signalData) {
 
   await trade.save();
 
-  console.log(`[OpenTrade] ${signalData.symbol} ${signalData.direction} | entry=$${entryPrice} | SL=$${stopLoss} | TP1=$${signalData.takeProfit1} | size=$${positionSize.toFixed(2)} | lev=${leverage}x | score=${signalData.score} | strategy=${signalData.strategyType || 'default'} | auto=${!!signalData.autoTriggered}`);
+  console.log(`[OpenTrade] ${signalData.symbol} ${signalData.direction} | entry=$${entryPrice} | SL=$${stopLoss} | TP1=$${safeTP1} | TP2=$${safeTP2} | TP3=$${safeTP3} | size=$${positionSize.toFixed(2)} | lev=${leverage}x | score=${signalData.score} | strategy=${signalData.strategyType || 'default'} | auto=${!!signalData.autoTriggered}`);
 
   user.paperBalance -= (margin + fees);
   await user.save();
@@ -611,6 +626,24 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       }
     } // else: no stopLoss or risk<=0 — silently skip BE/TS
     await trade.save();
+
+    // SANITY: Fix any TPs that are on the wrong side of entry (direction mismatch bug).
+    // For LONG, TPs must be above entry. For SHORT, TPs must be below entry.
+    // If a TP is on the wrong side, null it out to prevent instant bogus "TP HIT" closes.
+    let tpFixed = false;
+    if (trade.direction === 'LONG') {
+      if (trade.takeProfit1 && trade.takeProfit1 < trade.entryPrice) { trade.takeProfit1 = null; tpFixed = true; }
+      if (trade.takeProfit2 && trade.takeProfit2 < trade.entryPrice) { trade.takeProfit2 = null; tpFixed = true; }
+      if (trade.takeProfit3 && trade.takeProfit3 < trade.entryPrice) { trade.takeProfit3 = null; tpFixed = true; }
+    } else {
+      if (trade.takeProfit1 && trade.takeProfit1 > trade.entryPrice) { trade.takeProfit1 = null; tpFixed = true; }
+      if (trade.takeProfit2 && trade.takeProfit2 > trade.entryPrice) { trade.takeProfit2 = null; tpFixed = true; }
+      if (trade.takeProfit3 && trade.takeProfit3 > trade.entryPrice) { trade.takeProfit3 = null; tpFixed = true; }
+    }
+    if (tpFixed) {
+      console.warn(`[StopTP] ${trade.symbol}: Fixed wrong-side TPs (${trade.direction} entry=$${trade.entryPrice}, TP1=$${trade.takeProfit1}, TP2=$${trade.takeProfit2}, TP3=$${trade.takeProfit3})`);
+      await trade.save();
+    }
 
     const hitTP1Long = trade.direction === 'LONG' && trade.takeProfit1 && currentPrice >= trade.takeProfit1;
     const hitTP2Long = trade.direction === 'LONG' && trade.takeProfit2 && currentPrice >= trade.takeProfit2;
