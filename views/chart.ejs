@@ -90,8 +90,11 @@
       <button class="tool-btn" data-tool="fibdraw" title="Fibonacci Retracement (draw)">
         <svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" fill="none" stroke-width="1.2"><line x1="1" y1="3" x2="15" y2="3" stroke-dasharray="2,2"/><line x1="1" y1="6.5" x2="15" y2="6.5" stroke-dasharray="2,2"/><line x1="1" y1="10" x2="15" y2="10" stroke-dasharray="2,2"/><line x1="1" y1="13" x2="15" y2="13" stroke-dasharray="2,2"/></svg>
       </button>
+      <button class="tool-btn tool-btn-danger" data-tool="delete" id="draw-delete-btn" title="Delete selected drawing" disabled style="opacity:0.5;cursor:not-allowed;">
+        <svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 4h10v10H3zM6 4V2h4v2M6 7v4M10 7v4"/></svg>
+      </button>
       <button class="tool-btn tool-btn-danger" data-tool="clear" title="Clear all drawings">
-        <svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
+        <svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg> All
       </button>
     </div>
   </div>
@@ -99,7 +102,7 @@
   <!-- Lightweight Charts (primary – with trade level lines) -->
   <div class="chart-container" id="lw-chart-container" style="display:none;">
     <div id="lw-chart" style="width:100%;height:100%;"></div>
-    <canvas id="draw-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;"></canvas>
+    <canvas id="draw-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;z-index:5;"></canvas>
   </div>
 
   <!-- TradingView widget (fallback – always works) -->
@@ -517,6 +520,8 @@
   var drawings = [];       // saved drawings: { type, points (in price/time coords), color }
   var activeTool = 'cursor';
   var drawState = null;    // in-progress drawing { type, startTime, startPrice, ... }
+  var selectedIndex = null;
+  var dragState = null;    // { index, startPx, startPy, startT1, startP1, startT2, startP2 } for move
 
   function resizeDrawCanvas() {
     if (!drawCanvas || !chartRef.chart) return;
@@ -540,13 +545,75 @@
     return { x: x, y: y };
   }
 
-  // Convert pixel to price/time
+  // Convert pixel to price/time (clamp to canvas so long trend lines complete at edges)
   function fromPixel(x, y) {
     if (!chartRef.chart || !chartRef.series) return null;
     var time = chartRef.chart.timeScale().coordinateToTime(x);
     var price = chartRef.series.coordinateToPrice(y);
     if (time == null || price == null) return null;
     return { time: time, price: price };
+  }
+  function fromPixelClamped(px, py, canvasW, canvasH) {
+    var w = canvasW || (drawCanvas ? drawCanvas.getBoundingClientRect().width : 0);
+    var h = canvasH || (drawCanvas ? drawCanvas.getBoundingClientRect().height : 0);
+    var x = Math.max(0, Math.min(w, px));
+    var y = Math.max(0, Math.min(h, py));
+    return fromPixel(x, y);
+  }
+
+  // Hit test: distance from point to line segment (px, py in pixel coords)
+  function distToSegment(px, py, x1, y1, x2, y2) {
+    var dx = x2 - x1, dy = y2 - y1;
+    var len = Math.sqrt(dx * dx + dy * dy) || 1e-6;
+    var t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (len * len)));
+    var nx = x1 + t * dx, ny = y1 + t * dy;
+    return Math.sqrt((px - nx) * (px - nx) + (py - ny) * (py - ny));
+  }
+  function hitTestDrawing(px, py, d, idx) {
+    var w = drawCanvas ? drawCanvas.getBoundingClientRect().width : 0;
+    var h = drawCanvas ? drawCanvas.getBoundingClientRect().height : 0;
+    var hitRadius = 10;
+    if (d.type === 'hline') {
+      var yPx = chartRef.series.priceToCoordinate(d.price);
+      if (yPx == null) return false;
+      return Math.abs(py - yPx) <= hitRadius && px >= 0 && px <= w;
+    }
+    if (d.type === 'trendline') {
+      var p1 = toPixel(d.t1, d.p1);
+      var p2 = toPixel(d.t2, d.p2);
+      if (!p1 || !p2) return false;
+      return distToSegment(px, py, p1.x, p1.y, p2.x, p2.y) <= hitRadius;
+    }
+    if (d.type === 'ray') {
+      var rp1 = toPixel(d.t1, d.p1);
+      var rp2 = toPixel(d.t2, d.p2);
+      if (!rp1 || !rp2) return false;
+      var dx = rp2.x - rp1.x, dy = rp2.y - rp1.y;
+      var extX = rp2.x + dx * 50, extY = rp2.y + dy * 50;
+      return distToSegment(px, py, rp1.x, rp1.y, extX, extY) <= hitRadius && (px - rp1.x) * dx + (py - rp1.y) * dy >= -5;
+    }
+    if (d.type === 'rect') {
+      var rc1 = toPixel(d.t1, d.p1);
+      var rc2 = toPixel(d.t2, d.p2);
+      if (!rc1 || !rc2) return false;
+      var rx = Math.min(rc1.x, rc2.x), ry = Math.min(rc1.y, rc2.y);
+      var rw = Math.abs(rc2.x - rc1.x), rh = Math.abs(rc2.y - rc1.y);
+      return px >= rx - hitRadius && px <= rx + rw + hitRadius && py >= ry - hitRadius && py <= ry + rh + hitRadius;
+    }
+    if (d.type === 'fibdraw') {
+      var fc1 = toPixel(d.t1, d.p1);
+      var fc2 = toPixel(d.t2, d.p2);
+      if (!fc1 || !fc2) return false;
+      return distToSegment(px, py, fc1.x, fc1.y, fc2.x, fc2.y) <= hitRadius;
+    }
+    return false;
+  }
+  // Which drawing is under (px, py)? Top-most first (last in array).
+  function getDrawingAt(px, py) {
+    for (var i = drawings.length - 1; i >= 0; i--) {
+      if (hitTestDrawing(px, py, drawings[i], i)) return i;
+    }
+    return -1;
   }
 
   function renderDrawings(tempDraw) {
@@ -560,8 +627,9 @@
 
     for (var i = 0; i < all.length; i++) {
       var d = all[i];
+      var isSelected = (selectedIndex === i && !tempDraw);
       drawCtx.strokeStyle = d.color || '#f59e0b';
-      drawCtx.lineWidth = d.lineWidth || 1.5;
+      drawCtx.lineWidth = (d.lineWidth || 1.5) + (isSelected ? 2 : 0);
       drawCtx.setLineDash(d.dash || []);
       drawCtx.fillStyle = d.fill || 'transparent';
       drawCtx.font = '10px monospace';
@@ -675,37 +743,85 @@
     chartRef.chart.subscribeCrosshairMove(function() { /* lightweight redraw on move if drawing */ });
   }
 
+  function updateDeleteButton() {
+    var btn = document.getElementById('draw-delete-btn');
+    if (btn) {
+      btn.disabled = selectedIndex == null;
+      btn.style.opacity = selectedIndex != null ? '1' : '0.5';
+      btn.style.cursor = selectedIndex != null ? 'pointer' : 'not-allowed';
+    }
+  }
+
   // Tool button clicks
   var toolBtns = document.querySelectorAll('#draw-tools .tool-btn');
   for (var ti = 0; ti < toolBtns.length; ti++) {
     toolBtns[ti].addEventListener('click', function() {
       var tool = this.getAttribute('data-tool');
       if (tool === 'clear') {
+        if (drawings.length === 0) return;
+        if (!confirm('Clear all ' + drawings.length + ' drawing(s)?')) return;
         drawings = [];
         drawState = null;
+        selectedIndex = null;
+        dragState = null;
         renderDrawings();
+        updateDeleteButton();
+        return;
+      }
+      if (tool === 'delete') {
+        if (selectedIndex != null && drawings[selectedIndex]) {
+          drawings.splice(selectedIndex, 1);
+          selectedIndex = null;
+          dragState = null;
+          renderDrawings();
+          updateDeleteButton();
+        }
         return;
       }
       activeTool = tool;
       drawState = null;
+      dragState = null;
+      if (tool === 'cursor') selectedIndex = null;
       for (var tj = 0; tj < toolBtns.length; tj++) toolBtns[tj].classList.remove('tool-active');
       this.classList.add('tool-active');
-      // Enable/disable overlay pointer events
       if (drawCanvas) {
-        drawCanvas.style.pointerEvents = (tool === 'cursor') ? 'none' : 'auto';
+        drawCanvas.style.pointerEvents = 'auto';
         drawCanvas.style.cursor = (tool === 'cursor') ? 'default' : 'crosshair';
       }
+      renderDrawings();
+      updateDeleteButton();
     });
   }
 
   // Mouse handling on the draw overlay
   if (drawCanvas) {
     drawCanvas.addEventListener('mousedown', function(e) {
-      if (activeTool === 'cursor') return;
       var rect = drawCanvas.getBoundingClientRect();
       var x = e.clientX - rect.left;
       var y = e.clientY - rect.top;
-      var coord = fromPixel(x, y);
+      var w = rect.width;
+      var h = rect.height;
+
+      if (activeTool === 'cursor') {
+        var idx = getDrawingAt(x, y);
+        if (idx >= 0) {
+          selectedIndex = idx;
+          var d = drawings[idx];
+          if (d.type === 'hline') {
+            dragState = { index: idx, startPx: x, startPy: y, origP1: d.price };
+          } else {
+            dragState = { index: idx, startPx: x, startPy: y, origT1: d.t1, origP1: d.p1, origT2: d.t2, origP2: d.p2 };
+          }
+        } else {
+          selectedIndex = null;
+          dragState = null;
+        }
+        renderDrawings();
+        updateDeleteButton();
+        return;
+      }
+
+      var coord = fromPixelClamped(x, y, w, h);
       if (!coord) return;
 
       if (activeTool === 'hline') {
@@ -714,29 +830,66 @@
         return;
       }
 
-      // Two-click tools: start drawing
       drawState = { type: activeTool, t1: coord.time, p1: coord.price };
     });
 
     drawCanvas.addEventListener('mousemove', function(e) {
-      if (!drawState) return;
       var rect = drawCanvas.getBoundingClientRect();
       var x = e.clientX - rect.left;
       var y = e.clientY - rect.top;
-      var coord = fromPixel(x, y);
-      if (!coord) return;
+      var w = rect.width;
+      var h = rect.height;
 
-      var temp = Object.assign({}, drawState, { t2: coord.time, p2: coord.price, color: '#f59e0b', lineWidth: 1.5 });
-      renderDrawings(temp);
+      if (dragState !== null) {
+        var now = fromPixel(x, y);
+        var start = fromPixel(dragState.startPx, dragState.startPy);
+        if (now && start) {
+          var dt = now.time - start.time;
+          var dp = now.price - start.price;
+          var d = drawings[dragState.index];
+          if (d.type === 'hline') {
+            d.price = dragState.origP1 + dp;
+          } else {
+            d.t1 = dragState.origT1 + dt;
+            d.p1 = dragState.origP1 + dp;
+            d.t2 = dragState.origT2 + dt;
+            d.p2 = dragState.origP2 + dp;
+          }
+          dragState.startPx = x;
+          dragState.startPy = y;
+          dragState.origP1 = d.type === 'hline' ? d.price : d.p1;
+          if (d.type !== 'hline') {
+            dragState.origT1 = d.t1;
+            dragState.origP1 = d.p1;
+            dragState.origT2 = d.t2;
+            dragState.origP2 = d.p2;
+          }
+        }
+        renderDrawings();
+        return;
+      }
+
+      if (drawState) {
+        var coord = fromPixelClamped(x, y, w, h);
+        if (!coord) { renderDrawings(); return; }
+        var temp = Object.assign({}, drawState, { t2: coord.time, p2: coord.price, color: '#f59e0b', lineWidth: 1.5 });
+        renderDrawings(temp);
+      }
     });
 
     drawCanvas.addEventListener('mouseup', function(e) {
+      if (dragState !== null) {
+        dragState = null;
+        return;
+      }
       if (!drawState) return;
       var rect = drawCanvas.getBoundingClientRect();
       var x = e.clientX - rect.left;
       var y = e.clientY - rect.top;
-      var coord = fromPixel(x, y);
-      if (!coord) { drawState = null; return; }
+      var w = rect.width;
+      var h = rect.height;
+      var coord = fromPixelClamped(x, y, w, h);
+      if (!coord) { drawState = null; renderDrawings(); return; }
 
       var d = Object.assign({}, drawState, { t2: coord.time, p2: coord.price, color: '#f59e0b', lineWidth: 1.5 });
       drawings.push(d);
@@ -744,21 +897,33 @@
       renderDrawings();
     });
 
-    // Escape key cancels current drawing
     document.addEventListener('keydown', function(e) {
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedIndex != null && drawings[selectedIndex]) {
+          e.preventDefault();
+          drawings.splice(selectedIndex, 1);
+          selectedIndex = null;
+          dragState = null;
+          renderDrawings();
+          updateDeleteButton();
+        }
+        return;
+      }
       if (e.key === 'Escape') {
         drawState = null;
+        dragState = null;
         renderDrawings();
-        // Reset to cursor
         activeTool = 'cursor';
-        if (drawCanvas) { drawCanvas.style.pointerEvents = 'none'; drawCanvas.style.cursor = 'default'; }
+        if (drawCanvas) { drawCanvas.style.cursor = 'default'; }
         for (var tk = 0; tk < toolBtns.length; tk++) {
           toolBtns[tk].classList.remove('tool-active');
           if (toolBtns[tk].getAttribute('data-tool') === 'cursor') toolBtns[tk].classList.add('tool-active');
         }
+        updateDeleteButton();
       }
     });
   }
+  updateDeleteButton();
 
   window.addEventListener('resize', function() { resizeDrawCanvas(); });
 

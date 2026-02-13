@@ -126,7 +126,21 @@ async function openTrade(userId, signalData) {
   const entryPrice = signalData.direction === 'LONG'
     ? signalData.entry * slippage
     : signalData.entry / slippage;
-  const stopLoss = signalData.stopLoss;
+  let stopLoss = signalData.stopLoss;
+
+  // CAP STOP LOSS DISTANCE: prevent absurdly wide stops (max 15% from entry)
+  // This protects against bad support/resistance calculations setting stops way too far
+  const MAX_SL_DISTANCE_PCT = 0.15;
+  if (stopLoss != null && entryPrice > 0) {
+    const slDistance = Math.abs(entryPrice - stopLoss) / entryPrice;
+    if (slDistance > MAX_SL_DISTANCE_PCT) {
+      const cappedSL = signalData.direction === 'LONG'
+        ? entryPrice * (1 - MAX_SL_DISTANCE_PCT)
+        : entryPrice * (1 + MAX_SL_DISTANCE_PCT);
+      console.warn(`[OpenTrade] ${signalData.symbol}: SL too far (${(slDistance * 100).toFixed(1)}% from entry). Capping: $${stopLoss} → $${cappedSL.toFixed(6)}`);
+      stopLoss = parseFloat(cappedSL.toFixed(6));
+    }
+  }
 
   let positionSize = calculatePositionSize(
     user.paperBalance, riskPercent, entryPrice, stopLoss, leverage
@@ -237,6 +251,8 @@ async function openTrade(userId, signalData) {
 
   await trade.save();
 
+  console.log(`[OpenTrade] ${signalData.symbol} ${signalData.direction} | entry=$${entryPrice} | SL=$${stopLoss} | TP1=$${signalData.takeProfit1} | size=$${positionSize.toFixed(2)} | lev=${leverage}x | score=${signalData.score} | strategy=${signalData.strategyType || 'default'} | auto=${!!signalData.autoTriggered}`);
+
   user.paperBalance -= (margin + fees);
   await user.save();
 
@@ -321,6 +337,31 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
   const user = await User.findById(userId);
   if (!user) throw new Error('User not found');
 
+  // PRICE SANITY CHECK: don't close at a price that's impossibly far from entry
+  // unless it's a manual close (user explicitly chose to close)
+  if (reason !== 'MANUAL' && trade.entryPrice > 0 && currentPrice > 0) {
+    const priceDrift = Math.abs(currentPrice - trade.entryPrice) / trade.entryPrice;
+    if (priceDrift > 0.5) {
+      // Try to get a fresh live price instead
+      try {
+        const { fetchLivePrice } = require('./crypto-api');
+        const livePrice = await fetchLivePrice(trade.coinId);
+        if (livePrice != null && Number.isFinite(livePrice) && livePrice > 0) {
+          const liveDrift = Math.abs(livePrice - trade.entryPrice) / trade.entryPrice;
+          if (liveDrift < priceDrift) {
+            console.warn(`[CloseTrade] PRICE CORRECTED: ${trade.symbol} bad price $${currentPrice} → live $${livePrice} (drift ${(priceDrift * 100).toFixed(1)}% → ${(liveDrift * 100).toFixed(1)}%)`);
+            currentPrice = livePrice;
+          }
+        }
+      } catch (err) { /* keep original price */ }
+      // If still >50% drift, block the close entirely
+      const finalDrift = Math.abs(currentPrice - trade.entryPrice) / trade.entryPrice;
+      if (finalDrift > 0.5) {
+        throw new Error(`Price sanity check failed: ${trade.symbol} entry=$${trade.entryPrice} close=$${currentPrice} (${(finalDrift * 100).toFixed(1)}% drift). Blocking automated close.`);
+      }
+    }
+  }
+
   // Slippage on exit: LONG sell lower, SHORT buy back higher
   const slippage = 1 + (SLIPPAGE_BPS / 10000);
   const exitPrice = trade.direction === 'LONG'
@@ -355,6 +396,8 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
   trade.updatedAt = new Date();
 
   await trade.save();
+
+  console.log(`[CloseTrade] ${trade.symbol} ${trade.direction} | entry=$${trade.entryPrice} exit=$${exitPrice} (fed price=$${currentPrice}) | reason=${reason} | PnL=$${totalPnl.toFixed(2)} (${pnlPercent.toFixed(1)}%) | duration=${Math.round((Date.now() - new Date(trade.createdAt).getTime()) / 60000)}min`);
 
   user.paperBalance += trade.margin + pnl;
   user.stats.totalTrades += 1;
@@ -415,6 +458,16 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       continue;
     }
     const currentPrice = priceData.price;
+
+    // PRICE SANITY CHECK: reject prices that are impossibly far from entry
+    // Crypto can move, but >50% in one direction from entry is likely a bad price feed
+    if (trade.entryPrice > 0 && currentPrice > 0) {
+      const priceDrift = Math.abs(currentPrice - trade.entryPrice) / trade.entryPrice;
+      if (priceDrift > 0.5) {
+        console.error(`[StopTP] PRICE SANITY FAIL: ${trade.symbol} entry=$${trade.entryPrice} current=$${currentPrice} (${(priceDrift * 100).toFixed(1)}% drift) – skipping to avoid bad fill`);
+        continue;
+      }
+    }
 
     if (currentPrice > trade.maxPrice) trade.maxPrice = currentPrice;
     if (currentPrice < trade.minPrice) trade.minPrice = currentPrice;
@@ -914,8 +967,32 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
     return { executed: false };
   }
 
-  const priceData = getCurrentPriceFunc(trade.coinId);
-  const price = priceData?.price ?? currentPrice;
+  // Fetch a LIVE price for exits – don't rely on stale cache which can be from a different source
+  let price = currentPrice;
+  try {
+    const { fetchLivePrice } = require('./crypto-api');
+    const livePrice = await fetchLivePrice(trade.coinId);
+    if (livePrice != null && Number.isFinite(livePrice) && livePrice > 0) {
+      price = livePrice;
+    } else {
+      const priceData = getCurrentPriceFunc(trade.coinId);
+      if (priceData?.price) price = priceData.price;
+    }
+  } catch (err) {
+    const priceData = getCurrentPriceFunc(trade.coinId);
+    if (priceData?.price) price = priceData.price;
+    console.warn(`[ScoreCheck] Live price fetch failed for ${trade.symbol}, using cached: ${price}`);
+  }
+
+  // PRICE SANITY CHECK: don't execute at a price that's wildly different from entry
+  if (trade.entryPrice > 0 && price > 0) {
+    const priceDrift = Math.abs(price - trade.entryPrice) / trade.entryPrice;
+    if (priceDrift > 0.5) {
+      console.error(`[ScoreCheck] PRICE SANITY FAIL: ${trade.symbol} entry=$${trade.entryPrice} exitPrice=$${price} (${(priceDrift * 100).toFixed(1)}% drift) – blocking action`);
+      return { executed: false };
+    }
+  }
+
   const slippage = 1 + (SLIPPAGE_BPS / 10000);
   const exitPrice = trade.direction === 'LONG' ? price / slippage : price * slippage;
   const fp = (v) => typeof v === 'number' ? v.toFixed(v >= 1 ? 2 : 6) : String(v);
@@ -1270,12 +1347,32 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
   let checkedCount = 0;
   for (const trade of openTrades) {
     try {
-      const priceData = getCurrentPriceFunc(trade.coinId);
-      if (!priceData) {
-        console.warn(`[ScoreCheck] No price data for ${trade.symbol} (${trade.coinId}) – skipping`);
-        continue;
+      // Try live price first, fall back to cached
+      let currentPrice;
+      try {
+        const { fetchLivePrice } = require('./crypto-api');
+        const livePrice = await fetchLivePrice(trade.coinId);
+        if (livePrice != null && Number.isFinite(livePrice) && livePrice > 0) {
+          currentPrice = livePrice;
+        }
+      } catch (err) { /* fall through to cache */ }
+      if (!currentPrice) {
+        const priceData = getCurrentPriceFunc(trade.coinId);
+        if (!priceData) {
+          console.warn(`[ScoreCheck] No price data for ${trade.symbol} (${trade.coinId}) – skipping`);
+          continue;
+        }
+        currentPrice = priceData.price;
       }
-      const currentPrice = priceData.price;
+
+      // PRICE SANITY CHECK: don't evaluate score against a wildly wrong price
+      if (trade.entryPrice > 0 && currentPrice > 0) {
+        const priceDrift = Math.abs(currentPrice - trade.entryPrice) / trade.entryPrice;
+        if (priceDrift > 0.5) {
+          console.error(`[ScoreCheck] PRICE SANITY FAIL: ${trade.symbol} entry=$${trade.entryPrice} current=$${currentPrice} (${(priceDrift * 100).toFixed(1)}% drift) – skipping`);
+          continue;
+        }
+      }
 
       const signal = await getSignalForCoin(trade.coinId);
       if (!signal) {

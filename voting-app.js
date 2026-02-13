@@ -1206,11 +1206,25 @@ async function runAutoTrade() {
 
             // Use the best strategy's levels if available, otherwise use overall signal levels
             const strat = sig._bestStrat;
-            const useSL = (strat && strat.stopLoss) || sig.stopLoss;
-            const useTP1 = (strat && strat.takeProfit1) || sig.takeProfit1;
-            const useTP2 = (strat && strat.takeProfit2) || sig.takeProfit2;
-            const useTP3 = (strat && strat.takeProfit3) || sig.takeProfit3;
+            let useSL = (strat && strat.stopLoss) || sig.stopLoss;
+            let useTP1 = (strat && strat.takeProfit1) || sig.takeProfit1;
+            let useTP2 = (strat && strat.takeProfit2) || sig.takeProfit2;
+            let useTP3 = (strat && strat.takeProfit3) || sig.takeProfit3;
             const useStratType = (strat && strat.id) || sig.strategyType || 'auto';
+
+            // CRITICAL FIX: Recalculate SL/TP relative to live price
+            // The signal analysis used cached prices. If livePrice differs from the
+            // price used to calculate SL/TP, the levels will be wrong relative to entry.
+            const analysisEntry = (strat && strat.entry) || sig.entry || sig.price || (coinData && coinData.price);
+            if (analysisEntry && analysisEntry > 0 && Math.abs(livePrice - analysisEntry) / analysisEntry > 0.005) {
+              // Price moved since analysis — scale SL/TP proportionally
+              const ratio = livePrice / analysisEntry;
+              if (useSL) useSL = parseFloat((useSL * ratio).toFixed(6));
+              if (useTP1) useTP1 = parseFloat((useTP1 * ratio).toFixed(6));
+              if (useTP2) useTP2 = parseFloat((useTP2 * ratio).toFixed(6));
+              if (useTP3) useTP3 = parseFloat((useTP3 * ratio).toFixed(6));
+              console.log(`[AutoTrade] ${COIN_META[coinId]?.symbol}: Scaled levels by ${ratio.toFixed(4)} (analysis=$${analysisEntry} live=$${livePrice})`);
+            }
 
             const lev = user.settings?.disableLeverage ? 1 : (sig.suggestedLeverage || suggestLeverage(sig._bestScore, sig.regime || 'mixed', 'normal'));
             const tradeData = {
