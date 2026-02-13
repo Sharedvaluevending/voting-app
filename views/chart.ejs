@@ -66,6 +66,9 @@
       <label class="toggle-label" title="Show/hide action markers (BE, TS, EXIT, etc.)">
         <input type="checkbox" id="toggle-badges" checked> <span class="toggle-text">Badges</span>
       </label>
+      <label class="toggle-label" title="Show/hide detected candlestick pattern markers">
+        <input type="checkbox" id="toggle-patterns" checked> <span class="toggle-text">Patterns</span>
+      </label>
     </div>
 
     <div class="toolbar-divider"></div>
@@ -191,6 +194,8 @@
   var currentTF = '1h';
   var showFib = true;
   var showBadges = true;
+  var showPatterns = true;
+  var lastPatterns = [];
 
   // Action marker colors and shapes for Lightweight Charts
   var actionMarkerConfig = {
@@ -255,6 +260,23 @@
         text: cfg.label + priceInfo
       });
     }
+    // Add pattern markers if enabled
+    if (showPatterns && lastPatterns && lastPatterns.length > 0) {
+      for (var p = 0; p < lastPatterns.length; p++) {
+        var pat = lastPatterns[p];
+        if (!pat.time) continue;
+        var isBull = pat.direction === 'BULL';
+        var isBear = pat.direction === 'BEAR';
+        markers.push({
+          time: pat.time,
+          position: isBull ? 'belowBar' : isBear ? 'aboveBar' : 'inBar',
+          color: isBull ? '#10b981' : isBear ? '#ef4444' : '#6b7280',
+          shape: isBull ? 'arrowUp' : isBear ? 'arrowDown' : 'circle',
+          text: pat.name
+        });
+      }
+    }
+
     // Sort by time (required by Lightweight Charts)
     markers.sort(function(a, b) { return a.time - b.time; });
     try { chartRef.series.setMarkers(markers); } catch(e) { console.warn('setMarkers error:', e); }
@@ -383,6 +405,9 @@
           return;
         }
 
+        // Capture pattern data from API response (v4.1)
+        lastPatterns = data.patterns || [];
+
         if (!chartRef.chart) {
           // First load — create the chart
           lwContainer.style.display = '';
@@ -406,9 +431,11 @@
             chartRef.series = series;
             chartRef.candleTimes = data.candles.map(function(c) { return c.time; });
             addPriceLines();
-            // Apply initial action markers from server-rendered data
+            // Apply initial action markers from server-rendered data (includes patterns)
             if (initialActions && initialActions.length > 0) {
               applyActionMarkers(initialActions);
+            } else if (lastPatterns.length > 0) {
+              applyActionMarkers([]);
             }
             chart.timeScale().fitContent();
             // Set up drawing overlay after chart is ready
@@ -418,10 +445,8 @@
           // Timeframe switch — just update data
           chartRef.series.setData(data.candles);
           chartRef.candleTimes = data.candles.map(function(c) { return c.time; });
-          // Re-apply action markers for new timeframe
-          if (initialActions && initialActions.length > 0) {
-            applyActionMarkers(initialActions);
-          }
+          // Re-apply action markers for new timeframe (includes patterns)
+          applyActionMarkers(initialActions || []);
           chartRef.chart.timeScale().fitContent();
           setTimeout(function() { renderDrawings(); }, 100);
         }
@@ -521,6 +546,10 @@
   });
   document.getElementById('toggle-badges').addEventListener('change', function() {
     toggleBadges(this.checked);
+  });
+  document.getElementById('toggle-patterns').addEventListener('change', function() {
+    showPatterns = this.checked;
+    applyActionMarkers(initialActions || []);
   });
 
   // =============================================

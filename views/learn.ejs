@@ -256,6 +256,163 @@
       &bull; "(underwater)" – Trade is in the red, no auto-action will fire yet.
     </div>
   </div>
+
+  <!-- CANDLESTICK PATTERNS SECTION (v4.1) -->
+  <div class="section" style="grid-column: 1 / -1;">
+    <h3 style="color:#f59e0b;">Candlestick Pattern Recognition (v4.1)</h3>
+    <div class="journal-entry">
+      <strong>How Candlestick Patterns Integrate</strong><br>
+      The engine scans every timeframe (15m through 1W) for 24+ candlestick patterns.
+      Each detected pattern receives a <strong>context-weighted score</strong> that feeds into the Structure (+5 max) and Momentum (+3 max) sub-scores.<br><br>
+      <strong>Bullish patterns</strong> (green) add <span style="color:#10b981;font-weight:600;">bullPoints</span> &rarr; support <strong>LONG</strong> signals.<br>
+      <strong>Bearish patterns</strong> (red) add <span style="color:#ef4444;font-weight:600;">bearPoints</span> &rarr; support <strong>SHORT</strong> signals.<br><br>
+      A pattern alone is a weak signal. A pattern <em>at the right place</em> with confirming indicators is powerful.
+      The system multiplies pattern weight based on context:<br>
+      &bull; At support/resistance: <strong>1.5x</strong><br>
+      &bull; With RSI divergence: <strong>1.3x</strong><br>
+      &bull; High volume confirmation: <strong>1.3x</strong><br>
+      &bull; At order block: <strong>1.3x</strong><br>
+      &bull; In BB squeeze: <strong>1.2x</strong><br>
+      &bull; Higher TF trend aligned: <strong>1.2x</strong><br>
+      &bull; Against higher TF trend: <strong>0.6x</strong> (reduced)<br>
+      &bull; Against S/R level: <strong>0.6x</strong> (reduced)
+    </div>
+
+    <div class="journal-entry">
+      <strong style="color:#10b981;">Single-Candle Patterns (Tier 1)</strong><br><br>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;">
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Hammer</strong> <span style="color:#10b981;font-size:11px;">BULL reversal</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Long lower shadow (2x+ body), tiny upper shadow. At bottom of downtrend — buyers stepping in. Best at support with RSI oversold.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Inverted Hammer</strong> <span style="color:#10b981;font-size:11px;">BULL reversal</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Long upper shadow (2x+ body) at bottom. Attempted rally shows buying interest emerging despite rejection.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Shooting Star</strong> <span style="color:#ef4444;font-size:11px;">BEAR reversal</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Long upper shadow (2x+ body) at top of uptrend. Sellers rejected higher prices forcefully. Best at resistance.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Hanging Man</strong> <span style="color:#ef4444;font-size:11px;">BEAR reversal</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Hammer shape at the TOP of uptrend. Warning that support is weakening despite the intra-bar recovery.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #6b7280;">
+          <strong>Doji (4 variants)</strong> <span style="color:#6b7280;font-size:11px;">Indecision</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Open ≈ Close. Standard, Dragonfly (bull), Gravestone (bear), Long-legged. At extremes = reversal signal.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #3b82f6;">
+          <strong>Marubozu</strong> <span style="color:#3b82f6;font-size:11px;">Continuation</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Full body, no shadows. Total control by one side. Bullish = buyer dominance. Bearish = seller dominance.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #f59e0b;">
+          <strong>Pin Bar</strong> <span style="color:#f59e0b;font-size:11px;">Reversal (strong)</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Extremely long shadow (3x+ body) on one side. Violent rejection. One of the strongest single-candle signals.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #6b7280;">
+          <strong>Spinning Top</strong> <span style="color:#6b7280;font-size:11px;">Indecision</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Small body with roughly equal shadows. Neither side wins. Often precedes breakouts.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="journal-entry">
+      <strong style="color:#eab308;">Multi-Candle Patterns (Tier 2)</strong><br><br>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;">
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Bullish Engulfing</strong> <span style="color:#10b981;font-size:11px;">BULL reversal ★★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Bullish candle completely engulfs prior bearish candle. Buyers overwhelmed sellers. Extremely reliable at support levels.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Bearish Engulfing</strong> <span style="color:#ef4444;font-size:11px;">BEAR reversal ★★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Bearish candle engulfs prior bullish candle. Sellers overwhelmed buyers. Extremely reliable at resistance levels.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Morning Star</strong> <span style="color:#10b981;font-size:11px;">BULL reversal ★★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">3-candle pattern: large bearish → small star → large bullish. The star shows selling exhaustion. Powerful bottom signal.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Evening Star</strong> <span style="color:#ef4444;font-size:11px;">BEAR reversal ★★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">3-candle pattern: large bullish → small star → large bearish. Buying exhaustion into distribution. Powerful top signal.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Piercing Line</strong> <span style="color:#10b981;font-size:11px;">BULL reversal ★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Opens below prior low, closes above prior midpoint. Buyers stepped in aggressively at lower prices.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Dark Cloud Cover</strong> <span style="color:#ef4444;font-size:11px;">BEAR reversal ★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Opens above prior high, closes below prior midpoint. Sellers stepped in aggressively at higher prices.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Three White Soldiers</strong> <span style="color:#10b981;font-size:11px;">BULL continuation ★★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Three consecutive strong bullish candles with small wicks. Sustained buying pressure, very strong trend signal for longs.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Three Black Crows</strong> <span style="color:#ef4444;font-size:11px;">BEAR continuation ★★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Three consecutive strong bearish candles. Sustained selling pressure, very strong trend signal for shorts.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Tweezer Bottom</strong> <span style="color:#10b981;font-size:11px;">BULL reversal ★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Two candles with matching lows (bear → bull). Level tested twice and held — strong support confirmation.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Tweezer Top</strong> <span style="color:#ef4444;font-size:11px;">BEAR reversal ★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Two candles with matching highs (bull → bear). Resistance tested twice — strong rejection confirmation.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="journal-entry">
+      <strong style="color:#a78bfa;">Complex Patterns (Tier 3)</strong><br><br>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;">
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Three Inside Up</strong> <span style="color:#10b981;font-size:11px;">BULL reversal ★★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Harami + confirmation candle. More reliable than harami alone — third candle confirms the reversal for long entries.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Three Inside Down</strong> <span style="color:#ef4444;font-size:11px;">BEAR reversal ★★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Bearish harami + confirmation. Third candle confirms sellers have taken control — supports short entries.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #f59e0b;">
+          <strong>Abandoned Baby</strong> <span style="color:#f59e0b;font-size:11px;">Reversal ★★★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Doji star with gaps on both sides. Extremely rare but one of the most reliable reversal patterns. Bull or bear variant.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Rising Three Methods</strong> <span style="color:#10b981;font-size:11px;">BULL continuation ★★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Large bull candle, 3 small bears within its range, then another large bull. Brief pullback in strong uptrend — hold long.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Falling Three Methods</strong> <span style="color:#ef4444;font-size:11px;">BEAR continuation ★★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Large bear candle, 3 small bulls within its range, then another large bear. Brief bounce in strong downtrend — hold short.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #3b82f6;">
+          <strong>Three-Line Strike</strong> <span style="color:#3b82f6;font-size:11px;">Continuation ★★</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Three same-direction candles followed by one large opposite candle. Despite the fake-out, pattern usually resolves in the original direction.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="journal-entry">
+      <strong>Pattern + Context = Real Edge</strong><br>
+      Here's how patterns stack with the existing system to improve signal quality:<br><br>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px;">
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;">
+          <strong style="color:#10b981;">LONG Example:</strong><br>
+          <span style="font-size:12px;color:#9ca3af;">Bullish Engulfing at 4H support + RSI divergence + volume spike = pattern weight boosted 1.5x × 1.3x × 1.3x → strong structure/momentum bonus → higher score → stronger BUY signal.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;">
+          <strong style="color:#ef4444;">SHORT Example:</strong><br>
+          <span style="font-size:12px;color:#9ca3af;">Evening Star at 1D resistance + RSI overbought + bearish OB nearby = pattern weight boosted significantly → higher bearPoints → stronger SELL signal for shorts.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;">
+          <strong style="color:#6b7280;">Filtered Example:</strong><br>
+          <span style="font-size:12px;color:#9ca3af;">Bullish Engulfing on 1H but against the 1D downtrend + at resistance = pattern weight cut to 0.6x × 0.6x → minimal impact. The system prevents false signals.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  </div>
 </div>
 
 <%- include('partials/footer') %>

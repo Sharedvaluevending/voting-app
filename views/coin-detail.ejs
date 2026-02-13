@@ -149,6 +149,50 @@
 </div>
 <% } %>
 
+<% if (sig.indicators && sig.indicators.candlestickPatterns) {
+  var allPatterns = [];
+  ['1H','4H','1D'].forEach(function(tf) {
+    var cp = sig.indicators.candlestickPatterns[tf];
+    if (cp && cp.patterns && cp.patterns.length > 0) {
+      cp.patterns.forEach(function(p) { allPatterns.push({ tf: tf, name: p.name, direction: p.direction, type: p.type, strength: p.strength, weight: p.weight, ctx: p.contextFactors || [], desc: p.description || '' }); });
+    }
+  });
+  if (allPatterns.length > 0) { %>
+<div class="section">
+  <h3>Candlestick Patterns Detected</h3>
+  <div style="display:flex;flex-direction:column;gap:6px;">
+    <% allPatterns.forEach(function(p) { %>
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#0d1320;border-radius:8px;border-left:3px solid <%= p.direction === 'BULL' ? '#10b981' : p.direction === 'BEAR' ? '#ef4444' : '#6b7280' %>;">
+      <div style="min-width:36px;text-align:center;">
+        <span style="font-size:10px;color:#6b7280;font-weight:600;"><%= p.tf %></span>
+      </div>
+      <div style="flex:1;">
+        <div style="font-weight:600;font-size:14px;color:<%= p.direction === 'BULL' ? '#10b981' : p.direction === 'BEAR' ? '#ef4444' : '#d1d5db' %>;"><%= p.name %> <span style="font-size:11px;color:#6b7280;">(<%= p.type %>)</span></div>
+        <div style="font-size:12px;color:#9ca3af;margin-top:2px;"><%= p.desc %></div>
+        <% if (p.ctx.length > 0) { %>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px;">
+          <% p.ctx.forEach(function(c) { %>
+          <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(59,130,246,0.15);color:#3b82f6;"><%= c %></span>
+          <% }); %>
+        </div>
+        <% } %>
+      </div>
+      <div style="text-align:right;min-width:60px;">
+        <div style="font-size:11px;color:#6b7280;">Strength</div>
+        <div style="font-size:16px;font-weight:700;color:<%= p.direction === 'BULL' ? '#10b981' : p.direction === 'BEAR' ? '#ef4444' : '#d1d5db' %>;"><%= '★'.repeat(Math.min(p.strength, 4)) %></div>
+        <% if (p.weight && p.weight !== 1) { %>
+        <div style="font-size:10px;color:#6b7280;">wt: <%= p.weight %>x</div>
+        <% } %>
+      </div>
+    </div>
+    <% }); %>
+  </div>
+  <div style="margin-top:8px;font-size:11px;color:#6b7280;">
+    Bullish patterns support LONG signals &middot; Bearish patterns support SHORT signals &middot; Context multipliers adjust pattern weight based on S/R, divergence, volume, and trend alignment.
+  </div>
+</div>
+<% } } %>
+
 <% var canTrade = typeof user !== 'undefined' && user && sig.signal !== 'HOLD' && (sig.score || 0) >= 55 && (sig.confluenceLevel || 0) >= 2; %>
 <% if (typeof user !== 'undefined' && user) { %>
 <div class="section">

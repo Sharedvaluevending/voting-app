@@ -1,13 +1,15 @@
 // services/trading-engine.js
 // ====================================================
-// ADVANCED MULTI-STRATEGY TRADING ENGINE v4.0
+// ADVANCED MULTI-STRATEGY TRADING ENGINE v4.1
 //
 // Uses Binance OHLCV candles across 15m, 1H, 4H, 1D, 1W.
 // Scores signals 0-100 using 6 categories (learned weights optional).
 // Min score/confluence gate, regime-strategy gating, BTC filter,
 // MTF divergence, dynamic stops, multi-TF S/R, VWAP bands,
 // order blocks, liquidity clusters, session filter.
+// v4.1: Candlestick pattern detection & recognition engine.
 // ====================================================
+const { detectAllPatterns, scorePatterns } = require('./candlestick-patterns');
 
 // Config: quality gates and filters (quant-desk upgrades)
 const ENGINE_CONFIG = {
@@ -367,7 +369,12 @@ function analyzeWithCandles(coinData, candles, options) {
       btcCorrelation: btcCorrelation != null ? r2(btcCorrelation) : null,
       poc: poc > 0 ? r2(poc) : null,
       fundingRate: fundingData ? fundingData.rate : null,
-      fibLevels
+      fibLevels,
+      candlestickPatterns: {
+        '1H': tf1h.candlestickPatterns || {},
+        '4H': tf4h.candlestickPatterns || {},
+        '1D': tf1d.candlestickPatterns || {}
+      }
     },
     timestamp: new Date().toISOString()
   };
@@ -469,6 +476,42 @@ function analyzeOHLCV(candles, currentPrice) {
     rsiROC = last5[4] - last5[0];
   }
 
+  // Candlestick pattern detection (v4.1)
+  const candlestickPatterns = detectAllPatterns(candles);
+
+  // Build context for pattern scoring
+  const srRange = sr.resistance - sr.support;
+  const posInSR = srRange > 0 ? (currentPrice - sr.support) / srRange : 0.5;
+  const nearSupport = posInSR < 0.25;
+  const nearResistance = posInSR > 0.75;
+
+  // Check if near a bull/bear order block
+  let nearBullOB = false, nearBearOB = false;
+  for (const ob of (orderBlocks || [])) {
+    const mid = (ob.top + ob.bottom) / 2;
+    const dist = mid > 0 ? Math.abs(currentPrice - mid) / mid : 1;
+    if (dist < 0.01) {
+      if (ob.type === 'BULL') nearBullOB = true;
+      if (ob.type === 'BEAR') nearBearOB = true;
+    }
+  }
+
+  const patternContext = {
+    nearSupport,
+    nearResistance,
+    rsiDivBullish: rsiDiv && rsiDiv.bullish,
+    rsiDivBearish: rsiDiv && rsiDiv.bearish,
+    rsiOversold: rsi < 30,
+    rsiOverbought: rsi > 70,
+    volumeConfirm: volumeAnalysis.relativeVolume > 1.5,
+    bbSqueeze,
+    nearBullOB,
+    nearBearOB
+    // htfTrend is set later by scoreCandles when we have multi-TF info
+  };
+
+  const patternScore = scorePatterns(candlestickPatterns, patternContext);
+
   return {
     rsi, sma20, sma50, ema9, ema21,
     macdLine, macdSignal, macdHistogram,
@@ -493,6 +536,7 @@ function analyzeOHLCV(candles, currentPrice) {
     volatilityState,
     macdHistSlope,
     rsiROC,
+    candlestickPatterns: patternScore,
     currentPrice,
     closes, highs, lows, volumes
   };
@@ -573,6 +617,12 @@ function scoreCandles(analysis, currentPrice, timeframe) {
     momentum += 2; bearPoints += 1;  // bearish momentum accelerating
   }
   // Decelerating momentum = early warning (no points, but no penalty either)
+
+  // Candlestick pattern momentum confirmation (v4.1)
+  const cpMom = analysis.candlestickPatterns || {};
+  if (cpMom.momentumBonus) {
+    momentum += Math.min(cpMom.momentumBonus, 3);
+  }
 
   momentum = Math.min(20, momentum);
 
@@ -664,6 +714,16 @@ function scoreCandles(analysis, currentPrice, timeframe) {
   if (liq.below != null && liq.below > 0 && currentPrice <= liq.below * 1.005 && currentPrice >= liq.below * 0.99) {
     structure += 1; bullPoints += 1;
   }
+
+  // Candlestick pattern bonus (v4.1)
+  // Patterns boost structure (up to +5) and momentum (up to +3)
+  // Direction points (bullPoints/bearPoints) feed into LONG vs SHORT decision
+  const cpScore = analysis.candlestickPatterns || {};
+  if (cpScore.structureBonus) {
+    structure += Math.min(cpScore.structureBonus, 5);
+  }
+  if (cpScore.bullPoints) bullPoints += cpScore.bullPoints;
+  if (cpScore.bearPoints) bearPoints += cpScore.bearPoints;
 
   structure = Math.min(20, structure);
 
@@ -1809,6 +1869,34 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
       reasons.push(`${name}: Liquidity clusters (above/below) in view`);
   }
 
+  // Candlestick patterns (v4.1)
+  const tfPatterns = [
+    { name: '1H', a: tf1h },
+    { name: '4H', a: tf4h },
+    { name: '1D', a: tf1d }
+  ];
+  for (const { name, a } of tfPatterns) {
+    const cp = a && a.candlestickPatterns;
+    if (cp && cp.patterns && cp.patterns.length > 0) {
+      const bullP = cp.patterns.filter(p => p.direction === 'BULL');
+      const bearP = cp.patterns.filter(p => p.direction === 'BEAR');
+      if (bullP.length > 0) {
+        const names = bullP.map(p => {
+          const ctx = p.contextFactors && p.contextFactors.length > 0 ? ' (' + p.contextFactors.join(', ') + ')' : '';
+          return p.name + ctx;
+        }).join(', ');
+        reasons.push(`${name}: Bullish candle patterns: ${names}`);
+      }
+      if (bearP.length > 0) {
+        const names = bearP.map(p => {
+          const ctx = p.contextFactors && p.contextFactors.length > 0 ? ' (' + p.contextFactors.join(', ') + ')' : '';
+          return p.name + ctx;
+        }).join(', ');
+        reasons.push(`${name}: Bearish candle patterns: ${names}`);
+      }
+    }
+  }
+
   // v5 features context
   if (extras.fundingRate != null) {
     const fr = extras.fundingRate;
@@ -1938,7 +2026,9 @@ function defaultAnalysis(currentPrice) {
     support: currentPrice * 0.95, resistance: currentPrice * 1.05,
     marketStructure: 'UNKNOWN', trend: 'SIDEWAYS',
     volumeTrend: 'NORMAL', relativeVolume: 1, volumeClimax: false, accDist: 'NEUTRAL',
-    volatilityState: 'normal', currentPrice, closes: [], highs: [], lows: [], volumes: []
+    volatilityState: 'normal',
+    candlestickPatterns: { structureBonus: 0, momentumBonus: 0, bullPoints: 0, bearPoints: 0, patterns: [], reasoning: [] },
+    currentPrice, closes: [], highs: [], lows: [], volumes: []
   };
 }
 

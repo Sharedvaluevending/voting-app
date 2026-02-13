@@ -95,6 +95,25 @@
       </div>
       <% } %>
 
+      <% if (sig.indicators && sig.indicators.candlestickPatterns) {
+        var allCp = [];
+        ['1H','4H','1D'].forEach(function(tf) {
+          var cp = sig.indicators.candlestickPatterns[tf];
+          if (cp && cp.patterns && cp.patterns.length > 0) {
+            cp.patterns.forEach(function(p) { allCp.push({ tf: tf, name: p.name, direction: p.direction, ctx: p.contextFactors || [] }); });
+          }
+        });
+        if (allCp.length > 0) { %>
+      <div class="pattern-row" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">
+        <% allCp.slice(0,5).forEach(function(p) { %>
+          <span style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:<%= p.direction === 'BULL' ? 'rgba(16,185,129,0.15)' : p.direction === 'BEAR' ? 'rgba(239,68,68,0.15)' : 'rgba(156,163,175,0.15)' %>;color:<%= p.direction === 'BULL' ? '#10b981' : p.direction === 'BEAR' ? '#ef4444' : '#9ca3af' %>;border:1px solid <%= p.direction === 'BULL' ? 'rgba(16,185,129,0.3)' : p.direction === 'BEAR' ? 'rgba(239,68,68,0.3)' : 'rgba(156,163,175,0.3)' %>;">
+            <span style="font-size:10px;opacity:0.7;"><%= p.tf %></span> <%= p.name %><% if (p.ctx.length > 0) { %> <span style="font-size:9px;opacity:0.7;">(<%= p.ctx.slice(0,2).join(', ') %>)</span><% } %>
+          </span>
+        <% }); %>
+        <% if (allCp.length > 5) { %><span style="font-size:10px;color:#6b7280;">+<%= allCp.length - 5 %> more</span><% } %>
+      </div>
+      <% } } %>
+
       <div class="signal-meta">
         <span>Conf: <strong><%= sig.confidence %>%</strong></span>
         <span>R:R <strong><%= sig.riskReward %>x</strong></span>

@@ -1120,7 +1120,7 @@ app.get('/api/candles/:coinId', async (req, res) => {
       allCandles = await fetchAllCandlesForCoin(coinId);
     }
     if (!allCandles || !allCandles[interval]) {
-      return res.json({ success: true, candles: [] });
+      return res.json({ success: true, candles: [], patterns: [] });
     }
     const raw = allCandles[interval];
     const candles = raw.map(c => ({
@@ -1130,7 +1130,32 @@ app.get('/api/candles/:coinId', async (req, res) => {
       low: c.low,
       close: c.close
     }));
-    res.json({ success: true, candles });
+
+    // Detect candlestick patterns on these candles (v4.1)
+    let patterns = [];
+    try {
+      const { detectAllPatterns } = require('./services/candlestick-patterns');
+      if (raw.length >= 6) {
+        const detected = detectAllPatterns(raw);
+        // Attach the timestamp of the last candle for marker placement
+        if (detected.length > 0) {
+          const lastTime = candles[candles.length - 1].time;
+          patterns = detected.map(p => ({
+            time: lastTime,
+            name: p.name,
+            direction: p.direction,
+            type: p.type,
+            strength: p.strength,
+            description: p.description
+          }));
+        }
+      }
+    } catch (patErr) {
+      // Pattern detection is non-critical — don't fail the candle response
+      console.warn('Pattern detection error:', patErr.message);
+    }
+
+    res.json({ success: true, candles, patterns });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
