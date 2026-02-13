@@ -680,6 +680,27 @@ app.post('/account/settings', requireLogin, async (req, res) => {
 });
 
 // ====================================================
+// SET PAPER BALANCE
+// ====================================================
+app.post('/account/set-balance', requireLogin, async (req, res) => {
+  try {
+    const u = await User.findById(req.session.userId);
+    if (!u) return res.redirect('/performance');
+    const newBalance = parseFloat(req.body.paperBalance);
+    if (!Number.isFinite(newBalance) || newBalance < 100 || newBalance > 1000000) {
+      return res.redirect('/performance?error=' + encodeURIComponent('Balance must be between $100 and $1,000,000'));
+    }
+    u.paperBalance = newBalance;
+    u.initialBalance = newBalance;
+    await u.save();
+    res.redirect('/performance');
+  } catch (err) {
+    console.error('[SetBalance] Error:', err.message);
+    res.redirect('/performance');
+  }
+});
+
+// ====================================================
 // ACCOUNT RESET
 // ====================================================
 app.post('/account/reset', requireLogin, async (req, res) => {

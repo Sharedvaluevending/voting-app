@@ -65,7 +65,7 @@ function suggestLeverage(score, regime, volatilityState) {
   else if (score >= 45) maxLev = 2;
   else maxLev = 1;
 
-  if (regime === 'ranging' || regime === 'choppy') {
+  if (regime === 'ranging' || regime === 'mixed') {
     maxLev = Math.max(1, Math.floor(maxLev * 0.6));
   }
   if (volatilityState === 'high' || volatilityState === 'extreme') {

@@ -1413,8 +1413,8 @@ function detectRegime(tf1d, tf4h) {
   const trend = tf1d.trend;
   const vol = tf1d.volatilityState;
 
-  if (adx > 30 && (trend === 'STRONG_UP' || trend === 'STRONG_DOWN')) return 'trending';
-  if (adx > 20 && (trend === 'UP' || trend === 'DOWN')) return 'trending';
+  if (adx > 25 && (trend === 'STRONG_UP' || trend === 'STRONG_DOWN')) return 'trending';
+  if (adx > 25 && (trend === 'UP' || trend === 'DOWN')) return 'trending';
   if (bbSqueeze) return 'compression';
   if (vol === 'extreme' || vol === 'high') return 'volatile';
   if (adx > 0 && adx < 15) return 'ranging';

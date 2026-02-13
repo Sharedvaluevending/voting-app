@@ -54,8 +54,13 @@
             <td style="font-size:11px;"><%= trade.strategyType || '-' %></td>
             <td><%= timeStr %></td>
             <td style="font-size:10px;">
-              <% if (trade.actions && trade.actions.length > 0) { %>
-                <% trade.actions.forEach(function(a) { %><span class="action-badge action-<%= (a.type || '').toLowerCase() %>" style="font-size:9px;padding:1px 4px;margin-right:2px;" title="<%= a.description || '' %>"><%= a.type || '?' %></span><% }); %>
+              <% if (trade.actions && trade.actions.length > 0) {
+                // Deduplicate: show only the most recent badge of each type
+                var latestByType = {};
+                trade.actions.forEach(function(a) { if (a.type) latestByType[a.type] = a; });
+                var dedupedActions = Object.keys(latestByType).map(function(k) { return latestByType[k]; });
+              %>
+                <% dedupedActions.forEach(function(a) { %><span class="action-badge action-<%= (a.type || '').toLowerCase() %>" style="font-size:9px;padding:1px 4px;margin-right:2px;" title="<%= a.description || '' %>"><%= a.type || '?' %></span><% }); %>
               <% } else { %>-<% } %>
             </td>
             <td style="font-size:11px;"><%= trade.status.replace('_',' ') %></td>

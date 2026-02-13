@@ -40,6 +40,17 @@
 </div>
 
 <div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Paper Trading Balance</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Set your starting paper trading balance. This resets your balance and initial balance (does not clear trade history).</p>
+  <form action="/account/set-balance" method="POST" style="display:flex;gap:12px;align-items:end;max-width:400px;margin-bottom:24px;">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <div style="flex:1;">
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Paper balance ($)</label>
+      <input type="number" name="paperBalance" min="100" max="1000000" step="100" value="<%= user.paperBalance != null ? Math.round(user.paperBalance) : 10000 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <button type="submit" class="btn btn-outline btn-sm" onclick="return confirm('This will reset your paper balance to the entered amount. Continue?')">Set Balance</button>
+  </form>
+
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Trading settings</h3>
   <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Limit how much of your balance each trade can use. Lower values = safer position sizing.</p>
   <form action="/account/settings" method="POST" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;align-items:end;max-width:700px;">
