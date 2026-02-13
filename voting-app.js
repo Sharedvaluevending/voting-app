@@ -1128,6 +1128,14 @@ async function runAutoTrade() {
     const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
     if (!signals || signals.length === 0) return;
 
+    // Map signals to direction: BUY/STRONG_BUY = LONG, SELL/STRONG_SELL = SHORT
+    const signalsWithDirection = signals.map(sig => {
+      let direction = null;
+      if (sig.signal === 'STRONG_BUY' || sig.signal === 'BUY') direction = 'LONG';
+      else if (sig.signal === 'STRONG_SELL' || sig.signal === 'SELL') direction = 'SHORT';
+      return { ...sig, _direction: direction, _coinId: sig.coin?.id || sig.id };
+    });
+
     for (const user of autoTradeUsers) {
       try {
         const minScore = user.liveTrading?.autoOpenMinScore || 75;
@@ -1146,11 +1154,11 @@ async function runAutoTrade() {
         const cooldownSet = new Set(recentTrades.map(t => `${t.coinId}_${t.direction}`));
 
         // Filter signals above threshold, not already open, not in cooldown
-        const candidates = signals.filter(sig => {
+        const candidates = signalsWithDirection.filter(sig => {
           if (sig.score < minScore) return false;
-          if (sig.direction !== 'LONG' && sig.direction !== 'SHORT') return false;
-          if (openCoinIds.includes(sig.id)) return false;
-          if (cooldownSet.has(`${sig.id}_${sig.direction}`)) return false;
+          if (!sig._direction) return false; // HOLD signals ignored
+          if (openCoinIds.includes(sig._coinId)) return false;
+          if (cooldownSet.has(`${sig._coinId}_${sig._direction}`)) return false;
           return true;
         }).sort((a, b) => b.score - a.score);
 
@@ -1159,16 +1167,17 @@ async function runAutoTrade() {
 
         for (const sig of toOpen) {
           try {
-            const coinData = prices.find(p => p.id === sig.id);
+            const coinId = sig._coinId;
+            const coinData = prices.find(p => p.id === coinId);
             if (!coinData) continue;
-            const livePrice = await fetchLivePrice(sig.id);
+            const livePrice = await fetchLivePrice(coinId);
             if (livePrice == null || !Number.isFinite(livePrice) || livePrice <= 0) continue;
 
             const lev = user.settings?.disableLeverage ? 1 : (sig.suggestedLeverage || suggestLeverage(sig.score, sig.regime || 'mixed', 'normal'));
             const tradeData = {
-              coinId: sig.id,
-              symbol: COIN_META[sig.id]?.symbol || sig.id.toUpperCase(),
-              direction: sig.direction,
+              coinId,
+              symbol: COIN_META[coinId]?.symbol || coinId.toUpperCase(),
+              direction: sig._direction,
               entry: livePrice,
               stopLoss: sig.stopLoss,
               takeProfit1: sig.takeProfit1,
@@ -1189,9 +1198,9 @@ async function runAutoTrade() {
             };
 
             await openTrade(user._id, tradeData);
-            console.log(`[AutoTrade] Opened ${sig.direction} on ${tradeData.symbol} (score ${sig.score}) for user ${user.username}`);
+            console.log(`[AutoTrade] Opened ${sig._direction} on ${tradeData.symbol} (score ${sig.score}) for user ${user.username}`);
           } catch (tradeErr) {
-            console.error(`[AutoTrade] Failed to open ${sig.id} for ${user.username}:`, tradeErr.message);
+            console.error(`[AutoTrade] Failed to open ${coinId} for ${user.username}:`, tradeErr.message);
           }
         }
       } catch (userErr) {
