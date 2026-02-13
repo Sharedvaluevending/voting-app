@@ -61,10 +61,14 @@
       <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Cooldown (hours)</label>
       <input type="number" name="cooldownHours" min="0" max="168" title="Hours to wait before re-opening same direction on same coin" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 4 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
     </div>
-    <div style="display:flex;align-items:center;gap:8px;" title="Let the app automatically open trades based on signals (requires Bitget connection for live). Score threshold set in Exchange settings.">
+    <div style="display:flex;align-items:center;gap:8px;" title="Let the app automatically open trades based on signals. Uses best strategy score for each coin.">
       <input type="hidden" name="autoTrade" value="false">
       <input type="checkbox" name="autoTrade" id="autoTrade" value="true" <%= (user.settings && user.settings.autoTrade) ? 'checked' : '' %>>
       <label for="autoTrade" style="font-size:12px;color:#9ca3af;">Auto trade (app opens trades from signals)</label>
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Auto trade min score</label>
+      <input type="number" name="autoTradeMinScore" min="30" max="95" value="<%= (user.settings && user.settings.autoTradeMinScore) != null ? user.settings.autoTradeMinScore : 70 %>" title="Only auto-open trades when best strategy score >= this value" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
     </div>
     <div style="display:flex;align-items:center;gap:8px;" title="Force all trades to 1x leverage (no leverage). Overrides default leverage setting.">
       <input type="hidden" name="disableLeverage" value="false">

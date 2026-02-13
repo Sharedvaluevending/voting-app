@@ -16,6 +16,7 @@ const userSchema = new mongoose.Schema({
     cooldownHours: { type: Number, default: 4, min: 0, max: 168 },
     autoExecuteActions: { type: Boolean, default: false },
     autoTrade: { type: Boolean, default: false },
+    autoTradeMinScore: { type: Number, default: 70, min: 30, max: 95 },
     disableLeverage: { type: Boolean, default: false },
     autoMoveBreakeven: { type: Boolean, default: true },
     autoTrailingStop: { type: Boolean, default: true }
