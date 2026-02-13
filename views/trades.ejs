@@ -80,7 +80,7 @@
         <div class="signal-meta">
           <span>Entry: <strong>$<%= formatPrice(trade.entryPrice) %></strong></span>
           <span>Size: <strong>$<%= trade.positionSize.toFixed(2) %></strong><% if (trade.originalPositionSize && trade.originalPositionSize > trade.positionSize) { %> <span style="font-size:11px;color:#6b7280;">(of $<%= trade.originalPositionSize.toFixed(2) %>)</span><% } %></span>
-          <span>Margin: <strong>$<%= trade.margin.toFixed(2) %></strong></span>
+          <span>Margin: <strong>$<%= ((trade.originalPositionSize || trade.positionSize) / trade.leverage).toFixed(2) %></strong><% if (trade.originalPositionSize && trade.originalPositionSize > trade.positionSize * 1.01) { %> <span style="font-size:11px;color:#6b7280;">(rem: $<%= trade.margin.toFixed(2) %>)</span><% } %></span>
           <span>Time: <strong class="trade-time"><%= timeStr %></strong></span>
           <span>Score: <strong><%= trade.score || '-' %></strong></span>
           <% if (trade.strategyType) { %><span>Strategy: <strong><%= trade.strategyType.replace(/_/g, ' ') %></strong></span><% } %>

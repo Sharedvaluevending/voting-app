@@ -293,8 +293,19 @@ async function closeTradePartial(trade, exitPrice, portionSize, reason) {
   const user = await User.findById(trade.userId);
   if (!user) throw new Error('User not found');
 
+  const origSize = trade.originalPositionSize || trade.positionSize;
+  const remainingAfter = trade.positionSize - portionSize;
+
+  // If remaining position would be < 1% of original (dust), close the entire remaining instead.
+  // This prevents trades lingering with $0.01 size showing huge partial PnL.
+  if (remainingAfter < origSize * 0.01 || remainingAfter < 1) {
+    console.log(`[Partial] ${trade.symbol}: remaining $${remainingAfter.toFixed(2)} < 1% of original $${origSize.toFixed(2)} — closing entire remaining position`);
+    await closeTrade(trade.userId, trade._id, exitPrice, reason);
+    return;
+  }
+
   // Clamp portion to remaining size (avoid rounding issues)
-  const portion = Math.min(portionSize, Math.max(0, trade.positionSize - 0.01));
+  const portion = Math.min(portionSize, Math.max(0, trade.positionSize));
   if (portion <= 0) return;
 
   const sizeBefore = trade.positionSize;
@@ -473,6 +484,19 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       continue;
     }
     const currentPrice = priceData.price;
+
+    // DUST POSITION CLEANUP: if remaining position < 1% of original, close it out
+    const origPosSize = trade.originalPositionSize || trade.positionSize;
+    if (origPosSize > 0 && trade.positionSize < origPosSize * 0.01) {
+      console.log(`[StopTP] ${trade.symbol}: Dust position $${trade.positionSize.toFixed(2)} < 1% of original $${origPosSize.toFixed(2)} — closing out`);
+      try {
+        await closeTrade(trade.userId, trade._id, currentPrice, 'DUST_CLEANUP');
+        closedCount++;
+      } catch (e) {
+        console.error(`[StopTP] ${trade.symbol}: Failed to close dust position:`, e.message);
+      }
+      continue;
+    }
 
     // PRICE SANITY CHECK: reject prices that are impossibly far from entry
     // Crypto can move, but >50% in one direction from entry is likely a bad price feed
