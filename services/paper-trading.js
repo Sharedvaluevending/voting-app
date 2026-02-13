@@ -859,6 +859,7 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
   const pnlPct = trade.entryPrice > 0
     ? ((isLong ? (currentPrice - trade.entryPrice) : (trade.entryPrice - currentPrice)) / trade.entryPrice * 100) * lev
     : 0;
+  const inProfit = pnlPct >= 0;             // At or above breakeven
   const inProfit2Pct = pnlPct >= 2;
   const inSignificantLoss = pnlPct < -8;   // Relaxed from -5 to -8
   const inDeepLoss = pnlPct < -15;          // Relaxed from -10 to -15
@@ -907,29 +908,34 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
   // Consider exit: require STRONG confirmation — multiple signals agreeing
   // Need: red heat + danger message + score dropped past exit threshold
   // OR score absolutely collapsed past hard exit threshold
-  // Block if: in profit OR making progress toward TP2
+  // Block if: in ANY profit (even 0.1%) or making progress toward TP2
+  // Never close a profitable trade just because score dropped — let stops handle it
   const wouldConsiderExit = (heat === 'red' && hasDanger && effective <= exitThreshold) || effective <= hardExitThreshold;
-  const blockExit = inProfit2Pct || nearTP2;
+  const blockExit = inProfit || nearTP2;
   if (wouldConsiderExit && !blockExit) {
     return { level: 'extreme', actionId: 'consider_exit', text: 'Consider exit' };
   }
-  // Downgrade to reduce if we would exit but trade is favorable
-  if (wouldConsiderExit && blockExit && (effective <= reduceThreshold || structureBreaking)) {
-    return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
+  // Downgrade to tighten stop if we would exit but trade is in profit
+  if (wouldConsiderExit && blockExit) {
+    return { level: 'high', actionId: 'tighten_stop', text: 'Tighten stop — score weak but in profit' };
   }
 
-  // High leverage + red heat + score slipping = de-risk
-  if (highLev && heat === 'red' && effective <= -10 && !inSolidProfit) {
+  // High leverage + red heat + score slipping = tighten stop (don't reduce when profitable)
+  if (highLev && heat === 'red' && effective <= -10 && !inProfit) {
     return { level: 'high', actionId: 'reduce_position', text: 'Reduce position (high leverage)' };
   }
 
   if (effective <= reduceThreshold || (structureBreaking && effective <= -10)) {
-    if (structureBreaking && !inSolidProfit) return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
-    if (inSolidProfit) { /* let winners run */ } else if (effective <= reduceThreshold) {
+    // Never reduce a profitable trade — only tighten stop
+    if (inProfit) {
+      return { level: 'medium', actionId: 'tighten_stop', text: 'Tighten stop — protecting profit' };
+    }
+    if (structureBreaking) return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
+    if (effective <= reduceThreshold) {
       return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
     }
   }
-  if (considerPartial && !inSolidProfit) {
+  if (considerPartial && !inProfit) {
     return { level: 'medium', actionId: 'take_partial', text: 'Take partial' };
   }
   const lockInAvailable = messages.some(m => m.text === 'Lock in profit available');
@@ -996,6 +1002,20 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
   const slippage = 1 + (SLIPPAGE_BPS / 10000);
   const exitPrice = trade.direction === 'LONG' ? price / slippage : price * slippage;
   const fp = (v) => typeof v === 'number' ? v.toFixed(v >= 1 ? 2 : 6) : String(v);
+
+  // PROFIT PROTECTION: Never auto-close or auto-reduce a trade that is currently profitable.
+  // If the trade is in profit, the stop loss / trailing stop should handle the exit — not score checks.
+  // This prevents the system from locking in a loss via partial at a slightly lower price.
+  if (['consider_exit', 'reduce_position', 'take_partial'].includes(actionId)) {
+    const isLongExec = trade.direction === 'LONG';
+    const execPnlPct = trade.entryPrice > 0
+      ? ((isLongExec ? (price - trade.entryPrice) : (trade.entryPrice - price)) / trade.entryPrice * 100) * (trade.leverage || 1)
+      : 0;
+    if (execPnlPct >= 0) {
+      console.log(`[ScoreCheck] BLOCKED ${actionId} on ${trade.symbol}: trade is in profit (${execPnlPct.toFixed(2)}%) — letting stop/TP handle exit`);
+      return { executed: false };
+    }
+  }
 
   try {
     if (actionId === 'consider_exit') {
