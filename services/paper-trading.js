@@ -117,7 +117,8 @@ async function openTrade(userId, signalData) {
     throw new Error(`Max open trades reached (${user.settings?.maxOpenTrades || 3}). Close a trade first.`);
   }
 
-  const leverage = signalData.leverage || user.settings?.defaultLeverage || 1;
+  // If user has disabled leverage, force 1x regardless of signal/default
+  const leverage = user.settings?.disableLeverage ? 1 : (signalData.leverage || user.settings?.defaultLeverage || 1);
   const riskPercent = user.settings?.riskPerTrade || 2;
   const maxBalancePct = user.settings?.maxBalancePercentPerTrade ?? 25;
   // Slippage: worse entry (LONG pay more, SHORT receive less)

@@ -386,7 +386,8 @@ async function updateStopLoss(user, coinId, direction, newStopPrice) {
 async function executeLiveOpen(user, trade, signalData) {
   try {
     const tradingType = user.liveTrading?.tradingType || 'futures';
-    const liveLeverage = user.liveTrading?.liveLeverage || 1;
+    // If disableLeverage is on in trading settings, force 1x
+    const liveLeverage = user.settings?.disableLeverage ? 1 : (user.liveTrading?.liveLeverage || 1);
 
     // Calculate size in base coin (e.g. BTC amount, not USD)
     // positionSize is in USD, entryPrice is per coin

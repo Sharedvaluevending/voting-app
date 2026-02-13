@@ -587,6 +587,14 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       const v = Math.min(168, Math.max(0, parseInt(req.body.cooldownHours, 10) ?? 4));
       s.cooldownHours = v;
     }
+    if (req.body.autoTrade !== undefined) {
+      const val = req.body.autoTrade;
+      s.autoTrade = val === 'true' || (Array.isArray(val) && val.includes('true'));
+    }
+    if (req.body.disableLeverage !== undefined) {
+      const val = req.body.disableLeverage;
+      s.disableLeverage = val === 'true' || (Array.isArray(val) && val.includes('true'));
+    }
     if (req.body.autoExecuteActions !== undefined) {
       const val = req.body.autoExecuteActions;
       s.autoExecuteActions = val === 'true' || (Array.isArray(val) && val.includes('true'));
@@ -1098,6 +1106,105 @@ async function runScoreRecheck() {
 setInterval(runScoreRecheck, SCORE_RECHECK_MINUTES * 60 * 1000);
 // Run first score check 30s after startup so trades get data quickly
 setTimeout(runScoreRecheck, 30 * 1000);
+
+// ====================================================
+// AUTO-TRADE: Periodically scan signals for users with autoTrade enabled
+// Opens paper trades (and live if Bitget connected) automatically
+// when signal score meets threshold. Runs every 2 minutes.
+// ====================================================
+async function runAutoTrade() {
+  try {
+    // Find all users with autoTrade enabled
+    const autoTradeUsers = await User.find({ 'settings.autoTrade': true }).lean();
+    if (autoTradeUsers.length === 0) return;
+
+    const [prices, allCandles, allHistory] = await Promise.all([
+      fetchAllPrices(),
+      Promise.resolve(fetchAllCandles()),
+      fetchAllHistory()
+    ]);
+    if (!prices || prices.length === 0) return;
+    const options = await buildEngineOptions(prices, allCandles, allHistory);
+    const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
+    if (!signals || signals.length === 0) return;
+
+    for (const user of autoTradeUsers) {
+      try {
+        const minScore = user.liveTrading?.autoOpenMinScore || 75;
+        const maxOpen = user.settings?.maxOpenTrades || 3;
+        const openTrades = await Trade.find({ userId: user._id, status: 'OPEN' }).lean();
+        if (openTrades.length >= maxOpen) continue;
+
+        const openCoinIds = openTrades.map(t => t.coinId);
+        // Cooldown check
+        const cooldownMs = (user.settings?.cooldownHours || 4) * 3600 * 1000;
+        const recentTrades = await Trade.find({
+          userId: user._id,
+          status: { $ne: 'OPEN' },
+          closedAt: { $gte: new Date(Date.now() - cooldownMs) }
+        }).select('coinId direction').lean();
+        const cooldownSet = new Set(recentTrades.map(t => `${t.coinId}_${t.direction}`));
+
+        // Filter signals above threshold, not already open, not in cooldown
+        const candidates = signals.filter(sig => {
+          if (sig.score < minScore) return false;
+          if (sig.direction !== 'LONG' && sig.direction !== 'SHORT') return false;
+          if (openCoinIds.includes(sig.id)) return false;
+          if (cooldownSet.has(`${sig.id}_${sig.direction}`)) return false;
+          return true;
+        }).sort((a, b) => b.score - a.score);
+
+        const slotsAvailable = maxOpen - openTrades.length;
+        const toOpen = candidates.slice(0, slotsAvailable);
+
+        for (const sig of toOpen) {
+          try {
+            const coinData = prices.find(p => p.id === sig.id);
+            if (!coinData) continue;
+            const livePrice = await fetchLivePrice(sig.id);
+            if (livePrice == null || !Number.isFinite(livePrice) || livePrice <= 0) continue;
+
+            const lev = user.settings?.disableLeverage ? 1 : (sig.suggestedLeverage || suggestLeverage(sig.score, sig.regime || 'mixed', 'normal'));
+            const tradeData = {
+              coinId: sig.id,
+              symbol: COIN_META[sig.id]?.symbol || sig.id.toUpperCase(),
+              direction: sig.direction,
+              entry: livePrice,
+              stopLoss: sig.stopLoss,
+              takeProfit1: sig.takeProfit1,
+              takeProfit2: sig.takeProfit2,
+              takeProfit3: sig.takeProfit3,
+              leverage: lev,
+              score: sig.score,
+              strategyType: sig.strategyType || 'auto',
+              regime: sig.regime || 'unknown',
+              reasoning: sig.reasoning || [],
+              indicators: sig.indicators || {},
+              scoreBreakdown: sig.scoreBreakdown || {},
+              stopType: sig.stopType || 'ATR_SR_FIB',
+              stopLabel: sig.stopLabel || 'ATR + S/R + Fib',
+              tpType: sig.tpType || 'R_multiple',
+              tpLabel: sig.tpLabel || 'R multiples',
+              autoTriggered: true
+            };
+
+            await openTrade(user._id, tradeData);
+            console.log(`[AutoTrade] Opened ${sig.direction} on ${tradeData.symbol} (score ${sig.score}) for user ${user.username}`);
+          } catch (tradeErr) {
+            console.error(`[AutoTrade] Failed to open ${sig.id} for ${user.username}:`, tradeErr.message);
+          }
+        }
+      } catch (userErr) {
+        console.error(`[AutoTrade] Error for user ${user.username}:`, userErr.message);
+      }
+    }
+  } catch (err) {
+    console.error('[AutoTrade] Error:', err.message);
+  }
+}
+setInterval(runAutoTrade, 2 * 60 * 1000);
+// First auto-trade check 45s after startup
+setTimeout(runAutoTrade, 45 * 1000);
 
 // ====================================================
 // START SERVER (wait for first price load so dashboard has data)

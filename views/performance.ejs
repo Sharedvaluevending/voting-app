@@ -61,6 +61,16 @@
       <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Cooldown (hours)</label>
       <input type="number" name="cooldownHours" min="0" max="168" title="Hours to wait before re-opening same direction on same coin" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 4 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
     </div>
+    <div style="display:flex;align-items:center;gap:8px;" title="Let the app automatically open trades based on signals (requires Bitget connection for live). Score threshold set in Exchange settings.">
+      <input type="hidden" name="autoTrade" value="false">
+      <input type="checkbox" name="autoTrade" id="autoTrade" value="true" <%= (user.settings && user.settings.autoTrade) ? 'checked' : '' %>>
+      <label for="autoTrade" style="font-size:12px;color:#9ca3af;">Auto trade (app opens trades from signals)</label>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;" title="Force all trades to 1x leverage (no leverage). Overrides default leverage setting.">
+      <input type="hidden" name="disableLeverage" value="false">
+      <input type="checkbox" name="disableLeverage" id="disableLeverage" value="true" <%= (user.settings && user.settings.disableLeverage) ? 'checked' : '' %>>
+      <label for="disableLeverage" style="font-size:12px;color:#9ca3af;">Disable leverage (force 1x on all trades)</label>
+    </div>
     <div style="display:flex;align-items:center;gap:8px;" title="When score check suggests Tighten stop, Reduce position, Take partial, or Consider exit — execute it automatically">
       <input type="hidden" name="autoExecuteActions" value="false">
       <input type="checkbox" name="autoExecuteActions" id="autoExecuteActions" value="true" <%= (user.settings && user.settings.autoExecuteActions) ? 'checked' : '' %>>
@@ -195,10 +205,9 @@
 <% if (stats.equityCurve && stats.equityCurve.length > 1) { %>
 <div class="section">
   <h3>Equity Curve</h3>
-  <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">Account balance over time. Drawdown shaded in red. Markers show trade outcomes and actions.</p>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">Account balance over time. Drawdown shaded in red.</p>
   <div class="equity-chart-wrap" style="position:relative;background:#0d1320;border-radius:8px;padding:12px;border:1px solid #1e2a3a;overflow:hidden;">
     <canvas id="equity-curve" style="width:100%;height:260px;display:block;"></canvas>
-    <div id="equity-tooltip" style="display:none;position:absolute;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:8px 10px;font-size:11px;color:#d1d5db;pointer-events:none;z-index:10;white-space:nowrap;"></div>
     <div id="equity-legend" style="font-size:11px;color:#6b7280;margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;"></div>
   </div>
 </div>
@@ -282,7 +291,6 @@
     var canvas = document.getElementById('equity-curve');
     if (!canvas || !data || data.length < 2) return;
     var ctx = canvas.getContext('2d');
-    var tooltip = document.getElementById('equity-tooltip');
 
     // Responsive: set canvas pixel size from CSS layout size
     var dpr = window.devicePixelRatio || 1;
@@ -293,23 +301,6 @@
       ctx.scale(dpr, dpr);
       drawChart();
     }
-
-    // Action/status color & label map
-    var statusColors = {
-      'TP1_HIT': '#10b981', 'TP2_HIT': '#34d399', 'TP3_HIT': '#6ee7b7',
-      'STOPPED_OUT': '#ef4444', 'CLOSED_MANUAL': '#eab308', 'SCORE_EXIT': '#f97316'
-    };
-    var statusLabels = {
-      'TP1_HIT': 'TP1', 'TP2_HIT': 'TP2', 'TP3_HIT': 'TP3',
-      'STOPPED_OUT': 'SL', 'CLOSED_MANUAL': 'Manual', 'SCORE_EXIT': 'Score'
-    };
-    var actionColors = {
-      'BE': '#10b981', 'TS': '#3b82f6', 'PP': '#a78bfa',
-      'RP': '#fbbf24', 'EXIT': '#f87171', 'LOCK': '#38bdf8'
-    };
-
-    // Store point positions for hover
-    var pointPositions = [];
 
     function drawChart() {
       var rect = canvas.getBoundingClientRect();
@@ -342,13 +333,11 @@
       }
 
       // Compute XY for each data point
-      pointPositions = [];
       var pts = [];
       for (var i = 0; i < data.length; i++) {
         var x = pad.left + (i / (data.length - 1)) * plotW;
         var y = pad.top + plotH - ((data[i].equity - minE) / range) * plotH;
         pts.push({ x: x, y: y });
-        pointPositions.push({ x: x, y: y, idx: i });
       }
 
       // Drawdown shading (red fill between peak line and equity when in drawdown)
@@ -366,7 +355,6 @@
           ctx.lineTo(pts[i].x, pts[i].y);
         } else {
           if (inDrawdown) {
-            // Close the drawdown area back up to peak
             ctx.lineTo(pts[i].x, peakY);
             ctx.closePath();
             inDrawdown = false;
@@ -399,45 +387,6 @@
       ctx.fillStyle = 'rgba(16,185,129,0.1)';
       ctx.fill();
 
-      // Draw action markers on each trade point (skip index 0 = initial balance)
-      for (var i = 1; i < data.length; i++) {
-        var d = data[i];
-        var px = pts[i].x, py = pts[i].y;
-
-        // Main status marker (circle)
-        var color = statusColors[d.status] || '#6b7280';
-        var radius = 4;
-        ctx.beginPath();
-        ctx.arc(px, py, radius, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.fill();
-        ctx.strokeStyle = '#0d1320';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        // Action dots (small dots above the main marker for each action taken)
-        if (d.actions && d.actions.length > 0) {
-          var unique = [];
-          var seen = {};
-          for (var a = 0; a < d.actions.length; a++) {
-            if (!seen[d.actions[a]]) {
-              seen[d.actions[a]] = true;
-              unique.push(d.actions[a]);
-            }
-          }
-          var dotY = py - 8;
-          var totalWidth = (unique.length - 1) * 7;
-          var startX = px - totalWidth / 2;
-          for (var a = 0; a < unique.length; a++) {
-            var ac = actionColors[unique[a]] || '#6b7280';
-            ctx.beginPath();
-            ctx.arc(startX + a * 7, dotY, 2.5, 0, Math.PI * 2);
-            ctx.fillStyle = ac;
-            ctx.fill();
-          }
-        }
-      }
-
       // X-axis date labels
       ctx.fillStyle = '#4b5563';
       ctx.font = '10px sans-serif';
@@ -450,53 +399,11 @@
       if (data[data.length - 1].date) ctx.fillText(new Date(data[data.length - 1].date).toLocaleDateString(), pad.left + plotW, h - 4);
     }
 
-    // Tooltip on hover
-    canvas.addEventListener('mousemove', function(e) {
-      var rect = canvas.getBoundingClientRect();
-      var mx = e.clientX - rect.left;
-      var my = e.clientY - rect.top;
-      var closest = null, minDist = 20;
-      for (var i = 1; i < pointPositions.length; i++) {
-        var p = pointPositions[i];
-        var dist = Math.sqrt((p.x - mx) * (p.x - mx) + (p.y - my) * (p.y - my));
-        if (dist < minDist) { minDist = dist; closest = p; }
-      }
-      if (closest) {
-        var d = data[closest.idx];
-        var pnlStr = (d.pnl >= 0 ? '+' : '') + '$' + (d.pnl || 0).toFixed(2);
-        var pnlColor = d.pnl >= 0 ? '#10b981' : '#ef4444';
-        var label = statusLabels[d.status] || d.status || '';
-        var actStr = d.actions && d.actions.length > 0 ? d.actions.join(', ') : '';
-        var html = '<strong>' + (d.symbol || '') + '</strong> ' + (d.direction || '') + '<br>';
-        html += '<span style="color:' + pnlColor + '">' + pnlStr + '</span>';
-        html += ' → $' + (d.equity || 0).toLocaleString();
-        if (label) html += '<br>Exit: <span style="color:' + (statusColors[d.status] || '#6b7280') + '">' + label + '</span>';
-        if (actStr) html += '<br>Actions: ' + actStr;
-        if (d.drawdownPct > 0) html += '<br>DD: ' + d.drawdownPct + '%';
-        tooltip.innerHTML = html;
-        var tx = closest.x + 12, ty = closest.y - 10;
-        if (tx + 160 > rect.width) tx = closest.x - 160;
-        if (ty < 0) ty = closest.y + 12;
-        tooltip.style.left = tx + 'px';
-        tooltip.style.top = ty + 'px';
-        tooltip.style.display = 'block';
-      } else {
-        tooltip.style.display = 'none';
-      }
-    });
-    canvas.addEventListener('mouseleave', function() { tooltip.style.display = 'none'; });
-
-    // Build legend
+    // Build legend (clean — just current equity and max drawdown)
     var legend = document.getElementById('equity-legend');
     var last = data[data.length - 1];
     var legendHtml = '<span>Current: <strong style="color:#fff">$' + (last.equity || 0).toLocaleString() + '</strong></span>';
     legendHtml += '<span>Max DD: <strong style="color:#ef4444">' + (last.drawdownPct || 0) + '%</strong></span>';
-    legendHtml += '<span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;"></span>TP</span>';
-    legendHtml += '<span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;"></span>SL</span>';
-    legendHtml += '<span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:8px;height:8px;border-radius:50%;background:#eab308;display:inline-block;"></span>Manual</span>';
-    legendHtml += '<span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:6px;height:6px;border-radius:50%;background:#3b82f6;display:inline-block;"></span>TS</span>';
-    legendHtml += '<span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:6px;height:6px;border-radius:50%;background:#a78bfa;display:inline-block;"></span>PP</span>';
-    legendHtml += '<span style="display:inline-flex;align-items:center;gap:3px;"><span style="width:6px;height:6px;border-radius:50%;background:#38bdf8;display:inline-block;"></span>LOCK</span>';
     legend.innerHTML = legendHtml;
 
     // Initial draw + resize handler
