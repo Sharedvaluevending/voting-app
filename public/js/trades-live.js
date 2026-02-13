@@ -207,6 +207,19 @@
               }
             }
 
+            // Update LIVE badge if trade became live
+            if (t.isLive && card.getAttribute('data-is-live') !== 'true') {
+              card.setAttribute('data-is-live', 'true');
+              var coinInfo = card.querySelector('.coin-info');
+              if (coinInfo && !coinInfo.querySelector('.live-badge')) {
+                var liveBadge = document.createElement('span');
+                liveBadge.className = 'live-badge';
+                liveBadge.style.cssText = 'font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);margin-left:4px;letter-spacing:0.5px;';
+                liveBadge.textContent = 'LIVE';
+                coinInfo.appendChild(liveBadge);
+              }
+            }
+
             if (t.actions && t.actions.length > 0) {
               var actionsWrap = card.querySelector('.trade-actions-taken');
               if (!actionsWrap) {

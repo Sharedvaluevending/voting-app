@@ -15,6 +15,28 @@
 <% } %>
 
 <% if (typeof user !== 'undefined' && user) { %>
+
+<!-- Live Trading Status -->
+<div style="background:#111827;border:1px solid #1e2a3a;border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;">
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div style="width:10px;height:10px;border-radius:50%;background:<%= user.liveTrading && user.liveTrading.enabled ? '#10b981' : '#6b7280' %>;"></div>
+    <div>
+      <span style="color:#e5e7eb;font-weight:600;font-size:14px;">Live Trading:</span>
+      <span style="color:<%= user.liveTrading && user.liveTrading.enabled ? '#10b981' : '#9ca3af' %>;font-weight:600;font-size:14px;margin-left:6px;">
+        <%= user.liveTrading && user.liveTrading.enabled ? 'ACTIVE' : 'OFF' %>
+      </span>
+      <% if (user.liveTrading && user.liveTrading.enabled) { %>
+        <span style="color:#6b7280;font-size:12px;margin-left:8px;">
+          (<%= user.liveTrading.mode === 'auto' ? 'Auto' : 'Manual' %> · <%= (user.liveTrading.tradingType || 'futures').charAt(0).toUpperCase() + (user.liveTrading.tradingType || 'futures').slice(1) %> · <%= user.liveTrading.liveLeverage || 1 %>x)
+        </span>
+      <% } %>
+    </div>
+  </div>
+  <a href="/exchange" class="btn btn-outline btn-sm" style="<%= user.liveTrading && user.liveTrading.enabled ? 'border-color:#10b981;color:#10b981;' : '' %>">
+    <%= user.bitget && user.bitget.connected ? 'Exchange Settings' : 'Connect Exchange' %>
+  </a>
+</div>
+
 <div class="section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Trading settings</h3>
   <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Limit how much of your balance each trade can use. Lower values = safer position sizing.</p>

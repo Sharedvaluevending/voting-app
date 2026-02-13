@@ -22,6 +22,7 @@ const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
 const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
 const { initializeStrategies, getPerformanceReport } = require('./services/learning-engine');
+const bitget = require('./services/bitget');
 const StrategyWeight = require('./models/StrategyWeight');
 
 const User = require('./models/User');
@@ -619,6 +620,180 @@ app.post('/account/reset', requireLogin, async (req, res) => {
 });
 
 // ====================================================
+// EXCHANGE (Bitget Integration)
+// ====================================================
+app.get('/exchange', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId).lean();
+    if (!user) return res.redirect('/login');
+    res.render('exchange', {
+      activePage: 'exchange',
+      user,
+      success: req.query.success || null,
+      error: req.query.error || null
+    });
+  } catch (err) {
+    console.error('[Exchange] Error:', err);
+    res.status(500).send('Error loading exchange page');
+  }
+});
+
+app.post('/exchange/connect', requireLogin, async (req, res) => {
+  try {
+    const { apiKey, secretKey, passphrase } = req.body;
+    if (!apiKey || !secretKey || !passphrase) {
+      return res.redirect('/exchange?error=' + encodeURIComponent('All three fields are required: API Key, Secret Key, and Passphrase'));
+    }
+    // Don't save masked values
+    if (apiKey.startsWith('••')) {
+      return res.redirect('/exchange?error=' + encodeURIComponent('Please enter your full API key, not the masked value'));
+    }
+
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.redirect('/login');
+
+    // Save keys temporarily for test
+    user.bitget = {
+      apiKey,
+      secretKey,
+      passphrase,
+      connected: false,
+      lastVerified: null
+    };
+
+    // Test connection before confirming
+    const testResult = await bitget.testConnection(user);
+    if (testResult.success) {
+      user.bitget.connected = true;
+      user.bitget.lastVerified = new Date();
+      await user.save();
+      res.redirect('/exchange?success=' + encodeURIComponent('Connected to Bitget successfully!'));
+    } else {
+      // Don't save bad keys
+      user.bitget = { apiKey: '', secretKey: '', passphrase: '', connected: false };
+      await user.save();
+      res.redirect('/exchange?error=' + encodeURIComponent('Connection failed: ' + testResult.message));
+    }
+  } catch (err) {
+    console.error('[Exchange] Connect error:', err);
+    res.redirect('/exchange?error=' + encodeURIComponent(err.message));
+  }
+});
+
+app.post('/exchange/disconnect', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.redirect('/login');
+    user.bitget = { apiKey: '', secretKey: '', passphrase: '', connected: false };
+    user.liveTrading = {
+      enabled: false,
+      mode: 'manual',
+      tradingType: 'futures',
+      liveLeverage: 1,
+      maxLiveTradesOpen: 3,
+      riskPerLiveTrade: 1,
+      autoOpenMinScore: 75
+    };
+    await user.save();
+    res.redirect('/exchange?success=' + encodeURIComponent('Disconnected from Bitget. Live trading disabled.'));
+  } catch (err) {
+    res.redirect('/exchange?error=' + encodeURIComponent(err.message));
+  }
+});
+
+app.post('/exchange/settings', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.redirect('/exchange');
+
+    if (!user.liveTrading) user.liveTrading = {};
+
+    // Handle live toggle
+    if (req.body.toggleLive === 'true') {
+      const newState = req.body.newState === 'true';
+      if (newState && (!user.bitget || !user.bitget.connected)) {
+        return res.redirect('/exchange?error=' + encodeURIComponent('Connect Bitget API first before enabling live trading'));
+      }
+      user.liveTrading.enabled = newState;
+      await user.save();
+      return res.redirect('/exchange?success=' + encodeURIComponent(newState ? 'Live trading ENABLED' : 'Live trading disabled'));
+    }
+
+    // Save other settings
+    if (req.body.mode) {
+      user.liveTrading.mode = ['manual', 'auto'].includes(req.body.mode) ? req.body.mode : 'manual';
+    }
+    if (req.body.tradingType) {
+      user.liveTrading.tradingType = ['spot', 'futures', 'both'].includes(req.body.tradingType) ? req.body.tradingType : 'futures';
+    }
+    if (req.body.liveLeverage != null) {
+      user.liveTrading.liveLeverage = Math.min(50, Math.max(1, parseInt(req.body.liveLeverage, 10) || 1));
+    }
+    if (req.body.maxLiveTradesOpen != null) {
+      user.liveTrading.maxLiveTradesOpen = Math.min(10, Math.max(1, parseInt(req.body.maxLiveTradesOpen, 10) || 3));
+    }
+    if (req.body.riskPerLiveTrade != null) {
+      user.liveTrading.riskPerLiveTrade = Math.min(5, Math.max(0.5, parseFloat(req.body.riskPerLiveTrade) || 1));
+    }
+    if (req.body.autoOpenMinScore != null) {
+      user.liveTrading.autoOpenMinScore = Math.min(95, Math.max(50, parseInt(req.body.autoOpenMinScore, 10) || 75));
+    }
+    await user.save();
+    res.redirect('/exchange?success=' + encodeURIComponent('Live trading settings saved'));
+  } catch (err) {
+    res.redirect('/exchange?error=' + encodeURIComponent(err.message));
+  }
+});
+
+app.post('/exchange/kill', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user || !user.bitget || !user.bitget.connected) {
+      return res.redirect('/exchange?error=' + encodeURIComponent('Not connected to Bitget'));
+    }
+
+    const result = await bitget.closeAllPositions(user);
+    if (result.success) {
+      // Disable live trading after kill switch
+      user.liveTrading.enabled = false;
+      await user.save();
+      res.redirect('/exchange?success=' + encodeURIComponent('All positions closed. Live trading disabled.'));
+    } else {
+      res.redirect('/exchange?error=' + encodeURIComponent('Kill switch error: ' + (result.error || 'Some positions may not have closed')));
+    }
+  } catch (err) {
+    res.redirect('/exchange?error=' + encodeURIComponent(err.message));
+  }
+});
+
+// Exchange API endpoints (JSON)
+app.get('/api/exchange/balance', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user || !user.bitget || !user.bitget.connected) {
+      return res.json({ success: false, error: 'Not connected' });
+    }
+    const result = await bitget.getAccountBalance(user);
+    res.json(result);
+  } catch (err) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/exchange/positions', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user || !user.bitget || !user.bitget.connected) {
+      return res.json({ success: false, error: 'Not connected', positions: [] });
+    }
+    const result = await bitget.getOpenPositions(user);
+    res.json(result);
+  } catch (err) {
+    res.json({ success: false, error: err.message, positions: [] });
+  }
+});
+
+// ====================================================
 // JOURNAL
 // ====================================================
 app.get('/journal', requireLogin, async (req, res) => {
@@ -795,7 +970,7 @@ app.get('/api/prices', async (req, res) => {
 app.get('/api/trades/active', requireLogin, async (req, res) => {
   try {
     const trades = await Trade.find({ userId: req.session.userId, status: 'OPEN' })
-      .select('_id coinId direction entryPrice stopLoss originalStopLoss actions positionSize originalPositionSize margin partialPnl leverage')
+      .select('_id coinId direction entryPrice stopLoss originalStopLoss actions positionSize originalPositionSize margin partialPnl leverage isLive executionStatus bitgetSymbol')
       .lean();
     const map = {};
     trades.forEach(t => { map[t._id.toString()] = t; });

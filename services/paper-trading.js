@@ -9,6 +9,7 @@
 const Trade = require('../models/Trade');
 const User = require('../models/User');
 const { recordTradeOutcome, adjustWeights } = require('./learning-engine');
+const bitget = require('./bitget');
 
 const MAKER_FEE = 0.001;
 const TAKER_FEE = 0.001;
@@ -238,6 +239,20 @@ async function openTrade(userId, signalData) {
   user.paperBalance -= (margin + fees);
   await user.save();
 
+  // === BITGET LIVE TRADING: execute on exchange if enabled ===
+  try {
+    if (bitget.isLiveTradingActive(user)) {
+      const isManual = user.liveTrading?.mode !== 'auto';
+      // In manual mode, always mirror. In auto mode, only signalData.autoTriggered opens live.
+      if (isManual || signalData.autoTriggered) {
+        console.log(`[Bitget] Executing live open for ${trade.symbol} ${trade.direction}`);
+        await bitget.executeLiveOpen(user, trade, signalData);
+      }
+    }
+  } catch (bitgetErr) {
+    console.error(`[Bitget] Live open error (paper trade still saved): ${bitgetErr.message}`);
+  }
+
   return trade;
 }
 
@@ -283,6 +298,19 @@ async function closeTradePartial(trade, exitPrice, portionSize, reason) {
 
   trade.updatedAt = new Date();
   await trade.save();
+
+  // === BITGET LIVE TRADING: partial close on exchange ===
+  try {
+    if (trade.isLive) {
+      const user = await User.findById(trade.userId);
+      if (user && bitget.isLiveTradingActive(user)) {
+        console.log(`[Bitget] Executing live partial close for ${trade.symbol}, portion=$${portion.toFixed(2)}`);
+        await bitget.executeLivePartialClose(user, trade, portion);
+      }
+    }
+  } catch (bitgetErr) {
+    console.error(`[Bitget] Live partial close error: ${bitgetErr.message}`);
+  }
 }
 
 async function closeTrade(userId, tradeId, currentPrice, reason) {
@@ -345,6 +373,19 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
   recordTradeOutcome(trade)
     .then(() => adjustWeights().catch(err => console.error('[PaperTrading] AdjustWeights error:', err.message)))
     .catch(err => console.error('[PaperTrading] Learn error:', err.message));
+
+  // === BITGET LIVE TRADING: close on exchange ===
+  try {
+    if (trade.isLive) {
+      const liveUser = await User.findById(userId);
+      if (liveUser && bitget.isLiveTradingActive(liveUser)) {
+        console.log(`[Bitget] Executing live close for ${trade.symbol} ${trade.direction} reason=${reason}`);
+        await bitget.executeLiveClose(liveUser, trade);
+      }
+    }
+  } catch (bitgetErr) {
+    console.error(`[Bitget] Live close error: ${bitgetErr.message}`);
+  }
 
   return trade;
 }
@@ -437,6 +478,13 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
           trade.stopLoss = trade.entryPrice;
           logTradeAction(trade, 'BE', `Stop moved to breakeven at $${trade.entryPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, trade.entryPrice, currentPrice);
           await trade.save();
+          // Bitget: update SL on exchange
+          if (trade.isLive) {
+            try {
+              const liveUser = await User.findById(trade.userId);
+              if (liveUser) await bitget.executeLiveStopUpdate(liveUser, trade, trade.entryPrice);
+            } catch (e) { console.error(`[Bitget] BE SL update error: ${e.message}`); }
+          }
         }
       }
 
@@ -459,6 +507,13 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
             trade.stopLoss = newStop;
             logTradeAction(trade, 'TS', `Stop trailed to $${newStop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, newStop, currentPrice);
             await trade.save();
+            // Bitget: update trailing SL on exchange
+            if (trade.isLive) {
+              try {
+                const liveUser = await User.findById(trade.userId);
+                if (liveUser) await bitget.executeLiveStopUpdate(liveUser, trade, newStop);
+              } catch (e) { console.error(`[Bitget] TS SL update error: ${e.message}`); }
+            }
           }
         }
       }
@@ -488,6 +543,13 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
                 logTradeAction(trade, 'LOCK', `Locked in ${level.lockR}R profit: $${newStop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, newStop, currentPrice);
                 await trade.save();
                 console.log(`[StopTP] ${trade.symbol}: LOCK-IN ${level.lockR}R → SL $${newStop}`);
+                // Bitget: update LOCK SL on exchange
+                if (trade.isLive) {
+                  try {
+                    const liveUser = await User.findById(trade.userId);
+                    if (liveUser) await bitget.executeLiveStopUpdate(liveUser, trade, newStop);
+                  } catch (e) { console.error(`[Bitget] LOCK SL update error: ${e.message}`); }
+                }
                 break;
               }
             }
@@ -921,6 +983,13 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
         trade.scoreCheck.lastActionDetails = details;
         await trade.save();
         console.log(`[ScoreCheck] ${details}`);
+        // Bitget: update SL on exchange
+        if (trade.isLive) {
+          try {
+            const liveUser = await User.findById(trade.userId);
+            if (liveUser) await bitget.executeLiveStopUpdate(liveUser, trade, trade.entryPrice);
+          } catch (e) { console.error(`[Bitget] ScoreCheck BE SL error: ${e.message}`); }
+        }
         return { executed: true, details };
       }
       return { executed: false };
@@ -961,6 +1030,13 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
               trade.scoreCheck.lastActionDetails = details;
               await trade.save();
               console.log(`[ScoreCheck] ${details}`);
+              // Bitget: update LOCK SL on exchange
+              if (trade.isLive) {
+                try {
+                  const liveUser = await User.findById(trade.userId);
+                  if (liveUser) await bitget.executeLiveStopUpdate(liveUser, trade, newStop);
+                } catch (e) { console.error(`[Bitget] ScoreCheck LOCK SL error: ${e.message}`); }
+              }
               return { executed: true, details };
             }
           }

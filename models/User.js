@@ -18,6 +18,22 @@ const userSchema = new mongoose.Schema({
     autoMoveBreakeven: { type: Boolean, default: true },
     autoTrailingStop: { type: Boolean, default: true }
   },
+  bitget: {
+    apiKey: { type: String, default: '' },
+    secretKey: { type: String, default: '' },
+    passphrase: { type: String, default: '' },
+    connected: { type: Boolean, default: false },
+    lastVerified: { type: Date }
+  },
+  liveTrading: {
+    enabled: { type: Boolean, default: false },
+    mode: { type: String, enum: ['manual', 'auto'], default: 'manual' },
+    tradingType: { type: String, enum: ['spot', 'futures', 'both'], default: 'futures' },
+    liveLeverage: { type: Number, default: 1, min: 1, max: 50 },
+    maxLiveTradesOpen: { type: Number, default: 3, min: 1, max: 10 },
+    riskPerLiveTrade: { type: Number, default: 1, min: 0.5, max: 5 },
+    autoOpenMinScore: { type: Number, default: 75, min: 50, max: 95 }
+  },
   stats: {
     totalTrades: { type: Number, default: 0 },
     wins: { type: Number, default: 0 },

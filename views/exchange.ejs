@@ -1,0 +1,279 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Exchange Integration</h2>
+  <span style="color:#6b7280;font-size:13px;">Connect Bitget to trade with real money</span>
+</div>
+
+<% if (typeof success !== 'undefined' && success) { %>
+  <div class="alert alert-success" style="margin-bottom:12px;"><%= success %></div>
+<% } %>
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="alert alert-error" style="margin-bottom:12px;"><%= error %></div>
+<% } %>
+
+<!-- Connection Status Banner -->
+<div style="background:<%= user.bitget && user.bitget.connected ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)' %>;border:1px solid <%= user.bitget && user.bitget.connected ? '#10b981' : '#ef4444' %>;border-radius:12px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;gap:12px;">
+  <div style="width:12px;height:12px;border-radius:50%;background:<%= user.bitget && user.bitget.connected ? '#10b981' : '#ef4444' %>;flex-shrink:0;"></div>
+  <div>
+    <div style="color:#fff;font-weight:600;font-size:14px;">
+      <%= user.bitget && user.bitget.connected ? 'Connected to Bitget' : 'Not Connected' %>
+    </div>
+    <% if (user.bitget && user.bitget.connected && user.bitget.lastVerified) { %>
+      <div style="color:#9ca3af;font-size:12px;">Last verified: <%= new Date(user.bitget.lastVerified).toLocaleString() %></div>
+    <% } else if (!user.bitget || !user.bitget.connected) { %>
+      <div style="color:#9ca3af;font-size:12px;">Add your Bitget API keys below to get started</div>
+    <% } %>
+  </div>
+  <% if (user.bitget && user.bitget.connected) { %>
+    <div style="margin-left:auto;">
+      <form action="/exchange/disconnect" method="POST" style="display:inline;">
+        <button type="submit" class="btn btn-outline btn-sm" onclick="return confirm('Disconnect Bitget? This will remove your API keys and disable live trading.')" style="border-color:#ef4444;color:#ef4444;">Disconnect</button>
+      </form>
+    </div>
+  <% } %>
+</div>
+
+<!-- API Connection Section -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:8px;">Bitget API Keys</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:16px;">
+    Create API keys at <a href="https://www.bitget.com/account/newapi" target="_blank" rel="noopener" style="color:#3b82f6;">bitget.com/account/newapi</a>.
+    Enable <strong>Trade</strong> permission. IP whitelist recommended for security.
+  </p>
+  <form action="/exchange/connect" method="POST" style="max-width:600px;">
+    <div style="display:grid;gap:12px;">
+      <div>
+        <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">API Key</label>
+        <input type="text" name="apiKey" placeholder="Enter your Bitget API key" value="<%= user.bitget && user.bitget.apiKey ? '••••••••' + user.bitget.apiKey.slice(-4) : '' %>" style="width:100%;padding:10px 12px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#fff;font-family:monospace;" autocomplete="off">
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Secret Key</label>
+        <input type="password" name="secretKey" placeholder="Enter your Bitget secret key" value="" style="width:100%;padding:10px 12px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#fff;font-family:monospace;" autocomplete="off">
+      </div>
+      <div>
+        <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Passphrase</label>
+        <input type="password" name="passphrase" placeholder="Enter your API passphrase" value="" style="width:100%;padding:10px 12px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#fff;font-family:monospace;" autocomplete="off">
+      </div>
+      <div>
+        <button type="submit" class="btn btn-outline btn-sm" style="background:#3b82f6;border-color:#3b82f6;color:#fff;padding:10px 24px;">
+          <%= user.bitget && user.bitget.connected ? 'Update & Test Connection' : 'Connect & Test' %>
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<% if (user.bitget && user.bitget.connected) { %>
+
+<!-- Live Trading Master Switch -->
+<div class="section" style="margin-bottom:24px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <div>
+      <h3 style="color:#e5e7eb;margin:0;">Live Trading</h3>
+      <p style="font-size:13px;color:#9ca3af;margin:4px 0 0 0;">Control whether trades execute on Bitget with real money</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span style="font-size:13px;font-weight:600;color:<%= user.liveTrading && user.liveTrading.enabled ? '#10b981' : '#ef4444' %>;">
+        <%= user.liveTrading && user.liveTrading.enabled ? 'ACTIVE' : 'OFF' %>
+      </span>
+      <form action="/exchange/settings" method="POST" id="live-toggle-form">
+        <input type="hidden" name="toggleLive" value="true">
+        <input type="hidden" name="newState" value="<%= user.liveTrading && user.liveTrading.enabled ? 'false' : 'true' %>">
+        <button type="submit" id="live-toggle-btn"
+          style="position:relative;width:56px;height:28px;border-radius:14px;border:none;cursor:pointer;transition:all 0.3s;
+          background:<%= user.liveTrading && user.liveTrading.enabled ? '#10b981' : '#374151' %>;"
+          onclick="<%= !(user.liveTrading && user.liveTrading.enabled) ? 'return confirm(\'WARNING: You are about to enable LIVE TRADING with REAL MONEY on Bitget.\\n\\nAll signals and action badges will execute real orders.\\n\\nAre you sure?\')' : '' %>">
+          <div style="position:absolute;top:3px;<%= user.liveTrading && user.liveTrading.enabled ? 'left:31px' : 'left:3px' %>;width:22px;height:22px;border-radius:50%;background:#fff;transition:all 0.3s;"></div>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <% if (user.liveTrading && user.liveTrading.enabled) { %>
+  <div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 14px;margin-bottom:16px;">
+    <span style="color:#eab308;font-weight:600;font-size:13px;">LIVE TRADING IS ACTIVE</span>
+    <span style="color:#9ca3af;font-size:12px;margin-left:8px;">Real orders are being sent to Bitget</span>
+  </div>
+  <% } %>
+</div>
+
+<!-- Trading Settings -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Live Trading Settings</h3>
+  <form action="/exchange/settings" method="POST" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;align-items:end;max-width:900px;">
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Trading Mode</label>
+      <select name="mode" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+        <option value="manual" <%= (user.liveTrading && user.liveTrading.mode) === 'manual' ? 'selected' : '' %>>Manual (you click Open Trade)</option>
+        <option value="auto" <%= (user.liveTrading && user.liveTrading.mode) === 'auto' ? 'selected' : '' %>>Auto (signals auto-fire trades)</option>
+      </select>
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Trading Type</label>
+      <select name="tradingType" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+        <option value="futures" <%= (user.liveTrading && user.liveTrading.tradingType) === 'futures' ? 'selected' : '' %>>Futures Only</option>
+        <option value="spot" <%= (user.liveTrading && user.liveTrading.tradingType) === 'spot' ? 'selected' : '' %>>Spot Only</option>
+        <option value="both" <%= (user.liveTrading && user.liveTrading.tradingType) === 'both' ? 'selected' : '' %>>Both (Spot for 1x, Futures for leverage)</option>
+      </select>
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Live Leverage</label>
+      <input type="number" name="liveLeverage" min="1" max="50" value="<%= (user.liveTrading && user.liveTrading.liveLeverage) || 1 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Max Live Trades Open</label>
+      <input type="number" name="maxLiveTradesOpen" min="1" max="10" value="<%= (user.liveTrading && user.liveTrading.maxLiveTradesOpen) || 3 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Risk Per Live Trade (%)</label>
+      <input type="number" name="riskPerLiveTrade" min="0.5" max="5" step="0.5" value="<%= (user.liveTrading && user.liveTrading.riskPerLiveTrade) || 1 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Auto-Open Min Score</label>
+      <input type="number" name="autoOpenMinScore" min="50" max="95" value="<%= (user.liveTrading && user.liveTrading.autoOpenMinScore) || 75 %>" title="Only auto-open trades with signal score >= this value" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <button type="submit" class="btn btn-outline btn-sm">Save Settings</button>
+    </div>
+  </form>
+</div>
+
+<!-- Live Account Info -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Bitget Account</h3>
+  <div id="exchange-account-info" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;">
+    <div class="perf-card">
+      <div class="perf-label">Spot Balance</div>
+      <div class="perf-value" id="spot-balance">Loading...</div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Futures Equity</div>
+      <div class="perf-value" id="futures-equity">Loading...</div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Futures Available</div>
+      <div class="perf-value" id="futures-available">Loading...</div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Unrealized P&L</div>
+      <div class="perf-value" id="futures-upnl">Loading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- Open Positions -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Bitget Open Positions</h3>
+  <div id="exchange-positions">
+    <div style="color:#6b7280;font-size:13px;">Loading positions...</div>
+  </div>
+</div>
+
+<!-- Emergency Kill Switch -->
+<div class="section" style="margin-bottom:24px;border:1px solid rgba(239,68,68,0.3);border-radius:12px;padding:20px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;">
+    <div>
+      <h3 style="color:#ef4444;margin:0;">Emergency Kill Switch</h3>
+      <p style="font-size:13px;color:#9ca3af;margin:4px 0 0 0;">Immediately close ALL open positions on Bitget</p>
+    </div>
+    <form action="/exchange/kill" method="POST">
+      <button type="submit" class="btn btn-sm" onclick="return confirm('EMERGENCY CLOSE ALL POSITIONS?\\n\\nThis will immediately market-close every open position on your Bitget account.\\n\\nThis action cannot be undone.')"
+        style="background:#ef4444;color:#fff;border:1px solid #ef4444;padding:10px 24px;font-weight:700;border-radius:8px;cursor:pointer;">
+        CLOSE ALL POSITIONS
+      </button>
+    </form>
+  </div>
+</div>
+
+<% } %>
+
+<script>
+(function() {
+  <% if (user.bitget && user.bitget.connected) { %>
+  // Fetch live account data
+  function loadAccountData() {
+    fetch('/api/exchange/balance', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.success) return;
+        var b = data.balances || {};
+        var spotEl = document.getElementById('spot-balance');
+        var futuresEqEl = document.getElementById('futures-equity');
+        var futuresAvEl = document.getElementById('futures-available');
+        var upnlEl = document.getElementById('futures-upnl');
+
+        if (spotEl && b.spot) {
+          spotEl.textContent = '$' + (b.spot.available || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+        } else if (spotEl) {
+          spotEl.textContent = '-';
+        }
+        if (futuresEqEl && b.futures) {
+          futuresEqEl.textContent = '$' + (b.futures.equity || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+        } else if (futuresEqEl) {
+          futuresEqEl.textContent = '-';
+        }
+        if (futuresAvEl && b.futures) {
+          futuresAvEl.textContent = '$' + (b.futures.available || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+        } else if (futuresAvEl) {
+          futuresAvEl.textContent = '-';
+        }
+        if (upnlEl && b.futures) {
+          var upnl = b.futures.unrealizedPnl || 0;
+          upnlEl.textContent = (upnl >= 0 ? '+' : '') + '$' + upnl.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+          upnlEl.className = 'perf-value ' + (upnl >= 0 ? 'up' : 'down');
+        } else if (upnlEl) {
+          upnlEl.textContent = '-';
+        }
+      })
+      .catch(function() {
+        var els = ['spot-balance','futures-equity','futures-available','futures-upnl'];
+        els.forEach(function(id) {
+          var el = document.getElementById(id);
+          if (el) el.textContent = 'Error';
+        });
+      });
+  }
+
+  function loadPositions() {
+    fetch('/api/exchange/positions', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var container = document.getElementById('exchange-positions');
+        if (!container) return;
+        if (!data.success || !data.positions || data.positions.length === 0) {
+          container.innerHTML = '<div style="color:#6b7280;font-size:13px;">No open positions on Bitget</div>';
+          return;
+        }
+        var html = '<table class="data-table"><thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>Mark</th><th>P&L</th><th>Leverage</th></tr></thead><tbody>';
+        data.positions.forEach(function(p) {
+          var pnl = parseFloat(p.unrealizedPL || p.achievedProfits || 0);
+          html += '<tr>';
+          html += '<td style="font-weight:700;">' + (p.symbol || '-') + '</td>';
+          html += '<td class="' + (p.holdSide === 'long' ? 'up' : 'down') + '">' + (p.holdSide || '-').toUpperCase() + '</td>';
+          html += '<td>' + (p.total || p.available || '-') + '</td>';
+          html += '<td>$' + (parseFloat(p.openPriceAvg || 0).toFixed(2)) + '</td>';
+          html += '<td>$' + (parseFloat(p.markPrice || 0).toFixed(2)) + '</td>';
+          html += '<td class="' + (pnl >= 0 ? 'up' : 'down') + '">' + (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2) + '</td>';
+          html += '<td>' + (p.leverage || '-') + 'x</td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+      })
+      .catch(function() {
+        var container = document.getElementById('exchange-positions');
+        if (container) container.innerHTML = '<div style="color:#ef4444;font-size:13px;">Error loading positions</div>';
+      });
+  }
+
+  loadAccountData();
+  loadPositions();
+  // Refresh every 30s
+  setInterval(loadAccountData, 30000);
+  setInterval(loadPositions, 30000);
+  <% } %>
+})();
+</script>
+
+<%- include('partials/footer') %>
