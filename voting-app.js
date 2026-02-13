@@ -69,11 +69,12 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Require SESSION_SECRET in production to prevent session forgery
-const sessionSecret = process.env.SESSION_SECRET || (process.env.NODE_ENV === 'production' ? null : 'crypto-signals-dev-key-only');
+// Session secret: use env var if set, otherwise generate a random one.
+// A random secret means sessions reset on server restart, but the app won't crash.
+let sessionSecret = process.env.SESSION_SECRET;
 if (!sessionSecret) {
-  console.error('FATAL: SESSION_SECRET environment variable is required in production. Set it and restart.');
-  process.exit(1);
+  sessionSecret = crypto.randomBytes(32).toString('hex');
+  console.warn('[SECURITY] SESSION_SECRET not set — using random secret. Sessions will reset on restart. Set SESSION_SECRET env var for persistent sessions.');
 }
 
 app.use(session({
