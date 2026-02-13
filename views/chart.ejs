@@ -216,25 +216,36 @@
   }
 
   // Build and apply chart markers from actions array
+  // Only shows the MOST RECENT action of each type to keep the chart clean.
+  // e.g. if stop was trailed 5 times, only the latest TS marker is shown.
   function applyActionMarkers(actions) {
     if (!chartRef.series) return;
     if (!showBadges || !actions || actions.length === 0) {
       try { chartRef.series.setMarkers([]); } catch(e) {}
       return;
     }
-    var markers = [];
+    // Deduplicate: keep only the latest action of each type
+    var latestByType = {};
     for (var i = 0; i < actions.length; i++) {
       var a = actions[i];
       if (!a.type || !a.timestamp) continue;
-      var cfg = actionMarkerConfig[a.type];
+      // Always overwrite — actions array is chronological so last one wins
+      latestByType[a.type] = a;
+    }
+    var deduped = Object.keys(latestByType).map(function(k) { return latestByType[k]; });
+
+    var markers = [];
+    for (var j = 0; j < deduped.length; j++) {
+      var act = deduped[j];
+      var cfg = actionMarkerConfig[act.type];
       if (!cfg) continue;
-      var ts = snapToCandle(new Date(a.timestamp).getTime());
+      var ts = snapToCandle(new Date(act.timestamp).getTime());
       if (ts == null) continue;
       var priceInfo = '';
-      if (['BE','TS','LOCK'].indexOf(a.type) >= 0 && a.newValue != null) {
-        priceInfo = ' $' + (a.newValue >= 1 ? a.newValue.toFixed(2) : a.newValue.toFixed(6));
-      } else if (['EXIT','PP','RP'].indexOf(a.type) >= 0 && a.marketPrice != null) {
-        priceInfo = ' @$' + (a.marketPrice >= 1 ? a.marketPrice.toFixed(2) : a.marketPrice.toFixed(6));
+      if (['BE','TS','LOCK'].indexOf(act.type) >= 0 && act.newValue != null) {
+        priceInfo = ' $' + (act.newValue >= 1 ? act.newValue.toFixed(2) : act.newValue.toFixed(6));
+      } else if (['EXIT','PP','RP'].indexOf(act.type) >= 0 && act.marketPrice != null) {
+        priceInfo = ' @$' + (act.marketPrice >= 1 ? act.marketPrice.toFixed(2) : act.marketPrice.toFixed(6));
       }
       markers.push({
         time: ts,
@@ -477,7 +488,7 @@
             }
           }
           if (t.actions && t.actions.length > 0) {
-            // Update chart markers with ALL actions (not deduplicated — show each event)
+            // Update chart markers (deduplicated — only latest of each type shown)
             initialActions = t.actions;
             applyActionMarkers(t.actions);
 
