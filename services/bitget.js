@@ -10,21 +10,22 @@ const { RestClientV2 } = require('bitget-api');
 const User = require('../models/User');
 
 // Coin symbol mapping: our coinId -> Bitget trading pair
+// Keys MUST match CoinGecko ids used in TRACKED_COINS (e.g. 'avalanche-2', not 'avalanche')
 const SYMBOL_MAP = {
-  bitcoin:    { spot: 'BTCUSDT',  futures: 'BTCUSDT',  marginCoin: 'USDT' },
-  ethereum:   { spot: 'ETHUSDT',  futures: 'ETHUSDT',  marginCoin: 'USDT' },
-  solana:     { spot: 'SOLUSDT',  futures: 'SOLUSDT',  marginCoin: 'USDT' },
-  dogecoin:   { spot: 'DOGEUSDT', futures: 'DOGEUSDT', marginCoin: 'USDT' },
-  ripple:     { spot: 'XRPUSDT',  futures: 'XRPUSDT',  marginCoin: 'USDT' },
-  cardano:    { spot: 'ADAUSDT',  futures: 'ADAUSDT',  marginCoin: 'USDT' },
-  polkadot:   { spot: 'DOTUSDT',  futures: 'DOTUSDT',  marginCoin: 'USDT' },
-  avalanche:  { spot: 'AVAXUSDT', futures: 'AVAXUSDT', marginCoin: 'USDT' },
-  chainlink:  { spot: 'LINKUSDT', futures: 'LINKUSDT', marginCoin: 'USDT' },
-  polygon:    { spot: 'POLUSDT',  futures: 'POLUSDT',  marginCoin: 'USDT' },
-  binancecoin:{ spot: 'BNBUSDT',  futures: 'BNBUSDT',  marginCoin: 'USDT' },
-  litecoin:   { spot: 'LTCUSDT',  futures: 'LTCUSDT',  marginCoin: 'USDT' },
-  uniswap:    { spot: 'UNIUSDT',  futures: 'UNIUSDT',  marginCoin: 'USDT' },
-  cosmos:     { spot: 'ATOMUSDT', futures: 'ATOMUSDT', marginCoin: 'USDT' }
+  bitcoin:       { spot: 'BTCUSDT',  futures: 'BTCUSDT',  marginCoin: 'USDT' },
+  ethereum:      { spot: 'ETHUSDT',  futures: 'ETHUSDT',  marginCoin: 'USDT' },
+  solana:        { spot: 'SOLUSDT',  futures: 'SOLUSDT',  marginCoin: 'USDT' },
+  dogecoin:      { spot: 'DOGEUSDT', futures: 'DOGEUSDT', marginCoin: 'USDT' },
+  ripple:        { spot: 'XRPUSDT',  futures: 'XRPUSDT',  marginCoin: 'USDT' },
+  cardano:       { spot: 'ADAUSDT',  futures: 'ADAUSDT',  marginCoin: 'USDT' },
+  polkadot:      { spot: 'DOTUSDT',  futures: 'DOTUSDT',  marginCoin: 'USDT' },
+  'avalanche-2': { spot: 'AVAXUSDT', futures: 'AVAXUSDT', marginCoin: 'USDT' },
+  chainlink:     { spot: 'LINKUSDT', futures: 'LINKUSDT', marginCoin: 'USDT' },
+  polygon:       { spot: 'POLUSDT',  futures: 'POLUSDT',  marginCoin: 'USDT' },
+  binancecoin:   { spot: 'BNBUSDT',  futures: 'BNBUSDT',  marginCoin: 'USDT' },
+  litecoin:      { spot: 'LTCUSDT',  futures: 'LTCUSDT',  marginCoin: 'USDT' },
+  uniswap:       { spot: 'UNIUSDT',  futures: 'UNIUSDT',  marginCoin: 'USDT' },
+  cosmos:        { spot: 'ATOMUSDT', futures: 'ATOMUSDT', marginCoin: 'USDT' }
 };
 
 // Create a REST client for a user's API keys

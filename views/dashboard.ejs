@@ -141,6 +141,7 @@
       <div class="trade-actions">
         <% if (canTrade && (sig.signal === 'BUY' || sig.signal === 'STRONG_BUY')) { %>
           <form action="/trades/open" method="POST" style="display:inline;">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
             <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
             <input type="hidden" name="direction" value="LONG">
             <input type="hidden" name="score" value="<%= sig.score %>">
@@ -149,6 +150,7 @@
         <% } %>
         <% if (canTrade && (sig.signal === 'SELL' || sig.signal === 'STRONG_SELL')) { %>
           <form action="/trades/open" method="POST" style="display:inline;">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
             <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
             <input type="hidden" name="direction" value="SHORT">
             <input type="hidden" name="score" value="<%= sig.score %>">

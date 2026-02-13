@@ -517,11 +517,10 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       if (tp) risk = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
     }
 
-    // === DIAGNOSTIC LOG for every trade every cycle ===
+    // Diagnostic vars (used in action logging below, NOT logged every cycle)
     const isLongDiag = trade.direction === 'LONG';
     const profitRaw = isLongDiag ? currentPrice - trade.entryPrice : trade.entryPrice - currentPrice;
     const profitR = risk > 0 ? (profitRaw / risk).toFixed(2) : 'N/A';
-    console.log(`[StopTP] ${trade.symbol} ${trade.direction} | price=$${currentPrice} entry=$${trade.entryPrice} | SL=$${trade.stopLoss} origSL=$${origSl} | risk=${risk > 0 ? risk.toFixed(4) : '0'} profitR=${profitR} | trailing=${trade.trailingActivated} autoBE=${autoBE} autoTrail=${autoTrail} | actions=${(trade.actions||[]).length}`);
 
     if (risk > 0 && trade.stopLoss != null) {
       // Breakeven at 1R (if autoMoveBreakeven) — only if trailing hasn't started yet
@@ -610,11 +609,7 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
           }
         }
       }
-    } else if (trade.stopLoss == null) {
-      console.log(`[StopTP] ${trade.symbol}: No stopLoss set — skipping BE/TS`);
-    } else if (risk <= 0) {
-      console.log(`[StopTP] ${trade.symbol}: risk=${risk.toFixed(4)} (<=0) — skipping BE/TS`);
-    }
+    } // else: no stopLoss or risk<=0 — silently skip BE/TS
     await trade.save();
 
     const hitTP1Long = trade.direction === 'LONG' && trade.takeProfit1 && currentPrice >= trade.takeProfit1;

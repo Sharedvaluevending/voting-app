@@ -28,6 +28,7 @@
 <div class="section">
   <h3>New Entry</h3>
   <form action="/journal" method="POST">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
     <% if (typeof linkedTrade !== 'undefined' && linkedTrade) { %>
     <input type="hidden" name="tradeId" value="<%= linkedTrade._id %>">
     <% } %>

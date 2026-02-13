@@ -40,7 +40,7 @@ const COIN_META = {
   polkadot:      { symbol: 'DOT',   name: 'Polkadot',   binance: 'DOTUSDT' },
   'avalanche-2': { symbol: 'AVAX',  name: 'Avalanche',  binance: 'AVAXUSDT' },
   chainlink:     { symbol: 'LINK',  name: 'Chainlink',  binance: 'LINKUSDT' },
-  polygon:       { symbol: 'MATIC', name: 'Polygon',    binance: 'MATICUSDT' },
+  polygon:       { symbol: 'POL',   name: 'Polygon',    binance: 'POLUSDT' },
   binancecoin:   { symbol: 'BNB',   name: 'BNB',        binance: 'BNBUSDT' },
   litecoin:      { symbol: 'LTC',   name: 'Litecoin',   binance: 'LTCUSDT' },
   uniswap:       { symbol: 'UNI',   name: 'Uniswap',    binance: 'UNIUSDT' },

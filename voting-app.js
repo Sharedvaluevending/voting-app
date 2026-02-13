@@ -15,6 +15,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
+const crypto = require('crypto');
 const path = require('path');
 
 const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
@@ -68,8 +69,15 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Require SESSION_SECRET in production to prevent session forgery
+const sessionSecret = process.env.SESSION_SECRET || (process.env.NODE_ENV === 'production' ? null : 'crypto-signals-dev-key-only');
+if (!sessionSecret) {
+  console.error('FATAL: SESSION_SECRET environment variable is required in production. Set it and restart.');
+  process.exit(1);
+}
+
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'crypto-signals-secret-key-change-in-prod',
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
   store: MongoStore.create({ mongoUrl: uri, collectionName: 'sessions' }),
@@ -115,8 +123,49 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// ====================================================
+// SECURITY: Frame protection + CSRF
+// ====================================================
 app.use((req, res, next) => {
-  res.removeHeader('X-Frame-Options');
+  // Clickjacking protection: prevent embedding in iframes
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+});
+
+// CSRF protection: generate token per session, validate on state-changing requests
+function generateCsrfToken(session) {
+  if (!session._csrfSecret) {
+    session._csrfSecret = crypto.randomBytes(24).toString('hex');
+  }
+  return session._csrfSecret;
+}
+
+function validateCsrfToken(req) {
+  const token = req.body._csrf || req.headers['x-csrf-token'] || '';
+  const secret = req.session?._csrfSecret || '';
+  return secret.length > 0 && token === secret;
+}
+
+// Make CSRF token available in all templates
+app.use((req, res, next) => {
+  if (req.session) {
+    res.locals.csrfToken = generateCsrfToken(req.session);
+  }
+  next();
+});
+
+// Validate CSRF on all POST/PUT/DELETE requests (except API endpoints used by fetch with session cookies)
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
+    // Skip CSRF for JSON API calls (they use fetch with same-origin and custom headers)
+    const isJsonApi = req.path.startsWith('/api/') || req.xhr || req.headers['content-type']?.includes('application/json');
+    if (!isJsonApi && !validateCsrfToken(req)) {
+      console.warn(`[CSRF] Blocked ${req.method} ${req.path} from ${req.ip} (bad/missing token)`);
+      return res.status(403).send('Forbidden: invalid or missing CSRF token. Please refresh the page and try again.');
+    }
+  }
   next();
 });
 
@@ -411,6 +460,16 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       return res.redirect('/trades?error=' + encodeURIComponent('Missing trade data'));
     }
 
+    // Explicit coin whitelist: only tracked coins can be traded
+    if (!TRACKED_COINS.includes(coinId)) {
+      return res.redirect('/trades?error=' + encodeURIComponent('Invalid coin'));
+    }
+
+    // Validate direction
+    if (!['LONG', 'SHORT'].includes(direction)) {
+      return res.redirect('/trades?error=' + encodeURIComponent('Invalid direction'));
+    }
+
     const prices = await fetchAllPrices();
     const coinData = prices.find(p => p.id === coinId);
     if (!coinData) {
@@ -624,6 +683,10 @@ app.post('/account/settings', requireLogin, async (req, res) => {
 // ====================================================
 app.post('/account/reset', requireLogin, async (req, res) => {
   try {
+    // Server-side confirmation: require confirm=RESET to prevent accidental/CSRF resets
+    if (req.body.confirm !== 'RESET') {
+      return res.redirect('/performance?error=' + encodeURIComponent('Reset not confirmed'));
+    }
     await resetAccount(req.session.userId);
     res.redirect('/performance');
   } catch (err) {
@@ -915,20 +978,23 @@ app.get('/learn', (req, res) => {
 app.get('/learning', async (req, res) => {
   try {
     const allStrategies = await StrategyWeight.find({}).lean();
-    const strategies = allStrategies.map(s => ({
-      id: s.strategyId,
-      name: s.name,
-      description: s.description || '',
-      winRate: s.performance.winRate.toFixed(1),
-      avgRR: s.performance.avgRR.toFixed(2),
-      totalTrades: s.performance.totalTrades,
-      wins: s.performance.wins,
-      losses: s.performance.losses,
-      weights: s.weights,
-      byRegime: s.performance.byRegime || {},
-      active: s.active,
-      updatedAt: s.updatedAt
-    }));
+    const strategies = allStrategies.map(s => {
+      const perf = s.performance || {};
+      return {
+        id: s.strategyId,
+        name: s.name,
+        description: s.description || '',
+        winRate: (perf.winRate ?? 0).toFixed(1),
+        avgRR: (perf.avgRR ?? 0).toFixed(2),
+        totalTrades: perf.totalTrades || 0,
+        wins: perf.wins || 0,
+        losses: perf.losses || 0,
+        weights: s.weights,
+        byRegime: perf.byRegime || {},
+        active: s.active,
+        updatedAt: s.updatedAt
+      };
+    });
     res.render('learning', { activePage: 'learning', strategies });
   } catch (err) {
     console.error('[Learning] Error:', err);
