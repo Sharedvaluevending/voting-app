@@ -72,11 +72,20 @@
       <label class="toggle-label" title="Show/hide support and resistance from engine">
         <input type="checkbox" id="toggle-sr" checked> <span class="toggle-text">S/R</span>
       </label>
+      <% if (typeof tradeId !== 'undefined' && tradeId) { %>
+      <label class="toggle-label" title="Show/hide trade levels (Entry, SL, TP) on chart">
+        <input type="checkbox" id="toggle-trade" checked> <span class="toggle-text">Trade</span>
+      </label>
+      <% } %>
     </div>
 
     <div class="toolbar-divider"></div>
 
-    <!-- Drawing tools -->
+    <!-- Drawing tools (collapsible on mobile) -->
+    <button type="button" class="draw-tools-toggle" id="draw-tools-toggle" aria-label="Toggle drawing tools" title="Drawing tools">
+      <svg width="20" height="20" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 5v14M5 12h14"/></svg>
+      <span class="draw-tools-toggle-text">Tools</span>
+    </button>
     <div class="draw-tools" id="draw-tools">
       <button class="tool-btn tool-active" data-tool="cursor" title="Cursor (default)">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3 1l10 6.5L8.5 9l-2 5.5L3 1z"/></svg>
@@ -163,16 +172,32 @@
 .tf-btn:hover { background: rgba(51,65,85,0.8); color: #e5e7eb; }
 .tf-btn.tf-active { background: rgba(59,130,246,0.25); border-color: #3b82f6; color: #93c5fd; }
 /* Toggle checkboxes */
-.chart-toggles { display: flex; gap: 8px; align-items: center; }
+.chart-toggles { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .toggle-label { display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: #9ca3af; user-select: none; }
 .toggle-label input[type="checkbox"] { accent-color: #3b82f6; width: 14px; height: 14px; cursor: pointer; }
 .toggle-label:hover .toggle-text { color: #e5e7eb; }
 /* Drawing tools */
-.draw-tools { display: flex; gap: 3px; align-items: center; }
-.tool-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 5px 7px; border-radius: 6px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; }
+.draw-tools-toggle { display: none; background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 8px 12px; border-radius: 6px; cursor: pointer; align-items: center; gap: 6px; font-size: 13px; }
+.draw-tools { display: flex; gap: 3px; align-items: center; flex-wrap: wrap; }
+.tool-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 5px 7px; border-radius: 6px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; min-width: 36px; min-height: 36px; }
 .tool-btn:hover { background: rgba(51,65,85,0.8); color: #e5e7eb; }
 .tool-btn.tool-active { background: rgba(59,130,246,0.25); border-color: #3b82f6; color: #93c5fd; }
 .tool-btn-danger:hover { background: rgba(239,68,68,0.25); border-color: #ef4444; color: #fca5a5; }
+/* Mobile: larger touch targets, collapsible tools */
+@media (max-width: 768px) {
+  .chart-page { padding: 0.5rem; }
+  .chart-header h1 { font-size: 1.1rem; }
+  .chart-container { min-height: 300px; height: calc(100vh - 320px); }
+  .chart-toolbar { gap: 8px; }
+  .tf-btn { padding: 10px 16px; min-height: 44px; min-width: 44px; font-size: 14px; }
+  .toggle-label { padding: 8px 0; min-height: 44px; }
+  .toggle-label input[type="checkbox"] { width: 20px; height: 20px; }
+  .draw-tools-toggle { display: flex; min-height: 44px; padding: 10px 14px; }
+  .draw-tools { display: none; gap: 6px; }
+  .draw-tools.draw-tools-open { display: flex; margin-top: 8px; padding-top: 8px; border-top: 1px solid #334155; }
+  .tool-btn { min-width: 44px; min-height: 44px; padding: 10px; }
+  .toolbar-divider { display: none; }
+}
 </style>
 
 <!-- Try Lightweight Charts first (draws price level lines on chart) -->
@@ -199,6 +224,7 @@
   var showBadges = true;
   var showPatterns = true;
   var showSR = true;
+  var showTradeLevels = true;
   var srLevels = { support: null, resistance: null };
   var lastPatterns = [];
 
@@ -334,7 +360,9 @@
   }
 
   function addPriceLines() {
-    // Clear old lines (except SL/origSL which are managed separately)
+    if (!chartRef.series) return;
+    if (chartRef.slLine) { try { chartRef.series.removePriceLine(chartRef.slLine); } catch(e) {} chartRef.slLine = null; }
+    if (chartRef.origSlLine) { try { chartRef.series.removePriceLine(chartRef.origSlLine); } catch(e) {} chartRef.origSlLine = null; }
     chartRef.priceLines.forEach(function(pl) {
       try { chartRef.series.removePriceLine(pl); } catch(e) {}
     });
@@ -349,23 +377,28 @@
     chartRef.srLines = [];
 
     var lineOpts = { lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true };
-    if (levels.sl != null) {
-      chartRef.slLine = chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.sl, color: '#ef4444', title: 'SL' }));
-    }
-    if (levels.originalSl != null && levels.originalSl !== levels.sl) {
-      chartRef.origSlLine = chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.originalSl, color: '#78716c', title: 'Orig SL', lineStyle: LightweightCharts.LineStyle.Dotted }));
-    }
-    if (levels.entry != null) {
-      chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.entry, color: '#3b82f6', title: 'Entry' })));
-    }
-    if (levels.tp1 != null) {
-      chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp1, color: '#22c55e', title: 'TP1' })));
-    }
-    if (levels.tp2 != null) {
-      chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp2, color: '#22c55e', title: 'TP2' })));
-    }
-    if (levels.tp3 != null) {
-      chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp3, color: '#22c55e', title: 'TP3' })));
+    if (showTradeLevels) {
+      if (levels.sl != null) {
+        chartRef.slLine = chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.sl, color: '#ef4444', title: 'SL' }));
+      }
+      if (levels.originalSl != null && levels.originalSl !== levels.sl) {
+        chartRef.origSlLine = chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.originalSl, color: '#78716c', title: 'Orig SL', lineStyle: LightweightCharts.LineStyle.Dotted }));
+      }
+      if (levels.entry != null) {
+        chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.entry, color: '#3b82f6', title: 'Entry' })));
+      }
+      if (levels.tp1 != null) {
+        chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp1, color: '#22c55e', title: 'TP1' })));
+      }
+      if (levels.tp2 != null) {
+        chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp2, color: '#22c55e', title: 'TP2' })));
+      }
+      if (levels.tp3 != null) {
+        chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp3, color: '#22c55e', title: 'TP3' })));
+      }
+    } else {
+      chartRef.slLine = null;
+      chartRef.origSlLine = null;
     }
     // Fibonacci levels (dotted, subtle) — stored separately for toggling
     <% if (fibLevels) { %>
@@ -393,6 +426,19 @@
         try { chartRef.series.removePriceLine(pl); } catch(e) {}
       });
       chartRef.srLines = [];
+    } else {
+      addPriceLines();
+    }
+  }
+
+  function toggleTradeLevels(visible) {
+    showTradeLevels = visible;
+    if (!chartRef.series) return;
+    if (!visible) {
+      if (chartRef.slLine) { try { chartRef.series.removePriceLine(chartRef.slLine); } catch(e) {} chartRef.slLine = null; }
+      if (chartRef.origSlLine) { try { chartRef.series.removePriceLine(chartRef.origSlLine); } catch(e) {} chartRef.origSlLine = null; }
+      chartRef.priceLines.forEach(function(pl) { try { chartRef.series.removePriceLine(pl); } catch(e) {} });
+      chartRef.priceLines = [];
     } else {
       addPriceLines();
     }
@@ -433,7 +479,7 @@
           return;
         }
 
-        // Capture pattern data and S/R from API response
+        // Capture pattern data and S/R from API (S/R redraws per timeframe)
         lastPatterns = data.patterns || [];
         srLevels.support = data.support;
         srLevels.resistance = data.resistance;
@@ -597,6 +643,17 @@
   if (toggleSrEl) toggleSrEl.addEventListener('change', function() {
     toggleSRLines(this.checked);
   });
+  var toggleTradeEl = document.getElementById('toggle-trade');
+  if (toggleTradeEl) toggleTradeEl.addEventListener('change', function() {
+    toggleTradeLevels(this.checked);
+  });
+  var drawToolsToggle = document.getElementById('draw-tools-toggle');
+  var drawTools = document.getElementById('draw-tools');
+  if (drawToolsToggle && drawTools) {
+    drawToolsToggle.addEventListener('click', function() {
+      drawTools.classList.toggle('draw-tools-open');
+    });
+  }
 
   // =============================================
   //  DRAWING TOOLS — canvas overlay system
