@@ -562,8 +562,13 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
     const profitR = risk > 0 ? (profitRaw / risk).toFixed(2) : 'N/A';
 
     if (risk > 0 && trade.stopLoss != null) {
+      // Grace period: skip BE/TS/lock-in for trades younger than 2 min (let price settle)
+      const openedAt = trade.createdAt || trade.entryTime || trade.updatedAt;
+      const ageMs = Date.now() - new Date(openedAt).getTime();
+      const pastStopGrace = ageMs >= STOP_CHECK_GRACE_MINUTES * 60 * 1000;
+
       // Breakeven at 1R (if autoMoveBreakeven) — only if trailing hasn't started yet
-      if (autoBE && !trade.trailingActivated && trade.stopLoss !== trade.entryPrice) {
+      if (pastStopGrace && autoBE && !trade.trailingActivated && trade.stopLoss !== trade.entryPrice) {
         const at1R = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk : currentPrice <= trade.entryPrice - risk;
         if (at1R) {
           const oldSl = trade.stopLoss;
@@ -583,7 +588,7 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       // Trailing stop at 1.5R+ (if autoTrailingStop) - trail at 1R behind max favorable price
       // Activates if: stop already at BE, trailing already running, OR stop has been locked past entry
       const stopPastEntry = trade.direction === 'LONG' ? trade.stopLoss >= trade.entryPrice : trade.stopLoss <= trade.entryPrice;
-      if (autoTrail && (stopPastEntry || trade.trailingActivated)) {
+      if (pastStopGrace && autoTrail && (stopPastEntry || trade.trailingActivated)) {
         const at1_5R = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * 1.5 : currentPrice <= trade.entryPrice - risk * 1.5;
         if (at1_5R) {
           trade.trailingActivated = true;
@@ -611,7 +616,7 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       }
 
       // Stepped profit lock-in (ALWAYS runs — works alongside trailing)
-      {
+      if (pastStopGrace) {
         const progress = getProgressTowardTP(trade, currentPrice);
         let effectiveProgress = progress;
         if (progress <= 0 && trade.entryPrice > 0) {
@@ -805,6 +810,9 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
 // actionable status messages for each open trade.
 // ====================================================
 const SCORE_RECHECK_MINUTES = 5;
+// Grace periods: exempt new trades from aggressive actions so price can settle
+const SCORE_CHECK_GRACE_MINUTES = 5;   // No auto-execute BE/RP/EXIT on trades younger than this
+const STOP_CHECK_GRACE_MINUTES = 2;    // No BE/TS/lock-in stop tightening on trades younger than this
 
 // ---- Win Probability ----
 // Maps score (0-100) to an estimated win probability percentage.
@@ -1045,6 +1053,17 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
     return { executed: false };
   }
 
+  // Grace period: trades younger than X minutes are exempt from score check auto-execute
+  const actionableIds = ['consider_exit', 'reduce_position', 'take_partial', 'tighten_stop', 'lock_in_profit'];
+  if (actionableIds.includes(actionId)) {
+    const openedAt = trade.createdAt || trade.entryTime || trade.updatedAt;
+    const ageMs = Date.now() - new Date(openedAt).getTime();
+    if (ageMs < SCORE_CHECK_GRACE_MINUTES * 60 * 1000) {
+      console.log(`[ScoreCheck] GRACE: Skipping ${actionId} on ${trade.symbol} (trade age ${Math.round(ageMs / 60000)}min < ${SCORE_CHECK_GRACE_MINUTES}min)`);
+      return { executed: false };
+    }
+  }
+
   // Fetch a LIVE price for exits – don't rely on stale cache which can be from a different source
   let price = currentPrice;
   try {
@@ -1151,7 +1170,14 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
         const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
         if (tp) risk = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
       }
-      if (risk > 0 && trade.stopLoss !== trade.entryPrice) {
+      // Only move to breakeven if trade is actually in profit by at least 1R
+      const inProfit1R = risk > 0 && (
+        trade.direction === 'LONG' ? price >= trade.entryPrice + risk : price <= trade.entryPrice - risk
+      );
+      if (risk > 0 && trade.stopLoss !== trade.entryPrice && !inProfit1R) {
+        console.log(`[ScoreCheck] BLOCKED tighten_stop→BE on ${trade.symbol}: not yet in profit by 1R (price $${fp(price)} vs entry $${fp(trade.entryPrice)} ± 1R)`);
+      }
+      if (risk > 0 && trade.stopLoss !== trade.entryPrice && inProfit1R) {
         const oldStop = trade.stopLoss;
         trade.stopLoss = trade.entryPrice;
         trade.lastExecutedActionId = actionId;
