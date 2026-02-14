@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node voting-app.js",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "test:apis": "node scripts/test-apis.js"
+    "test:apis": "node scripts/test-apis.js",
+    "generate-vapid": "node scripts/generate-vapid.js"
   },
   "keywords": [
     "crypto",
@@ -27,6 +28,8 @@
     "express": "^4.21.2",
     "express-session": "^1.18.1",
     "mongoose": "^8.9.6",
-    "node-fetch": "^2.7.0"
+    "node-fetch": "^2.7.0",
+    "nodemailer": "^8.0.1",
+    "web-push": "^3.6.7"
   }
 }

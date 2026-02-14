@@ -1,5 +1,9 @@
 <%- include('partials/header') %>
 
+<% if (typeof deleted !== 'undefined' && deleted) { %>
+<div class="alert alert-success" style="margin-bottom:16px;">Your account has been deleted.</div>
+<% } %>
+
 <!-- PRICE TICKER (polled every 15s for live-ish updates) -->
 <div class="ticker-strip" id="ticker-strip">
   <% prices.forEach(function(coin) { %>

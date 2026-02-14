@@ -271,11 +271,11 @@ async function openTrade(userId, signalData) {
   user.paperBalance -= (margin + fees);
   await user.save();
 
-  // === BITGET LIVE TRADING: execute on exchange if enabled ===
+  // === BITGET LIVE TRADING: execute on exchange if enabled and paper/live sync on ===
   try {
-    if (bitget.isLiveTradingActive(user)) {
+    const paperLiveSync = user.settings?.paperLiveSync !== false;
+    if (paperLiveSync && bitget.isLiveTradingActive(user)) {
       const isManual = user.liveTrading?.mode !== 'auto';
-      // In manual mode, always mirror. In auto mode, only signalData.autoTriggered opens live.
       if (isManual || signalData.autoTriggered) {
         console.log(`[Bitget] Executing live open for ${trade.symbol} ${trade.direction}`);
         await bitget.executeLiveOpen(user, trade, signalData);
@@ -283,6 +283,15 @@ async function openTrade(userId, signalData) {
     }
   } catch (bitgetErr) {
     console.error(`[Bitget] Live open error (paper trade still saved): ${bitgetErr.message}`);
+  }
+
+  // Push notification
+  if (user.settings?.notifyTradeOpen !== false) {
+    try {
+      const { sendPushToUser } = require('./push-notifications');
+      const u = await User.findById(user._id).lean();
+      if (u) await sendPushToUser(u, `Trade opened: ${signalData.symbol} ${signalData.direction}`, `Entry $${entryPrice.toFixed(4)} | ${leverage}x`);
+    } catch (e) { /* non-critical */ }
   }
 
   return trade;
@@ -457,6 +466,16 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
     console.error(`[Bitget] Live close error: ${bitgetErr.message}`);
   }
 
+  // Push notification
+  const notifyClose = user.settings?.notifyTradeClose !== false;
+  if (notifyClose) {
+    try {
+      const { sendPushToUser } = require('./push-notifications');
+      const u = await User.findById(userId).lean();
+      if (u) await sendPushToUser(u, `Trade closed: ${trade.symbol} ${trade.direction}`, `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${reason})`);
+    } catch (e) { /* non-critical */ }
+  }
+
   return trade;
 }
 
@@ -562,10 +581,10 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
     const profitR = risk > 0 ? (profitRaw / risk).toFixed(2) : 'N/A';
 
     if (risk > 0 && trade.stopLoss != null) {
-      // Grace period: skip BE/TS/lock-in for trades younger than 2 min (let price settle)
+      const stopGrace = user?.settings?.stopCheckGraceMinutes ?? STOP_CHECK_GRACE_MINUTES;
       const openedAt = trade.createdAt || trade.entryTime || trade.updatedAt;
       const ageMs = Date.now() - new Date(openedAt).getTime();
-      const pastStopGrace = ageMs >= STOP_CHECK_GRACE_MINUTES * 60 * 1000;
+      const pastStopGrace = ageMs >= stopGrace * 60 * 1000;
 
       // Breakeven at 1R (if autoMoveBreakeven) — only if trailing hasn't started yet
       if (pastStopGrace && autoBE && !trade.trailingActivated && trade.stopLoss !== trade.entryPrice) {
@@ -1053,13 +1072,14 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
     return { executed: false };
   }
 
-  // Grace period: trades younger than X minutes are exempt from score check auto-execute
+  // Grace period: trades younger than X minutes are exempt (user setting or default)
+  const scoreGrace = (await User.findById(trade.userId).lean())?.settings?.scoreCheckGraceMinutes ?? SCORE_CHECK_GRACE_MINUTES;
   const actionableIds = ['consider_exit', 'reduce_position', 'take_partial', 'tighten_stop', 'lock_in_profit'];
   if (actionableIds.includes(actionId)) {
     const openedAt = trade.createdAt || trade.entryTime || trade.updatedAt;
     const ageMs = Date.now() - new Date(openedAt).getTime();
-    if (ageMs < SCORE_CHECK_GRACE_MINUTES * 60 * 1000) {
-      console.log(`[ScoreCheck] GRACE: Skipping ${actionId} on ${trade.symbol} (trade age ${Math.round(ageMs / 60000)}min < ${SCORE_CHECK_GRACE_MINUTES}min)`);
+    if (ageMs < scoreGrace * 60 * 1000) {
+      console.log(`[ScoreCheck] GRACE: Skipping ${actionId} on ${trade.symbol} (trade age ${Math.round(ageMs / 60000)}min < ${scoreGrace}min)`);
       return { executed: false };
     }
   }

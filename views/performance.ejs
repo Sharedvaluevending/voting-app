@@ -2,11 +2,18 @@
 
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Performance Dashboard</h2>
-  <form action="/account/reset" method="POST" style="display:inline;">
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-    <input type="hidden" name="confirm" value="RESET">
-    <button type="submit" class="btn btn-outline btn-sm" onclick="return confirm('Reset paper account to $10,000? All trade history will be deleted.')">Reset Account</button>
-  </form>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <form action="/account/reset" method="POST" style="display:inline;">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <input type="hidden" name="confirm" value="RESET">
+      <button type="submit" class="btn btn-outline btn-sm" onclick="return confirm('Reset paper account to $10,000? All trade history will be deleted.')">Reset Account</button>
+    </form>
+    <form action="/account/delete" method="POST" style="display:inline;">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <input type="hidden" name="confirm" value="DELETE">
+      <button type="submit" class="btn btn-outline btn-sm" style="border-color:#ef4444;color:#ef4444;" onclick="return prompt('Type DELETE to permanently delete your account and all data:')==='DELETE';">Delete Account</button>
+    </form>
+  </div>
 </div>
 
 <% if (typeof success !== 'undefined' && success) { %>
@@ -103,6 +110,33 @@
       <input type="hidden" name="autoTrailingStop" value="false">
       <input type="checkbox" name="autoTrailingStop" id="autoTrailingStop" value="true" <%= (user.settings && user.settings.autoTrailingStop) !== false ? 'checked' : '' %>>
       <label for="autoTrailingStop" style="font-size:12px;color:#9ca3af;">Auto trailing stop</label>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;" title="When Bitget connected, mirror paper trades to live">
+      <input type="hidden" name="paperLiveSync" value="false">
+      <input type="checkbox" name="paperLiveSync" id="paperLiveSync" value="true" <%= (user.settings && user.settings.paperLiveSync) !== false ? 'checked' : '' %>>
+      <label for="paperLiveSync" style="font-size:12px;color:#9ca3af;">Paper/Live sync (mirror paper trades to Bitget)</label>
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Score check grace (min)</label>
+      <input type="number" name="scoreCheckGraceMinutes" min="0" max="60" value="<%= (user.settings && user.settings.scoreCheckGraceMinutes) != null ? user.settings.scoreCheckGraceMinutes : 5 %>" title="No auto-execute on trades younger than this" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Stop check grace (min)</label>
+      <input type="number" name="stopCheckGraceMinutes" min="0" max="30" value="<%= (user.settings && user.settings.stopCheckGraceMinutes) != null ? user.settings.stopCheckGraceMinutes : 2 %>" title="No BE/TS/lock-in on trades younger than this" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;" title="Push notification when a trade opens">
+      <input type="hidden" name="notifyTradeOpen" value="false">
+      <input type="checkbox" name="notifyTradeOpen" id="notifyTradeOpen" value="true" <%= (user.settings && user.settings.notifyTradeOpen) !== false ? 'checked' : '' %>>
+      <label for="notifyTradeOpen" style="font-size:12px;color:#9ca3af;">Notify on trade open</label>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;" title="Push notification when a trade closes">
+      <input type="hidden" name="notifyTradeClose" value="false">
+      <input type="checkbox" name="notifyTradeClose" id="notifyTradeClose" value="true" <%= (user.settings && user.settings.notifyTradeClose) !== false ? 'checked' : '' %>>
+      <label for="notifyTradeClose" style="font-size:12px;color:#9ca3af;">Notify on trade close</label>
+    </div>
+    <div>
+      <button type="button" id="enable-push-btn" class="btn btn-outline btn-sm" title="Allow browser to send push notifications to your device">Enable Push Notifications</button>
+      <span id="push-status" style="font-size:11px;color:#6b7280;margin-left:8px;"></span>
     </div>
     <div>
       <button type="submit" class="btn btn-outline btn-sm">Save</button>
@@ -277,6 +311,38 @@
 </div>
 <% } %>
 
+<% if (typeof journalAnalytics !== 'undefined' && (Object.keys(journalAnalytics.byEmotion).length > 0 || journalAnalytics.byRules.followed.total > 0 || journalAnalytics.byRules.broke.total > 0)) { %>
+<div class="section">
+  <h3>Journal Insights <span style="font-size:11px;color:#6b7280;font-weight:normal;">(from trade-linked entries)</span></h3>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:12px;">Win rates from trade-linked journal entries. <a href="/journal" style="color:#3b82f6;">Add journal entries</a> to see how emotion and discipline affect your results.</p>
+  <div class="perf-grid">
+    <% if (journalAnalytics.byRules.followed.total > 0 || journalAnalytics.byRules.broke.total > 0) { %>
+    <div class="perf-card">
+      <div class="perf-label">When you followed rules</div>
+      <div class="perf-value <%= journalAnalytics.byRules.followed.total > 0 && (journalAnalytics.byRules.followed.wins / journalAnalytics.byRules.followed.total) >= 0.5 ? 'up' : 'down' %>">
+        <%= journalAnalytics.byRules.followed.total > 0 ? ((journalAnalytics.byRules.followed.wins / journalAnalytics.byRules.followed.total) * 100).toFixed(0) : 0 %>% (<%= journalAnalytics.byRules.followed.wins %>/<%= journalAnalytics.byRules.followed.total %>)
+      </div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">When you broke rules</div>
+      <div class="perf-value <%= journalAnalytics.byRules.broke.total > 0 && (journalAnalytics.byRules.broke.wins / journalAnalytics.byRules.broke.total) >= 0.5 ? 'up' : 'down' %>">
+        <%= journalAnalytics.byRules.broke.total > 0 ? ((journalAnalytics.byRules.broke.wins / journalAnalytics.byRules.broke.total) * 100).toFixed(0) : 0 %>% (<%= journalAnalytics.byRules.broke.wins %>/<%= journalAnalytics.byRules.broke.total %>)
+      </div>
+    </div>
+    <% } %>
+    <% Object.keys(journalAnalytics.byEmotion).forEach(function(em) {
+      var d = journalAnalytics.byEmotion[em];
+      var pct = d.total > 0 ? (d.wins / d.total) * 100 : 0;
+    %>
+    <div class="perf-card">
+      <div class="perf-label">When feeling <%= em %></div>
+      <div class="perf-value <%= pct >= 50 ? 'up' : 'down' %>"><%= pct.toFixed(0) %>% (<%= d.wins %>/<%= d.total %>)</div>
+    </div>
+    <% }); %>
+  </div>
+</div>
+<% } %>
+
 <script>
 (function() {
   var calcInputs = ['calc-balance','calc-risk','calc-entry','calc-sl','calc-lev'];
@@ -429,6 +495,48 @@
     window.addEventListener('resize', resizeCanvas);
   })();
   <% } %>
+
+  // Push notifications
+  (function() {
+    var btn = document.getElementById('enable-push-btn');
+    var status = document.getElementById('push-status');
+    if (!btn) return;
+    function setStatus(txt) { if (status) status.textContent = txt; }
+    btn.addEventListener('click', function() {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        setStatus('Push not supported in this browser');
+        return;
+      }
+      setStatus('Requesting...');
+      navigator.serviceWorker.register('/sw.js').then(function(reg) {
+        return reg.pushManager.getSubscription().then(function(existingSub) {
+          if (existingSub) { setStatus('Already enabled'); return { sub: existingSub, isNew: false }; }
+          return fetch('/api/push/vapid-public').then(function(r) { return r.json(); }).then(function(d) {
+            if (!d.publicKey) { setStatus('Server not configured (set VAPID keys)'); return null; }
+            return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(d.publicKey) }).then(function(sub) { return { sub: sub, isNew: true }; });
+          });
+        });
+      }).then(function(result) {
+        if (!result || !result.sub) return;
+        if (result.isNew) {
+          return fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(result.sub), credentials: 'same-origin' }).then(function(r) {
+            if (r && r.ok) setStatus('Enabled');
+            else setStatus('Failed');
+          });
+        }
+      }).catch(function(e) {
+        setStatus('Error: ' + (e.message || 'denied'));
+      });
+    });
+    function urlBase64ToUint8Array(base64String) {
+      var padding = '='.repeat((4 - base64String.length % 4) % 4);
+      var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+      var rawData = window.atob(base64);
+      var outputArray = new Uint8Array(rawData.length);
+      for (var i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+      return outputArray;
+    }
+  })();
 })();
 </script>
 

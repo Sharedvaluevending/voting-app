@@ -196,7 +196,7 @@ app.locals.formatBigNumber = formatBigNumber;
 // AUTH ROUTES
 // ====================================================
 app.get('/login', guestOnly, (req, res) => {
-  res.render('login', { activePage: 'login', error: null });
+  res.render('login', { activePage: 'login', error: req.query.error || null, success: req.query.success || null });
 });
 
 app.post('/login', guestOnly, async (req, res) => {
@@ -252,6 +252,60 @@ app.get('/logout', (req, res) => {
   req.session.destroy(() => res.redirect('/'));
 });
 
+app.get('/forgot-password', guestOnly, (req, res) => {
+  res.render('forgot-password', { activePage: 'login', error: null, success: null });
+});
+
+app.post('/forgot-password', guestOnly, async (req, res) => {
+  try {
+    const email = (req.body.email || '').toLowerCase().trim();
+    if (!email) return res.render('forgot-password', { activePage: 'login', error: 'Email is required', success: null });
+    const user = await User.findOne({ email });
+    const crypto = require('crypto');
+    const { sendPasswordResetEmail } = require('./services/email');
+    const baseUrl = process.env.BASE_URL || (req.protocol + '://' + req.get('host'));
+    if (user) {
+      const token = crypto.randomBytes(32).toString('hex');
+      user.resetToken = token;
+      user.resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000);
+      await user.save({ validateBeforeSave: false });
+      const resetUrl = `${baseUrl}/reset-password?token=${token}`;
+      await sendPasswordResetEmail(user.email, resetUrl);
+    }
+    res.render('forgot-password', { activePage: 'login', error: null, success: 'If that email exists, we sent a reset link. Check your inbox and spam.' });
+  } catch (err) {
+    console.error('[ForgotPassword]', err);
+    res.render('forgot-password', { activePage: 'login', error: 'Something went wrong. Try again.', success: null });
+  }
+});
+
+app.get('/reset-password', guestOnly, async (req, res) => {
+  const token = req.query.token;
+  if (!token) return res.redirect('/forgot-password?error=Invalid+link');
+  const user = await User.findOne({ resetToken: token, resetTokenExpiry: { $gt: new Date() } });
+  if (!user) return res.render('reset-password', { token: '', error: 'Link expired or invalid. Request a new one.', activePage: 'login' });
+  res.render('reset-password', { token, error: null, activePage: 'login' });
+});
+
+app.post('/reset-password', guestOnly, async (req, res) => {
+  try {
+    const { token, password, confirmPassword } = req.body;
+    if (!token) return res.redirect('/forgot-password?error=Invalid+link');
+    if (!password || password.length < 6) return res.render('reset-password', { token, error: 'Password must be at least 6 characters', activePage: 'login' });
+    if (password !== confirmPassword) return res.render('reset-password', { token, error: 'Passwords do not match', activePage: 'login' });
+    const user = await User.findOne({ resetToken: token, resetTokenExpiry: { $gt: new Date() } });
+    if (!user) return res.render('reset-password', { token: '', error: 'Link expired or invalid. Request a new one.', activePage: 'login' });
+    user.password = password;
+    user.resetToken = undefined;
+    user.resetTokenExpiry = undefined;
+    await user.save();
+    res.redirect('/login?success=Password+reset.+Log+in+with+your+new+password.');
+  } catch (err) {
+    console.error('[ResetPassword]', err);
+    res.render('reset-password', { token: req.body.token, error: 'Something went wrong.', activePage: 'login' });
+  }
+});
+
 // Build engine options: strategy weights, BTC signal, strategy stats, funding rates, BTC candles
 async function buildEngineOptions(prices, allCandles, allHistory) {
   const strategyWeights = await StrategyWeight.find({ active: true }).lean();
@@ -293,7 +347,8 @@ app.get('/', async (req, res) => {
     res.render('dashboard', {
       activePage: 'dashboard',
       prices,
-      signals
+      signals,
+      deleted: req.query.deleted === '1'
     });
   } catch (err) {
     console.error('[Dashboard] Error:', err);
@@ -596,9 +651,34 @@ app.get('/history', requireLogin, async (req, res) => {
 // ====================================================
 app.get('/performance', requireLogin, async (req, res) => {
   try {
-    const [stats, user] = await Promise.all([
+    const [stats, user, journalAnalytics] = await Promise.all([
       getPerformanceStats(req.session.userId),
-      User.findById(req.session.userId).lean()
+      User.findById(req.session.userId).lean(),
+      (async () => {
+        const entriesWithTrade = await Journal.find({ userId: req.session.userId, tradeId: { $exists: true, $ne: null } }).lean();
+        const tradeIds = [...new Set(entriesWithTrade.map(e => e.tradeId && e.tradeId.toString()).filter(Boolean))];
+        const trades = tradeIds.length > 0 ? await Trade.find({ _id: { $in: tradeIds }, userId: req.session.userId }).lean() : [];
+        const tradeMap = Object.fromEntries(trades.map(t => [t._id.toString(), t]));
+        const byEmotion = {};
+        const byRules = { followed: { wins: 0, total: 0 }, broke: { wins: 0, total: 0 } };
+        for (const entry of entriesWithTrade) {
+          const tid = entry.tradeId && entry.tradeId.toString();
+          const trade = tid ? tradeMap[tid] : null;
+          if (!trade || trade.pnl == null) continue;
+          const isWin = trade.pnl > 0;
+          if (entry.emotion) {
+            byEmotion[entry.emotion] = byEmotion[entry.emotion] || { wins: 0, total: 0 };
+            byEmotion[entry.emotion].total++;
+            if (isWin) byEmotion[entry.emotion].wins++;
+          }
+          if (entry.followedRules !== undefined) {
+            const bucket = entry.followedRules ? byRules.followed : byRules.broke;
+            bucket.total++;
+            if (isWin) bucket.wins++;
+          }
+        }
+        return { byEmotion, byRules };
+      })()
     ]);
     const safeStats = stats || {
       balance: 10000, initialBalance: 10000, totalPnl: 0, totalPnlPercent: '0', totalTrades: 0,
@@ -610,6 +690,7 @@ app.get('/performance', requireLogin, async (req, res) => {
       activePage: 'performance',
       stats: safeStats,
       user: user || {},
+      journalAnalytics: journalAnalytics || { byEmotion: {}, byRules: { followed: { wins: 0, total: 0 }, broke: { wins: 0, total: 0 } } },
       success: req.query.success || null,
       error: req.query.error || null
     });
@@ -671,6 +752,22 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       const val = req.body.autoTrailingStop;
       s.autoTrailingStop = val === 'true' || (Array.isArray(val) && val.includes('true'));
     }
+    if (req.body.paperLiveSync !== undefined) {
+      const val = req.body.paperLiveSync;
+      s.paperLiveSync = val === 'true' || (Array.isArray(val) && val.includes('true'));
+    }
+    if (req.body.scoreCheckGraceMinutes != null) {
+      s.scoreCheckGraceMinutes = Math.min(60, Math.max(0, parseInt(req.body.scoreCheckGraceMinutes, 10) ?? 5));
+    }
+    if (req.body.stopCheckGraceMinutes != null) {
+      s.stopCheckGraceMinutes = Math.min(30, Math.max(0, parseInt(req.body.stopCheckGraceMinutes, 10) ?? 2));
+    }
+    if (req.body.notifyTradeOpen !== undefined) {
+      s.notifyTradeOpen = req.body.notifyTradeOpen === 'true' || (Array.isArray(req.body.notifyTradeOpen) && req.body.notifyTradeOpen.includes('true'));
+    }
+    if (req.body.notifyTradeClose !== undefined) {
+      s.notifyTradeClose = req.body.notifyTradeClose === 'true' || (Array.isArray(req.body.notifyTradeClose) && req.body.notifyTradeClose.includes('true'));
+    }
     u.settings = s;
     await u.save();
     res.redirect('/performance?success=Settings+saved');
@@ -705,7 +802,6 @@ app.post('/account/set-balance', requireLogin, async (req, res) => {
 // ====================================================
 app.post('/account/reset', requireLogin, async (req, res) => {
   try {
-    // Server-side confirmation: require confirm=RESET to prevent accidental/CSRF resets
     if (req.body.confirm !== 'RESET') {
       return res.redirect('/performance?error=' + encodeURIComponent('Reset not confirmed'));
     }
@@ -713,6 +809,26 @@ app.post('/account/reset', requireLogin, async (req, res) => {
     res.redirect('/performance');
   } catch (err) {
     res.redirect('/performance');
+  }
+});
+
+// ====================================================
+// ACCOUNT DELETION
+// ====================================================
+app.post('/account/delete', requireLogin, async (req, res) => {
+  try {
+    if (req.body.confirm !== 'DELETE') {
+      return res.redirect('/performance?error=' + encodeURIComponent('Type DELETE to confirm'));
+    }
+    const userId = req.session.userId;
+    await Trade.deleteMany({ userId });
+    await Journal.deleteMany({ userId });
+    const user = await User.findByIdAndDelete(userId);
+    if (!user) return res.redirect('/performance');
+    req.session.destroy(() => res.redirect('/?deleted=1'));
+  } catch (err) {
+    console.error('[AccountDelete]', err);
+    res.redirect('/performance?error=' + encodeURIComponent(err.message || 'Failed to delete'));
   }
 });
 
@@ -1105,6 +1221,39 @@ app.get('/api/status', (req, res) => {
     coins: TRACKED_COINS.length,
     version: '3.0.0'
   });
+});
+
+// Push notifications: get VAPID public key
+app.get('/api/push/vapid-public', (req, res) => {
+  try {
+    const { getVapidKeys } = require('./services/push-notifications');
+    const keys = getVapidKeys();
+    if (!keys) return res.json({ publicKey: null });
+    res.json({ publicKey: keys.publicKey });
+  } catch (e) {
+    res.json({ publicKey: null });
+  }
+});
+
+// Push notifications: subscribe (save subscription to user)
+app.post('/api/push/subscribe', requireLogin, async (req, res) => {
+  try {
+    const subscription = req.body;
+    if (!subscription || !subscription.endpoint) {
+      return res.status(400).json({ error: 'Invalid subscription' });
+    }
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    if (!Array.isArray(user.pushSubscriptions)) user.pushSubscriptions = [];
+    const exists = user.pushSubscriptions.some(s => s && s.endpoint === subscription.endpoint);
+    if (!exists) {
+      user.pushSubscriptions.push(subscription);
+      await user.save();
+    }
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Candles for chart (Lightweight Charts format)
