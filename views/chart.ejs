@@ -332,9 +332,11 @@
   function showTradingViewFallback() {
     lwContainer.style.display = 'none';
     tvContainer.style.display = '';
-    tfSelector.style.display = 'none';
-    document.getElementById('tv-loading').style.display = 'none';
-    document.getElementById('tv-widget-wrap').style.display = '';
+    if (tfSelector) tfSelector.style.display = 'none';
+    var tl = document.getElementById('tv-loading');
+    if (tl) tl.style.display = 'none';
+    var tw = document.getElementById('tv-widget-wrap');
+    if (tw) tw.style.display = '';
     var script = document.createElement('script');
     script.src = 'https://s3.tradingview.com/tv.js';
     script.onload = function() {
@@ -479,10 +481,22 @@
 
   function loadCandles(tf) {
     currentTF = tf;
+    var tvLoading = document.getElementById('tv-loading');
+    var fetchTimeout = setTimeout(function() {
+      if (!chartRef.chart && tvLoading && tvLoading.style.display !== 'none') {
+        console.warn('Chart fetch timeout, falling back to TradingView');
+        showTradingViewFallback();
+      }
+    }, 15000);
     fetch('/api/candles/' + coinId + '?interval=' + tf)
-      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        clearTimeout(fetchTimeout);
+        if (!r.ok) return r.json().catch(function() { return { success: false }; });
+        return r.json();
+      })
       .then(function(data) {
-        if (!data.success || !data.candles || data.candles.length === 0) {
+        clearTimeout(fetchTimeout);
+        if (!data || !data.success || !data.candles || data.candles.length === 0) {
           if (!chartRef.chart) showTradingViewFallback();
           return;
         }
@@ -496,8 +510,11 @@
           // First load — create the chart
           lwContainer.style.display = '';
           tvContainer.style.display = 'none';
+          if (tvLoading) tvLoading.style.display = 'none';
           requestAnimationFrame(function() {
+            try {
             var chartEl = document.getElementById('lw-chart');
+            if (!chartEl) { showTradingViewFallback(); return; }
             var chart = LightweightCharts.createChart(chartEl, {
               layout: { background: { type: 'solid', color: '#0f172a' }, textColor: '#9ca3af' },
               grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
@@ -533,6 +550,10 @@
             chart.timeScale().fitContent();
             // Set up drawing overlay after chart is ready
             setTimeout(function() { resizeDrawCanvas(); hookChartRedraw(); }, 100);
+            } catch (chartErr) {
+              console.error('Chart init error:', chartErr);
+              showTradingViewFallback();
+            }
           });
         } else {
           // Timeframe switch — just update data
@@ -548,6 +569,7 @@
         }
       })
       .catch(function(err) {
+        clearTimeout(fetchTimeout);
         console.error('Chart load error:', err);
         if (!chartRef.chart) showTradingViewFallback();
       });
@@ -696,7 +718,7 @@
   var dragState = null;    // { index, startPx, startPy, startT1, startP1, startT2, startP2 } for move
 
   function resizeDrawCanvas() {
-    if (!drawCanvas || !chartRef.chart) return;
+    if (!drawCanvas || !drawCtx || !chartRef.chart) return;
     var container = document.getElementById('lw-chart-container');
     var rect = container.getBoundingClientRect();
     var dpr = window.devicePixelRatio || 1;
