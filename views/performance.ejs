@@ -49,14 +49,28 @@
 <div class="section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Paper Trading Balance</h3>
   <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Set your starting paper trading balance. This resets your balance and initial balance (does not clear trade history).</p>
-  <form action="/account/set-balance" method="POST" style="display:flex;gap:12px;align-items:end;max-width:400px;margin-bottom:24px;">
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-    <div style="flex:1;">
-      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Paper balance ($)</label>
-      <input type="number" name="paperBalance" min="100" max="1000000" step="100" value="<%= user.paperBalance != null ? Math.round(user.paperBalance) : 10000 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
-    </div>
-    <button type="submit" class="btn btn-outline btn-sm" onclick="return confirm('This will reset your paper balance to the entered amount. Continue?')">Set Balance</button>
-  </form>
+  <div style="display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:12px;">
+    <form action="/account/set-balance" method="POST" style="display:flex;gap:12px;align-items:end;">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div>
+        <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Paper balance ($)</label>
+        <input type="number" name="paperBalance" min="100" max="1000000" step="100" value="<%= user.paperBalance != null ? Math.round(user.paperBalance) : 10000 %>" style="width:140px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+      </div>
+      <button type="submit" class="btn btn-outline btn-sm" onclick="return confirm('This will reset your paper balance to the entered amount. Continue?')">Set Balance</button>
+    </form>
+    <% if (user.bitget && user.bitget.connected) { %>
+    <form action="/account/sync-balance-from-bitget" method="POST" style="display:inline;">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button type="submit" class="btn btn-outline btn-sm" style="border-color:#10b981;color:#10b981;" onclick="return confirm('Sync paper balance from your Bitget account? This will set paper balance = Bitget Futures Available (or Spot if you trade spot).')">Sync from Bitget</button>
+    </form>
+    <% } %>
+  </div>
+  <% if (user.bitget && user.bitget.connected) { %>
+  <div id="bitget-balance-perf" style="margin-top:8px;font-size:13px;color:#9ca3af;">
+    <span style="color:#6b7280;">Bitget balance:</span> <span id="bitget-balance-val">Loading...</span>
+    <a href="/exchange" style="margin-left:8px;color:#3b82f6;font-size:12px;">View on Exchange</a>
+  </div>
+  <% } %>
 
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Trading settings</h3>
   <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Limit how much of your balance each trade can use. Lower values = safer position sizing.</p>
@@ -128,6 +142,14 @@
     <div>
       <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Stop check grace (min)</label>
       <input type="number" name="stopCheckGraceMinutes" min="0" max="30" value="<%= (user.settings && user.settings.stopCheckGraceMinutes) != null ? user.settings.stopCheckGraceMinutes : 2 %>" title="No BE/TS/lock-in on trades younger than this" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Maker fee (%)</label>
+      <input type="number" name="makerFeePercent" min="0" max="1" step="0.01" value="<%= (user.settings && user.settings.makerFeePercent) != null ? user.settings.makerFeePercent : 0.1 %>" title="Entry fee for paper simulation. Bitget VIP0: ~0.02%. Enter 0.02 for 0.02%." style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Taker fee (%)</label>
+      <input type="number" name="takerFeePercent" min="0" max="1" step="0.01" value="<%= (user.settings && user.settings.takerFeePercent) != null ? user.settings.takerFeePercent : 0.1 %>" title="Exit fee for paper simulation. Bitget VIP0: ~0.06%. Enter 0.06 for 0.06%." style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
     </div>
     <div style="display:flex;align-items:center;gap:8px;" title="Push notification when a trade opens">
       <input type="hidden" name="notifyTradeOpen" value="false">
@@ -373,6 +395,24 @@
     if (el) el.addEventListener('input', updateCalc);
   });
   updateCalc();
+
+  // Load Bitget balance when connected
+  var bitgetEl = document.getElementById('bitget-balance-val');
+  if (bitgetEl) {
+    fetch('/api/exchange/balance', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.success || !data.balances) { bitgetEl.textContent = 'Error'; return; }
+        var b = data.balances;
+        var tradingType = '<%= (user.liveTrading && user.liveTrading.tradingType) || "futures" %>';
+        var amt = 0;
+        if (tradingType === 'spot' && b.spot) amt = b.spot.available || 0;
+        else if (b.futures) amt = b.futures.available ?? b.futures.equity ?? 0;
+        else if (b.spot) amt = b.spot.available || 0;
+        bitgetEl.textContent = '$' + amt.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+      })
+      .catch(function() { bitgetEl.textContent = 'Error'; });
+  }
 
   <% if (stats.equityCurve && stats.equityCurve.length > 1) { %>
   (function() {

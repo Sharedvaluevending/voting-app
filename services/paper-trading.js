@@ -11,8 +11,16 @@ const User = require('../models/User');
 const { recordTradeOutcome, adjustWeights } = require('./learning-engine');
 const bitget = require('./bitget');
 
-const MAKER_FEE = 0.001;
-const TAKER_FEE = 0.001;
+const DEFAULT_MAKER_FEE = 0.001;
+const DEFAULT_TAKER_FEE = 0.001;
+function getMakerFee(user) {
+  const pct = user?.settings?.makerFeePercent;
+  return (Number.isFinite(pct) ? pct / 100 : DEFAULT_MAKER_FEE);
+}
+function getTakerFee(user) {
+  const pct = user?.settings?.takerFeePercent;
+  return (Number.isFinite(pct) ? pct / 100 : DEFAULT_TAKER_FEE);
+}
 const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
 const DEFAULT_COOLDOWN_HOURS = 4;  // no same-direction re-entry on same coin within N hours
 
@@ -194,9 +202,10 @@ async function openTrade(userId, signalData) {
   const maxPositionByMarginPct = maxMarginByPct * leverage;
   positionSize = Math.min(positionSize, Math.max(0, maxPositionByMarginPct));
 
+  const makerFee = getMakerFee(user);
   // Cap so margin + fees never exceed balance (leave $0.50 buffer for rounding)
   const maxSpend = Math.max(0, user.paperBalance - 0.50);
-  const maxPositionFromBalance = maxSpend / (1 / leverage + MAKER_FEE);
+  const maxPositionFromBalance = maxSpend / (1 / leverage + makerFee);
   positionSize = Math.min(positionSize, Math.max(0, maxPositionFromBalance));
 
   // If still invalid or zero, use a small size that fits in balance
@@ -205,15 +214,15 @@ async function openTrade(userId, signalData) {
   }
 
   let margin = positionSize / leverage;
-  let fees = positionSize * MAKER_FEE;
+  let fees = positionSize * makerFee;
   let required = margin + fees;
 
   // Final safety: if required still exceeds balance (e.g. rounding), shrink position until it fits
   if (required > user.paperBalance && user.paperBalance > 0) {
-    const maxPosByBalance = (user.paperBalance - 0.01) / (1 / leverage + MAKER_FEE);
+    const maxPosByBalance = (user.paperBalance - 0.01) / (1 / leverage + makerFee);
     positionSize = Math.min(positionSize, Math.max(0, maxPosByBalance));
     margin = positionSize / leverage;
-    fees = positionSize * MAKER_FEE;
+    fees = positionSize * makerFee;
     required = margin + fees;
   }
 
@@ -330,7 +339,8 @@ async function closeTradePartial(trade, exitPrice, portionSize, reason) {
   } else {
     pnl = ((trade.entryPrice - exitPrice) / trade.entryPrice) * portion;
   }
-  const exitFees = portion * TAKER_FEE;
+  const takerFee = getTakerFee(user);
+  const exitFees = portion * takerFee;
   pnl -= exitFees;
 
   const marginPortion = portion / trade.leverage;
@@ -415,7 +425,8 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
     pnl = ((trade.entryPrice - exitPrice) / trade.entryPrice) * trade.positionSize;
   }
 
-  const exitFees = trade.positionSize * TAKER_FEE;
+  const takerFee = getTakerFee(user);
+  const exitFees = trade.positionSize * takerFee;
   pnl -= exitFees;
   const totalPnl = (trade.partialPnl || 0) + pnl;
   const originalMargin = (trade.originalPositionSize || trade.positionSize) / trade.leverage;

@@ -775,11 +775,54 @@ app.post('/account/settings', requireLogin, async (req, res) => {
     if (req.body.notifyTradeClose !== undefined) {
       s.notifyTradeClose = req.body.notifyTradeClose === 'true' || (Array.isArray(req.body.notifyTradeClose) && req.body.notifyTradeClose.includes('true'));
     }
+    if (req.body.makerFeePercent != null) {
+      const v = parseFloat(req.body.makerFeePercent);
+      s.makerFeePercent = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.1;
+    }
+    if (req.body.takerFeePercent != null) {
+      const v = parseFloat(req.body.takerFeePercent);
+      s.takerFeePercent = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.1;
+    }
     u.settings = s;
     await u.save();
     res.redirect('/performance?success=Settings+saved');
   } catch (err) {
     res.redirect('/performance?error=' + encodeURIComponent(err.message || 'Failed to save'));
+  }
+});
+
+// ====================================================
+// SYNC PAPER BALANCE FROM BITGET
+// ====================================================
+app.post('/account/sync-balance-from-bitget', requireLogin, async (req, res) => {
+  try {
+    const u = await User.findById(req.session.userId);
+    if (!u || !u.bitget || !u.bitget.connected) {
+      return res.redirect('/performance?error=' + encodeURIComponent('Connect Bitget first'));
+    }
+    const result = await bitget.getAccountBalance(u);
+    if (!result.success || !result.balances) {
+      return res.redirect('/performance?error=' + encodeURIComponent(result.error || 'Failed to fetch Bitget balance'));
+    }
+    const tradingType = u.liveTrading?.tradingType || 'futures';
+    let balance = 0;
+    if (tradingType === 'spot' && result.balances.spot) {
+      balance = result.balances.spot.available || 0;
+    } else if (result.balances.futures) {
+      balance = result.balances.futures.available ?? result.balances.futures.equity ?? 0;
+    } else if (result.balances.spot) {
+      balance = result.balances.spot.available || 0;
+    }
+    if (balance <= 0) {
+      return res.redirect('/performance?error=' + encodeURIComponent('Bitget balance is zero or unavailable'));
+    }
+    u.paperBalance = Math.round(balance * 100) / 100;
+    u.initialBalance = u.paperBalance;
+    await u.save();
+    res.redirect('/performance?success=' + encodeURIComponent(`Paper balance synced from Bitget: $${u.paperBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`));
+  } catch (err) {
+    console.error('[SyncBalance] Error:', err.message);
+    res.redirect('/performance?error=' + encodeURIComponent(err.message || 'Sync failed'));
   }
 });
 

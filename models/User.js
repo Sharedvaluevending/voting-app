@@ -25,7 +25,9 @@ const userSchema = new mongoose.Schema({
     scoreCheckGraceMinutes: { type: Number, default: 5, min: 0, max: 60 },
     stopCheckGraceMinutes: { type: Number, default: 2, min: 0, max: 30 },
     notifyTradeOpen: { type: Boolean, default: true },
-    notifyTradeClose: { type: Boolean, default: true }
+    notifyTradeClose: { type: Boolean, default: true },
+    makerFeePercent: { type: Number, default: 0.1, min: 0, max: 1 },
+    takerFeePercent: { type: Number, default: 0.1, min: 0, max: 1 }
   },
   resetToken: { type: String },
   resetTokenExpiry: { type: Date },
