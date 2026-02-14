@@ -106,6 +106,7 @@
         <label class="toggle-label"><input type="checkbox" id="toggle-fib" checked> <span class="toggle-text">Fib</span></label>
         <label class="toggle-label"><input type="checkbox" id="toggle-badges" checked> <span class="toggle-text">Badges</span></label>
         <label class="toggle-label"><input type="checkbox" id="toggle-patterns" checked> <span class="toggle-text">Patterns</span></label>
+        <label class="toggle-label"><input type="checkbox" id="toggle-chart-patterns" checked> <span class="toggle-text">Chart Pat.</span></label>
         <label class="toggle-label"><input type="checkbox" id="toggle-sr" checked> <span class="toggle-text">S/R</span></label>
         <% if (typeof tradeId !== 'undefined' && tradeId) { %>
         <label class="toggle-label"><input type="checkbox" id="toggle-trade" checked> <span class="toggle-text">Trade</span></label>
@@ -126,6 +127,12 @@
     <div class="tradingview-widget-container" id="tv-widget-wrap" style="width:100%;height:100%;display:none;">
       <div id="tradingview_widget" style="width:100%;height:100%;"></div>
     </div>
+  </div>
+
+  <!-- Chart Pattern Info Panel (populated via JS) -->
+  <div class="chart-pattern-panel" id="chart-pattern-panel" style="display:none;">
+    <div class="chart-pattern-panel-title">Chart Patterns Detected</div>
+    <div class="chart-pattern-panel-list" id="chart-pattern-list"></div>
   </div>
 
   <% if (tradeId) { %>
@@ -161,6 +168,20 @@
 .chart-actions-bar .action-badge.action-exit { background: #450a0a; color: #f87171; }
 .chart-actions-bar .action-badge.action-pp { background: #2e1065; color: #a78bfa; }
 .chart-actions-bar .action-badge.action-rp { background: #422006; color: #fbbf24; }
+.chart-pattern-panel { margin-top: 8px; padding: 10px 14px; background: rgba(15,23,42,0.92); border: 1px solid #334155; border-radius: 8px; backdrop-filter: blur(8px); }
+.chart-pattern-panel-title { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; font-weight: 600; }
+.chart-pattern-panel-list { display: flex; gap: 8px; flex-wrap: wrap; }
+.chart-pattern-card { padding: 8px 12px; border-radius: 6px; font-size: 12px; min-width: 200px; max-width: 350px; }
+.chart-pattern-card.bull { background: rgba(34,197,94,0.1); border-left: 3px solid #22c55e; }
+.chart-pattern-card.bear { background: rgba(239,68,68,0.1); border-left: 3px solid #ef4444; }
+.chart-pattern-card.neutral { background: rgba(234,179,8,0.1); border-left: 3px solid #eab308; }
+.chart-pattern-card .cp-name { font-weight: 700; font-size: 13px; }
+.chart-pattern-card .cp-meta { color: #9ca3af; font-size: 11px; margin-top: 3px; }
+.chart-pattern-card .cp-target { color: #6b7280; font-size: 11px; margin-top: 2px; }
+.chart-pattern-card .cp-wr { font-size: 10px; padding: 2px 6px; border-radius: 3px; font-weight: 600; display: inline-block; margin-top: 4px; }
+.chart-pattern-card.bull .cp-wr { background: rgba(34,197,94,0.2); color: #22c55e; }
+.chart-pattern-card.bear .cp-wr { background: rgba(239,68,68,0.2); color: #ef4444; }
+.chart-pattern-card.neutral .cp-wr { background: rgba(234,179,8,0.2); color: #eab308; }
 .chart-marker-legend { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; padding: 6px 10px; background: rgba(15,23,42,0.8); border: 1px solid #1e293b; border-radius: 6px; font-size: 10px; color: #9ca3af; }
 .chart-marker-legend .legend-item { display: flex; align-items: center; gap: 4px; }
 .chart-marker-legend .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
@@ -230,10 +251,13 @@
   var showFib = true;
   var showBadges = true;
   var showPatterns = true;
+  var showChartPatterns = true;
   var showSR = true;
   var showTradeLevels = true;
   var srLevels = { support: null, resistance: null };
   var lastPatterns = [];
+  var lastChartPatterns = [];
+  var chartPatternSeries = [];  // line series for chart pattern trendlines
   var drawColor = '#f59e0b';
 
   // Action marker colors and shapes for Lightweight Charts
@@ -492,6 +516,132 @@
     applyActionMarkers(initialActions || []);
   }
 
+  // =============================================
+  //  CHART PATTERN TRENDLINES — draw/remove
+  // =============================================
+  function removeChartPatternLines() {
+    for (var i = 0; i < chartPatternSeries.length; i++) {
+      try { chartRef.chart.removeSeries(chartPatternSeries[i]); } catch(e) {}
+    }
+    chartPatternSeries = [];
+  }
+
+  function updateChartPatternPanel() {
+    var panel = document.getElementById('chart-pattern-panel');
+    var list = document.getElementById('chart-pattern-list');
+    if (!panel || !list) return;
+    if (!lastChartPatterns || lastChartPatterns.length === 0) {
+      panel.style.display = 'none';
+      return;
+    }
+    panel.style.display = '';
+    var html = '';
+    for (var i = 0; i < lastChartPatterns.length; i++) {
+      var p = lastChartPatterns[i];
+      var cls = p.direction === 'BULL' ? 'bull' : p.direction === 'BEAR' ? 'bear' : 'neutral';
+      var dir = p.direction === 'BULL' ? 'Bullish' : p.direction === 'BEAR' ? 'Bearish' : 'Neutral';
+      var targetStr = '';
+      if (p.target) {
+        targetStr = '<div class="cp-target">Target: $' + (p.target >= 1 ? p.target.toFixed(2) : p.target.toFixed(6)) + '</div>';
+      }
+      var wrStr = '';
+      if (p.reliability && p.reliability.winRate) {
+        wrStr = '<span class="cp-wr">' + Math.round(p.reliability.winRate * 100) + '% win rate | Tier ' + (p.reliability.tier || '?') + '</span>';
+      }
+      html += '<div class="chart-pattern-card ' + cls + '">' +
+        '<div class="cp-name">' + p.name + '</div>' +
+        '<div class="cp-meta">' + dir + ' ' + p.type + (p.completion != null ? ' | ' + p.completion + '% complete' : '') +
+        (p.volumeConfirm ? ' | Vol ✓' : '') + '</div>' +
+        targetStr + wrStr +
+        '</div>';
+    }
+    list.innerHTML = html;
+  }
+
+  function renderChartPatterns() {
+    removeChartPatternLines();
+    updateChartPatternPanel();
+    if (!showChartPatterns || !chartRef.chart || !lastChartPatterns || lastChartPatterns.length === 0) return;
+
+    for (var pi = 0; pi < lastChartPatterns.length; pi++) {
+      var pat = lastChartPatterns[pi];
+      if (!pat.trendlines || pat.trendlines.length === 0) continue;
+
+      var isBull = pat.direction === 'BULL';
+      var isBear = pat.direction === 'BEAR';
+      var lineColor = isBull ? 'rgba(34,197,94,0.7)' : isBear ? 'rgba(239,68,68,0.7)' : 'rgba(234,179,8,0.7)';
+
+      for (var ti = 0; ti < pat.trendlines.length; ti++) {
+        var tl = pat.trendlines[ti];
+        if (!tl.startTime || !tl.endTime || !tl.startPrice || !tl.endPrice) continue;
+
+        // Use line series for trendlines
+        try {
+          var lineSeries = chartRef.chart.addLineSeries({
+            color: tl.label === 'neckline' ? 'rgba(251,191,36,0.8)' : lineColor,
+            lineWidth: tl.label === 'neckline' ? 2 : 1.5,
+            lineStyle: tl.label === 'neckline' ? 2 : 0, // 2=dashed, 0=solid
+            crosshairMarkerVisible: false,
+            lastValueVisible: false,
+            priceLineVisible: false
+          });
+          var data = [
+            { time: tl.startTime, value: tl.startPrice },
+            { time: tl.endTime, value: tl.endPrice }
+          ];
+          // Ensure data is sorted by time
+          data.sort(function(a, b) { return a.time - b.time; });
+          lineSeries.setData(data);
+
+          // Add pattern label as a marker on the last point
+          if (ti === 0) {
+            try {
+              lineSeries.setMarkers([{
+                time: data[data.length - 1].time,
+                position: isBull ? 'belowBar' : 'aboveBar',
+                color: isBull ? '#22c55e' : isBear ? '#ef4444' : '#eab308',
+                shape: 'square',
+                text: pat.name + (pat.completion != null ? ' ' + pat.completion + '%' : '')
+              }]);
+            } catch(me) {}
+          }
+
+          chartPatternSeries.push(lineSeries);
+        } catch(e) {
+          console.warn('Chart pattern line error:', e);
+        }
+      }
+
+      // Draw target level as a dotted horizontal line if we have it
+      if (pat.target && pat.trendlines.length > 0) {
+        try {
+          var lastTL = pat.trendlines[pat.trendlines.length - 1];
+          if (lastTL.endTime) {
+            var targetSeries = chartRef.chart.addLineSeries({
+              color: isBull ? 'rgba(34,197,94,0.4)' : isBear ? 'rgba(239,68,68,0.4)' : 'rgba(234,179,8,0.4)',
+              lineWidth: 1,
+              lineStyle: 2, // dashed
+              crosshairMarkerVisible: false,
+              lastValueVisible: false,
+              priceLineVisible: false
+            });
+            // Extend target line from pattern end to 20 candles ahead
+            var extendTime = lastTL.endTime + (lastTL.endTime - (pat.trendlines[0].startTime || lastTL.startTime)) * 0.5;
+            var targetData = [
+              { time: lastTL.endTime, value: pat.target },
+              { time: Math.max(extendTime, lastTL.endTime + 1), value: pat.target }
+            ];
+            targetData.sort(function(a, b) { return a.time - b.time; });
+            targetSeries.setData(targetData);
+            chartPatternSeries.push(targetSeries);
+          }
+        } catch(te) {
+          console.warn('Target line error:', te);
+        }
+      }
+    }
+  }
+
   function loadCandles(tf) {
     currentTF = tf;
     var tvLoading = document.getElementById('tv-loading');
@@ -514,8 +664,9 @@
           return;
         }
 
-        // Capture pattern data and S/R from API (S/R redraws per timeframe)
+        // Capture pattern data, chart patterns, and S/R from API (S/R redraws per timeframe)
         lastPatterns = data.patterns || [];
+        lastChartPatterns = data.chartPatterns || [];
         srLevels.support = data.support;
         srLevels.resistance = data.resistance;
 
@@ -567,6 +718,7 @@
               // Price lines and markers (non-critical — errors won't break chart)
               try { addPriceLines(); } catch(e) { console.warn('addPriceLines error:', e); }
               try { applyActionMarkers(initialActions || []); } catch(e) { console.warn('applyActionMarkers error:', e); }
+              try { renderChartPatterns(); } catch(e) { console.warn('renderChartPatterns error:', e); }
 
               chart.timeScale().fitContent();
               // Set up drawing overlay after chart is ready
@@ -591,6 +743,7 @@
             }
             try { addPriceLines(); } catch(e) { console.warn('addPriceLines error:', e); }
             try { applyActionMarkers(initialActions || []); } catch(e) { console.warn('applyActionMarkers error:', e); }
+            try { renderChartPatterns(); } catch(e) { console.warn('renderChartPatterns error:', e); }
             chartRef.chart.timeScale().fitContent();
             setTimeout(function() { renderDrawings(); }, 100);
           } catch (updateErr) {
@@ -698,6 +851,11 @@
   if (togglePatternsEl) togglePatternsEl.addEventListener('change', function() {
     showPatterns = this.checked;
     applyActionMarkers(initialActions || []);
+  });
+  var toggleChartPatternsEl = document.getElementById('toggle-chart-patterns');
+  if (toggleChartPatternsEl) toggleChartPatternsEl.addEventListener('change', function() {
+    showChartPatterns = this.checked;
+    if (showChartPatterns) { renderChartPatterns(); } else { removeChartPatternLines(); }
   });
   var toggleSrEl = document.getElementById('toggle-sr');
   if (toggleSrEl) toggleSrEl.addEventListener('change', function() { toggleSRLines(this.checked); });

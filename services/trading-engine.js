@@ -10,6 +10,7 @@
 // v4.1: Candlestick pattern detection & recognition engine.
 // ====================================================
 const { detectAllPatterns, scorePatterns } = require('./candlestick-patterns');
+const { detectChartPatterns, scoreChartPatterns } = require('./chart-patterns');
 
 // Config: quality gates and filters (quant-desk upgrades)
 const ENGINE_CONFIG = {
@@ -374,6 +375,11 @@ function analyzeWithCandles(coinData, candles, options) {
         '1H': tf1h.candlestickPatterns || {},
         '4H': tf4h.candlestickPatterns || {},
         '1D': tf1d.candlestickPatterns || {}
+      },
+      chartPatterns: {
+        '1H': tf1h.chartPatterns || {},
+        '4H': tf4h.chartPatterns || {},
+        '1D': tf1d.chartPatterns || {}
       }
     },
     timestamp: new Date().toISOString()
@@ -512,6 +518,15 @@ function analyzeOHLCV(candles, currentPrice) {
 
   const patternScore = scorePatterns(candlestickPatterns, patternContext);
 
+  // Chart pattern detection (v4.2) — geometric formations (flags, wedges, triangles, H&S, etc.)
+  const chartPatterns = detectChartPatterns(candles);
+  const chartPatternContext = {
+    trendUp: trend === 'UP' || trend === 'STRONG_UP',
+    trendDown: trend === 'DOWN' || trend === 'STRONG_DOWN',
+    volumeHigh: volumeAnalysis.relativeVolume > 1.5
+  };
+  const chartPatternScore = scoreChartPatterns(chartPatterns, chartPatternContext);
+
   return {
     rsi, sma20, sma50, ema9, ema21,
     macdLine, macdSignal, macdHistogram,
@@ -537,6 +552,7 @@ function analyzeOHLCV(candles, currentPrice) {
     macdHistSlope,
     rsiROC,
     candlestickPatterns: patternScore,
+    chartPatterns: chartPatternScore,
     currentPrice,
     closes, highs, lows, volumes
   };
@@ -724,6 +740,15 @@ function scoreCandles(analysis, currentPrice, timeframe) {
   }
   if (cpScore.bullPoints) bullPoints += cpScore.bullPoints;
   if (cpScore.bearPoints) bearPoints += cpScore.bearPoints;
+
+  // Chart pattern bonus (v4.2) — geometric formations (flags, wedges, H&S, etc.)
+  // These are larger multi-candle structural formations with high reliability
+  const geoScore = analysis.chartPatterns || {};
+  if (geoScore.structureBonus) {
+    structure += Math.min(geoScore.structureBonus, 6);
+  }
+  if (geoScore.bullPoints) bullPoints += geoScore.bullPoints;
+  if (geoScore.bearPoints) bearPoints += geoScore.bearPoints;
 
   structure = Math.min(20, structure);
 
@@ -1897,6 +1922,25 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
     }
   }
 
+  // Chart patterns (v4.2) — geometric formations
+  const tfChartPats = [
+    { name: '1H', a: tf1h },
+    { name: '4H', a: tf4h },
+    { name: '1D', a: tf1d }
+  ];
+  for (const { name, a } of tfChartPats) {
+    const gp = a && a.chartPatterns;
+    if (gp && gp.patterns && gp.patterns.length > 0) {
+      for (const pat of gp.patterns) {
+        const ctx = pat.contextFactors && pat.contextFactors.length > 0 ? ' (' + pat.contextFactors.join(', ') + ')' : '';
+        const wr = pat.reliability ? ' [' + Math.round(pat.reliability.winRate * 100) + '% win rate]' : '';
+        const comp = pat.completion != null ? ' ' + pat.completion + '% complete' : '';
+        const dir = pat.direction === 'BULL' ? 'Bullish' : pat.direction === 'BEAR' ? 'Bearish' : '';
+        reasons.push(`${name}: ${dir} chart pattern: ${pat.name}${ctx}${wr}${comp}`);
+      }
+    }
+  }
+
   // v5 features context
   if (extras.fundingRate != null) {
     const fr = extras.fundingRate;
@@ -2028,6 +2072,7 @@ function defaultAnalysis(currentPrice) {
     volumeTrend: 'NORMAL', relativeVolume: 1, volumeClimax: false, accDist: 'NEUTRAL',
     volatilityState: 'normal',
     candlestickPatterns: { structureBonus: 0, momentumBonus: 0, bullPoints: 0, bearPoints: 0, patterns: [], reasoning: [] },
+    chartPatterns: { structureBonus: 0, bullPoints: 0, bearPoints: 0, patterns: [], reasoning: [] },
     currentPrice, closes: [], highs: [], lows: [], volumes: []
   };
 }

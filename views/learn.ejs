@@ -258,6 +258,121 @@
     </div>
   </div>
 
+  <!-- CHART PATTERNS SECTION (v4.2) — Geometric Formations -->
+  <div class="section" style="grid-column: 1 / -1;">
+    <h3 style="color:#06b6d4;">Chart Pattern Recognition (v4.2)</h3>
+    <div class="journal-entry">
+      <strong>How Chart Patterns Work</strong><br>
+      Chart patterns are <em>geometric formations</em> formed by price over many candles — distinct from single/multi-candle patterns (Tier 1-3).
+      These are the classic technical analysis formations like flags, triangles, wedges, head &amp; shoulders, and double tops/bottoms.<br><br>
+      The engine scans each timeframe for these patterns using <strong>swing point detection</strong> and <strong>linear regression trendlines</strong>.
+      Each pattern is scored based on:<br>
+      &bull; <strong>Pattern type reliability</strong> — historical win rates from backtesting<br>
+      &bull; <strong>Completion %</strong> — how close the pattern is to triggering a breakout<br>
+      &bull; <strong>Volume confirmation</strong> — declining volume during consolidation = higher reliability<br>
+      &bull; <strong>Trend alignment</strong> — continuation patterns in the trend direction get a 1.3x boost<br><br>
+      Chart patterns add up to <strong>+6 Structure points</strong> and feed <strong>bull/bear direction points</strong> into the scoring engine.
+      They appear as trendlines drawn directly on your chart (toggled with the "Chart Pat." checkbox).
+    </div>
+
+    <div class="journal-entry">
+      <strong style="color:#10b981;">Continuation Patterns</strong> — trade with the trend<br><br>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;">
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Bull Flag</strong> <span style="color:#10b981;font-size:11px;">BULL continuation</span> <span style="font-size:10px;color:#6b7280;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">67% WR | Tier A</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Strong impulse up (pole) followed by tight, slightly downward-drifting consolidation (flag). Volume declines during the flag. Breakout above with volume = continuation. Target: pole height from breakout.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Bear Flag</strong> <span style="color:#ef4444;font-size:11px;">BEAR continuation</span> <span style="font-size:10px;color:#6b7280;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">67% WR | Tier A</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Strong impulse down followed by slight upward drift. Mirror of bull flag. Breakdown below the flag confirms continuation. Very common in crypto downtrends.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Bull Pennant</strong> <span style="color:#10b981;font-size:11px;">BULL continuation</span> <span style="font-size:10px;color:#6b7280;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">63% WR | Tier A</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Like a bull flag but consolidation forms a small symmetrical triangle. Converging trendlines on declining volume. Breakout upward expected.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Bear Pennant</strong> <span style="color:#ef4444;font-size:11px;">BEAR continuation</span> <span style="font-size:10px;color:#6b7280;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">63% WR | Tier A</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Like a bear flag but with converging trendlines. Small symmetrical triangle after a strong move down. Breakdown expected.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="journal-entry">
+      <strong style="color:#ef4444;">Reversal Patterns</strong> — trade against the prior trend<br><br>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;">
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #f59e0b;">
+          <strong>Head &amp; Shoulders</strong> <span style="color:#ef4444;font-size:11px;">BEAR reversal</span> <span style="font-size:10px;color:#f59e0b;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">83% WR | Tier S</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Three peaks — middle (head) is highest, two outer (shoulders) roughly equal. Neckline break confirms bearish reversal. The most reliable reversal pattern in all of technical analysis. Target: head-to-neckline distance projected down.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #f59e0b;">
+          <strong>Inverse Head &amp; Shoulders</strong> <span style="color:#10b981;font-size:11px;">BULL reversal</span> <span style="font-size:10px;color:#f59e0b;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">83% WR | Tier S</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Three troughs — middle (head) is deepest. Mirror of H&amp;S. Neckline break upward = confirmed long. Equally reliable. One of the best buy signals in TA.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Double Top</strong> <span style="color:#ef4444;font-size:11px;">BEAR reversal</span> <span style="font-size:10px;color:#6b7280;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">72% WR | Tier A</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Price tests resistance twice and fails both times — "M" shape. Neckline break confirms. Very common at the end of uptrends. Target: peak-to-neckline distance projected down.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Double Bottom</strong> <span style="color:#10b981;font-size:11px;">BULL reversal</span> <span style="font-size:10px;color:#6b7280;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">72% WR | Tier A</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Price tests support twice and holds — "W" shape. Neckline break upward confirms. Classic accumulation pattern. Target: neckline-to-trough distance projected up.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Rising Wedge</strong> <span style="color:#ef4444;font-size:11px;">BEAR reversal</span> <span style="font-size:10px;color:#6b7280;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">65% WR | Tier B</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Both trendlines slope up but converge. Despite rising prices, each rally is weaker. Volume typically declines. Usually breaks down. Counter-intuitive but reliable.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Falling Wedge</strong> <span style="color:#10b981;font-size:11px;">BULL reversal</span> <span style="font-size:10px;color:#6b7280;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">65% WR | Tier B</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Both trendlines slope down but converge. Selling pressure weakening with each drop. Usually breaks upward. Best when combined with bullish divergence on RSI/MACD.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="journal-entry">
+      <strong style="color:#eab308;">Neutral Patterns</strong> — breakout direction determines the trade<br><br>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;">
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #10b981;">
+          <strong>Ascending Triangle</strong> <span style="color:#10b981;font-size:11px;">Bullish bias</span> <span style="font-size:10px;color:#6b7280;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">68% WR | Tier A</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Flat resistance + rising support. Buyers becoming more aggressive, pushing lows higher. Breakout above = long. Target: triangle height from breakout point.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #ef4444;">
+          <strong>Descending Triangle</strong> <span style="color:#ef4444;font-size:11px;">Bearish bias</span> <span style="font-size:10px;color:#6b7280;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">68% WR | Tier A</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Falling resistance + flat support. Sellers becoming more aggressive. Breakdown below = short. Target: triangle height from breakdown.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #eab308;">
+          <strong>Symmetrical Triangle</strong> <span style="color:#eab308;font-size:11px;">Neutral</span> <span style="font-size:10px;color:#6b7280;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">55% WR | Tier B</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Both trendlines converge equally. No inherent bias — can break either way. Wait for the breakout with volume, then trade that direction. Volume should decline as triangle matures.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;border-left:3px solid #6b7280;">
+          <strong>Channel / Rectangle</strong> <span style="color:#6b7280;font-size:11px;">Range</span> <span style="font-size:10px;color:#6b7280;background:#1e293b;padding:2px 6px;border-radius:3px;margin-left:4px;">55% WR | Tier B</span><br>
+          <span style="font-size:12px;color:#9ca3af;">Price bouncing between parallel support and resistance. Can be ascending (bullish), descending (bearish), or flat. Trade the boundaries or wait for breakout.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="journal-entry">
+      <strong>Chart Pattern Scoring &amp; Integration</strong><br>
+      Here's how chart patterns influence trade decisions:<br><br>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;">
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;">
+          <strong style="color:#3b82f6;">Scoring</strong><br>
+          <span style="font-size:12px;color:#9ca3af;">Each pattern adds up to +6 to the Structure score (0-20). Higher-tier patterns (S, A) contribute more than lower-tier (B). The bonus is weighted by completion %, volume confirmation, and trend alignment.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;">
+          <strong style="color:#10b981;">Direction</strong><br>
+          <span style="font-size:12px;color:#9ca3af;">Bull patterns add bullPoints (supporting LONG signals), bear patterns add bearPoints (supporting SHORT). A Head &amp; Shoulders near completion adds significant bearPoints, often tipping the signal to SELL.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;">
+          <strong style="color:#f59e0b;">Chart Visualization</strong><br>
+          <span style="font-size:12px;color:#9ca3af;">Detected patterns are drawn as trendlines on your chart (green = bull, red = bear, yellow = neutral). Necklines shown as dashed lines. Target levels shown as faint dotted lines. Toggle with "Chart Pat." checkbox.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;">
+          <strong style="color:#a78bfa;">Pattern Tiers</strong><br>
+          <span style="font-size:12px;color:#9ca3af;"><strong>Tier S</strong> (83%+ WR): H&amp;S, Inverse H&amp;S — highest confidence, strongest scoring impact.<br><strong>Tier A</strong> (65-72% WR): Flags, Triangles, Double Top/Bottom.<br><strong>Tier B</strong> (55-65% WR): Wedges, Symmetrical Triangle, Channels.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- CANDLESTICK PATTERNS SECTION (v4.1) -->
   <div class="section" style="grid-column: 1 / -1;">
     <h3 style="color:#f59e0b;">Candlestick Pattern Recognition (v4.1)</h3>

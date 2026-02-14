@@ -1328,7 +1328,45 @@ app.get('/api/candles/:coinId', async (req, res) => {
       console.warn('Pattern detection error:', patErr.message);
     }
 
-    res.json({ success: true, candles, volume, support, resistance, patterns });
+    // Detect chart patterns (v4.2) — geometric formations (flags, wedges, H&S, etc.)
+    let chartPatterns = [];
+    try {
+      const { detectChartPatterns } = require('./services/chart-patterns');
+      if (raw.length >= 20) {
+        const detected = detectChartPatterns(raw);
+        if (detected.length > 0) {
+          chartPatterns = detected.map(p => ({
+            id: p.id,
+            name: p.name,
+            direction: p.direction,
+            type: p.type,
+            bias: p.bias,
+            strength: p.strength,
+            completion: p.completion,
+            target: p.target,
+            description: p.description,
+            reliability: p.reliability,
+            volumeConfirm: p.volumeConfirm,
+            trendlines: p.trendlines ? Object.keys(p.trendlines).map(key => {
+              const tl = p.trendlines[key];
+              return {
+                label: key,
+                startIdx: tl.startIdx,
+                startPrice: tl.startPrice,
+                startTime: tl.startIdx < candles.length ? candles[tl.startIdx].time : null,
+                endIdx: tl.endIdx,
+                endPrice: tl.endPrice,
+                endTime: tl.endIdx < candles.length ? candles[tl.endIdx].time : null
+              };
+            }) : []
+          }));
+        }
+      }
+    } catch (cpErr) {
+      console.warn('Chart pattern detection error:', cpErr.message);
+    }
+
+    res.json({ success: true, candles, volume, support, resistance, patterns, chartPatterns });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
