@@ -1489,6 +1489,7 @@ function calculateFibonacci(highs, lows) {
 
 // ====================================================
 // REGIME DETECTION (use both 1D and 4H so we don't default everything to ranging)
+// Stricter thresholds: check compression/volatile first; higher ADX bar for trending.
 // ====================================================
 function detectRegime(tf1d, tf4h) {
   const adx1d = tf1d.adx || 0;
@@ -1498,11 +1499,17 @@ function detectRegime(tf1d, tf4h) {
   const trend = tf1d.trend;
   const vol = tf1d.volatilityState;
 
-  if (adx > 25 && (trend === 'STRONG_UP' || trend === 'STRONG_DOWN')) return 'trending';
-  if (adx > 25 && (trend === 'UP' || trend === 'DOWN')) return 'trending';
+  // Check compression and volatile first (more specific conditions)
   if (bbSqueeze) return 'compression';
   if (vol === 'extreme' || vol === 'high') return 'volatile';
-  if (adx > 0 && adx < 15) return 'ranging';
+
+  // Trending: ADX 30+ for crypto (was 25); ADX 25-30 only if STRONG trend
+  if (adx >= 30 && (trend === 'STRONG_UP' || trend === 'STRONG_DOWN' || trend === 'UP' || trend === 'DOWN')) return 'trending';
+  if (adx >= 25 && adx < 30 && (trend === 'STRONG_UP' || trend === 'STRONG_DOWN')) return 'trending';
+
+  // Widen ranging: ADX < 20 instead of 15
+  if (adx > 0 && adx < 20) return 'ranging';
+
   return 'mixed';
 }
 
