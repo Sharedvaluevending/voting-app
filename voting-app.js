@@ -1273,12 +1273,36 @@ app.get('/api/candles/:coinId', async (req, res) => {
     }
     const raw = allCandles[interval];
     const candles = raw.map(c => ({
-      time: Math.floor(c.openTime / 1000),
+      time: Math.floor((c.openTime || 0) / 1000),
       open: c.open,
       high: c.high,
       low: c.low,
       close: c.close
     }));
+
+    // Volume for histogram (Lightweight Charts: { time, value, color })
+    const volume = raw.map(c => {
+      const t = Math.floor((c.openTime || 0) / 1000);
+      const isUp = c.close >= c.open;
+      return { time: t, value: c.volume || 0, color: isUp ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)' };
+    });
+
+    // Support/Resistance from engine (swing-based)
+    let support = null;
+    let resistance = null;
+    try {
+      const { findSR } = require('./services/trading-engine');
+      const highs = raw.map(c => c.high);
+      const lows = raw.map(c => c.low);
+      const closes = raw.map(c => c.close);
+      const sr = findSR(highs, lows, closes);
+      if (sr.support > 0 && sr.resistance > sr.support) {
+        support = sr.support;
+        resistance = sr.resistance;
+      }
+    } catch (srErr) {
+      console.warn('S/R calc error:', srErr.message);
+    }
 
     // Detect candlestick patterns on these candles (v4.1)
     let patterns = [];
@@ -1304,7 +1328,7 @@ app.get('/api/candles/:coinId', async (req, res) => {
       console.warn('Pattern detection error:', patErr.message);
     }
 
-    res.json({ success: true, candles, patterns });
+    res.json({ success: true, candles, volume, support, resistance, patterns });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

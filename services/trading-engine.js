@@ -2042,4 +2042,4 @@ function r2(num) {
   return Math.round(num * 100000000) / 100000000;
 }
 
-module.exports = { analyzeCoin, analyzeAllCoins, ENGINE_CONFIG };
+module.exports = { analyzeCoin, analyzeAllCoins, ENGINE_CONFIG, findSR };

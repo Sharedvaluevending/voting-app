@@ -69,6 +69,9 @@
       <label class="toggle-label" title="Show/hide detected candlestick pattern markers">
         <input type="checkbox" id="toggle-patterns" checked> <span class="toggle-text">Patterns</span>
       </label>
+      <label class="toggle-label" title="Show/hide support and resistance from engine">
+        <input type="checkbox" id="toggle-sr" checked> <span class="toggle-text">S/R</span>
+      </label>
     </div>
 
     <div class="toolbar-divider"></div>
@@ -190,11 +193,13 @@
   var tradeId = <%- JSON.stringify(typeof tradeId !== 'undefined' ? tradeId : null) %>;
   var tradeDirection = <%- JSON.stringify(typeof direction !== 'undefined' ? direction : null) %>;
   var initialActions = <%- JSON.stringify(typeof tradeActions !== 'undefined' ? tradeActions : []) %>;
-  var chartRef = { chart: null, series: null, slLine: null, origSlLine: null, priceLines: [], fibLines: [], candleTimes: [] };
+  var chartRef = { chart: null, series: null, volumeSeries: null, slLine: null, origSlLine: null, priceLines: [], fibLines: [], srLines: [], candleTimes: [] };
   var currentTF = '1h';
   var showFib = true;
   var showBadges = true;
   var showPatterns = true;
+  var showSR = true;
+  var srLevels = { support: null, resistance: null };
   var lastPatterns = [];
 
   // Action marker colors and shapes for Lightweight Charts
@@ -338,6 +343,10 @@
       try { chartRef.series.removePriceLine(pl); } catch(e) {}
     });
     chartRef.fibLines = [];
+    chartRef.srLines.forEach(function(pl) {
+      try { chartRef.series.removePriceLine(pl); } catch(e) {}
+    });
+    chartRef.srLines = [];
 
     var lineOpts = { lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true };
     if (levels.sl != null) {
@@ -368,6 +377,25 @@
       <% if (fibLevels.fib618) { %>chartRef.fibLines.push(chartRef.series.createPriceLine(Object.assign({}, fibOpts, { price: <%= fibLevels.fib618 %>, color: '#e879f9', title: 'Fib 61.8%' })));<% } %>
     }
     <% } %>
+    // Support/Resistance from engine (toggleable)
+    if (showSR && srLevels.support != null && srLevels.resistance != null) {
+      var srOpts = Object.assign({}, lineOpts, { lineWidth: 1.5, lineStyle: LightweightCharts.LineStyle.Solid });
+      chartRef.srLines.push(chartRef.series.createPriceLine(Object.assign({}, srOpts, { price: srLevels.support, color: '#22c55e', title: 'Support' })));
+      chartRef.srLines.push(chartRef.series.createPriceLine(Object.assign({}, srOpts, { price: srLevels.resistance, color: '#ef4444', title: 'Resistance' })));
+    }
+  }
+
+  function toggleSRLines(visible) {
+    showSR = visible;
+    if (!chartRef.series) return;
+    if (!visible) {
+      chartRef.srLines.forEach(function(pl) {
+        try { chartRef.series.removePriceLine(pl); } catch(e) {}
+      });
+      chartRef.srLines = [];
+    } else {
+      addPriceLines();
+    }
   }
 
   // Toggle Fib lines on/off
@@ -405,8 +433,10 @@
           return;
         }
 
-        // Capture pattern data from API response (v4.1)
+        // Capture pattern data and S/R from API response
         lastPatterns = data.patterns || [];
+        srLevels.support = data.support;
+        srLevels.resistance = data.resistance;
 
         if (!chartRef.chart) {
           // First load — create the chart
@@ -419,7 +449,7 @@
               grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
               autoSize: true,
               timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#334155' },
-              rightPriceScale: { borderColor: '#334155', scaleMargins: { top: 0.1, bottom: 0.2 } }
+              rightPriceScale: { borderColor: '#334155', scaleMargins: { top: 0.1, bottom: 0.25 } }
             });
             var series = chart.addCandlestickSeries({
               upColor: '#22c55e', downColor: '#ef4444',
@@ -427,6 +457,15 @@
               wickDownColor: '#ef4444', wickUpColor: '#22c55e'
             });
             series.setData(data.candles);
+            if (data.volume && data.volume.length > 0) {
+              var volSeries = chart.addHistogramSeries({
+                priceFormat: { type: 'volume' },
+                priceScaleId: ''
+              });
+              try { volSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 }, borderVisible: false }); } catch (e) {}
+              volSeries.setData(data.volume);
+              chartRef.volumeSeries = volSeries;
+            }
             chartRef.chart = chart;
             chartRef.series = series;
             chartRef.candleTimes = data.candles.map(function(c) { return c.time; });
@@ -445,7 +484,10 @@
           // Timeframe switch — just update data
           chartRef.series.setData(data.candles);
           chartRef.candleTimes = data.candles.map(function(c) { return c.time; });
-          // Re-apply action markers for new timeframe (includes patterns)
+          if (chartRef.volumeSeries && data.volume && data.volume.length > 0) {
+            chartRef.volumeSeries.setData(data.volume);
+          }
+          addPriceLines();
           applyActionMarkers(initialActions || []);
           chartRef.chart.timeScale().fitContent();
           setTimeout(function() { renderDrawings(); }, 100);
@@ -550,6 +592,10 @@
   document.getElementById('toggle-patterns').addEventListener('change', function() {
     showPatterns = this.checked;
     applyActionMarkers(initialActions || []);
+  });
+  var toggleSrEl = document.getElementById('toggle-sr');
+  if (toggleSrEl) toggleSrEl.addEventListener('change', function() {
+    toggleSRLines(this.checked);
   });
 
   // =============================================
