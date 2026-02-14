@@ -507,11 +507,11 @@
         srLevels.resistance = data.resistance;
 
         if (!chartRef.chart) {
-          // First load — create the chart
+          // First load — create the chart (defer so container has layout/dimensions)
           lwContainer.style.display = '';
           tvContainer.style.display = 'none';
           if (tvLoading) tvLoading.style.display = 'none';
-          requestAnimationFrame(function() {
+          var initChart = function() {
             try {
             var chartEl = document.getElementById('lw-chart');
             if (!chartEl) { showTradingViewFallback(); return; }
@@ -554,7 +554,12 @@
               console.error('Chart init error:', chartErr);
               showTradingViewFallback();
             }
-          });
+          };
+          if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(function() { requestAnimationFrame(initChart); });
+          } else {
+            setTimeout(initChart, 0);
+          }
         } else {
           // Timeframe switch — just update data
           chartRef.series.setData(data.candles);
@@ -576,7 +581,7 @@
   }
 
   // Timeframe button clicks
-  var tfBtns = tfSelector.querySelectorAll('.tf-btn');
+  var tfBtns = tfSelector ? tfSelector.querySelectorAll('.tf-btn') : [];
   for (var i = 0; i < tfBtns.length; i++) {
     tfBtns[i].addEventListener('click', function() {
       var tf = this.getAttribute('data-tf');
@@ -587,7 +592,7 @@
     });
   }
 
-  // Initial load
+  // Initial load — start immediately so chart loads even if drawing setup fails
   loadCandles('1h');
 
   // Poll for trade updates when tradeId present (stop moved, actions, etc.)
@@ -658,25 +663,21 @@
         .catch(function() {});
     }, 5000);
   }
-  // ---- Toggle listeners ----
-  document.getElementById('toggle-fib').addEventListener('change', function() {
-    toggleFibLines(this.checked);
-  });
-  document.getElementById('toggle-badges').addEventListener('change', function() {
-    toggleBadges(this.checked);
-  });
-  document.getElementById('toggle-patterns').addEventListener('change', function() {
+  // ---- Toggle listeners and drawing tools (wrapped so chart load is never blocked) ----
+  try {
+  var toggleFibEl = document.getElementById('toggle-fib');
+  if (toggleFibEl) toggleFibEl.addEventListener('change', function() { toggleFibLines(this.checked); });
+  var toggleBadgesEl = document.getElementById('toggle-badges');
+  if (toggleBadgesEl) toggleBadgesEl.addEventListener('change', function() { toggleBadges(this.checked); });
+  var togglePatternsEl = document.getElementById('toggle-patterns');
+  if (togglePatternsEl) togglePatternsEl.addEventListener('change', function() {
     showPatterns = this.checked;
     applyActionMarkers(initialActions || []);
   });
   var toggleSrEl = document.getElementById('toggle-sr');
-  if (toggleSrEl) toggleSrEl.addEventListener('change', function() {
-    toggleSRLines(this.checked);
-  });
+  if (toggleSrEl) toggleSrEl.addEventListener('change', function() { toggleSRLines(this.checked); });
   var toggleTradeEl = document.getElementById('toggle-trade');
-  if (toggleTradeEl) toggleTradeEl.addEventListener('change', function() {
-    toggleTradeLevels(this.checked);
-  });
+  if (toggleTradeEl) toggleTradeEl.addEventListener('change', function() { toggleTradeLevels(this.checked); });
   var drawToolsToggle = document.getElementById('draw-tools-toggle');
   var drawTools = document.getElementById('draw-tools');
   if (drawToolsToggle && drawTools) {
@@ -691,20 +692,22 @@
     if (colorInput) colorInput.value = c;
     if (selectedIndex != null && drawings[selectedIndex]) {
       drawings[selectedIndex].color = c;
-      renderDrawings();
+      if (typeof renderDrawings === 'function') renderDrawings();
     }
   }
   if (colorInput) colorInput.addEventListener('input', function() { onColorChange(this.value); });
-  colorSwatches.forEach(function(sw) {
-    sw.addEventListener('click', function() {
-      var c = this.getAttribute('data-color');
-      if (c) {
-        onColorChange(c);
-        colorSwatches.forEach(function(s) { s.classList.remove('active'); });
-        this.classList.add('active');
-      }
-    });
-  });
+  for (var si = 0; si < colorSwatches.length; si++) {
+    (function(sw) {
+      sw.addEventListener('click', function() {
+        var c = this.getAttribute('data-color');
+        if (c) {
+          onColorChange(c);
+          for (var sj = 0; sj < colorSwatches.length; sj++) colorSwatches[sj].classList.remove('active');
+          this.classList.add('active');
+        }
+      });
+    })(colorSwatches[si]);
+  }
 
   // =============================================
   //  DRAWING TOOLS — canvas overlay system
@@ -946,8 +949,10 @@
     }
   }
 
-  // Tool button clicks
-  var toolBtns = document.querySelectorAll('#draw-tools .tool-btn');
+  // Tool button clicks (wrapped so chart load is never blocked)
+  var toolBtns = [];
+  try {
+  toolBtns = document.querySelectorAll('#draw-tools .tool-btn');
   for (var ti = 0; ti < toolBtns.length; ti++) {
     toolBtns[ti].addEventListener('click', function() {
       var tool = this.getAttribute('data-tool');
@@ -1064,6 +1069,7 @@
 
       drawState = { type: activeTool, t1: coord.time, p1: coord.price };
   }
+  if (drawCanvas) {
   drawCanvas.addEventListener('mousedown', handlePointerDown);
   drawCanvas.addEventListener('touchstart', function(e) {
     if (activeTool !== 'cursor' || drawings.length > 0) e.preventDefault();
@@ -1164,38 +1170,40 @@
       dragState = null;
       renderDrawings();
     }, { passive: false });
-
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedIndex != null && drawings[selectedIndex]) {
-          e.preventDefault();
-          drawings.splice(selectedIndex, 1);
-          selectedIndex = null;
-          dragState = null;
-          if (drawCanvas && drawings.length === 0) drawCanvas.style.pointerEvents = 'none';
-          renderDrawings();
-          updateDeleteButton();
-        }
-        return;
-      }
-      if (e.key === 'Escape') {
-        drawState = null;
-        dragState = null;
+  }
+  } catch (drawErr) {
+    console.warn('Drawing tools init:', drawErr);
+  }
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (selectedIndex != null && drawings[selectedIndex]) {
+        e.preventDefault();
+        drawings.splice(selectedIndex, 1);
         selectedIndex = null;
+        dragState = null;
+        if (drawCanvas && drawings.length === 0) drawCanvas.style.pointerEvents = 'none';
         renderDrawings();
-        activeTool = 'cursor';
-        if (drawCanvas) {
-          drawCanvas.style.pointerEvents = 'none';
-          drawCanvas.style.cursor = 'default';
-        }
-        for (var tk = 0; tk < toolBtns.length; tk++) {
-          toolBtns[tk].classList.remove('tool-active');
-          if (toolBtns[tk].getAttribute('data-tool') === 'cursor') toolBtns[tk].classList.add('tool-active');
-        }
         updateDeleteButton();
       }
-    });
-  }
+      return;
+    }
+    if (e.key === 'Escape') {
+      drawState = null;
+      dragState = null;
+      selectedIndex = null;
+      renderDrawings();
+      activeTool = 'cursor';
+      if (drawCanvas) {
+        drawCanvas.style.pointerEvents = 'none';
+        drawCanvas.style.cursor = 'default';
+      }
+      for (var tk = 0; tk < toolBtns.length; tk++) {
+        toolBtns[tk].classList.remove('tool-active');
+        if (toolBtns[tk].getAttribute('data-tool') === 'cursor') toolBtns[tk].classList.add('tool-active');
+      }
+      updateDeleteButton();
+    }
+  });
   updateDeleteButton();
 
   window.addEventListener('resize', function() { resizeDrawCanvas(); });
