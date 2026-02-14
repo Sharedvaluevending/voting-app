@@ -22,7 +22,7 @@
           <th>Score</th>
           <th>Strategy</th>
           <th>Time Held</th>
-          <th>Actions</th>
+          <th>TP / Actions</th>
           <th>Status</th>
           <th>Date</th>
           <th></th>
@@ -54,14 +54,19 @@
             <td style="font-size:11px;"><%= trade.strategyType || '-' %></td>
             <td><%= timeStr %></td>
             <td style="font-size:10px;">
+              <% // Show TP levels hit (partial or full) prominently
+              if (trade.partialTakenAtTP1 || trade.partialTakenAtTP2 || trade.status === 'TP1_HIT' || trade.status === 'TP2_HIT' || trade.status === 'TP3_HIT') { %>
+                <% if (trade.partialTakenAtTP1 || trade.status === 'TP1_HIT') { %><span class="action-badge" style="font-size:9px;padding:1px 4px;margin-right:2px;background:#7c3aed;color:#fff;" title="Take profit 1 hit">TP1</span><% } %>
+                <% if (trade.partialTakenAtTP2 || trade.status === 'TP2_HIT') { %><span class="action-badge" style="font-size:9px;padding:1px 4px;margin-right:2px;background:#7c3aed;color:#fff;" title="Take profit 2 hit">TP2</span><% } %>
+                <% if (trade.status === 'TP3_HIT') { %><span class="action-badge" style="font-size:9px;padding:1px 4px;margin-right:2px;background:#059669;color:#fff;" title="Take profit 3 hit">TP3</span><% } %>
+              <% } %>
               <% if (trade.actions && trade.actions.length > 0) {
-                // Deduplicate: show only the most recent badge of each type
                 var latestByType = {};
                 trade.actions.forEach(function(a) { if (a.type) latestByType[a.type] = a; });
                 var dedupedActions = Object.keys(latestByType).map(function(k) { return latestByType[k]; });
               %>
                 <% dedupedActions.forEach(function(a) { %><span class="action-badge action-<%= (a.type || '').toLowerCase() %>" style="font-size:9px;padding:1px 4px;margin-right:2px;" title="<%= a.description || '' %>"><%= a.type || '?' %></span><% }); %>
-              <% } else { %>-<% } %>
+              <% } else if (!trade.partialTakenAtTP1 && !trade.partialTakenAtTP2 && trade.status !== 'TP1_HIT' && trade.status !== 'TP2_HIT' && trade.status !== 'TP3_HIT') { %>-<% } %>
             </td>
             <td style="font-size:11px;"><%= trade.status.replace('_',' ') %></td>
             <td style="font-size:11px;color:#6b7280;"><%= trade.exitTime ? new Date(trade.exitTime).toLocaleDateString() : '-' %></td>
