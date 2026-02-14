@@ -542,8 +542,11 @@ app.post('/trades/open', requireLogin, async (req, res) => {
     const history = allHistory[coinId] || { prices: [], volumes: [] };
     const signal = analyzeCoin(coinData, candles, history, options);
 
+    const user = await User.findById(req.session.userId).lean();
     const useScore = parseInt(score, 10) || signal.score || 0;
-    const lev = signal.suggestedLeverage || suggestLeverage(useScore, signal.regime || 'mixed', 'normal');
+    const signalLev = signal.suggestedLeverage || suggestLeverage(useScore, signal.regime || 'mixed', 'normal');
+    const useFixed = user?.settings?.useFixedLeverage;
+    const lev = user?.settings?.disableLeverage ? 1 : (useFixed ? (user?.settings?.defaultLeverage ?? 2) : signalLev);
 
     // Use live price as entry so trade reflects actual fill, not stale signal
     // If fetchLivePrice failed, do NOT fall back to stale cache - user would open at wrong price
@@ -735,6 +738,10 @@ app.post('/account/settings', requireLogin, async (req, res) => {
     if (req.body.autoTradeMinScore != null) {
       const v = Math.min(95, Math.max(30, parseInt(req.body.autoTradeMinScore, 10) || 70));
       s.autoTradeMinScore = v;
+    }
+    if (req.body.useFixedLeverage !== undefined) {
+      const val = req.body.useFixedLeverage;
+      s.useFixedLeverage = val === 'true' || (Array.isArray(val) && val.includes('true'));
     }
     if (req.body.disableLeverage !== undefined) {
       const val = req.body.disableLeverage;
@@ -1577,7 +1584,9 @@ async function runAutoTrade() {
               console.log(`[AutoTrade] ${COIN_META[coinId]?.symbol}: Scaled levels by ${ratio.toFixed(4)} (analysis=$${analysisEntry} live=$${livePrice})`);
             }
 
-            const lev = user.settings?.disableLeverage ? 1 : (sig.suggestedLeverage || suggestLeverage(sig._bestScore, sig.regime || 'mixed', 'normal'));
+            const signalLev = sig.suggestedLeverage || suggestLeverage(sig._bestScore, sig.regime || 'mixed', 'normal');
+            const useFixed = user.settings?.useFixedLeverage;
+            const lev = user.settings?.disableLeverage ? 1 : (useFixed ? (user.settings?.defaultLeverage ?? 2) : signalLev);
             const tradeData = {
               coinId,
               symbol: COIN_META[coinId]?.symbol || coinId.toUpperCase(),

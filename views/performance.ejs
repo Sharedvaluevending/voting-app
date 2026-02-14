@@ -36,7 +36,7 @@
       </span>
       <% if (user.liveTrading && user.liveTrading.enabled) { %>
         <span style="color:#6b7280;font-size:12px;margin-left:8px;">
-          (<%= user.liveTrading.mode === 'auto' ? 'Auto' : 'Manual' %> · <%= (user.liveTrading.tradingType || 'futures').charAt(0).toUpperCase() + (user.liveTrading.tradingType || 'futures').slice(1) %> · <%= user.liveTrading.liveLeverage || 1 %>x)
+          (<%= user.liveTrading.mode === 'auto' ? 'Auto' : 'Manual' %> · <%= (user.liveTrading.tradingType || 'futures').charAt(0).toUpperCase() + (user.liveTrading.tradingType || 'futures').slice(1) %> · <%= (user.liveTrading && user.liveTrading.liveLeverage) != null ? user.liveTrading.liveLeverage : 2 %>x)
         </span>
       <% } %>
     </div>
@@ -74,9 +74,14 @@
       <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Max open trades</label>
       <input type="number" name="maxOpenTrades" min="1" max="10" value="<%= (user.settings && user.settings.maxOpenTrades) || 3 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
     </div>
+    <div style="display:flex;align-items:center;gap:8px;" title="When ON: use fixed leverage below for all trades (paper + Bitget). When OFF: use signal-suggested leverage based on score and regime.">
+      <input type="hidden" name="useFixedLeverage" value="false">
+      <input type="checkbox" name="useFixedLeverage" id="useFixedLeverage" value="true" <%= (user.settings && user.settings.useFixedLeverage) ? 'checked' : '' %>>
+      <label for="useFixedLeverage" style="font-size:12px;color:#9ca3af;">Use fixed leverage (otherwise signal-suggested)</label>
+    </div>
     <div>
-      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Default leverage</label>
-      <input type="number" name="defaultLeverage" min="1" max="20" value="<%= (user.settings && user.settings.defaultLeverage) || 1 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Fixed leverage (when above is ON)</label>
+      <input type="number" name="defaultLeverage" min="1" max="20" value="<%= (user.settings && user.settings.defaultLeverage) != null ? user.settings.defaultLeverage : 2 %>" title="Used for paper when fixed. Set Live Leverage on Exchange page for Bitget." style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
     </div>
     <div>
       <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Cooldown (hours)</label>

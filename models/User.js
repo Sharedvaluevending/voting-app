@@ -9,7 +9,8 @@ const userSchema = new mongoose.Schema({
   initialBalance: { type: Number, default: 10000 },
   tier: { type: String, enum: ['free', 'premium'], default: 'free' },
   settings: {
-    defaultLeverage: { type: Number, default: 1, min: 1, max: 20 },
+    defaultLeverage: { type: Number, default: 2, min: 1, max: 20 },
+    useFixedLeverage: { type: Boolean, default: false },
     riskPerTrade: { type: Number, default: 2, min: 0.5, max: 10 },
     maxOpenTrades: { type: Number, default: 3, min: 1, max: 10 },
     maxBalancePercentPerTrade: { type: Number, default: 25, min: 5, max: 100 },
@@ -40,7 +41,7 @@ const userSchema = new mongoose.Schema({
     enabled: { type: Boolean, default: false },
     mode: { type: String, enum: ['manual', 'auto'], default: 'manual' },
     tradingType: { type: String, enum: ['spot', 'futures', 'both'], default: 'futures' },
-    liveLeverage: { type: Number, default: 1, min: 1, max: 50 },
+    liveLeverage: { type: Number, default: 2, min: 1, max: 50 },
     maxLiveTradesOpen: { type: Number, default: 3, min: 1, max: 10 },
     riskPerLiveTrade: { type: Number, default: 1, min: 0.5, max: 5 },
     autoOpenMinScore: { type: Number, default: 75, min: 50, max: 95 }

@@ -123,7 +123,7 @@
     </div>
     <div>
       <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Live Leverage</label>
-      <input type="number" name="liveLeverage" min="1" max="50" value="<%= (user.liveTrading && user.liveTrading.liveLeverage) || 1 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+      <input type="number" name="liveLeverage" min="1" max="50" value="<%= (user.liveTrading && user.liveTrading.liveLeverage) != null ? user.liveTrading.liveLeverage : 2 %>" title="Used when 'Use fixed leverage' is ON on Performance page. Otherwise Bitget mirrors paper (signal-suggested)." style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
     </div>
     <div>
       <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Max Live Trades Open</label>
