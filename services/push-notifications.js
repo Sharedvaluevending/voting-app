@@ -1,5 +1,9 @@
 // services/push-notifications.js - Web Push for trade open/close
 const webpush = require('web-push');
+const fs = require('fs');
+const path = require('path');
+
+const VAPID_FILE = path.join(__dirname, '..', '.vapid-keys.json');
 
 let vapidKeys = null;
 function getVapidKeys() {
@@ -11,7 +15,27 @@ function getVapidKeys() {
     webpush.setVapidDetails('mailto:support@cryptosignals.local', pub, priv);
     return vapidKeys;
   }
-  return null;
+  // Auto-generate and persist if not in env
+  try {
+    if (fs.existsSync(VAPID_FILE)) {
+      const data = JSON.parse(fs.readFileSync(VAPID_FILE, 'utf8'));
+      if (data.publicKey && data.privateKey) {
+        vapidKeys = { publicKey: data.publicKey, privateKey: data.privateKey };
+        webpush.setVapidDetails('mailto:support@cryptosignals.local', vapidKeys.publicKey, vapidKeys.privateKey);
+        console.log('[Push] Loaded VAPID keys from .vapid-keys.json');
+        return vapidKeys;
+      }
+    }
+    const generated = webpush.generateVAPIDKeys();
+    fs.writeFileSync(VAPID_FILE, JSON.stringify({ publicKey: generated.publicKey, privateKey: generated.privateKey }, null, 2));
+    vapidKeys = { publicKey: generated.publicKey, privateKey: generated.privateKey };
+    webpush.setVapidDetails('mailto:support@cryptosignals.local', vapidKeys.publicKey, vapidKeys.privateKey);
+    console.log('[Push] Generated and saved VAPID keys to .vapid-keys.json');
+    return vapidKeys;
+  } catch (e) {
+    console.warn('[Push] Could not load/generate VAPID keys:', e.message);
+    return null;
+  }
 }
 
 async function sendPushToUser(user, title, body) {

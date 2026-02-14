@@ -1,2 +1,3 @@
 node_modules/
 git-path.txt
+.vapid-keys.json
