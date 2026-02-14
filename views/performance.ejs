@@ -137,7 +137,7 @@
     </div>
     <div>
       <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Score check grace (min)</label>
-      <input type="number" name="scoreCheckGraceMinutes" min="0" max="60" value="<%= (user.settings && user.settings.scoreCheckGraceMinutes) != null ? user.settings.scoreCheckGraceMinutes : 5 %>" title="No auto-execute on trades younger than this" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+      <input type="number" name="scoreCheckGraceMinutes" min="0" max="60" value="<%= (user.settings && user.settings.scoreCheckGraceMinutes) != null ? user.settings.scoreCheckGraceMinutes : 10 %>" title="No auto-execute on trades younger than this" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
     </div>
     <div>
       <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Stop check grace (min)</label>

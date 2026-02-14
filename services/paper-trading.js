@@ -845,7 +845,7 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
 // ====================================================
 const SCORE_RECHECK_MINUTES = 5;
 // Grace periods: exempt new trades from aggressive actions so price can settle
-const SCORE_CHECK_GRACE_MINUTES = 5;   // No auto-execute BE/RP/EXIT on trades younger than this
+const SCORE_CHECK_GRACE_MINUTES = 10;  // No auto-execute BE/RP/EXIT on trades younger than this
 const STOP_CHECK_GRACE_MINUTES = 2;    // No BE/TS/lock-in stop tightening on trades younger than this
 
 // ---- Win Probability ----
@@ -993,8 +993,8 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
 
   // Leverage-adjusted thresholds: higher leverage = tighter, but overall much wider
   const highLev = lev >= 5;  // Raised from 3 to 5
-  const exitThreshold = highLev ? -30 : -35;       // Was -20/-25
-  const hardExitThreshold = highLev ? -35 : -45;   // Was -25/-30
+  const exitThreshold = highLev ? -40 : -45;       // Tightened: require larger score drop
+  const hardExitThreshold = highLev ? -50 : -55;   // Tightened: avoid premature exits on noise
   const reduceThreshold = highLev ? -20 : -25;     // Was -10/-15
 
   // ---- P&L-first overrides: only for truly catastrophic losses ----
@@ -1022,10 +1022,11 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
   // Consider exit: require STRONG confirmation — multiple signals agreeing
   // Need: red heat + danger message + score dropped past exit threshold
   // OR score absolutely collapsed past hard exit threshold
-  // Block if: in ANY profit (even 0.1%) or making progress toward TP2
-  // Never close a profitable trade just because score dropped — let stops handle it
+  // Block if: in ANY profit (even 0.1%), making progress toward TP2, OR small loss (-5% to 0)
+  // Small-loss guard: don't exit on -1% to -5% — let stop/TP handle; score can be noisy
   const wouldConsiderExit = (heat === 'red' && hasDanger && effective <= exitThreshold) || effective <= hardExitThreshold;
-  const blockExit = inProfit || nearTP2;
+  const smallLoss = pnlPct < 0 && pnlPct > -5;  // -5% to 0 = small loss
+  const blockExit = inProfit || nearTP2 || smallLoss;
   if (wouldConsiderExit && !blockExit) {
     return { level: 'extreme', actionId: 'consider_exit', text: 'Consider exit' };
   }
@@ -1146,6 +1147,10 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
   try {
     if (actionId === 'consider_exit') {
       const sizeBefore = trade.positionSize;
+      const execPnlPct = trade.entryPrice > 0
+        ? ((trade.direction === 'LONG' ? (price - trade.entryPrice) : (trade.entryPrice - price)) / trade.entryPrice * 100) * (trade.leverage || 1)
+        : 0;
+      console.log(`[ScoreCheck] EXECUTING consider_exit: ${trade.symbol} ${trade.direction} | P&L=${execPnlPct.toFixed(2)}% | size=$${sizeBefore.toFixed(2)} | price=$${price}`);
       // Close the trade FIRST — only log EXIT badge if close actually succeeds
       // (previously badge was saved before close, so if close failed the trade
       //  stayed open with a misleading EXIT badge)
@@ -1335,9 +1340,9 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
     messages.push({ type: 'danger', text: 'Setup invalidated' });
   }
 
-  // 2. Structure breaking (bad for both directions) – relaxed 6→8 to reduce noise
+  // 2. Structure breaking (bad for both directions) – relaxed 8→10 to reduce noise
   // Structure scores fluctuate a lot; only flag when a large shift occurs
-  if (hasEntryBreakdown && (cb.structure || 0) <= (eb.structure || 0) - 8) {
+  if (hasEntryBreakdown && (cb.structure || 0) <= (eb.structure || 0) - 10) {
     messages.push({ type: 'danger', text: 'Structure breaking' });
   }
 

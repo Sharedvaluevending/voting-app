@@ -764,7 +764,7 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       s.paperLiveSync = val === 'true' || (Array.isArray(val) && val.includes('true'));
     }
     if (req.body.scoreCheckGraceMinutes != null) {
-      s.scoreCheckGraceMinutes = Math.min(60, Math.max(0, parseInt(req.body.scoreCheckGraceMinutes, 10) ?? 5));
+      s.scoreCheckGraceMinutes = Math.min(60, Math.max(0, parseInt(req.body.scoreCheckGraceMinutes, 10) ?? 10));
     }
     if (req.body.stopCheckGraceMinutes != null) {
       s.stopCheckGraceMinutes = Math.min(30, Math.max(0, parseInt(req.body.stopCheckGraceMinutes, 10) ?? 2));

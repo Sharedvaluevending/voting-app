@@ -22,7 +22,7 @@ const userSchema = new mongoose.Schema({
     autoMoveBreakeven: { type: Boolean, default: true },
     autoTrailingStop: { type: Boolean, default: true },
     paperLiveSync: { type: Boolean, default: true },
-    scoreCheckGraceMinutes: { type: Number, default: 5, min: 0, max: 60 },
+    scoreCheckGraceMinutes: { type: Number, default: 10, min: 0, max: 60 },
     stopCheckGraceMinutes: { type: Number, default: 2, min: 0, max: 30 },
     notifyTradeOpen: { type: Boolean, default: true },
     notifyTradeClose: { type: Boolean, default: true },
