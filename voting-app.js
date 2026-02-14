@@ -22,7 +22,7 @@ const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
 const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
-const { initializeStrategies, getPerformanceReport } = require('./services/learning-engine');
+const { initializeStrategies, getPerformanceReport, resetStrategyWeights } = require('./services/learning-engine');
 const bitget = require('./services/bitget');
 const StrategyWeight = require('./models/StrategyWeight');
 
@@ -859,6 +859,35 @@ app.post('/account/reset', requireLogin, async (req, res) => {
     res.redirect('/performance');
   } catch (err) {
     res.redirect('/performance');
+  }
+});
+
+// ====================================================
+// FULL PLATFORM RESET (keeps accounts, wipes everything else)
+// ====================================================
+app.post('/account/full-platform-reset', requireLogin, async (req, res) => {
+  try {
+    if (req.body.confirm !== 'RESET PLATFORM') {
+      return res.redirect('/performance?error=' + encodeURIComponent('Type RESET PLATFORM to confirm'));
+    }
+    await Trade.deleteMany({});
+    await Journal.deleteMany({});
+    const users = await User.find({});
+    for (const u of users) {
+      u.paperBalance = 10000;
+      u.initialBalance = 10000;
+      u.stats = {
+        totalTrades: 0, wins: 0, losses: 0, totalPnl: 0,
+        bestTrade: 0, worstTrade: 0, currentStreak: 0, bestStreak: 0
+      };
+      await u.save();
+    }
+    await resetStrategyWeights();
+    console.log('[FullReset] Platform reset complete: trades, journals, user stats, learning engine');
+    res.redirect('/performance?success=' + encodeURIComponent('Full platform reset complete. Accounts kept.'));
+  } catch (err) {
+    console.error('[FullReset] Error:', err);
+    res.redirect('/performance?error=' + encodeURIComponent(err.message || 'Reset failed'));
   }
 });
 

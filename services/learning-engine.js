@@ -165,6 +165,37 @@ async function adjustWeights() {
   }
 }
 
+async function resetStrategyWeights() {
+  for (const strategy of DEFAULT_STRATEGIES) {
+    await StrategyWeight.findOneAndUpdate(
+      { strategyId: strategy.strategyId },
+      {
+        $set: {
+          weights: strategy.weights,
+          description: strategy.description,
+          'performance.totalTrades': 0,
+          'performance.wins': 0,
+          'performance.losses': 0,
+          'performance.winRate': 0,
+          'performance.avgRR': 0,
+          'performance.profitFactor': 0,
+          'performance.avgScore': 0,
+          'performance.byRegime': {
+            trending: { wins: 0, losses: 0 },
+            ranging: { wins: 0, losses: 0 },
+            volatile: { wins: 0, losses: 0 },
+            compression: { wins: 0, losses: 0 },
+            mixed: { wins: 0, losses: 0 }
+          },
+          updatedAt: new Date()
+        }
+      },
+      { upsert: true }
+    );
+  }
+  console.log('[Learning] Strategy weights and performance reset to defaults');
+}
+
 async function getPerformanceReport() {
   const strategies = await StrategyWeight.find({}).lean();
   return strategies.map(s => ({
@@ -183,5 +214,6 @@ module.exports = {
   recordTradeOutcome,
   selectBestStrategy,
   adjustWeights,
-  getPerformanceReport
+  getPerformanceReport,
+  resetStrategyWeights
 };

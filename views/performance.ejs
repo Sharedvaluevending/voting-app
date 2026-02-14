@@ -16,6 +16,16 @@
   </div>
 </div>
 
+<div class="section" style="margin-bottom:20px;border:1px solid rgba(245,158,11,0.4);border-radius:8px;padding:12px 16px;background:rgba(245,158,11,0.08);">
+  <h3 style="color:#f59e0b;font-size:14px;margin:0 0 8px 0;">Full Platform Reset</h3>
+  <p style="font-size:12px;color:#9ca3af;margin:0 0 10px 0;">Wipes all trades, journals, user stats, and learning engine. Keeps your account (login, Bitget). Type <strong>RESET PLATFORM</strong> to confirm.</p>
+  <form action="/account/full-platform-reset" method="POST" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <input type="text" name="confirm" placeholder="RESET PLATFORM" autocomplete="off" style="width:180px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:13px;">
+    <button type="submit" class="btn btn-outline btn-sm" style="border-color:#f59e0b;color:#f59e0b;">Full Reset</button>
+  </form>
+</div>
+
 <% if (typeof success !== 'undefined' && success) { %>
   <div class="alert alert-success" style="margin-bottom:12px;"><%= success %></div>
 <% } %>
