@@ -16,10 +16,10 @@ const TAKER_FEE = 0.001;
 const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
 const DEFAULT_COOLDOWN_HOURS = 4;  // no same-direction re-entry on same coin within N hours
 
-// Take-profit position split: TP1 takes most, TP2/TP3 split the rest
-const TP1_PCT = 0.6;   // 60% at TP1
-const TP2_PCT = 0.2;   // 20% at TP2
-const TP3_PCT = 0.2;   // 20% at TP3 (remaining)
+// Take-profit position split: balanced scale-out
+const TP1_PCT = 0.4;   // 40% at TP1
+const TP2_PCT = 0.3;   // 30% at TP2
+const TP3_PCT = 0.3;   // 30% at TP3 (remaining)
 
 // Stepped profit lock-in: progress toward TP -> lock-in level (R-multiple)
 const LOCK_IN_LEVELS = [
@@ -706,9 +706,9 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
     const hitTP3Short = trade.direction === 'SHORT' && trade.takeProfit3 && currentPrice <= trade.takeProfit3;
 
     // TP CHECK: Process from LOWEST to HIGHEST so none are skipped if price gaps.
-    // TP1 → 60% (or full if only TP)
-    // TP2 → 20% (or full close if no TP3)
-    // TP3 → 20% remaining (full close)
+    // TP1 → 40% (or full if only TP)
+    // TP2 → 30% (or full close if no TP3)
+    // TP3 → 30% remaining (full close)
     const slippage = 1 + (SLIPPAGE_BPS / 10000);
     if (trade.direction === 'LONG') {
       if (trade.stopLoss != null && currentPrice <= trade.stopLoss) {
@@ -729,11 +729,11 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
           continue; // trade closed, skip rest
         } else if (trade.takeProfit2 && !trade.takeProfit3) {
           const portion = Math.round((orig * TP1_PCT) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (60%)`);
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (40%)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         } else {
           const portion = Math.round((orig * TP1_PCT) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (60%)`);
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (40%)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         }
         closedCount++;
@@ -749,7 +749,7 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
           continue; // trade closed
         } else {
           const portion = Math.round((orig * TP2_PCT) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (LONG) price=$${currentPrice} >= TP2=$${trade.takeProfit2} → PARTIAL $${portion} (20%)`);
+          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (LONG) price=$${currentPrice} >= TP2=$${trade.takeProfit2} → PARTIAL $${portion} (30%)`);
           await closeTradePartial(trade, exit2, portion, 'TP2');
           closedCount++;
         }
@@ -782,11 +782,11 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
           continue;
         } else if (trade.takeProfit2 && !trade.takeProfit3) {
           const portion = Math.round((orig * TP1_PCT) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (60%)`);
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (40%)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         } else {
           const portion = Math.round((orig * TP1_PCT) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (60%)`);
+          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (40%)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         }
         closedCount++;
@@ -802,7 +802,7 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
           continue;
         } else {
           const portion = Math.round((orig * TP2_PCT) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (SHORT) price=$${currentPrice} <= TP2=$${trade.takeProfit2} → PARTIAL $${portion} (20%)`);
+          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (SHORT) price=$${currentPrice} <= TP2=$${trade.takeProfit2} → PARTIAL $${portion} (30%)`);
           await closeTradePartial(trade, exit2, portion, 'TP2');
           closedCount++;
         }

@@ -209,7 +209,7 @@
         <span class="action-badge action-lock" style="font-size:11px;padding:4px 10px;">LOCK</span> <span style="color:#9ca3af;font-size:13px;">Profit locked in. Stop moved to 0.5R / 0.75R / 1R above entry as trade progresses toward TP.</span>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;">
-        <span class="action-badge action-pp" style="font-size:11px;padding:4px 10px;">PP</span> <span style="color:#9ca3af;font-size:13px;">Partial profit taken. At TP1 closes 60%, at TP2 closes 20%, at TP3 closes remaining 20%.</span>
+        <span class="action-badge action-pp" style="font-size:11px;padding:4px 10px;">PP</span> <span style="color:#9ca3af;font-size:13px;">Partial profit taken. At TP1 closes 40%, at TP2 closes 30%, at TP3 closes remaining 30%.</span>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;">
         <span class="action-badge action-rp" style="font-size:11px;padding:4px 10px;">RP</span> <span style="color:#9ca3af;font-size:13px;">Reduced position by 50%. De-risks when score moves against the trade.</span>
@@ -223,7 +223,7 @@
       <strong>How Auto-Actions Work</strong><br>
       Two systems run in the background:<br><br>
       <strong>1. Stop Management (every 30 seconds)</strong><br>
-      &bull; <strong>Take-profit split</strong> – When price hits TP1, 60% of the position closes. At TP2, 20% closes. At TP3, the remaining 20% closes. TP1 takes the most to secure gains early.<br>
+      &bull; <strong>Take-profit split</strong> – When price hits TP1, 40% of the position closes. At TP2, 30% closes. At TP3, the remaining 30% closes.<br>
       &bull; <strong>Breakeven (BE)</strong> – When price moves 1R in your favor (1R = distance from entry to your original stop loss), your stop automatically moves to your entry price. Zero risk from this point.<br>
       &bull; <strong>Trailing Stop (TS)</strong> – At 1.5R profit, the stop begins trailing 1R behind the best price. As price makes new highs (longs) or new lows (shorts), the stop follows, locking in gains.<br>
       &bull; <strong>Stepped Lock-in</strong> – If trailing is off, stops lock at 0.5R, 0.75R, and 1R as the trade progresses 50%, 75%, 90% toward TP2.<br>
