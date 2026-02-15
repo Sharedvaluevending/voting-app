@@ -224,8 +224,14 @@ function analyzeWithCandles(coinData, candles, options) {
   // Fibonacci retracement levels (used in trade levels calculation too)
   const fibLevels = calculateFibonacci(tf4h.highs || [], tf4h.lows || []);
 
-  // Detect market regime
+  // Detect market regime (adaptive per-coin volatility)
   const regime = detectRegime(tf1d, tf4h);
+  if (coinData.symbol) {
+    const atrPct = tf1d.atr && tf1d.closes && tf1d.closes.length > 0
+      ? ((tf1d.atr / tf1d.closes[tf1d.closes.length - 1]) * 100).toFixed(2)
+      : '?';
+    console.log(`[Regime] ${coinData.symbol}: ${regime} (vol=${tf1d.volatilityState}, ADX_1d=${(tf1d.adx||0).toFixed(1)}, ADX_4h=${(tf4h.adx||0).toFixed(1)}, ATR%=${atrPct}, trend=${tf1d.trend})`);
+  }
 
   // Best strategy + all strategies (with regime gating and optional learned weights)
   const strategyStats = options.strategyStats || {};
@@ -470,8 +476,8 @@ function analyzeOHLCV(candles, currentPrice) {
   // Volume analysis
   const volumeAnalysis = analyzeVolume(volumes, closes, opens);
 
-  // Volatility state
-  const volatilityState = classifyVolatility(atr, closes);
+  // Volatility state (adaptive per-coin: compares to own history)
+  const volatilityState = classifyVolatility(atr, closes, highs, lows);
 
   // Momentum acceleration: is momentum speeding up or slowing down?
   // MACD histogram slope (last 3 bars) — positive = momentum accelerating bullish
@@ -1392,17 +1398,83 @@ function analyzeVolume(volumes, closes, opens) {
 }
 
 // ====================================================
-// VOLATILITY STATE
+// VOLATILITY STATE — adaptive per-coin (z-score based)
+// Instead of fixed ATR% thresholds (which make all altcoins "volatile"),
+// we compare each coin's CURRENT ATR to its own rolling history.
+// A coin that normally has 5% ATR will classify 5% as "normal", not "high".
+//
+// OPTIMIZED: No array allocations in inner loop, capped lookback window
+// so backtesting (which calls this thousands of times) stays fast.
 // ====================================================
-function classifyVolatility(atr, closes) {
-  if (closes.length < 14) return 'normal';
-  const price = closes[closes.length - 1];
-  const atrPct = (atr / price) * 100;
-  // Tuned for crypto: BTC ~2-3% normal, alts ~3-5% normal
-  if (atrPct > 6) return 'extreme';
-  if (atrPct > 4) return 'high';
-  if (atrPct > 1.5) return 'normal';
-  return 'low';
+const VOL_LOOKBACK = 100; // Only look at last 100 ATR readings for stats
+
+function classifyVolatility(atr, closes, highs, lows) {
+  if (closes.length < 30) return 'normal'; // Need 14 for ATR + at least 16 more for stats
+
+  const n = closes.length;
+  // How far back to compute ATR history: cap at VOL_LOOKBACK data points
+  // Each data point starts at index 14, so we need startIdx >= 14
+  const startIdx = Math.max(14, n - VOL_LOOKBACK);
+
+  // Build ATR% history in-place (no array slicing)
+  const atrHistory = [];
+  for (let i = startIdx; i < n; i++) {
+    // Compute 14-period ATR inline (avoids slice + function call overhead)
+    let trSum = 0;
+    for (let j = i - 13; j <= i; j++) {
+      const tr = Math.max(
+        highs[j] - lows[j],
+        Math.abs(highs[j] - closes[j - 1]),
+        Math.abs(lows[j] - closes[j - 1])
+      );
+      trSum += tr;
+    }
+    const pointATR = trSum / 14;
+    const price = closes[i];
+    if (price > 0) atrHistory.push((pointATR / price) * 100);
+  }
+
+  if (atrHistory.length < 20) {
+    // Fall back to wider fixed thresholds if not enough history
+    const price = closes[n - 1];
+    const atrPct = (atr / price) * 100;
+    if (atrPct > 8) return 'extreme';
+    if (atrPct > 5) return 'high';
+    if (atrPct > 1) return 'normal';
+    return 'low';
+  }
+
+  // Mean and standard deviation (single pass)
+  let sum = 0, sumSq = 0;
+  for (let i = 0; i < atrHistory.length; i++) {
+    sum += atrHistory[i];
+    sumSq += atrHistory[i] * atrHistory[i];
+  }
+  const mean = sum / atrHistory.length;
+  const stdDev = Math.sqrt(sumSq / atrHistory.length - mean * mean);
+
+  // Current ATR as percentage of price
+  const currentAtrPct = (atr / closes[n - 1]) * 100;
+
+  // Z-score: how many standard deviations above this coin's own average
+  const zScore = stdDev > 0 ? (currentAtrPct - mean) / stdDev : 0;
+
+  // Percentile rank (what % of historical readings are below current)
+  let below = 0;
+  for (let i = 0; i < atrHistory.length; i++) {
+    if (atrHistory[i] < currentAtrPct) below++;
+  }
+  const percentile = below / atrHistory.length;
+
+  // Classify using BOTH z-score and percentile for robustness
+  // extreme: z > 2.0 AND above 95th percentile (truly unusual for THIS coin)
+  // high:    z > 1.2 AND above 80th percentile (elevated for THIS coin)
+  // low:     z < -1.0 AND below 20th percentile (unusually calm for THIS coin)
+  // normal:  everything else (typical behavior for THIS coin)
+  if (zScore > 2.0 && percentile > 0.95) return 'extreme';
+  if (zScore > 1.2 && percentile > 0.80) return 'high';
+  if (zScore < -1.0 && percentile < 0.20) return 'low';
+  return 'normal';
 }
 
 // ====================================================

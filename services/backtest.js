@@ -14,26 +14,50 @@ const DEFAULT_LEVERAGE = 2;
 
 /**
  * Fetch multi-timeframe historical candles for a coin
+ * Wraps each fetch in a per-coin timeout so one slow coin doesn't block everything.
  */
+const PER_COIN_FETCH_TIMEOUT = 30000; // 30s max per coin fetch
+
+async function fetchWithTimeout(promise, timeoutMs, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout fetching ${label}`)), timeoutMs))
+  ]);
+}
+
 async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
   const meta = COIN_META[coinId];
   if (!meta?.bybit) return null;
 
-  const [candles1h, candles4h, candles1d] = await Promise.all([
-    fetchHistoricalCandlesForCoin(coinId, '1h', startMs, endMs),
-    fetchHistoricalCandlesForCoin(coinId, '4h', startMs, endMs),
-    fetchHistoricalCandlesForCoin(coinId, '1d', startMs, endMs)
-  ]);
+  try {
+    const [candles1h, candles4h, candles1d] = await fetchWithTimeout(
+      Promise.all([
+        fetchHistoricalCandlesForCoin(coinId, '1h', startMs, endMs),
+        fetchHistoricalCandlesForCoin(coinId, '4h', startMs, endMs),
+        fetchHistoricalCandlesForCoin(coinId, '1d', startMs, endMs)
+      ]),
+      PER_COIN_FETCH_TIMEOUT,
+      coinId
+    );
 
-  if (!candles1h || candles1h.length < 50) return null;
+    console.log(`[Backtest] ${coinId}: fetched 1h=${(candles1h||[]).length}, 4h=${(candles4h||[]).length}, 1d=${(candles1d||[]).length} candles`);
 
-  return {
-    '1h': candles1h,
-    '4h': candles4h && candles4h.length >= 5 ? candles4h : null,
-    '1d': candles1d && candles1d.length >= 5 ? candles1d : null,
-    '15m': null,
-    '1w': null
-  };
+    if (!candles1h || candles1h.length < 50) {
+      console.warn(`[Backtest] ${coinId}: insufficient 1h candles (${(candles1h||[]).length} < 50)`);
+      return null;
+    }
+
+    return {
+      '1h': candles1h,
+      '4h': candles4h && candles4h.length >= 5 ? candles4h : null,
+      '1d': candles1d && candles1d.length >= 5 ? candles1d : null,
+      '15m': null,
+      '1w': null
+    };
+  } catch (err) {
+    console.error(`[Backtest] ${coinId}: candle fetch failed - ${err.message}`);
+    return null;
+  }
 }
 
 /**
@@ -237,23 +261,38 @@ function computeMaxDrawdownPct(equityCurve) {
 /**
  * Run backtest for all coins or a subset
  */
+const PER_COIN_BACKTEST_TIMEOUT = 45000; // 45s max per coin simulation
+
 async function runBacktest(startMs, endMs, options) {
   options = options || {};
   const coins = options.coins || TRACKED_COINS;
   const results = [];
   const failed = [];
+  const backtestStart = Date.now();
+  const days = Math.round((endMs - startMs) / 86400000);
+  console.log(`[Backtest] Starting: ${coins.length} coins, ${days} days range`);
 
   for (const coinId of coins) {
+    const coinStart = Date.now();
     try {
-      const result = await runBacktestForCoin(coinId, startMs, endMs, options);
+      const result = await fetchWithTimeout(
+        runBacktestForCoin(coinId, startMs, endMs, options),
+        PER_COIN_BACKTEST_TIMEOUT,
+        `backtest ${coinId}`
+      );
+      const elapsed = ((Date.now() - coinStart) / 1000).toFixed(1);
+      console.log(`[Backtest] ${coinId}: ${result.error ? 'FAILED - ' + result.error : result.totalTrades + ' trades'} (${elapsed}s)`);
       results.push(result);
       if (result.error) failed.push({ coinId, error: result.error });
       if (options.delay) await new Promise(r => setTimeout(r, options.delay));
     } catch (err) {
+      const elapsed = ((Date.now() - coinStart) / 1000).toFixed(1);
+      console.error(`[Backtest] ${coinId}: ERROR - ${err.message} (${elapsed}s)`);
       results.push({ coinId, error: err.message, trades: [] });
       failed.push({ coinId, error: err.message });
     }
   }
+  console.log(`[Backtest] Done: ${results.length - failed.length}/${results.length} coins succeeded in ${((Date.now() - backtestStart) / 1000).toFixed(1)}s`);
 
   const successResults = results.filter(r => !r.error);
   const allTrades = successResults.flatMap(r => (r.trades || []).map(t => ({ ...t, coinId: r.coinId, symbol: r.symbol })));

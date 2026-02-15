@@ -434,12 +434,23 @@ async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
   if (!bybitInterval) return [];
   const limit = 1000;
   const msPerCandle = MS_PER_CANDLE[interval] || 3600000;
-  const chunkMs = limit * msPerCandle;
   const all = [];
   let cursor = startMs;
+  let retries = 0;
+  const MAX_RETRIES = 2;
   while (cursor < endMs) {
     const chunk = await fetchBybitCandles(meta.bybit, interval, limit, cursor, endMs);
-    if (!chunk || chunk.length === 0) break;
+    if (!chunk || chunk.length === 0) {
+      // Retry once on empty response (could be transient rate limit)
+      if (retries < MAX_RETRIES && all.length === 0) {
+        retries++;
+        console.warn(`[Historical] ${coinId} ${interval}: empty response, retry ${retries}/${MAX_RETRIES} in 2s...`);
+        await new Promise(r => setTimeout(r, 2000));
+        continue;
+      }
+      break;
+    }
+    retries = 0; // reset on success
     all.push(...chunk);
     const lastTs = chunk[chunk.length - 1].openTime;
     if (lastTs >= endMs || chunk.length < limit) break;
