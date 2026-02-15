@@ -11,6 +11,7 @@ const MIN_SCORE = ENGINE_CONFIG.MIN_SIGNAL_SCORE || 52;
 const INITIAL_BALANCE = 10000;
 const RISK_PER_TRADE = 0.02;  // 2% per trade
 const DEFAULT_LEVERAGE = 2;
+const WARMUP_BARS = 100;      // Extra 1h bars to fetch before start date for indicator warmup
 
 /**
  * Fetch multi-timeframe historical candles for a coin
@@ -29,18 +30,24 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
   const meta = COIN_META[coinId];
   if (!meta?.bybit) return null;
 
+  // Extend start backward to get warmup bars for indicator calculation.
+  // Without warmup, short date ranges (e.g. 3 days) don't have enough candles
+  // for EMA/ATR/ADX to stabilize before the first trade.
+  const warmupMs = WARMUP_BARS * 3600000; // each 1h bar = 3.6M ms
+  const fetchStartMs = startMs - warmupMs;
+
   try {
     const [candles1h, candles4h, candles1d] = await fetchWithTimeout(
       Promise.all([
-        fetchHistoricalCandlesForCoin(coinId, '1h', startMs, endMs),
-        fetchHistoricalCandlesForCoin(coinId, '4h', startMs, endMs),
-        fetchHistoricalCandlesForCoin(coinId, '1d', startMs, endMs)
+        fetchHistoricalCandlesForCoin(coinId, '1h', fetchStartMs, endMs),
+        fetchHistoricalCandlesForCoin(coinId, '4h', fetchStartMs, endMs),
+        fetchHistoricalCandlesForCoin(coinId, '1d', fetchStartMs, endMs)
       ]),
       PER_COIN_FETCH_TIMEOUT,
       coinId
     );
 
-    console.log(`[Backtest] ${coinId}: fetched 1h=${(candles1h||[]).length}, 4h=${(candles4h||[]).length}, 1d=${(candles1d||[]).length} candles`);
+    console.log(`[Backtest] ${coinId}: fetched 1h=${(candles1h||[]).length}, 4h=${(candles4h||[]).length}, 1d=${(candles1d||[]).length} candles (${WARMUP_BARS} warmup)`);
 
     if (!candles1h || candles1h.length < 50) {
       console.warn(`[Backtest] ${coinId}: insufficient 1h candles (${(candles1h||[]).length} < 50)`);
@@ -115,6 +122,16 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   let equity = INITIAL_BALANCE;
   let position = null;  // { direction, entry, entryBar, stopLoss, takeProfit1, size }
 
+  // Find the first bar at or after the user's requested start date.
+  // Bars before this are warmup-only: used for indicator calculation but no new trades.
+  let tradeStartBar = 50; // minimum warmup
+  for (let i = 0; i < c1h.length; i++) {
+    if (c1h[i].openTime >= startMs) {
+      tradeStartBar = Math.max(50, i);
+      break;
+    }
+  }
+
   const history = { prices: [], volumes: [], marketCaps: [] };
 
   for (let t = 50; t < c1h.length - 1; t++) {
@@ -176,7 +193,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       continue;
     }
 
-    // No position - look for entry
+    // No position - look for entry (only within user's requested date range)
+    if (t < tradeStartBar) continue; // warmup period — skip trade entries
     const signal = analyzeCoin(coinData, slice, history, options_bt);
     const canLong = signal.signal === 'BUY' || signal.signal === 'STRONG_BUY';
     const canShort = signal.signal === 'SELL' || signal.signal === 'STRONG_SELL';
