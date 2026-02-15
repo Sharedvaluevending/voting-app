@@ -1497,7 +1497,7 @@ app.get('/api/bybit-test', (req, res) => res.redirect('/api/connectivity-test'))
 // Backtest API (historical simulation)
 app.post('/api/backtest', async (req, res) => {
   try {
-    const { coinId, startDate, endDate, coins, minScore, leverage } = req.body || {};
+    const { coinId, startDate, endDate, coins, minScore, leverage, features } = req.body || {};
     const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 30 * 24 * 60 * 60 * 1000;
     const endMs = endDate ? new Date(endDate).getTime() : Date.now();
     if (isNaN(startMs) || isNaN(endMs)) {
@@ -1513,7 +1513,8 @@ app.post('/api/backtest', async (req, res) => {
     const options = {
       coins: coinsToRun,
       minScore: minScore != null ? Number(minScore) : undefined,
-      leverage: leverage != null ? Number(leverage) : undefined
+      leverage: leverage != null ? Number(leverage) : undefined,
+      features: features || {} // Feature toggle flags from UI
     };
     const result = await runBacktest(startMs, endMs, options);
     res.json({ success: true, ...result });

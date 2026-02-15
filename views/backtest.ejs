@@ -2,7 +2,7 @@
 
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Historical Backtest</h2>
-  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Simulate the trading engine on historical Bybit candles. Bar-by-bar walk with SL/TP exits.</p>
+  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Simulate the full trading engine on historical candles. Toggle features to compare performance.</p>
 </div>
 
 <!-- Form -->
@@ -44,6 +44,70 @@
       <button type="submit" class="btn btn-primary" id="run-btn">Run Backtest</button>
     </div>
   </form>
+</div>
+
+<!-- Feature Toggles -->
+<div class="section" style="margin-bottom:24px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;cursor:pointer;" onclick="document.getElementById('feature-toggles').style.display = document.getElementById('feature-toggles').style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = document.getElementById('feature-toggles').style.display === 'none' ? '\u25B6' : '\u25BC';">
+    <h3 style="color:#e5e7eb;margin:0;">Feature Toggles</h3>
+    <span class="toggle-arrow" style="color:#6b7280;font-size:14px;">&#x25BC;</span>
+  </div>
+  <div id="feature-toggles">
+    <p style="color:#6b7280;font-size:12px;margin-bottom:12px;">Toggle individual features on/off to compare performance. All ON = matches live system exactly.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
+      <!-- Signal Filters -->
+      <label class="ft-toggle" title="Block altcoin LONGs when BTC is STRONG_SELL, block SHORTs when BTC is STRONG_BUY">
+        <input type="checkbox" id="ft-btcFilter" checked> <span class="ft-badge ft-signal">SIGNAL</span> BTC Signal Filter
+      </label>
+      <label class="ft-toggle" title="Penalize score up to -8 when coin is highly correlated with BTC but trading against BTC direction">
+        <input type="checkbox" id="ft-btcCorrelation" checked> <span class="ft-badge ft-signal">SIGNAL</span> BTC Correlation Penalty
+      </label>
+      <label class="ft-toggle" title="Apply session penalty (-5 score) outside 12-22 UTC peak hours">
+        <input type="checkbox" id="ft-sessionFilter" checked> <span class="ft-badge ft-signal">SIGNAL</span> Session Filter (12-22 UTC)
+      </label>
+
+      <!-- Position Management -->
+      <label class="ft-toggle" title="TP1 closes 40%, TP2 closes 30%, TP3 closes remaining 30%. OFF = close 100% at TP1">
+        <input type="checkbox" id="ft-partialTP" checked> <span class="ft-badge ft-pos">TP</span> Partial Take Profits (40/30/30)
+      </label>
+      <label class="ft-toggle" title="Move stop to entry price when trade reaches 1R profit">
+        <input type="checkbox" id="ft-breakeven" checked> <span class="ft-badge ft-pos">BE</span> Breakeven at 1R
+      </label>
+      <label class="ft-toggle" title="Trail stop 1R behind best price after 1.5R profit">
+        <input type="checkbox" id="ft-trailingStop" checked> <span class="ft-badge ft-pos">TS</span> Trailing Stop (1.5R)
+      </label>
+      <label class="ft-toggle" title="Lock stop at 0.5R/0.75R/1R as trade progresses 50%/75%/90% toward TP2">
+        <input type="checkbox" id="ft-lockIn" checked> <span class="ft-badge ft-pos">LOCK</span> Stepped Lock-In
+      </label>
+
+      <!-- Risk Management -->
+      <label class="ft-toggle" title="Re-analyze signal while in trade. Exit on score collapse, reduce 50% on score drop">
+        <input type="checkbox" id="ft-scoreRecheck" checked> <span class="ft-badge ft-risk">RISK</span> Score Re-check (Exit/Reduce)
+      </label>
+      <label class="ft-toggle" title="Cap stop loss distance to max 15% from entry">
+        <input type="checkbox" id="ft-slCap" checked> <span class="ft-badge ft-risk">RISK</span> SL Distance Cap (15%)
+      </label>
+      <label class="ft-toggle" title="4-hour cooldown before same-direction re-entry on same coin">
+        <input type="checkbox" id="ft-cooldown" checked> <span class="ft-badge ft-risk">RISK</span> 4h Cooldown
+      </label>
+
+      <!-- Sizing & Costs -->
+      <label class="ft-toggle" title="Higher score = slightly larger position (0.5 + score/100, cap 1.2x)">
+        <input type="checkbox" id="ft-confidenceSizing" checked> <span class="ft-badge ft-cost">SIZE</span> Confidence Sizing
+      </label>
+      <label class="ft-toggle" title="0.1% taker fee on entry and exit">
+        <input type="checkbox" id="ft-fees" checked> <span class="ft-badge ft-cost">COST</span> Trading Fees (0.1%)
+      </label>
+      <label class="ft-toggle" title="0.05% slippage simulation on entry and exit">
+        <input type="checkbox" id="ft-slippage" checked> <span class="ft-badge ft-cost">COST</span> Slippage (0.05%)
+      </label>
+    </div>
+    <div style="margin-top:12px;display:flex;gap:8px;">
+      <button type="button" class="btn btn-sm" onclick="setAllToggles(true)" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:4px;cursor:pointer;">All ON</button>
+      <button type="button" class="btn btn-sm" onclick="setAllToggles(false)" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:4px;cursor:pointer;">All OFF</button>
+      <button type="button" class="btn btn-sm" onclick="setPresetsMinimal()" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:4px;cursor:pointer;">Minimal (raw signals only)</button>
+    </div>
+  </div>
 </div>
 
 <!-- Loading -->
@@ -89,6 +153,21 @@
     </div>
   </div>
 
+  <!-- Action Badges & Exit Reasons -->
+  <div class="section" style="margin-bottom:24px;" id="bt-actions-section" style="display:none;">
+    <h3 style="color:#e5e7eb;margin-bottom:12px;">Actions Taken & Exit Reasons</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:16px;">
+      <div style="flex:1;min-width:200px;">
+        <div style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Action Badges</div>
+        <div id="bt-action-badges" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+      <div style="flex:1;min-width:200px;">
+        <div style="color:#6b7280;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Exit Reasons</div>
+        <div id="bt-exit-reasons" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Per-coin results -->
   <div class="section" style="margin-bottom:24px;">
     <h3 style="color:#e5e7eb;margin-bottom:12px;">Per-Coin Results</h3>
@@ -123,6 +202,7 @@
             <th>Entry</th>
             <th>Exit</th>
             <th>Reason</th>
+            <th>Actions</th>
             <th>PnL</th>
           </tr>
         </thead>
@@ -133,6 +213,65 @@
 </div>
 
 <script>
+// Feature toggle helpers
+function setAllToggles(val) {
+  document.querySelectorAll('#feature-toggles input[type=checkbox]').forEach(function(cb) { cb.checked = val; });
+}
+function setPresetsMinimal() {
+  setAllToggles(false);
+  // Only keep slippage on for realism
+  document.getElementById('ft-slippage').checked = true;
+}
+function getFeatureFlags() {
+  return {
+    btcFilter: document.getElementById('ft-btcFilter').checked,
+    btcCorrelation: document.getElementById('ft-btcCorrelation').checked,
+    sessionFilter: document.getElementById('ft-sessionFilter').checked,
+    partialTP: document.getElementById('ft-partialTP').checked,
+    breakeven: document.getElementById('ft-breakeven').checked,
+    trailingStop: document.getElementById('ft-trailingStop').checked,
+    lockIn: document.getElementById('ft-lockIn').checked,
+    scoreRecheck: document.getElementById('ft-scoreRecheck').checked,
+    slCap: document.getElementById('ft-slCap').checked,
+    cooldown: document.getElementById('ft-cooldown').checked,
+    confidenceSizing: document.getElementById('ft-confidenceSizing').checked,
+    fees: document.getElementById('ft-fees').checked,
+    slippage: document.getElementById('ft-slippage').checked
+  };
+}
+
+// Badge rendering
+var ACTION_BADGE_MAP = {
+  BE: { label: 'BE', color: '#3b82f6', desc: 'Breakeven' },
+  TS: { label: 'TS', color: '#8b5cf6', desc: 'Trailing Stop' },
+  PP: { label: 'PP', color: '#10b981', desc: 'Partial Profit' },
+  RP: { label: 'RP', color: '#f59e0b', desc: 'Reduce Position' },
+  EXIT: { label: 'EXIT', color: '#ef4444', desc: 'Score Exit' },
+  LOCK: { label: 'LOCK', color: '#06b6d4', desc: 'Profit Lock-In' }
+};
+var EXIT_REASON_MAP = {
+  SL: { label: 'SL', color: '#ef4444' },
+  TP1: { label: 'TP1', color: '#10b981' },
+  TP2: { label: 'TP2', color: '#10b981' },
+  TP3: { label: 'TP3', color: '#10b981' },
+  SCORE_EXIT: { label: 'Score Exit', color: '#f59e0b' },
+  END: { label: 'End', color: '#6b7280' }
+};
+function renderBadge(type, count, map) {
+  var info = map[type] || { label: type, color: '#6b7280' };
+  return '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600;background:' + info.color + '22;color:' + info.color + ';border:1px solid ' + info.color + '44;">' +
+    info.label + ' <span style="font-weight:400;opacity:0.8;">' + count + '</span></span>';
+}
+function renderActionBadgesForTrade(actions) {
+  if (!actions || actions.length === 0) return '<span style="color:#374151;font-size:11px;">-</span>';
+  var types = {};
+  actions.forEach(function(a) { types[a.type] = (types[a.type] || 0) + 1; });
+  return Object.keys(types).map(function(t) {
+    var info = ACTION_BADGE_MAP[t] || { label: t, color: '#6b7280' };
+    return '<span style="padding:1px 5px;border-radius:3px;font-size:10px;font-weight:600;background:' + info.color + '22;color:' + info.color + ';">' + info.label + '</span>';
+  }).join(' ');
+}
+
 (function() {
   var form = document.getElementById('backtest-form');
   var loading = document.getElementById('backtest-loading');
@@ -157,7 +296,8 @@
       startDate: document.getElementById('startDate').value,
       endDate: document.getElementById('endDate').value,
       minScore: parseInt(document.getElementById('minScore').value, 10) || 52,
-      leverage: parseInt(document.getElementById('leverage').value, 10) || 2
+      leverage: parseInt(document.getElementById('leverage').value, 10) || 2,
+      features: getFeatureFlags()
     };
     if (coinId) body.coinId = coinId;
 
@@ -211,6 +351,28 @@
       successResults.forEach(function(r) { if (r.maxDrawdownPct > maxDd) maxDd = r.maxDrawdownPct; });
       document.getElementById('bt-dd').textContent = maxDd.toFixed(1) + '%';
 
+      // Action badges & exit reasons (aggregate across all coins)
+      var totalActions = {};
+      var totalExitReasons = {};
+      successResults.forEach(function(r) {
+        if (r.actionCounts) {
+          Object.keys(r.actionCounts).forEach(function(k) { totalActions[k] = (totalActions[k] || 0) + r.actionCounts[k]; });
+        }
+        if (r.exitReasons) {
+          Object.keys(r.exitReasons).forEach(function(k) { totalExitReasons[k] = (totalExitReasons[k] || 0) + r.exitReasons[k]; });
+        }
+      });
+      var badgesEl = document.getElementById('bt-action-badges');
+      var exitsEl = document.getElementById('bt-exit-reasons');
+      var actionsSection = document.getElementById('bt-actions-section');
+      var hasActions = Object.values(totalActions).some(function(v) { return v > 0; });
+      var hasExits = Object.keys(totalExitReasons).length > 0;
+      actionsSection.style.display = (hasActions || hasExits) ? 'block' : 'none';
+      badgesEl.innerHTML = Object.keys(totalActions).filter(function(k) { return totalActions[k] > 0; })
+        .map(function(k) { return renderBadge(k, totalActions[k], ACTION_BADGE_MAP); }).join('') || '<span style="color:#374151;font-size:12px;">None</span>';
+      exitsEl.innerHTML = Object.keys(totalExitReasons)
+        .map(function(k) { return renderBadge(k, totalExitReasons[k], EXIT_REASON_MAP); }).join('') || '<span style="color:#374151;font-size:12px;">None</span>';
+
       // Per-coin table (only successful runs)
       var tbody = document.getElementById('bt-coins-body');
       tbody.innerHTML = '';
@@ -234,10 +396,9 @@
       var allTrades = [];
       successResults.forEach(function(r) {
         (r.trades || []).forEach(function(t) {
-          allTrades.push({ coinId: r.coinId, symbol: r.symbol, direction: t.direction, entry: t.entry, exit: t.exit, reason: t.reason, pnl: t.pnl });
+          allTrades.push({ coinId: r.coinId, symbol: r.symbol, direction: t.direction, entry: t.entry, exit: t.exit, reason: t.reason, pnl: t.pnl, actions: t.actions || [] });
         });
       });
-      allTrades.sort(function(a, b) { return 0; });
       var tradesBody = document.getElementById('bt-trades-body');
       tradesBody.innerHTML = '';
       allTrades.slice(0, 100).forEach(function(t) {
@@ -247,12 +408,13 @@
           '<td>$' + Number(t.entry).toFixed(4) + '</td>' +
           '<td>$' + Number(t.exit).toFixed(4) + '</td>' +
           '<td>' + (t.reason || '-') + '</td>' +
+          '<td>' + renderActionBadgesForTrade(t.actions) + '</td>' +
           '<td class="' + (t.pnl >= 0 ? 'up' : 'down') + '">' + (t.pnl >= 0 ? '+' : '') + '$' + t.pnl.toFixed(2) + '</td>';
         tradesBody.appendChild(tr);
       });
       if (allTrades.length > 100) {
         var more = document.createElement('tr');
-        more.innerHTML = '<td colspan="6" style="color:#6b7280;font-size:12px;">Showing first 100 of ' + allTrades.length + ' trades</td>';
+        more.innerHTML = '<td colspan="7" style="color:#6b7280;font-size:12px;">Showing first 100 of ' + allTrades.length + ' trades</td>';
         tradesBody.appendChild(more);
       }
     } catch (err) {
@@ -268,4 +430,17 @@
 .perf-card { background: rgba(15,23,42,0.6); border: 1px solid #1e2a3a; border-radius: 8px; padding: 12px 16px; }
 .perf-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; }
 .perf-value { font-size: 18px; font-weight: 700; color: #e5e7eb; margin-top: 4px; }
+/* Feature toggle styles */
+.ft-toggle {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  background: rgba(15,23,42,0.5); border: 1px solid #1e2a3a; border-radius: 6px;
+  color: #e5e7eb; font-size: 12px; cursor: pointer; transition: border-color 0.2s;
+}
+.ft-toggle:hover { border-color: #334155; }
+.ft-toggle input[type=checkbox] { accent-color: #3b82f6; width: 14px; height: 14px; cursor: pointer; }
+.ft-badge { padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: 700; letter-spacing: 0.5px; }
+.ft-signal { background: #3b82f622; color: #3b82f6; }
+.ft-pos { background: #10b98122; color: #10b981; }
+.ft-risk { background: #f59e0b22; color: #f59e0b; }
+.ft-cost { background: #8b5cf622; color: #8b5cf6; }
 </style>
