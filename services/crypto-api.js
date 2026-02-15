@@ -352,65 +352,59 @@ async function fetchKrakenCandles(pair, interval, limit) {
 
 /**
  * Fetch historical candles from Kraken for backtesting.
- * Kraken OHLC supports 'since' parameter (Unix seconds) and returns up to 720 candles.
- * For longer ranges, paginates using the 'last' timestamp from each response.
+ * Kraken keeps ~720 hourly candles (~30 days). Returns whatever is available.
+ * The backtest warmup/trading range logic handles date filtering.
  */
 async function fetchHistoricalKrakenCandles(coinId, interval, startMs, endMs) {
   const pair = KRAKEN_PAIRS[coinId];
-  if (!pair) return [];
+  if (!pair) { console.warn(`[Kraken] No pair for ${coinId}`); return []; }
   const krakenInterval = KRAKEN_INTERVAL_MAP[interval];
   if (!krakenInterval) return [];
   const msPerCandle = krakenInterval * 60 * 1000;
-  const all = [];
-  let since = Math.floor(startMs / 1000); // Kraken uses Unix seconds
 
-  while (true) {
-    try {
-      const url = `https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=${krakenInterval}&since=${since}`;
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
-      if (!res.ok) break;
-      const json = await res.json();
-      if (json.error && json.error.length > 0) break;
-      const result = json.result || {};
-      const keys = Object.keys(result).filter(k => k !== 'last');
-      if (keys.length === 0) break;
-      const raw = result[keys[0]];
-      if (!Array.isArray(raw) || raw.length === 0) break;
-
-      let added = 0;
-      for (const c of raw) {
-        const ts = c[0] * 1000;
-        if (ts >= endMs) break; // past our end date
-        if (ts < startMs - msPerCandle) continue; // before our range (with buffer)
-        all.push({
-          openTime: ts,
-          open: parseFloat(c[1]),
-          high: parseFloat(c[2]),
-          low: parseFloat(c[3]),
-          close: parseFloat(c[4]),
-          volume: parseFloat(c[6]),
-          closeTime: ts + msPerCandle,
-          quoteVolume: 0,
-          trades: c[7] || 0,
-          takerBuyVolume: 0,
-          takerBuyQuoteVolume: 0
-        });
-        added++;
-      }
-
-      // Check if we've reached the end
-      const lastTs = raw[raw.length - 1][0] * 1000;
-      if (lastTs >= endMs || added === 0 || raw.length < 700) break;
-
-      // Paginate: use 'last' from response or the last candle timestamp
-      since = json.result.last || raw[raw.length - 1][0];
-      await new Promise(r => setTimeout(r, 500)); // Kraken rate limit: ~1 req/sec
-    } catch (err) {
-      console.error(`[Kraken] Historical ${coinId} ${interval} failed:`, err.message);
-      break;
+  try {
+    // Use 'since' to request from start date. Kraken returns up to 720 candles
+    // from that point forward. If data doesn't go back that far, it returns
+    // whatever it has (most recent ~720 candles).
+    const since = Math.floor(startMs / 1000);
+    const url = `https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=${krakenInterval}&since=${since}`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
+    if (!res.ok) {
+      console.warn(`[Kraken] Historical ${coinId} ${interval}: HTTP ${res.status}`);
+      return [];
     }
+    const json = await res.json();
+    if (json.error && json.error.length > 0) {
+      console.warn(`[Kraken] Historical ${coinId} ${interval}: API error ${JSON.stringify(json.error)}`);
+      return [];
+    }
+    const result = json.result || {};
+    const keys = Object.keys(result).filter(k => k !== 'last');
+    if (keys.length === 0) return [];
+    const raw = result[keys[0]];
+    if (!Array.isArray(raw) || raw.length === 0) return [];
+
+    // Return ALL candles without date filtering.
+    // The backtest handles warmup and trading range itself.
+    const candles = raw.map(c => ({
+      openTime: c[0] * 1000,
+      open: parseFloat(c[1]),
+      high: parseFloat(c[2]),
+      low: parseFloat(c[3]),
+      close: parseFloat(c[4]),
+      volume: parseFloat(c[6]),
+      closeTime: (c[0] * 1000) + msPerCandle,
+      quoteVolume: 0,
+      trades: c[7] || 0,
+      takerBuyVolume: 0,
+      takerBuyQuoteVolume: 0
+    }));
+    console.log(`[Kraken] Historical ${coinId} ${interval}: ${candles.length} candles (${new Date(candles[0].openTime).toISOString().slice(0,10)} to ${new Date(candles[candles.length-1].openTime).toISOString().slice(0,10)})`);
+    return candles;
+  } catch (err) {
+    console.error(`[Kraken] Historical ${coinId} ${interval} failed:`, err.message);
+    return [];
   }
-  return all;
 }
 
 async function fetchAllKrakenCandlesForCoin(coinId) {
