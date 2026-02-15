@@ -130,6 +130,7 @@ if (!sessionConfig.store) {
 
 app.use(session(sessionConfig));
 
+
 // Load user data into res.locals for all templates
 app.use(async (req, res, next) => {
   res.locals.user = null;
@@ -194,23 +195,28 @@ function validateCsrfToken(req) {
   return secret.length > 0 && token === secret;
 }
 
-// Make CSRF token available in all templates
+// CSRF: validate FIRST on POST/PUT/DELETE, THEN generate token for templates.
+// This prevents the token generator from overwriting the session secret
+// before validation can compare the submitted token against the stored one.
 app.use((req, res, next) => {
-  if (req.session) {
-    res.locals.csrfToken = generateCsrfToken(req.session);
-  }
-  next();
-});
-
-// Validate CSRF on all POST/PUT/DELETE requests (except API endpoints used by fetch with session cookies)
-app.use((req, res, next) => {
+  // Step 1: Validate CSRF on state-changing requests
   if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
     // Skip CSRF for JSON API calls (they use fetch with same-origin and custom headers)
     const isJsonApi = req.path.startsWith('/api/') || req.xhr || req.headers['content-type']?.includes('application/json');
-    if (!isJsonApi && !validateCsrfToken(req)) {
-      console.warn(`[CSRF] Blocked ${req.method} ${req.path} from ${req.ip} (bad/missing token)`);
-      return res.status(403).send('Forbidden: invalid or missing CSRF token. Please refresh the page and try again.');
+    if (!isJsonApi) {
+      if (!validateCsrfToken(req)) {
+        console.warn(`[CSRF] Blocked ${req.method} ${req.path} from ${req.ip} (bad/missing token)`);
+        // Redirect back to the page with a friendly error instead of a raw 403
+        const referer = req.headers.referer || req.path;
+        const redirectUrl = referer.includes('?') ? referer + '&error=Session+expired.+Please+try+again.' : referer + '?error=Session+expired.+Please+try+again.';
+        return res.redirect(redirectUrl);
+      }
     }
+  }
+
+  // Step 2: Generate token for templates (only creates if not already set)
+  if (req.session) {
+    res.locals.csrfToken = generateCsrfToken(req.session);
   }
   next();
 });
