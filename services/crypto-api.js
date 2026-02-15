@@ -273,11 +273,13 @@ async function fetchPricesFromKraken() {
 // ====================================================
 const BYBIT_INTERVAL_MAP = { '15m': '15', '1h': '60', '4h': '240', '1d': 'D', '1w': 'W' };
 
-async function fetchBybitCandles(symbol, interval, limit) {
+async function fetchBybitCandles(symbol, interval, limit, startMs, endMs) {
   const bybitInterval = BYBIT_INTERVAL_MAP[interval];
   if (!bybitInterval || !symbol) return [];
   try {
-    const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${symbol}&interval=${bybitInterval}&limit=${limit}`;
+    let url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${symbol}&interval=${bybitInterval}&limit=${Math.min(limit, 1000)}`;
+    if (startMs) url += `&start=${startMs}`;
+    if (endMs) url += `&end=${endMs}`;
     const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
     if (!res.ok) return [];
     const json = await res.json();
@@ -417,6 +419,34 @@ async function fetchAllCandlesForCoin(coinId, retriesLeft = 1) {
     console.error(`[Kraken] Candle fallback failed for ${coinId}: ${err.message}`);
   }
   return null;
+}
+
+// ====================================================
+// HISTORICAL CANDLES (for backtesting)
+// Paginates to support longer ranges (Bybit returns max 1000 per request)
+// ====================================================
+const MS_PER_CANDLE = { '15m': 15 * 60 * 1000, '1h': 3600000, '4h': 14400000, '1d': 86400000, '1w': 604800000 };
+
+async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
+  const meta = COIN_META[coinId];
+  if (!meta?.bybit) return [];
+  const bybitInterval = BYBIT_INTERVAL_MAP[interval];
+  if (!bybitInterval) return [];
+  const limit = 1000;
+  const msPerCandle = MS_PER_CANDLE[interval] || 3600000;
+  const chunkMs = limit * msPerCandle;
+  const all = [];
+  let cursor = startMs;
+  while (cursor < endMs) {
+    const chunk = await fetchBybitCandles(meta.bybit, interval, limit, cursor, endMs);
+    if (!chunk || chunk.length === 0) break;
+    all.push(...chunk);
+    const lastTs = chunk[chunk.length - 1].openTime;
+    if (lastTs >= endMs || chunk.length < limit) break;
+    cursor = lastTs + msPerCandle;
+    await new Promise(r => setTimeout(r, 350)); // rate limit
+  }
+  return all;
 }
 
 // ====================================================
@@ -657,11 +687,18 @@ function getCurrentPrice(coinId) {
   return prices.find(p => p.id === coinId) || null;
 }
 
-/** Fetch live price for one coin. Tries Bybit -> Kraken -> cache. */
+/** Fetch live price for one coin. Tries WebSocket -> Bybit -> Kraken -> cache. */
 async function fetchLivePrice(coinId) {
+  // WebSocket (real-time, free) - try first when available
+  try {
+    const ws = require('./websocket-prices');
+    const p = ws.getWebSocketPrice(coinId);
+    if (p && Number.isFinite(p.price) && p.price > 0) return p.price;
+  } catch (e) { /* WS not available */ }
+
   const meta = COIN_META[coinId];
 
-  // Try Bybit first
+  // Try Bybit REST
   if (meta && meta.bybit) {
     try {
       const url = `https://api.bybit.com/v5/market/tickers?category=spot&symbol=${meta.bybit}`;
@@ -756,7 +793,7 @@ refreshAllData().catch(err => console.error('[CryptoAPI] Initial error:', err.me
 
 module.exports = {
   fetchAllPrices, fetchPriceHistory, fetchAllHistory,
-  fetchCandles, fetchAllCandles, fetchAllCandlesForCoin, getCurrentPrice, fetchLivePrice, isDataReady,
+  fetchCandles, fetchAllCandles, fetchAllCandlesForCoin, fetchHistoricalCandlesForCoin, getCurrentPrice, fetchLivePrice, isDataReady,
   getFundingRate, getAllFundingRates,
   isCandleFresh, getCandleSource, getCandleAge,
   recordScoreHistory, getScoreHistory,

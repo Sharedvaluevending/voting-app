@@ -30,6 +30,7 @@
     "mongoose": "^8.9.6",
     "node-fetch": "^2.7.0",
     "nodemailer": "^8.0.1",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "ws": "^8.19.0"
   }
 }

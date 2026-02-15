@@ -12,6 +12,7 @@
 // ====================================================
 
 const express = require('express');
+const http = require('http');
 const mongoose = require('mongoose');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
@@ -23,7 +24,9 @@ const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
 const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
 const { initializeStrategies, getPerformanceReport, resetStrategyWeights } = require('./services/learning-engine');
+const { runBacktest, runBacktestForCoin } = require('./services/backtest');
 const bitget = require('./services/bitget');
+const { getWebSocketPrice, getAllWebSocketPrices, addBrowserClient, isWebSocketConnected } = require('./services/websocket-prices');
 const StrategyWeight = require('./models/StrategyWeight');
 
 const User = require('./models/User');
@@ -341,8 +344,9 @@ app.get('/', async (req, res) => {
       Promise.resolve(fetchAllCandles()),
       fetchAllHistory()
     ]);
-    const options = await buildEngineOptions(prices, allCandles, allHistory);
-    const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
+    const pricesMerged = mergeWebSocketPrices(prices);
+    const options = await buildEngineOptions(pricesMerged, allCandles, allHistory);
+    const signals = analyzeAllCoins(pricesMerged, allCandles, allHistory, options);
 
     // Record score history for each coin (for score evolution tracking)
     const regimeCounts = {};
@@ -365,7 +369,7 @@ app.get('/', async (req, res) => {
 
     res.render('dashboard', {
       activePage: 'dashboard',
-      prices,
+      prices: pricesMerged,
       signals,
       deleted: req.query.deleted === '1'
     });
@@ -1239,6 +1243,13 @@ app.get('/learn', (req, res) => {
 });
 
 // ====================================================
+// BACKTEST PAGE (historical simulation)
+// ====================================================
+app.get('/backtest', (req, res) => {
+  res.render('backtest', { activePage: 'backtest', results: null, TRACKED_COINS });
+});
+
+// ====================================================
 // LEARNING ENGINE DASHBOARD (public - shows strategy performance)
 // ====================================================
 app.get('/learning', async (req, res) => {
@@ -1278,8 +1289,9 @@ app.get('/api/signals', async (req, res) => {
       Promise.resolve(fetchAllCandles()),
       fetchAllHistory()
     ]);
-    const options = await buildEngineOptions(prices, allCandles, allHistory);
-    const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
+    const pricesMerged = mergeWebSocketPrices(prices);
+    const options = await buildEngineOptions(pricesMerged, allCandles, allHistory);
+    const signals = analyzeAllCoins(pricesMerged, allCandles, allHistory, options);
     res.json({ success: true, generated: new Date().toISOString(), count: signals.length, signals });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -1288,7 +1300,8 @@ app.get('/api/signals', async (req, res) => {
 
 app.get('/api/prices', async (req, res) => {
   try {
-    const prices = await fetchAllPrices();
+    let prices = await fetchAllPrices();
+    prices = mergeWebSocketPrices(prices);
     // Overlay live exchange prices for coins with open trades so PnL doesn't flash stale values
     if (req.session && req.session.userId) {
       try {
@@ -1349,6 +1362,29 @@ app.get('/api/status', (req, res) => {
     coins: TRACKED_COINS.length,
     version: '3.0.0'
   });
+});
+
+// Backtest API (historical simulation)
+app.post('/api/backtest', async (req, res) => {
+  try {
+    const { coinId, startDate, endDate, coins, minScore, leverage } = req.body || {};
+    const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const endMs = endDate ? new Date(endDate).getTime() : Date.now();
+    if (startMs >= endMs) {
+      return res.status(400).json({ error: 'Start date must be before end date' });
+    }
+    const options = {
+      coins: coins && Array.isArray(coins) ? coins : (coinId ? [coinId] : undefined),
+      minScore: minScore != null ? Number(minScore) : undefined,
+      leverage: leverage != null ? Number(leverage) : undefined,
+      delay: 350
+    };
+    const result = await runBacktest(startMs, endMs, options);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[Backtest] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Push notifications: get VAPID public key
@@ -1849,23 +1885,47 @@ app.get('/api/data-status', (req, res) => {
 });
 
 // ====================================================
+// MERGE WEBSOCKET PRICES (real-time overlay when available)
+// ====================================================
+function mergeWebSocketPrices(prices) {
+  if (!prices || !Array.isArray(prices)) return prices || [];
+  const wsPrices = getAllWebSocketPrices();
+  if (Object.keys(wsPrices).length === 0) return prices;
+  return prices.map(p => {
+    const ws = wsPrices[p.id];
+    if (!ws || !Number.isFinite(ws.price)) return p;
+    return { ...p, price: ws.price, change24h: ws.change24h ?? p.change24h, volume24h: ws.volume24h ?? p.volume24h, _ws: true };
+  });
+}
+
+// ====================================================
 // START SERVER (wait for first price load so dashboard has data)
 // ====================================================
 const START_TIMEOUT = 140000;
+const server = http.createServer(app);
+
+// WebSocket server for real-time price broadcasts to browsers
+const { WebSocketServer } = require('ws');
+const wss = new WebSocketServer({ server, path: '/ws/prices' });
+wss.on('connection', (ws) => {
+  addBrowserClient(ws);
+  ws.send(JSON.stringify({ type: 'connected', wsConnected: isWebSocketConnected() }));
+});
+
 Promise.race([
   pricesReadyPromise,
   new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), START_TIMEOUT))
 ])
   .then(() => {
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.log(`[Server] CryptoSignals Pro v3.0 running on port ${PORT}`);
       console.log(`[Server] Dashboard: http://localhost:${PORT}`);
-      console.log(`[Server] API: http://localhost:${PORT}/api/signals`);
+      console.log(`[Server] WebSocket: ws://localhost:${PORT}/ws/prices`);
     });
   })
   .catch(() => {
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.log(`[Server] CryptoSignals Pro v3.0 running on port ${PORT} (started without waiting for prices)`);
-      console.log(`[Server] Dashboard: http://localhost:${PORT}`);
+      console.log(`[Server] WebSocket: ws://localhost:${PORT}/ws/prices`);
     });
   });

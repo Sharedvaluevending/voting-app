@@ -1,0 +1,246 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Historical Backtest</h2>
+  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Simulate the trading engine on historical Bybit candles. Bar-by-bar walk with SL/TP exits.</p>
+</div>
+
+<!-- Form -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Backtest Parameters</h3>
+  <form id="backtest-form" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;align-items:end;">
+    <div>
+      <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Coin</label>
+      <select name="coinId" id="coinId" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+        <option value="">All coins</option>
+        <% if (typeof TRACKED_COINS !== 'undefined' && TRACKED_COINS) { %>
+          <% TRACKED_COINS.forEach(function(cid) { %>
+            <option value="<%= cid %>"><%= cid %></option>
+          <% }); %>
+        <% } else { %>
+          <option value="bitcoin">bitcoin</option>
+          <option value="ethereum">ethereum</option>
+          <option value="solana">solana</option>
+        <% } %>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Start Date</label>
+      <input type="date" name="startDate" id="startDate" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+    </div>
+    <div>
+      <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">End Date</label>
+      <input type="date" name="endDate" id="endDate" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+    </div>
+    <div>
+      <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Min Score</label>
+      <input type="number" name="minScore" id="minScore" value="52" min="40" max="80" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+    </div>
+    <div>
+      <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Leverage</label>
+      <input type="number" name="leverage" id="leverage" value="2" min="1" max="10" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+    </div>
+    <div>
+      <button type="submit" class="btn btn-primary" id="run-btn">Run Backtest</button>
+    </div>
+  </form>
+</div>
+
+<!-- Loading -->
+<div id="backtest-loading" class="section" style="display:none;text-align:center;padding:40px;">
+  <div style="font-size:32px;margin-bottom:12px;animation:pulse 1.5s infinite;">&#x23F3;</div>
+  <p style="color:#9ca3af;">Fetching historical candles and simulating trades...</p>
+</div>
+
+<!-- Results -->
+<div id="backtest-results" style="display:none;">
+  <!-- Summary -->
+  <div class="section" style="margin-bottom:24px;">
+    <h3 style="color:#e5e7eb;margin-bottom:12px;">Summary</h3>
+    <div class="perf-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;">
+      <div class="perf-card">
+        <div class="perf-label">Total Trades</div>
+        <div class="perf-value" id="bt-trades">0</div>
+      </div>
+      <div class="perf-card">
+        <div class="perf-label">Win Rate</div>
+        <div class="perf-value" id="bt-winrate">0%</div>
+      </div>
+      <div class="perf-card">
+        <div class="perf-label">Total PnL</div>
+        <div class="perf-value" id="bt-pnl">$0</div>
+      </div>
+      <div class="perf-card">
+        <div class="perf-label">Return %</div>
+        <div class="perf-value" id="bt-return">0%</div>
+      </div>
+      <div class="perf-card">
+        <div class="perf-label">Profit Factor</div>
+        <div class="perf-value" id="bt-pf">0</div>
+      </div>
+      <div class="perf-card">
+        <div class="perf-label">Max Drawdown</div>
+        <div class="perf-value down" id="bt-dd">0%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Per-coin results -->
+  <div class="section" style="margin-bottom:24px;">
+    <h3 style="color:#e5e7eb;margin-bottom:12px;">Per-Coin Results</h3>
+    <div style="overflow-x:auto;">
+      <table class="data-table" id="bt-coins-table">
+        <thead>
+          <tr>
+            <th>Coin</th>
+            <th>Trades</th>
+            <th>Wins</th>
+            <th>Losses</th>
+            <th>Win Rate</th>
+            <th>PnL</th>
+            <th>Return %</th>
+            <th>Max DD %</th>
+          </tr>
+        </thead>
+        <tbody id="bt-coins-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Trade list -->
+  <div class="section" style="margin-bottom:24px;">
+    <h3 style="color:#e5e7eb;margin-bottom:12px;">Trade List</h3>
+    <div style="overflow-x:auto;max-height:400px;overflow-y:auto;">
+      <table class="data-table" id="bt-trades-table">
+        <thead>
+          <tr>
+            <th>Coin</th>
+            <th>Dir</th>
+            <th>Entry</th>
+            <th>Exit</th>
+            <th>Reason</th>
+            <th>PnL</th>
+          </tr>
+        </thead>
+        <tbody id="bt-trades-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var form = document.getElementById('backtest-form');
+  var loading = document.getElementById('backtest-loading');
+  var results = document.getElementById('backtest-results');
+  var runBtn = document.getElementById('run-btn');
+
+  // Default dates: last 30 days
+  var end = new Date();
+  var start = new Date();
+  start.setDate(start.getDate() - 30);
+  document.getElementById('endDate').value = end.toISOString().slice(0, 10);
+  document.getElementById('startDate').value = start.toISOString().slice(0, 10);
+
+  form.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    runBtn.disabled = true;
+    loading.style.display = 'block';
+    results.style.display = 'none';
+
+    var coinId = document.getElementById('coinId').value;
+    var body = {
+      startDate: document.getElementById('startDate').value,
+      endDate: document.getElementById('endDate').value,
+      minScore: parseInt(document.getElementById('minScore').value, 10) || 52,
+      leverage: parseInt(document.getElementById('leverage').value, 10) || 2
+    };
+    if (coinId) body.coinId = coinId;
+
+    try {
+      var res = await fetch('/api/backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Backtest failed');
+
+      loading.style.display = 'none';
+      results.style.display = 'block';
+
+      var s = data.summary || {};
+      document.getElementById('bt-trades').textContent = s.totalTrades || 0;
+      document.getElementById('bt-winrate').textContent = (s.winRate || 0).toFixed(1) + '%';
+      var pnl = s.totalPnl || 0;
+      var pnlEl = document.getElementById('bt-pnl');
+      pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+      pnlEl.className = 'perf-value ' + (pnl >= 0 ? 'up' : 'down');
+      var ret = s.returnPct || 0;
+      var retEl = document.getElementById('bt-return');
+      retEl.textContent = (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%';
+      retEl.className = 'perf-value ' + (ret >= 0 ? 'up' : 'down');
+      document.getElementById('bt-pf').textContent = (s.profitFactor || 0).toFixed(2);
+      var maxDd = 0;
+      (data.results || []).forEach(function(r) { if (r.maxDrawdownPct > maxDd) maxDd = r.maxDrawdownPct; });
+      document.getElementById('bt-dd').textContent = maxDd.toFixed(1) + '%';
+
+      // Per-coin table
+      var tbody = document.getElementById('bt-coins-body');
+      tbody.innerHTML = '';
+      (data.results || []).forEach(function(r) {
+        if (r.error) return;
+        var tr = document.createElement('tr');
+        var wr = r.winRate || 0;
+        var pnl = r.totalPnl || 0;
+        var ret = r.returnPct || 0;
+        tr.innerHTML = '<td><strong>' + (r.symbol || r.coinId) + '</strong></td>' +
+          '<td>' + (r.totalTrades || 0) + '</td>' +
+          '<td class="up">' + (r.wins || 0) + '</td>' +
+          '<td class="down">' + (r.losses || 0) + '</td>' +
+          '<td style="color:' + (wr >= 50 ? '#10b981' : '#ef4444') + '">' + wr.toFixed(1) + '%</td>' +
+          '<td class="' + (pnl >= 0 ? 'up' : 'down') + '">' + (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2) + '</td>' +
+          '<td class="' + (ret >= 0 ? 'up' : 'down') + '">' + (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%</td>' +
+          '<td class="down">' + (r.maxDrawdownPct || 0).toFixed(1) + '%</td>';
+        tbody.appendChild(tr);
+      });
+
+      // Trade list (aggregate from all results)
+      var allTrades = [];
+      (data.results || []).forEach(function(r) {
+        (r.trades || []).forEach(function(t) {
+          allTrades.push({ coinId: r.coinId, symbol: r.symbol, direction: t.direction, entry: t.entry, exit: t.exit, reason: t.reason, pnl: t.pnl });
+        });
+      });
+      allTrades.sort(function(a, b) { return 0; });
+      var tradesBody = document.getElementById('bt-trades-body');
+      tradesBody.innerHTML = '';
+      allTrades.slice(0, 100).forEach(function(t) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + (t.symbol || t.coinId) + '</td>' +
+          '<td><span class="badge-' + (t.direction === 'LONG' ? 'BUY' : 'SELL') + '" style="padding:2px 6px;border-radius:4px;font-size:11px;">' + t.direction + '</span></td>' +
+          '<td>$' + Number(t.entry).toFixed(4) + '</td>' +
+          '<td>$' + Number(t.exit).toFixed(4) + '</td>' +
+          '<td>' + (t.reason || '-') + '</td>' +
+          '<td class="' + (t.pnl >= 0 ? 'up' : 'down') + '">' + (t.pnl >= 0 ? '+' : '') + '$' + t.pnl.toFixed(2) + '</td>';
+        tradesBody.appendChild(tr);
+      });
+      if (allTrades.length > 100) {
+        var more = document.createElement('tr');
+        more.innerHTML = '<td colspan="6" style="color:#6b7280;font-size:12px;">Showing first 100 of ' + allTrades.length + ' trades</td>';
+        tradesBody.appendChild(more);
+      }
+    } catch (err) {
+      loading.style.display = 'none';
+      alert(err.message || 'Backtest failed');
+    }
+    runBtn.disabled = false;
+  });
+})();
+</script>
+<style>
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+.perf-card { background: rgba(15,23,42,0.6); border: 1px solid #1e2a3a; border-radius: 8px; padding: 12px 16px; }
+.perf-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; }
+.perf-value { font-size: 18px; font-weight: 700; color: #e5e7eb; margin-top: 4px; }
+</style>

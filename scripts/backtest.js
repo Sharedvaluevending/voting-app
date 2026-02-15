@@ -1,32 +1,47 @@
 #!/usr/bin/env node
-// scripts/backtest.js – Run engine on current data (smoke test). Full historical backtest would need stored candles.
-// Usage: node scripts/backtest.js
+// scripts/backtest.js – Run historical backtest via CLI
+// Usage: node scripts/backtest.js [coinId] [days]
+// Example: node scripts/backtest.js bitcoin 30
+// Example: node scripts/backtest.js (all coins, last 30 days)
 
-const { analyzeAllCoins, ENGINE_CONFIG } = require('../services/trading-engine');
-const { fetchAllPrices, fetchAllCandles, fetchAllHistory } = require('../services/crypto-api');
+const { runBacktest, runBacktestForCoin } = require('../services/backtest');
 
 async function main() {
-  console.log('\n--- Backtest (current data) ---');
-  console.log('Config: minScore', ENGINE_CONFIG.MIN_SIGNAL_SCORE, 'minConfluence', ENGINE_CONFIG.MIN_CONFLUENCE_FOR_SIGNAL);
-  const [prices, allCandles, allHistory] = await Promise.all([
-    fetchAllPrices(),
-    Promise.resolve(fetchAllCandles()),
-    fetchAllHistory()
-  ]);
-  if (!prices || prices.length === 0) {
-    console.log('No prices – skip.');
+  const coinId = process.argv[2] || null;
+  const days = parseInt(process.argv[3], 10) || 30;
+
+  const endMs = Date.now();
+  const startMs = endMs - days * 24 * 60 * 60 * 1000;
+
+  console.log('\n--- Historical Backtest ---');
+  console.log('Range:', new Date(startMs).toISOString().slice(0, 10), 'to', new Date(endMs).toISOString().slice(0, 10));
+  console.log('Coin:', coinId || 'all');
+  console.log('');
+
+  const options = { coins: coinId ? [coinId] : undefined, delay: 350 };
+  const result = await runBacktest(startMs, endMs, options);
+
+  if (result.results.length === 0) {
+    console.log('No results (insufficient candles or errors).');
     process.exit(0);
   }
-  const options = {}; // no DB in script – strategyWeights/btcSignal optional
-  const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
-  const strongBuy = signals.filter(s => s.signal === 'STRONG_BUY').length;
-  const buy = signals.filter(s => s.signal === 'BUY').length;
-  const hold = signals.filter(s => s.signal === 'HOLD').length;
-  const sell = signals.filter(s => s.signal === 'SELL').length;
-  const strongSell = signals.filter(s => s.signal === 'STRONG_SELL').length;
-  console.log('Signals:', { STRONG_BUY: strongBuy, BUY: buy, HOLD: hold, SELL: sell, STRONG_SELL: strongSell });
-  console.log('Sample:', signals[0] ? { coin: signals[0].coin.symbol, signal: signals[0].signal, score: signals[0].score, strategy: signals[0].strategyName } : 'none');
-  console.log('OK\n');
+
+  const s = result.summary;
+  console.log('--- Summary ---');
+  console.log('Total Trades:', s.totalTrades);
+  console.log('Wins:', s.wins, '| Losses:', s.losses);
+  console.log('Win Rate:', s.winRate.toFixed(1) + '%');
+  console.log('Total PnL: $' + s.totalPnl.toFixed(2));
+  console.log('Return:', s.returnPct.toFixed(2) + '%');
+  console.log('Profit Factor:', s.profitFactor.toFixed(2));
+  console.log('');
+
+  result.results.forEach(r => {
+    if (r.error) return;
+    console.log(r.symbol || r.coinId, '| Trades:', r.totalTrades, '| WR:', r.winRate.toFixed(1) + '%', '| PnL: $' + (r.totalPnl || 0).toFixed(2), '| DD:', (r.maxDrawdownPct || 0).toFixed(1) + '%');
+  });
+
+  console.log('\nOK\n');
 }
 
 main().catch(err => {
