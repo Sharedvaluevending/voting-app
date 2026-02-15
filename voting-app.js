@@ -448,12 +448,27 @@ app.get('/', async (req, res) => {
       } catch (e) { /* ignore */ }
     }
 
+    // Top 5 coins from latest backtest (for "Top performer" badge)
+    let topPerformerCoins = [];
+    try {
+      const resultsDir = path.join(__dirname, 'data/backtest-results');
+      if (fs.existsSync(resultsDir)) {
+        const files = fs.readdirSync(resultsDir).filter(f => f.startsWith('massive-') && f.endsWith('.json'));
+        if (files.length > 0) {
+          const latest = files.sort().reverse()[0];
+          const data = JSON.parse(fs.readFileSync(path.join(resultsDir, latest), 'utf8'));
+          topPerformerCoins = (data.top10 || []).slice(0, 5).map(c => c.symbol);
+        }
+      }
+    } catch (e) { /* ignore */ }
+
     res.render('dashboard', {
       activePage: 'dashboard',
       prices: pricesMerged,
       signals,
       deleted: req.query.deleted === '1',
-      excludedCoins
+      excludedCoins,
+      topPerformerCoins
     });
   } catch (err) {
     console.error('[Dashboard] Error:', err);
@@ -969,6 +984,26 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
 });
 
 // ====================================================
+// COIN WEIGHT SETTINGS (enable + strength)
+// ====================================================
+app.post('/account/coin-weight-settings', requireLogin, async (req, res) => {
+  try {
+    const u = await User.findById(req.session.userId);
+    if (!u) return res.redirect('/performance');
+    const parseBool = (val) => val === 'true' || (Array.isArray(val) && val.includes('true'));
+    u.coinWeightEnabled = req.body.coinWeightEnabled ? parseBool(req.body.coinWeightEnabled) : false;
+    const strength = req.body.coinWeightStrength;
+    if (['conservative', 'moderate', 'aggressive'].includes(strength)) {
+      u.coinWeightStrength = strength;
+    }
+    await u.save();
+    res.redirect('/performance?success=Coin+weight+settings+saved');
+  } catch (err) {
+    res.redirect('/performance?error=' + encodeURIComponent(err.message || 'Failed to save'));
+  }
+});
+
+// ====================================================
 // TOGGLE COIN EXCLUSION (auto-trade skip list)
 // ====================================================
 app.post('/api/toggle-coin', requireLogin, async (req, res) => {
@@ -992,6 +1027,68 @@ app.post('/api/toggle-coin', requireLogin, async (req, res) => {
 
     await u.save();
     res.json({ success: true, excludedCoins: u.excludedCoins });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ====================================================
+// COIN WEIGHTS (from backtest - prioritizes better-performing coins in auto-trade)
+// ====================================================
+const fs = require('fs');
+const SYMBOL_TO_COIN_ID = {
+  BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', DOGE: 'dogecoin', XRP: 'ripple',
+  ADA: 'cardano', DOT: 'polkadot', AVAX: 'avalanche-2', LINK: 'chainlink', POL: 'polygon',
+  BNB: 'binancecoin', LTC: 'litecoin', UNI: 'uniswap', ATOM: 'cosmos'
+};
+
+app.post('/api/coin-weights', requireLogin, async (req, res) => {
+  try {
+    const { coinWeights } = req.body || {};
+    const u = await User.findById(req.session.userId);
+    if (!u) return res.status(404).json({ success: false, error: 'User not found' });
+    if (coinWeights && typeof coinWeights === 'object') {
+      u.coinWeights = coinWeights;
+      await u.save();
+    }
+    res.json({ success: true, coinWeights: u.coinWeights || {} });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/load-coin-weights-from-backtest', requireLogin, async (req, res) => {
+  try {
+    const resultsDir = path.join(__dirname, 'data/backtest-results');
+    if (!fs.existsSync(resultsDir)) {
+      return res.status(404).json({ success: false, error: 'No backtest results. Run backtest-massive.js first.' });
+    }
+    const files = fs.readdirSync(resultsDir).filter(f => f.startsWith('massive-') && f.endsWith('.json'));
+    if (files.length === 0) {
+      return res.status(404).json({ success: false, error: 'No massive backtest results found.' });
+    }
+    const latest = files.sort().reverse()[0];
+    const data = JSON.parse(fs.readFileSync(path.join(resultsDir, latest), 'utf8'));
+    const allCoins = data.allCoins || data.top10 || [];
+    if (allCoins.length === 0) {
+      return res.status(400).json({ success: false, error: 'No coin data in backtest results.' });
+    }
+    // Build weights: top 5 get 1.2x, next 5 get 1.1x, rest 1.0, bottom 3 get 0.8x
+    const weights = {};
+    allCoins.forEach((c, i) => {
+      const coinId = SYMBOL_TO_COIN_ID[c.symbol] || Object.keys(COIN_META).find(k => COIN_META[k]?.symbol === c.symbol) || c.coinId;
+      if (!coinId) return;
+      if (i < 5) weights[coinId] = 1.2;
+      else if (i < 10) weights[coinId] = 1.1;
+      else if (i >= allCoins.length - 3) weights[coinId] = 0.8;
+      else weights[coinId] = 1.0;
+    });
+    const u = await User.findById(req.session.userId);
+    if (!u) return res.status(404).json({ success: false, error: 'User not found' });
+    u.coinWeights = weights;
+    u.coinWeightEnabled = true;
+    await u.save();
+    res.json({ success: true, coinWeights: weights, message: `Loaded weights from ${latest}. Coin weights enabled.` });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1400,6 +1497,28 @@ app.get('/learn', (req, res) => {
 // ====================================================
 app.get('/backtest', (req, res) => {
   res.render('backtest', { activePage: 'backtest', results: null, TRACKED_COINS });
+});
+
+// ====================================================
+// BACKTEST RESULTS (latest massive backtest)
+// ====================================================
+app.get('/backtest-results', (req, res) => {
+  try {
+    const resultsDir = path.join(__dirname, 'data/backtest-results');
+    if (!fs.existsSync(resultsDir)) {
+      return res.render('backtest-results', { activePage: 'backtest-results', error: 'No backtest results directory.' });
+    }
+    const files = fs.readdirSync(resultsDir).filter(f => f.startsWith('massive-') && f.endsWith('.json'));
+    if (files.length === 0) {
+      return res.render('backtest-results', { activePage: 'backtest-results', error: 'No massive backtest results found.' });
+    }
+    const latest = files.sort().reverse()[0];
+    const data = JSON.parse(fs.readFileSync(path.join(resultsDir, latest), 'utf8'));
+    res.render('backtest-results', { activePage: 'backtest-results', result: data });
+  } catch (err) {
+    console.error('[BacktestResults] Error:', err);
+    res.render('backtest-results', { activePage: 'backtest-results', error: err.message });
+  }
 });
 
 // ====================================================
@@ -1895,6 +2014,14 @@ async function runAutoTrade() {
 
         // Filter signals: best strategy score >= threshold, has direction, not open, not in cooldown, not excluded
         const userExcluded = user.excludedCoins || [];
+        const coinWeights = user.coinWeights || {};
+        const coinWeightEnabled = user.coinWeightEnabled === true;
+        const strength = user.coinWeightStrength || 'moderate';
+        const strengthMult = { conservative: 0.25, moderate: 1, aggressive: 1.5 }[strength] ?? 1;
+        const effectiveWeight = (coinId, baseW) => {
+          if (!coinWeightEnabled || baseW == null) return 1;
+          return 1 + (baseW - 1) * strengthMult;
+        };
         const candidates = signalsWithBestStrategy.filter(sig => {
           if (sig._bestScore < minScore) return false;
           if (!sig._direction) return false; // HOLD signals ignored
@@ -1902,7 +2029,13 @@ async function runAutoTrade() {
           if (cooldownSet.has(`${sig._coinId}_${sig._direction}`)) return false;
           if (userExcluded.includes(sig._coinId)) return false; // Skip excluded coins
           return true;
-        }).sort((a, b) => b._bestScore - a._bestScore);
+        }).sort((a, b) => {
+          const baseA = coinWeights[a._coinId] ?? 1;
+          const baseB = coinWeights[b._coinId] ?? 1;
+          const weightA = effectiveWeight(a._coinId, baseA);
+          const weightB = effectiveWeight(b._coinId, baseB);
+          return (b._bestScore * weightB) - (a._bestScore * weightA);
+        });
 
         const slotsAvailable = maxOpen - openTrades.length;
         const toOpen = candidates.slice(0, slotsAvailable);

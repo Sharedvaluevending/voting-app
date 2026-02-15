@@ -1,0 +1,131 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Backtest Results</h2>
+  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Latest 2-year massive backtest. Use these rankings to prioritize better-performing coins in auto-trade.</p>
+</div>
+
+<% if (typeof error !== 'undefined' && error) { %>
+<div class="alert alert-error" style="margin-bottom:20px;"><%= error %></div>
+<p style="color:#9ca3af;font-size:13px;">Run <code>node scripts/backtest-massive.js</code> from the project root to generate results.</p>
+<% } else if (typeof result !== 'undefined' && result) { %>
+
+<div class="section" style="margin-bottom:20px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;padding:16px;">
+  <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;">
+    <div>
+      <span style="color:#10b981;font-size:12px;font-weight:600;">Last run:</span>
+      <span style="color:#e5e7eb;font-size:13px;margin-left:8px;"><%= new Date(result.timestamp).toLocaleString() %></span>
+      <span style="color:#6b7280;font-size:12px;margin-left:12px;">(<%= result.monthRanges || 25 %> months)</span>
+    </div>
+    <% if (typeof user !== 'undefined' && user) { %>
+    <div style="display:flex;gap:8px;">
+      <button type="button" class="btn btn-sm" onclick="loadCoinWeights()" style="background:#10b981;color:#fff;border:none;">
+        Load Coin Weights
+      </button>
+      <a href="/performance" class="btn btn-outline btn-sm" style="border-color:#10b981;color:#10b981;">Performance Settings</a>
+    </div>
+    <% } %>
+  </div>
+</div>
+
+<!-- Top 10 Table -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Top 10 Coins (by composite score)</h3>
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="border-bottom:1px solid #1e2a3a;">
+          <th style="text-align:left;padding:10px 12px;color:#9ca3af;font-weight:500;">Rank</th>
+          <th style="text-align:left;padding:10px 12px;color:#9ca3af;font-weight:500;">Symbol</th>
+          <th style="text-align:right;padding:10px 12px;color:#9ca3af;font-weight:500;">PnL ($)</th>
+          <th style="text-align:right;padding:10px 12px;color:#9ca3af;font-weight:500;">Return %</th>
+          <th style="text-align:right;padding:10px 12px;color:#9ca3af;font-weight:500;">Win %</th>
+          <th style="text-align:right;padding:10px 12px;color:#9ca3af;font-weight:500;">PF</th>
+          <th style="text-align:right;padding:10px 12px;color:#9ca3af;font-weight:500;">Max DD %</th>
+          <th style="text-align:right;padding:10px 12px;color:#9ca3af;font-weight:500;">Sharpe</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% (result.top10 || []).forEach(function(r, i) { %>
+        <tr style="border-bottom:1px solid #0d1320;">
+          <td style="padding:10px 12px;color:#e5e7eb;"><%= i + 1 %></td>
+          <td style="padding:10px 12px;">
+            <a href="/coin/<%= (result.allCoins || []).find(c => c.symbol === r.symbol)?.coinId || r.symbol.toLowerCase() %>" style="color:#3b82f6;text-decoration:none;font-weight:600;"><%= r.symbol %></a>
+          </td>
+          <td style="padding:10px 12px;text-align:right;color:<%= r.totalPnl >= 0 ? '#10b981' : '#ef4444' %>;">$<%= r.totalPnl.toLocaleString(undefined, {maximumFractionDigits: 0}) %></td>
+          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= ((result.allCoins || []).find(c => c.symbol === r.symbol)?.returnPct ?? r.totalPnl/100).toFixed(1) %>%</td>
+          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= r.winRate.toFixed(1) %>%</td>
+          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= r.profitFactor.toFixed(2) %></td>
+          <td style="padding:10px 12px;text-align:right;color:#eab308;"><%= r.maxDrawdownPct.toFixed(1) %>%</td>
+          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= (r.sharpeRatio || 0).toFixed(2) %></td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- All Coins -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">All Coins</h3>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">
+    <% (result.allCoins || []).forEach(function(c) { %>
+    <div style="background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;padding:12px;">
+      <div style="font-weight:600;color:#e5e7eb;"><%= c.symbol %></div>
+      <div style="font-size:12px;color:<%= c.totalPnl >= 0 ? '#10b981' : '#ef4444' %>;">$<%= c.totalPnl.toLocaleString(undefined, {maximumFractionDigits: 0}) %></div>
+      <div style="font-size:11px;color:#6b7280;"><%= c.winRate.toFixed(1) %>% WR · <%= c.totalTrades %> trades</div>
+    </div>
+    <% }); %>
+  </div>
+</div>
+
+<!-- Strategy Breakdown (from #1 coin) -->
+<% var topCoin = (result.allCoins || []).find(c => c.symbol === (result.top10 || [])[0]?.symbol); %>
+<% if (topCoin && topCoin.strategyBreakdown && Object.keys(topCoin.strategyBreakdown).length > 0) { %>
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Strategy Breakdown (<%= topCoin.symbol %>)</h3>
+  <div style="display:flex;flex-wrap:wrap;gap:12px;">
+    <% Object.entries(topCoin.strategyBreakdown).forEach(function([name, s]) { %>
+    <div style="background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:6px;padding:10px 14px;min-width:140px;">
+      <div style="font-size:12px;color:#9ca3af;"><%= name %></div>
+      <div style="font-size:14px;font-weight:600;color:<%= s.pnl >= 0 ? '#10b981' : '#ef4444' %>;">$<%= s.pnl.toFixed(0) %></div>
+      <div style="font-size:11px;color:#6b7280;"><%= s.trades %> trades · <%= s.trades > 0 ? ((s.wins/s.trades)*100).toFixed(0) : 0 %>% WR</div>
+    </div>
+    <% }); %>
+  </div>
+</div>
+<% } %>
+
+<!-- Config -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Backtest Config</h3>
+  <div style="font-size:12px;color:#9ca3af;">
+    SL cap ON · 4h cooldown · BTC filter OFF · Bybit-only · Cached candles
+  </div>
+</div>
+
+<% } else { %>
+<div class="section" style="text-align:center;padding:40px;">
+  <p style="color:#9ca3af;font-size:14px;">No backtest results found.</p>
+  <p style="color:#6b7280;font-size:13px;margin-top:8px;">Run <code>node scripts/backtest-massive.js</code> to generate.</p>
+</div>
+<% } %>
+
+<% if (typeof user !== 'undefined' && user) { %>
+<input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>" id="backtest-csrf">
+<script>
+async function loadCoinWeights() {
+  try {
+    var csrf = document.getElementById('backtest-csrf')?.value || document.querySelector('input[name="_csrf"]')?.value || '';
+    var res = await fetch('/api/load-coin-weights-from-backtest', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify({}), credentials: 'same-origin' });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    alert('Coin weights loaded! Top 5: 1.2x, next 5: 1.1x, bottom 3: 0.8x. Auto-trade will prefer higher-weighted coins.');
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
+}
+</script>
+<% } %>
+
+<%- include('partials/footer') %>

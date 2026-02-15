@@ -39,7 +39,11 @@ const userSchema = new mongoose.Schema({
     featureMinSlDistance: { type: Boolean, default: true },
     featureConfidenceSizing: { type: Boolean, default: true }
   },
-  excludedCoins: [{ type: String }], // Coins excluded from auto-trade (e.g. ['dogecoin', 'cardano'])
+  excludedCoins: [{ type: String }], // Coins excluded from auto-trade (e.g. ['dogecoin', 'cardano']),
+  // Coin weights from backtest (1.0 = normal, 1.2 = 20% more allocation, 0.8 = 20% less)
+  coinWeights: { type: mongoose.Schema.Types.Mixed, default: {} },
+  coinWeightEnabled: { type: Boolean, default: false },
+  coinWeightStrength: { type: String, enum: ['conservative', 'moderate', 'aggressive'], default: 'moderate' },
   resetToken: { type: String },
   resetTokenExpiry: { type: Date },
   pushSubscriptions: [{ type: mongoose.Schema.Types.Mixed }],

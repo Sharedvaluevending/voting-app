@@ -75,6 +75,9 @@
             <% } %>
           </h3>
           <span class="signal-badge badge-<%= sig.signal %>"><%= sig.signal.replace('_', ' ') %></span>
+          <% if (typeof topPerformerCoins !== 'undefined' && topPerformerCoins.indexOf(sig.coin.symbol) !== -1) { %>
+            <span class="regime-badge" style="background:rgba(16,185,129,0.3);color:#10b981;border:1px solid rgba(16,185,129,0.5);" title="Top 5 backtest performer">Top performer</span>
+          <% } %>
           <% if (sig.regime && sig.regime !== 'unknown') { %>
             <span class="regime-badge regime-<%= sig.regime %>"><%= sig.regime %></span>
           <% } %>
