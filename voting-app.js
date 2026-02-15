@@ -1456,8 +1456,7 @@ app.post('/api/backtest', async (req, res) => {
     const options = {
       coins: coinsToRun,
       minScore: minScore != null ? Number(minScore) : undefined,
-      leverage: leverage != null ? Number(leverage) : undefined,
-      delay: 350
+      leverage: leverage != null ? Number(leverage) : undefined
     };
     const result = await runBacktest(startMs, endMs, options);
     res.json({ success: true, ...result });

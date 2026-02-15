@@ -17,7 +17,7 @@ const WARMUP_BARS = 100;      // Extra 1h bars to fetch before start date for in
  * Fetch multi-timeframe historical candles for a coin
  * Wraps each fetch in a per-coin timeout so one slow coin doesn't block everything.
  */
-const PER_COIN_FETCH_TIMEOUT = 30000; // 30s max per coin fetch
+const PER_COIN_FETCH_TIMEOUT = 15000; // 15s max per coin fetch (keep under Render's 30s req timeout)
 
 async function fetchWithTimeout(promise, timeoutMs, label) {
   return Promise.race([
@@ -277,9 +277,12 @@ function computeMaxDrawdownPct(equityCurve) {
 }
 
 /**
- * Run backtest for all coins or a subset
+ * Run backtest for all coins or a subset.
+ * Coins are processed in parallel batches to stay within API rate limits
+ * while keeping total time well under Render's 30s request timeout.
  */
-const PER_COIN_BACKTEST_TIMEOUT = 45000; // 45s max per coin simulation
+const PER_COIN_BACKTEST_TIMEOUT = 20000; // 20s max per coin simulation
+const PARALLEL_BATCH_SIZE = 3; // process 3 coins at a time (avoids Bybit rate limits)
 
 async function runBacktest(startMs, endMs, options) {
   options = options || {};
@@ -288,27 +291,37 @@ async function runBacktest(startMs, endMs, options) {
   const failed = [];
   const backtestStart = Date.now();
   const days = Math.round((endMs - startMs) / 86400000);
-  console.log(`[Backtest] Starting: ${coins.length} coins, ${days} days range`);
+  console.log(`[Backtest] Starting: ${coins.length} coins, ${days} days range (parallel batches of ${PARALLEL_BATCH_SIZE})`);
 
-  for (const coinId of coins) {
-    const coinStart = Date.now();
-    try {
-      const result = await fetchWithTimeout(
-        runBacktestForCoin(coinId, startMs, endMs, options),
-        PER_COIN_BACKTEST_TIMEOUT,
-        `backtest ${coinId}`
-      );
-      const elapsed = ((Date.now() - coinStart) / 1000).toFixed(1);
-      console.log(`[Backtest] ${coinId}: ${result.error ? 'FAILED - ' + result.error : result.totalTrades + ' trades'} (${elapsed}s)`);
+  // Process coins in parallel batches
+  for (let i = 0; i < coins.length; i += PARALLEL_BATCH_SIZE) {
+    const batch = coins.slice(i, i + PARALLEL_BATCH_SIZE);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (coinId) => {
+        const coinStart = Date.now();
+        try {
+          const result = await fetchWithTimeout(
+            runBacktestForCoin(coinId, startMs, endMs, options),
+            PER_COIN_BACKTEST_TIMEOUT,
+            `backtest ${coinId}`
+          );
+          const elapsed = ((Date.now() - coinStart) / 1000).toFixed(1);
+          console.log(`[Backtest] ${coinId}: ${result.error ? 'FAILED - ' + result.error : result.totalTrades + ' trades'} (${elapsed}s)`);
+          return { coinId, result };
+        } catch (err) {
+          const elapsed = ((Date.now() - coinStart) / 1000).toFixed(1);
+          console.error(`[Backtest] ${coinId}: ERROR - ${err.message} (${elapsed}s)`);
+          return { coinId, result: { coinId, error: err.message, trades: [] } };
+        }
+      })
+    );
+    for (const settled of batchResults) {
+      const { coinId, result } = settled.status === 'fulfilled' ? settled.value : { coinId: 'unknown', result: { error: settled.reason?.message, trades: [] } };
       results.push(result);
       if (result.error) failed.push({ coinId, error: result.error });
-      if (options.delay) await new Promise(r => setTimeout(r, options.delay));
-    } catch (err) {
-      const elapsed = ((Date.now() - coinStart) / 1000).toFixed(1);
-      console.error(`[Backtest] ${coinId}: ERROR - ${err.message} (${elapsed}s)`);
-      results.push({ coinId, error: err.message, trades: [] });
-      failed.push({ coinId, error: err.message });
     }
+    // Small delay between batches to avoid rate limits
+    if (i + PARALLEL_BATCH_SIZE < coins.length) await new Promise(r => setTimeout(r, 200));
   }
   console.log(`[Backtest] Done: ${results.length - failed.length}/${results.length} coins succeeded in ${((Date.now() - backtestStart) / 1000).toFixed(1)}s`);
 
