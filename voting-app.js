@@ -47,8 +47,7 @@ const PORT = process.env.PORT || 3000;
 // ====================================================
 const mongoURI = process.env.MONGODB_URI || (process.env.NODE_ENV === 'production' ? null : 'mongodb://127.0.0.1:27017/votingApp');
 if (!mongoURI && process.env.NODE_ENV === 'production') {
-  console.error('[DB] MONGODB_URI is required in production. Set it in Render Environment.');
-  process.exit(1);
+  console.warn('[DB] MONGODB_URI not set in production. Auth, trades, and journal disabled. Set MONGODB_URI in Render to enable.');
 }
 
 // Prefer explicit standard URI on Render to avoid SRV DNS issues (ENOTFOUND)
