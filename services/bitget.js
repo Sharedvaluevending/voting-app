@@ -47,6 +47,23 @@ function getBitgetSymbol(coinId, type) {
   return type === 'spot' ? mapping.spot : mapping.futures;
 }
 
+// Retry wrapper for Bitget API calls
+async function withRetry(fn, retries = 2, delayMs = 2000) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) {
+        console.log(`[Bitget] Retry ${attempt + 1}/${retries} after ${delayMs}ms: ${err.message}`);
+        await new Promise(r => setTimeout(r, delayMs * (attempt + 1)));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 function getMarginCoin(coinId) {
   const mapping = SYMBOL_MAP[coinId];
   return mapping ? mapping.marginCoin : 'USDT';
@@ -385,6 +402,7 @@ async function updateStopLoss(user, coinId, direction, newStopPrice) {
 
 // Open a live trade on Bitget
 async function executeLiveOpen(user, trade, signalData) {
+  return withRetry(async () => {
   try {
     const tradingType = user.liveTrading?.tradingType || 'futures';
     // If disableLeverage: force 1x. If useFixedLeverage: use liveLeverage. Else: mirror paper (trade.leverage = suggested)
@@ -438,6 +456,7 @@ async function executeLiveOpen(user, trade, signalData) {
     await trade.save();
     return { success: false, error: err.message };
   }
+  }, 2, 3000);
 }
 
 // Close a live trade on Bitget (EXIT action)

@@ -1,0 +1,164 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Strategy Comparison</h2>
+  <p style="color:#9ca3af;font-size:13px;">Side-by-side view of all strategy scores across all coins. Find which strategies work best in the current market.</p>
+</div>
+
+<% if (strategies && strategies.length > 0) { %>
+<div class="section" style="margin-bottom:20px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Learning Engine Performance</h3>
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="border-bottom:1px solid #1e2a3a;">
+          <th style="text-align:left;padding:10px 8px;color:#9ca3af;">Strategy</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Trades</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Win Rate</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Avg R:R</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Profit Factor</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;" title="Performance per market regime">Trending</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Ranging</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Volatile</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Compression</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Mixed</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% strategies.forEach(function(s) { %>
+        <tr style="border-bottom:1px solid rgba(30,42,58,0.5);">
+          <td style="padding:10px 8px;color:#e5e7eb;font-weight:600;"><%= s.name || s.strategyId %></td>
+          <td style="text-align:center;padding:10px 8px;color:#9ca3af;"><%= s.performance.totalTrades %></td>
+          <td style="text-align:center;padding:10px 8px;color:<%= s.performance.winRate > 50 ? '#10b981' : s.performance.winRate > 40 ? '#eab308' : '#ef4444' %>;font-weight:600;"><%= Number(s.performance.winRate).toFixed(1) %>%</td>
+          <td style="text-align:center;padding:10px 8px;color:#9ca3af;"><%= Number(s.performance.avgRR).toFixed(2) %></td>
+          <td style="text-align:center;padding:10px 8px;color:<%= (s.performance.profitFactor || 0) > 1 ? '#10b981' : '#ef4444' %>;font-weight:600;"><%= Number(s.performance.profitFactor || 0).toFixed(2) %></td>
+          <% ['trending','ranging','volatile','compression','mixed'].forEach(function(r) {
+            var rd = s.performance.byRegime && s.performance.byRegime[r] ? s.performance.byRegime[r] : {wins:0,losses:0};
+            var total = (rd.wins||0) + (rd.losses||0);
+            var wr = total > 0 ? ((rd.wins / total) * 100).toFixed(0) : '-';
+          %>
+          <td style="text-align:center;padding:10px 8px;color:<%= total > 0 ? (wr >= 50 ? '#10b981' : '#ef4444') : '#6b7280' %>;font-size:12px;">
+            <%= wr %><%= total > 0 ? '%' : '' %><span style="color:#6b7280;font-size:10px;"> (<%= total %>)</span>
+          </td>
+          <% }); %>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+<% } %>
+
+<div class="section">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Live Strategy Scores by Coin</h3>
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="border-bottom:1px solid #1e2a3a;">
+          <th style="text-align:left;padding:10px 8px;color:#9ca3af;">Coin</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;" title="Overall signal from blended analysis">Signal</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;" title="Detected market regime">Regime</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;" title="Trend Following strategy score">TF</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;" title="Breakout strategy score">BO</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;" title="Mean Reversion strategy score">MR</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;" title="Momentum strategy score">Mom</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;" title="Scalping strategy score">Scalp</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;" title="Swing strategy score">Swing</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;" title="Position strategy score">Pos</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% signals.forEach(function(sig) {
+          var stratMap = {};
+          if (sig.topStrategies) sig.topStrategies.forEach(function(s) { stratMap[s.id] = s; });
+        %>
+        <tr style="border-bottom:1px solid rgba(30,42,58,0.5);">
+          <td style="padding:10px 8px;">
+            <a href="/coin/<%= sig.coin.id %>" style="color:#e5e7eb;text-decoration:none;font-weight:600;"><%= sig.coin.symbol %></a>
+            <span style="color:#6b7280;font-size:11px;margin-left:4px;"><%= sig.score %></span>
+          </td>
+          <td style="text-align:center;padding:10px 8px;">
+            <span class="signal-badge badge-<%= sig.signal %>" style="font-size:11px;padding:3px 8px;"><%= sig.signal.replace('_',' ') %></span>
+          </td>
+          <td style="text-align:center;padding:10px 8px;">
+            <% if (sig.regime && sig.regime !== 'unknown') { %>
+            <span class="regime-badge regime-<%= sig.regime %>" style="font-size:10px;padding:2px 6px;"><%= sig.regime %></span>
+            <% } %>
+          </td>
+          <% ['trend_follow','breakout','mean_revert','momentum','scalping','swing','position'].forEach(function(sid) {
+            var s = stratMap[sid];
+            var score = s ? s.score : '-';
+            var signal = s ? s.signal : '';
+            var color = signal === 'STRONG_BUY' || signal === 'BUY' ? '#10b981' : signal === 'STRONG_SELL' || signal === 'SELL' ? '#ef4444' : '#6b7280';
+          %>
+          <td style="text-align:center;padding:10px 8px;color:<%= color %>;font-weight:<%= score !== '-' && score >= 55 ? '700' : '400' %>;">
+            <%= score %>
+          </td>
+          <% }); %>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section" style="margin-top:20px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Score History</h3>
+  <p style="color:#9ca3af;font-size:13px;margin-bottom:12px;">Click a coin to see how its signal score has evolved over time.</p>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+    <% signals.forEach(function(sig) { %>
+    <button onclick="loadScoreHistory('<%= sig.coin.id %>', '<%= sig.coin.symbol %>')" class="btn btn-outline btn-sm" style="font-size:12px;"><%= sig.coin.symbol %></button>
+    <% }); %>
+  </div>
+  <div id="score-history-container" style="display:none;padding:16px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:10px;">
+    <h4 id="score-history-title" style="color:#e5e7eb;margin:0 0 12px 0;"></h4>
+    <div id="score-history-chart" style="display:flex;align-items:flex-end;gap:2px;height:120px;overflow-x:auto;"></div>
+    <div id="score-history-details" style="margin-top:12px;font-size:12px;color:#9ca3af;"></div>
+  </div>
+</div>
+
+<script>
+async function loadScoreHistory(coinId, symbol) {
+  try {
+    const res = await fetch('/api/score-history/' + coinId);
+    const data = await res.json();
+    if (!data.success || !data.history.length) {
+      document.getElementById('score-history-container').style.display = 'block';
+      document.getElementById('score-history-title').textContent = symbol + ' Score History';
+      document.getElementById('score-history-chart').innerHTML = '<span style="color:#6b7280;">No history yet. Scores are recorded each time the dashboard loads.</span>';
+      document.getElementById('score-history-details').innerHTML = '';
+      return;
+    }
+    const container = document.getElementById('score-history-container');
+    container.style.display = 'block';
+    document.getElementById('score-history-title').textContent = symbol + ' Score History (' + data.history.length + ' points)';
+
+    // Build bar chart
+    const chart = document.getElementById('score-history-chart');
+    chart.innerHTML = '';
+    const maxScore = 100;
+    data.history.forEach(function(h) {
+      const bar = document.createElement('div');
+      const pct = (h.score / maxScore) * 100;
+      const color = h.score >= 70 ? '#10b981' : h.score >= 50 ? '#3b82f6' : h.score >= 30 ? '#eab308' : '#ef4444';
+      bar.style.cssText = 'width:4px;min-width:4px;background:' + color + ';height:' + pct + '%;border-radius:2px 2px 0 0;cursor:pointer;';
+      bar.title = 'Score: ' + h.score + ' | ' + h.signal + ' | ' + h.regime + ' | ' + new Date(h.timestamp).toLocaleTimeString();
+      chart.appendChild(bar);
+    });
+
+    // Details
+    const latest = data.history[data.history.length - 1];
+    const first = data.history[0];
+    const avg = Math.round(data.history.reduce(function(s,h){ return s+h.score; }, 0) / data.history.length);
+    document.getElementById('score-history-details').innerHTML =
+      'Latest: <strong>' + latest.score + '</strong> (' + latest.signal + ', ' + latest.regime + ') | ' +
+      'Average: <strong>' + avg + '</strong> | ' +
+      'Range: ' + first.score + ' → ' + latest.score + ' | ' +
+      'Period: ' + new Date(first.timestamp).toLocaleTimeString() + ' – ' + new Date(latest.timestamp).toLocaleTimeString();
+  } catch (err) {
+    console.error('Score history error:', err);
+  }
+}
+</script>
+
+<%- include('partials/footer') %>

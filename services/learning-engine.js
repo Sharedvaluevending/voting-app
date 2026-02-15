@@ -110,13 +110,31 @@ async function recordTradeOutcome(trade) {
   await strategy.save();
 }
 
-function selectBestStrategy(scores, regime) {
+// Regime-aware strategy selection: prefer strategies that perform well in current regime
+function selectBestStrategy(scores, regime, strategies) {
   let bestId = 'trend_follow';
   let bestScore = -Infinity;
 
   for (const [stratId, score] of Object.entries(scores)) {
-    if (score > bestScore) {
-      bestScore = score;
+    let adjustedScore = score;
+
+    // If we have regime performance data, adjust score based on regime win rate
+    if (strategies && regime && regime !== 'unknown') {
+      const strat = strategies.find(s => s.strategyId === stratId || s.id === stratId);
+      if (strat && strat.performance && strat.performance.byRegime && strat.performance.byRegime[regime]) {
+        const regimeData = strat.performance.byRegime[regime];
+        const total = (regimeData.wins || 0) + (regimeData.losses || 0);
+        if (total >= 5) {
+          const winRate = regimeData.wins / total;
+          // Boost strategies with >55% win rate in this regime, penalize <40%
+          if (winRate > 0.55) adjustedScore += 5;
+          else if (winRate < 0.40) adjustedScore -= 5;
+        }
+      }
+    }
+
+    if (adjustedScore > bestScore) {
+      bestScore = adjustedScore;
       bestId = stratId;
     }
   }
@@ -134,25 +152,33 @@ async function adjustWeights() {
     const avgRR = strategy.performance.avgRR;
     const expectancy = (winRate * avgRR) - ((1 - winRate) * 1);
 
-    if (expectancy < -0.3 && strategy.performance.totalTrades > 20) {
+    // Calculate profit factor: gross profit / gross loss
+    const wins = strategy.performance.wins || 0;
+    const losses = strategy.performance.losses || 0;
+    const grossProfit = wins * avgRR;
+    const grossLoss = losses * 1; // normalize to 1R
+    const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999 : 0);
+
+    // Combined decision: use both expectancy and profit factor
+    if ((expectancy < -0.3 || profitFactor < 0.5) && strategy.performance.totalTrades > 20) {
       // Strongly negative — faster decay
       const adjustment = 0.90;
       for (const key of Object.keys(strategy.weights)) {
         strategy.weights[key] = Math.max(5, Math.round(strategy.weights[key] * adjustment));
       }
-    } else if (expectancy < 0 && strategy.performance.totalTrades > 15) {
+    } else if ((expectancy < 0 || profitFactor < 0.8) && strategy.performance.totalTrades > 15) {
       // Mildly negative — moderate decay
       const adjustment = 0.95;
       for (const key of Object.keys(strategy.weights)) {
         strategy.weights[key] = Math.max(5, Math.round(strategy.weights[key] * adjustment));
       }
-    } else if (expectancy > 1.0) {
+    } else if (expectancy > 1.0 && profitFactor > 2.0) {
       // Strongly positive — boost faster
       const adjustment = 1.05;
       for (const key of Object.keys(strategy.weights)) {
         strategy.weights[key] = Math.min(45, Math.round(strategy.weights[key] * adjustment));
       }
-    } else if (expectancy > 0.3) {
+    } else if (expectancy > 0.3 && profitFactor > 1.2) {
       // Mildly positive — steady growth
       const adjustment = 1.02;
       for (const key of Object.keys(strategy.weights)) {
@@ -160,7 +186,10 @@ async function adjustWeights() {
       }
     }
 
+    // Store profit factor for reporting
+    strategy.performance.profitFactor = Math.round(profitFactor * 100) / 100;
     strategy.updatedAt = new Date();
+    strategy.markModified('performance');
     await strategy.save();
   }
 }

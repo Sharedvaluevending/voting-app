@@ -1,23 +1,23 @@
 // services/trading-engine.js
 // ====================================================
-// ADVANCED MULTI-STRATEGY TRADING ENGINE v4.1
+// ADVANCED MULTI-STRATEGY TRADING ENGINE v5.0
 //
-// Uses Binance OHLCV candles across 15m, 1H, 4H, 1D, 1W.
+// Uses Bybit/Kraken OHLCV candles across 15m, 1H, 4H, 1D, 1W.
 // Scores signals 0-100 using 6 categories (learned weights optional).
 // Min score/confluence gate, regime-strategy gating, BTC filter,
 // MTF divergence, dynamic stops, multi-TF S/R, VWAP bands,
 // order blocks, liquidity clusters, session filter.
-// v4.1: Candlestick pattern detection & recognition engine.
+// v5.0: Stricter regime detection, regime-aware scoring, improved thresholds.
 // ====================================================
 const { detectAllPatterns, scorePatterns } = require('./candlestick-patterns');
 const { detectChartPatterns, scoreChartPatterns } = require('./chart-patterns');
 
 // Config: quality gates and filters (quant-desk upgrades)
 const ENGINE_CONFIG = {
-  MIN_SIGNAL_SCORE: 50,
+  MIN_SIGNAL_SCORE: 52,         // Raised from 50 — reduces weak signals
   MIN_CONFLUENCE_FOR_SIGNAL: 2,
   MTF_DIVERGENCE_PENALTY: 10,
-  SESSION_START_UTC: 12,
+  SESSION_START_UTC: 12,        // Configurable session hours
   SESSION_END_UTC: 22,
   SESSION_PENALTY: 5,
   BTC_STRONG_OPPOSITE_FORCE_HOLD: true
@@ -125,12 +125,17 @@ function analyzeWithCandles(coinData, candles, options) {
   const bullCount = directions.filter(d => d === 'BULL').length;
   const bearCount = directions.filter(d => d === 'BEAR').length;
   const confluenceLevel = Math.max(bullCount, bearCount);
-  // Tie-breaker: when 1-1, use score to infer direction (avoid BULL bias). Score high = bullish bias, low = bearish bias.
+  // Stricter tie-breaker: require 2/3 agreement; 1-1 uses 1D direction + score
   let dominantDir;
-  if (bullCount > bearCount) dominantDir = 'BULL';
-  else if (bearCount > bullCount) dominantDir = 'BEAR';
-  else {
-    dominantDir = finalScore >= 55 ? 'BULL' : finalScore <= 45 ? 'BEAR' : 'NEUTRAL';
+  if (bullCount >= 2 && bullCount > bearCount) dominantDir = 'BULL';
+  else if (bearCount >= 2 && bearCount > bullCount) dominantDir = 'BEAR';
+  else if (bullCount === bearCount) {
+    // Tie: defer to daily direction first, then score
+    if (scores1d.direction === 'BULL' && finalScore >= 52) dominantDir = 'BULL';
+    else if (scores1d.direction === 'BEAR' && finalScore <= 48) dominantDir = 'BEAR';
+    else dominantDir = 'NEUTRAL';
+  } else {
+    dominantDir = bullCount > bearCount ? 'BULL' : bearCount > bullCount ? 'BEAR' : 'NEUTRAL';
   }
   if (scores1h.direction !== scores4h.direction && scores1h.direction !== 'NEUTRAL' && scores4h.direction !== 'NEUTRAL') {
     finalScore = Math.max(0, finalScore - ENGINE_CONFIG.MTF_DIVERGENCE_PENALTY);
@@ -1333,15 +1338,20 @@ function determineTrend(closes, sma20, sma50, ema9, ema21, adx) {
   const above = [cp > ema9, cp > ema21, cp > sma20, cp > sma50, ema9 > ema21, sma20 > sma50];
   const bull = above.filter(Boolean).length;
 
-  if (adx > 25) {
+  // Aligned with regime detection: ADX 30+ = strong trend, 25-30 = moderate
+  if (adx >= 30) {
     if (bull >= 5) return 'STRONG_UP';
     if (bull >= 4) return 'UP';
     if (bull <= 1) return 'STRONG_DOWN';
     if (bull <= 2) return 'DOWN';
   }
+  if (adx >= 25) {
+    if (bull >= 5) return 'UP';
+    if (bull <= 1) return 'DOWN';
+  }
 
-  if (bull >= 4) return 'UP';
-  if (bull <= 2) return 'DOWN';
+  if (bull >= 5) return 'UP';
+  if (bull <= 1) return 'DOWN';
   return 'SIDEWAYS';
 }
 
@@ -1388,9 +1398,10 @@ function classifyVolatility(atr, closes) {
   if (closes.length < 14) return 'normal';
   const price = closes[closes.length - 1];
   const atrPct = (atr / price) * 100;
-  if (atrPct > 5) return 'extreme';
-  if (atrPct > 3) return 'high';
-  if (atrPct > 1) return 'normal';
+  // Tuned for crypto: BTC ~2-3% normal, alts ~3-5% normal
+  if (atrPct > 6) return 'extreme';
+  if (atrPct > 4) return 'high';
+  if (atrPct > 1.5) return 'normal';
   return 'low';
 }
 
@@ -1513,15 +1524,21 @@ function detectRegime(tf1d, tf4h) {
   return 'mixed';
 }
 
-// Regime–strategy gating: strategies blocked in wrong regime (stricter)
+// Regime–strategy gating: hard block for worst mismatches, soft penalty for borderline
 const REGIME_STRATEGY_BLOCK = {
-  mean_revert: ['trending', 'compression'],  // MR fails in trends & breakouts
-  trend_follow: ['ranging', 'volatile'],     // TF fails in choppy markets
-  momentum: ['ranging'],                      // Momentum needs directional moves
-  breakout: ['trending'],                     // Breakout needs consolidation, not existing trends
-  scalping: ['trending', 'ranging'],          // Scalping needs vol/compression
-  swing: ['volatile'],                        // Swing gets stopped out in wild vol
-  position: ['volatile', 'compression']       // Position needs stable macro trends
+  mean_revert: ['trending'],                  // MR hard-blocked only in trending (not compression)
+  trend_follow: ['volatile'],                 // TF hard-blocked only in volatile
+  breakout: ['trending'],                     // Breakout needs consolidation
+  position: ['volatile']                      // Position can't handle wild vol
+};
+// Soft penalty: reduce score instead of hard block for borderline matches
+const REGIME_STRATEGY_PENALTY = {
+  mean_revert: { compression: -10 },
+  trend_follow: { ranging: -15 },
+  momentum: { ranging: -10 },
+  scalping: { trending: -8, ranging: -8 },
+  swing: { volatile: -12 },
+  position: { compression: -10 }
 };
 
 const MIN_TRADES_FOR_STRATEGY = 5;
@@ -1621,21 +1638,28 @@ function pickStrategy(s1h, s4h, s1d, regime, scores15m, scores1w, strategyWeight
     strategies.position.displayScore = weightedScore(s1d, getWeights('position'));
   }
 
+  // Apply soft regime penalties to displayScore (before normalization)
+  Object.values(strategies).forEach(s => {
+    const penalty = (REGIME_STRATEGY_PENALTY[s.id] && REGIME_STRATEGY_PENALTY[s.id][regime]) || 0;
+    if (penalty && s.displayScore != null) {
+      s.displayScore = Math.max(0, s.displayScore + penalty);
+    }
+  });
+
   // Normalize displayScore to 0-100
   Object.values(strategies).forEach(s => {
     if (s.displayScore != null && (s.displayScore < 0 || s.displayScore > 100)) s.displayScore = Math.max(0, Math.min(100, s.displayScore));
   });
 
-  // Pick best: use displayScore (balanced 0-100) with small regime fit bonus
-  // Old logic used inflated raw .score which always favored trend_follow
+  // Pick best: use displayScore (balanced 0-100) with regime fit bonus
   const REGIME_FIT_BONUS = {
-    trend_follow: { trending: 5 },
-    breakout:     { compression: 5 },
-    mean_revert:  { ranging: 5 },
-    momentum:     { trending: 3, volatile: 2 },
-    scalping:     { volatile: 2 },           // Only a small bonus in volatile (its niche)
-    swing:        { trending: 3, compression: 3 },
-    position:     { trending: 3 }
+    trend_follow: { trending: 8 },
+    breakout:     { compression: 8 },
+    mean_revert:  { ranging: 8 },
+    momentum:     { trending: 5, volatile: 3 },
+    scalping:     { volatile: 5, compression: 4 },
+    swing:        { trending: 5, compression: 5 },
+    position:     { trending: 5 }
   };
   let best = null;
   const list = Object.values(strategies);
@@ -1666,16 +1690,18 @@ function pickStrategy(s1h, s4h, s1d, regime, scores15m, scores1w, strategyWeight
 // ====================================================
 // LEVERAGE SUGGESTION
 // ====================================================
+// Unified leverage suggestion (same thresholds as paper-trading.js)
 function suggestLeverage(score, regime, volatilityState) {
   let maxLev = 1;
-  if (score >= 80) maxLev = 10;
-  else if (score >= 70) maxLev = 7;
-  else if (score >= 60) maxLev = 5;
-  else if (score >= 50) maxLev = 3;
-  else if (score >= 40) maxLev = 2;
+  if (score >= 85) maxLev = 10;
+  else if (score >= 75) maxLev = 7;
+  else if (score >= 65) maxLev = 5;
+  else if (score >= 55) maxLev = 3;
+  else if (score >= 45) maxLev = 2;
   else maxLev = 1;
 
   if (regime === 'ranging' || regime === 'mixed') maxLev = Math.max(1, Math.floor(maxLev * 0.6));
+  if (regime === 'volatile') maxLev = Math.max(1, Math.floor(maxLev * 0.5));
   if (volatilityState === 'high') maxLev = Math.max(1, Math.floor(maxLev * 0.5));
   if (volatilityState === 'extreme') maxLev = 1;
 

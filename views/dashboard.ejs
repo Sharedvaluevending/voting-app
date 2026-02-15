@@ -43,10 +43,19 @@
 
 <!-- SIGNAL CARDS -->
 <% if (signals.length === 0) { %>
-  <div class="loading-note">
-    Loading market data... First load can take up to ~30 seconds.<br>
-    <strong>This page will refresh in 25 seconds.</strong>
+  <div class="loading-note" style="text-align:center;padding:40px 20px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;margin:20px 0;">
+    <div style="font-size:32px;margin-bottom:16px;animation:pulse 2s infinite;">&#x23F3;</div>
+    <h3 style="color:#e5e7eb;margin:0 0 8px 0;">Loading Market Data</h3>
+    <p style="color:#9ca3af;font-size:14px;margin:0 0 8px 0;">Fetching OHLCV candles from Bybit & Kraken, prices from CoinGecko...</p>
+    <p style="color:#6b7280;font-size:13px;margin:0;">First load takes ~30 seconds. Page auto-refreshes in 25s.</p>
+    <div style="margin-top:16px;height:4px;background:#1e2a3a;border-radius:2px;overflow:hidden;">
+      <div style="height:100%;width:0%;background:#3b82f6;border-radius:2px;animation:loadbar 25s linear forwards;"></div>
+    </div>
   </div>
+  <style>
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+    @keyframes loadbar { 0%{width:0%} 100%{width:100%} }
+  </style>
   <script>setTimeout(function(){ location.reload(); }, 25000);</script>
 <% } %>
 
@@ -90,12 +99,12 @@
 
       <% if (sig.scoreBreakdown) { %>
       <div class="score-breakdown">
-        <div class="score-cat">T <span><%= sig.scoreBreakdown.trend %></span></div>
-        <div class="score-cat">M <span><%= sig.scoreBreakdown.momentum %></span></div>
-        <div class="score-cat">V <span><%= sig.scoreBreakdown.volume %></span></div>
-        <div class="score-cat">S <span><%= sig.scoreBreakdown.structure %></span></div>
-        <div class="score-cat">Vol <span><%= sig.scoreBreakdown.volatility %></span></div>
-        <div class="score-cat">R <span><%= sig.scoreBreakdown.riskQuality %></span></div>
+        <div class="score-cat" title="Trend: EMA/SMA alignment, ADX strength, price vs moving averages (0-20)">T <span><%= sig.scoreBreakdown.trend %></span></div>
+        <div class="score-cat" title="Momentum: RSI, MACD, Stochastic, momentum acceleration (0-20)">M <span><%= sig.scoreBreakdown.momentum %></span></div>
+        <div class="score-cat" title="Volume: Relative volume, VWAP position, accumulation/distribution (0-20)">V <span><%= sig.scoreBreakdown.volume %></span></div>
+        <div class="score-cat" title="Structure: Market structure (HH/HL/LH/LL), S/R levels, order blocks, patterns (0-20)">S <span><%= sig.scoreBreakdown.structure %></span></div>
+        <div class="score-cat" title="Volatility: BB squeeze, ATR state, trend+vol quality (0-10)">Vol <span><%= sig.scoreBreakdown.volatility %></span></div>
+        <div class="score-cat" title="Risk Quality: Clear S/R levels, ATR for stop sizing, data reliability (0-10)">R <span><%= sig.scoreBreakdown.riskQuality %></span></div>
       </div>
       <% } %>
 

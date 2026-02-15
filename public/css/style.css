@@ -274,10 +274,27 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 .timeline-canvas { width: 100%; height: 80px; display: block; }
 
 /* RESPONSIVE */
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .signals-grid { grid-template-columns: 1fr; }
   .levels { grid-template-columns: repeat(2, 1fr); }
-  .nav-inner { gap: 8px; }
-  .nav-links { order: 3; width: 100%; }
   .perf-grid { grid-template-columns: repeat(2, 1fr); }
+  .summary-bar { flex-wrap: wrap; gap: 8px; }
+  .ticker-strip { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  .section { padding: 12px; }
+  .tf-row { flex-wrap: wrap; }
+  table { font-size: 12px; }
+  th, td { padding: 6px 4px; }
+  .top-strategies { font-size: 10px; }
+  .data-table { display: block; overflow-x: auto; white-space: nowrap; }
+}
+@media (max-width: 500px) {
+  .nav-inner { flex-wrap: wrap; gap: 6px; padding: 8px 12px; }
+  .nav-links { order: 3; width: 100%; display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+  .nav-links a { font-size: 12px; padding: 4px 8px; }
+  .nav-right { width: 100%; justify-content: center; gap: 6px; }
+  .main-content { padding: 8px; }
+  .score-breakdown { flex-wrap: wrap; }
+  .score-cat { font-size: 11px; }
+  .card-header { flex-direction: column; gap: 8px; }
+  .perf-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
 }

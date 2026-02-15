@@ -1,8 +1,9 @@
 <%- include('partials/header') %>
 
-<div style="margin-bottom:8px;">
+<div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
   <a href="/" style="color:#3b82f6;text-decoration:none;font-size:13px;">&larr; Back to Dashboard</a>
-  <a href="/chart/<%= sig.coin.id %>" class="btn btn-outline btn-sm" style="margin-left:10px;" target="_blank" rel="noopener">View chart</a>
+  <a href="/chart/<%= sig.coin.id %>" class="btn btn-outline btn-sm" style="font-size:12px;" target="_blank" rel="noopener">View chart</a>
+  <a href="/strategy-comparison" class="btn btn-outline btn-sm" style="font-size:12px;">Compare strategies</a>
 </div>
 
 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin:16px 0;flex-wrap:wrap;gap:12px;">
@@ -95,7 +96,7 @@
 <div class="section">
   <h3>Score Breakdown</h3>
   <div class="perf-grid">
-    <div class="perf-card"><div class="perf-label">Trend</div><div class="perf-value"><%= sig.scoreBreakdown.trend %>/20</div></div>
+    <div class="perf-card" title="EMA/SMA alignment, ADX strength, price vs moving averages"><div class="perf-label">Trend</div><div class="perf-value"><%= sig.scoreBreakdown.trend %>/20</div></div>
     <div class="perf-card"><div class="perf-label">Momentum</div><div class="perf-value"><%= sig.scoreBreakdown.momentum %>/20</div></div>
     <div class="perf-card"><div class="perf-label">Volume</div><div class="perf-value"><%= sig.scoreBreakdown.volume %>/20</div></div>
     <div class="perf-card"><div class="perf-label">Structure</div><div class="perf-value"><%= sig.scoreBreakdown.structure %>/20</div></div>

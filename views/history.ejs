@@ -2,6 +2,56 @@
 
 <h2 style="color:#fff;font-size:22px;margin-bottom:16px;">Trade History</h2>
 
+<% if (trades.length > 0) { %>
+<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;align-items:center;">
+  <input type="text" id="filter-symbol" placeholder="Filter by symbol..." style="padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:13px;width:140px;" oninput="filterHistory()">
+  <select id="filter-direction" style="padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:13px;" onchange="filterHistory()">
+    <option value="">All Directions</option>
+    <option value="LONG">LONG</option>
+    <option value="SHORT">SHORT</option>
+  </select>
+  <select id="filter-result" style="padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:13px;" onchange="filterHistory()">
+    <option value="">All Results</option>
+    <option value="win">Wins</option>
+    <option value="loss">Losses</option>
+  </select>
+  <select id="filter-strategy" style="padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:13px;" onchange="filterHistory()">
+    <option value="">All Strategies</option>
+    <option value="trend_follow">Trend Following</option>
+    <option value="breakout">Breakout</option>
+    <option value="mean_revert">Mean Reversion</option>
+    <option value="momentum">Momentum</option>
+    <option value="scalping">Scalping</option>
+    <option value="swing">Swing</option>
+    <option value="position">Position</option>
+  </select>
+  <span id="filter-count" style="color:#6b7280;font-size:12px;margin-left:8px;"><%= trades.length %> trades</span>
+</div>
+<script>
+function filterHistory() {
+  var sym = (document.getElementById('filter-symbol').value || '').toLowerCase();
+  var dir = document.getElementById('filter-direction').value;
+  var result = document.getElementById('filter-result').value;
+  var strat = document.getElementById('filter-strategy').value;
+  var rows = document.querySelectorAll('tbody tr[data-trade]');
+  var count = 0;
+  rows.forEach(function(row) {
+    var show = true;
+    if (sym && row.dataset.symbol.toLowerCase().indexOf(sym) < 0) show = false;
+    if (dir && row.dataset.direction !== dir) show = false;
+    if (result === 'win' && parseFloat(row.dataset.pnl) <= 0) show = false;
+    if (result === 'loss' && parseFloat(row.dataset.pnl) > 0) show = false;
+    if (strat && row.dataset.strategy !== strat) show = false;
+    row.style.display = show ? '' : 'none';
+    var detailRow = row.nextElementSibling;
+    if (detailRow && !detailRow.dataset.trade) detailRow.style.display = 'none';
+    if (show) count++;
+  });
+  document.getElementById('filter-count').textContent = count + ' trades';
+}
+</script>
+<% } %>
+
 <% if (trades.length === 0) { %>
   <div class="empty-state">
     <h3>No Closed Trades Yet</h3>
@@ -37,7 +87,7 @@
           var partialActions = (trade.actions || []).filter(function(a) { return a.type === 'PP' || a.type === 'RP'; });
           var finalPnl = hadPartials ? ((trade.pnl || 0) - (trade.partialPnl || 0)) : null;
         %>
-          <tr>
+          <tr data-trade="1" data-symbol="<%= trade.symbol %>" data-direction="<%= trade.direction %>" data-pnl="<%= trade.pnl || 0 %>" data-strategy="<%= trade.strategyType || '' %>">
             <td style="font-weight:700;"><%= trade.symbol %></td>
             <td><span class="signal-badge <%= trade.direction === 'LONG' ? 'badge-BUY' : 'badge-SELL' %>" style="font-size:10px;padding:2px 6px;"><%= trade.direction %></span></td>
             <td>$<%= formatPrice(trade.entryPrice) %></td>

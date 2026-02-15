@@ -18,7 +18,7 @@ const MongoStore = require('connect-mongo');
 const crypto = require('crypto');
 const path = require('path');
 
-const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
+const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, isCandleFresh, getCandleSource, recordScoreHistory, getScoreHistory, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
 const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
@@ -344,6 +344,19 @@ app.get('/', async (req, res) => {
     const options = await buildEngineOptions(prices, allCandles, allHistory);
     const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
 
+    // Record score history for each coin (for score evolution tracking)
+    signals.forEach(sig => {
+      if (sig.coin && sig.coin.id) {
+        recordScoreHistory(sig.coin.id, {
+          score: sig.score,
+          signal: sig.signal,
+          regime: sig.regime,
+          strategyName: sig.strategyName,
+          confidence: sig.confidence
+        });
+      }
+    });
+
     res.render('dashboard', {
       activePage: 'dashboard',
       prices,
@@ -400,18 +413,18 @@ app.get('/chart/:coinId', async (req, res) => {
     return res.status(404).send('Coin not found. <a href="/">Back to Dashboard</a>');
   }
   const meta = COIN_META[coinId];
-  if (!meta || !meta.binance) {
+  if (!meta || !meta.bybit) {
     return res.status(404).send('Chart not available for this coin. <a href="/">Back to Dashboard</a>');
   }
-  // Use Kraken for TradingView symbol if Binance is unavailable
-  const KRAKEN_TV_PAIRS = {
-    'BTCUSDT': 'KRAKEN:BTCUSD', 'ETHUSDT': 'KRAKEN:ETHUSD', 'SOLUSDT': 'KRAKEN:SOLUSD',
-    'DOGEUSDT': 'KRAKEN:DOGEUSD', 'XRPUSDT': 'KRAKEN:XRPUSD', 'ADAUSDT': 'KRAKEN:ADAUSD',
-    'DOTUSDT': 'KRAKEN:DOTUSD', 'AVAXUSDT': 'KRAKEN:AVAXUSD', 'LINKUSDT': 'KRAKEN:LINKUSD',
-    'MATICUSDT': 'KRAKEN:MATICUSD', 'BNBUSDT': 'BINANCE:BNBUSDT', 'LTCUSDT': 'KRAKEN:LTCUSD',
-    'UNIUSDT': 'KRAKEN:UNIUSD', 'ATOMUSDT': 'KRAKEN:ATOMUSD'
+  // Use Bybit for TradingView symbol with Kraken fallback
+  const TV_PAIRS = {
+    'BTCUSDT': 'BYBIT:BTCUSDT', 'ETHUSDT': 'BYBIT:ETHUSDT', 'SOLUSDT': 'BYBIT:SOLUSDT',
+    'DOGEUSDT': 'BYBIT:DOGEUSDT', 'XRPUSDT': 'BYBIT:XRPUSDT', 'ADAUSDT': 'BYBIT:ADAUSDT',
+    'DOTUSDT': 'BYBIT:DOTUSDT', 'AVAXUSDT': 'BYBIT:AVAXUSDT', 'LINKUSDT': 'BYBIT:LINKUSDT',
+    'POLUSDT': 'BYBIT:POLUSDT', 'BNBUSDT': 'BYBIT:BNBUSDT', 'LTCUSDT': 'BYBIT:LTCUSDT',
+    'UNIUSDT': 'BYBIT:UNIUSDT', 'ATOMUSDT': 'BYBIT:ATOMUSDT'
   };
-  const tvSymbol = KRAKEN_TV_PAIRS[meta.binance] || ('BINANCE:' + meta.binance);
+  const tvSymbol = TV_PAIRS[meta.bybit] || ('BYBIT:' + meta.bybit);
   let entry = req.query.entry ? Number(req.query.entry) : null;
   let sl = req.query.sl ? Number(req.query.sl) : null;
   const tp1 = req.query.tp1 ? Number(req.query.tp1) : null;
@@ -1459,7 +1472,7 @@ async function runStopTPCheck() {
   try {
     const openTrades = await Trade.find({ status: 'OPEN' }).select('coinId').lean();
     if (openTrades.length === 0) return;
-    // Fetch live prices from Binance/Kraken for all coins with open trades
+    // Fetch live prices from Bybit/Kraken for all coins with open trades
     const coinIds = [...new Set(openTrades.map(t => t.coinId))];
     const livePrices = await Promise.all(coinIds.map(id => fetchLivePrice(id)));
     const priceMap = {};
@@ -1699,6 +1712,105 @@ async function runAutoTrade() {
 setInterval(runAutoTrade, 2 * 60 * 1000);
 // First auto-trade check 45s after startup
 setTimeout(runAutoTrade, 45 * 1000);
+
+// ====================================================
+// SCORE HISTORY API (track score evolution per coin)
+// ====================================================
+app.get('/api/score-history/:coinId', async (req, res) => {
+  try {
+    const coinId = req.params.coinId;
+    if (!TRACKED_COINS.includes(coinId)) {
+      return res.status(404).json({ success: false, error: 'Coin not found' });
+    }
+    const history = getScoreHistory(coinId);
+    res.json({ success: true, coinId, history });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ====================================================
+// STRATEGY COMPARISON API (side-by-side current strategy scores)
+// ====================================================
+app.get('/api/strategy-comparison', async (req, res) => {
+  try {
+    const [prices, allCandles, allHistory] = await Promise.all([
+      fetchAllPrices(),
+      Promise.resolve(fetchAllCandles()),
+      fetchAllHistory()
+    ]);
+    const options = await buildEngineOptions(prices, allCandles, allHistory);
+    const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
+
+    // Build comparison: for each coin, show all strategy scores
+    const comparison = signals.map(sig => ({
+      coin: sig.coin.symbol,
+      coinId: sig.coin.id,
+      price: sig.coin.price,
+      overallScore: sig.score,
+      signal: sig.signal,
+      regime: sig.regime,
+      bestStrategy: sig.strategyName,
+      strategies: (sig.topStrategies || []).map(s => ({
+        id: s.id,
+        name: s.name,
+        score: s.score,
+        signal: s.signal,
+        riskReward: s.riskReward
+      }))
+    }));
+
+    res.json({ success: true, comparison });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ====================================================
+// STRATEGY COMPARISON PAGE
+// ====================================================
+app.get('/strategy-comparison', async (req, res) => {
+  try {
+    const [prices, allCandles, allHistory] = await Promise.all([
+      fetchAllPrices(),
+      Promise.resolve(fetchAllCandles()),
+      fetchAllHistory()
+    ]);
+    const options = await buildEngineOptions(prices, allCandles, allHistory);
+    const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
+
+    // Get learning engine data
+    const strategies = await StrategyWeight.find({}).lean();
+
+    res.render('strategy-comparison', {
+      activePage: 'learning',
+      signals,
+      strategies
+    });
+  } catch (err) {
+    console.error('[StrategyComparison] Error:', err);
+    res.status(500).send('Error loading strategy comparison');
+  }
+});
+
+// ====================================================
+// DATA SOURCE STATUS API
+// ====================================================
+app.get('/api/data-status', (req, res) => {
+  const status = {};
+  TRACKED_COINS.forEach(coinId => {
+    const candles = fetchCandles(coinId);
+    status[coinId] = {
+      symbol: COIN_META[coinId]?.symbol,
+      source: candles?._source || 'none',
+      fresh: candles ? isCandleFresh(candles) : false,
+      has1h: !!(candles && candles['1h'] && candles['1h'].length >= 20),
+      has4h: !!(candles && candles['4h'] && candles['4h'].length >= 5),
+      has1d: !!(candles && candles['1d'] && candles['1d'].length >= 5)
+    };
+  });
+  res.json({ success: true, status, dataReady: isDataReady() });
+});
 
 // ====================================================
 // START SERVER (wait for first price load so dashboard has data)

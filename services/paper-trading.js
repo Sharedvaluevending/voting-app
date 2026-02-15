@@ -23,6 +23,7 @@ function getTakerFee(user) {
 }
 const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
 const DEFAULT_COOLDOWN_HOURS = 4;  // no same-direction re-entry on same coin within N hours
+const MIN_HOLD_MINUTES = 30;       // Don't score-exit trades within first 30 minutes
 
 // Take-profit position split: balanced scale-out
 const TP1_PCT = 0.4;   // 40% at TP1
@@ -1631,13 +1632,20 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
       checkedCount++;
 
       // Auto-execute suggested action if user has enabled it
+      // Enforce minimum hold time before score-exit
       const user = await User.findById(trade.userId);
       const autoExec = user?.settings?.autoExecuteActions;
-      if (autoExec && suggestedAction?.actionId) {
+      const minHold = user?.settings?.minHoldMinutes ?? MIN_HOLD_MINUTES;
+      const tradeAgeMs = Date.now() - new Date(trade.createdAt || trade.entryTime).getTime();
+      const pastMinHold = tradeAgeMs >= minHold * 60 * 1000;
+
+      if (autoExec && suggestedAction?.actionId && pastMinHold) {
         const result = await executeScoreCheckAction(trade, suggestedAction, currentPrice, getCurrentPriceFunc);
         if (result.executed) {
           console.log(`[ScoreCheck] AUTO-EXECUTED ${suggestedAction.actionId} on ${trade.symbol}: ${result.details}`);
         }
+      } else if (autoExec && suggestedAction?.actionId && !pastMinHold) {
+        console.log(`[ScoreCheck] ${trade.symbol}: Skipping auto-execute (${Math.round(tradeAgeMs / 60000)}min < ${minHold}min min hold)`);
       }
 
       // Log summary for debugging

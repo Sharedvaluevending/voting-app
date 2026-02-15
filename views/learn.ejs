@@ -127,9 +127,9 @@
     <h3>Learning Engine</h3>
     <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">The app tracks every trade outcome and uses it to improve over time.</p>
     <div class="journal-entry"><strong>How it works</strong><br>Every closed trade is recorded with its strategy, regime, and result (win/loss + R:R). The learning engine adjusts strategy weights based on real performance. Those weights are now used live in the trading engine to score signals.</div>
-    <div class="journal-entry"><strong>Weight adjustment</strong><br>Strategies with negative expectancy (losing over 20+ trades) get their scoring weights reduced by 5%. Strategies with positive expectancy (>0.5) get a 2% boost.</div>
-    <div class="journal-entry"><strong>Regime tracking</strong><br>Wins and losses are broken down by market regime. Strategies need at least 5 trades before they can be selected in that regime (min-sample rule).</div>
-    <div class="journal-entry" style="color:#3b82f6;"><strong>View it live:</strong> <a href="/learning" style="color:#3b82f6;">AI Engine</a> — strategy performance, weights, and regime stats.</div>
+    <div class="journal-entry"><strong>Weight adjustment</strong><br>Uses both expectancy AND profit factor. Strategies with negative expectancy AND PF &lt; 0.5 decay faster (10%). Positive expectancy AND PF &gt; 2.0 boost faster (5%).</div>
+    <div class="journal-entry"><strong>Regime-specific learning</strong><br>Wins/losses tracked by regime. Strategies with &gt;55% win rate in the current regime get a bonus. &lt;40% win rate gets penalized. Min 5 trades per regime.</div>
+    <div class="journal-entry" style="color:#3b82f6;"><strong>View it live:</strong> <a href="/learning" style="color:#3b82f6;">AI Engine</a> | <a href="/strategy-comparison" style="color:#3b82f6;">Strategy Comparison</a> — side-by-side scores, regime stats, and score history.</div>
   </div>
 
   <div class="section">
