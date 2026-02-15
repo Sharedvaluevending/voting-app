@@ -14,14 +14,25 @@ const RISK_PER_TRADE = 0.02;  // 2% per trade
 const DEFAULT_LEVERAGE = 2;
 const WARMUP_BARS = 100;      // Extra 1h bars to fetch before start date for indicator warmup
 
-// === POSITION MANAGEMENT: mirrors live paper-trading.js ===
+// === POSITION MANAGEMENT: mirrors live paper-trading.js 1:1 ===
 const TP1_PCT = 0.4;   // 40% at TP1
 const TP2_PCT = 0.3;   // 30% at TP2
 const TP3_PCT = 0.3;   // 30% at TP3 (remaining)
 const SLIPPAGE_BPS = 5; // 0.05% slippage on entry/exit
+const TAKER_FEE = 0.001; // 0.1% taker fee on entry and exit (matches live DEFAULT_TAKER_FEE)
 const BREAKEVEN_R = 1;  // Move stop to breakeven at 1R profit
 const TRAILING_START_R = 1.5; // Start trailing at 1.5R
 const TRAILING_DIST_R = 1;   // Trail 1R behind best price
+const MAX_SL_DISTANCE_PCT = 0.15; // Cap SL at 15% from entry (matches live)
+const COOLDOWN_BARS = 4; // 4h cooldown: no same-direction re-entry (matches live DEFAULT_COOLDOWN_HOURS=4)
+const SCORE_RECHECK_INTERVAL = 4; // Re-analyze signal every 4 bars while in a trade (matches live 5-min check scaled to 1h bars)
+
+// Stepped profit lock-in levels (mirrors live LOCK_IN_LEVELS)
+const LOCK_IN_LEVELS = [
+  { progress: 0.5, lockR: 0.5 },
+  { progress: 0.75, lockR: 0.75 },
+  { progress: 0.9, lockR: 1 }
+];
 
 /**
  * Fetch multi-timeframe historical candles for a coin
@@ -240,36 +251,149 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       barTime: bar.openTime  // Use historical bar time for session filter (not current clock)
     };
 
-    // === POSITION MANAGEMENT: mirrors live paper-trading.js ===
-    // Handles: SL, TP1 (40%), TP2 (30%), TP3 (30%), breakeven, trailing stop
+    // === POSITION MANAGEMENT: mirrors live paper-trading.js 1:1 ===
+    // Handles: SL, TP1-3, breakeven, trailing, lock-in, score re-check, actions
     if (position) {
       const high = nextBar.high;
       const low = nextBar.low;
+      const currentPrice = nextBar.close;
       const isLong = position.direction === 'LONG';
       const slipMul = 1 + (SLIPPAGE_BPS / 10000);
       const origRisk = Math.abs(position.entry - position.originalSL);
 
-      // --- Breakeven & trailing stop logic (mirrors live stopManagement) ---
-      if (origRisk > 0) {
-        const currentProfit = isLong
-          ? (high - position.entry) / origRisk
-          : (position.entry - low) / origRisk;
+      // Track max/min prices (mirrors live trade.maxPrice/minPrice)
+      if (high > (position.maxPrice || 0)) position.maxPrice = high;
+      if (low < (position.minPrice || Infinity)) position.minPrice = low;
 
-        // Trailing stop: at 1.5R, trail 1R behind best price
-        if (currentProfit >= TRAILING_START_R) {
-          const bestPrice = isLong ? high : low;
-          if (isLong && (!position.bestPrice || bestPrice > position.bestPrice)) position.bestPrice = bestPrice;
-          if (!isLong && (!position.bestPrice || bestPrice < position.bestPrice)) position.bestPrice = bestPrice;
-          const trailStop = isLong
-            ? position.bestPrice - (TRAILING_DIST_R * origRisk)
-            : position.bestPrice + (TRAILING_DIST_R * origRisk);
-          if (isLong && trailStop > position.stopLoss) position.stopLoss = trailStop;
-          if (!isLong && trailStop < position.stopLoss) position.stopLoss = trailStop;
-        }
-        // Breakeven: at 1R profit, move stop to entry
-        else if (currentProfit >= BREAKEVEN_R && !position.breakevenHit) {
+      // --- Breakeven at 1R (mirrors live autoBE) ---
+      if (origRisk > 0 && !position.breakevenHit && !position.trailingActivated) {
+        const at1R = isLong
+          ? currentPrice >= position.entry + origRisk
+          : currentPrice <= position.entry - origRisk;
+        if (at1R) {
           position.stopLoss = position.entry;
           position.breakevenHit = true;
+          position.actions.push({ type: 'BE', bar: t + 1 });
+        }
+      }
+
+      // --- Trailing stop at 1.5R+ (mirrors live autoTrail) ---
+      if (origRisk > 0) {
+        const stopPastEntry = isLong ? position.stopLoss >= position.entry : position.stopLoss <= position.entry;
+        if (stopPastEntry || position.trailingActivated) {
+          const at1_5R = isLong
+            ? currentPrice >= position.entry + origRisk * TRAILING_START_R
+            : currentPrice <= position.entry - origRisk * TRAILING_START_R;
+          if (at1_5R) {
+            position.trailingActivated = true;
+            const bestP = isLong ? position.maxPrice : position.minPrice;
+            const trailSL = isLong
+              ? bestP - (TRAILING_DIST_R * origRisk)
+              : bestP + (TRAILING_DIST_R * origRisk);
+            const validMove = isLong ? trailSL > position.stopLoss && trailSL < currentPrice
+              : trailSL < position.stopLoss && trailSL > currentPrice;
+            if (validMove) {
+              position.stopLoss = trailSL;
+              if (!position.actions.some(a => a.type === 'TS')) {
+                position.actions.push({ type: 'TS', bar: t + 1 });
+              }
+            }
+          }
+        }
+      }
+
+      // --- Stepped profit lock-in (mirrors live LOCK_IN_LEVELS) ---
+      if (origRisk > 0 && position.stopLoss != null) {
+        const tp2 = position.takeProfit2 || position.takeProfit1;
+        let progress = 0;
+        if (tp2 && tp2 !== position.entry) {
+          progress = isLong ? (currentPrice - position.entry) / (tp2 - position.entry)
+            : (position.entry - currentPrice) / (position.entry - tp2);
+          progress = Math.min(1, progress);
+        }
+        // PnL-based fallback (mirrors live)
+        if (progress <= 0 && position.entry > 0) {
+          const pnlPct = (isLong ? (currentPrice - position.entry) : (position.entry - currentPrice)) / position.entry * 100 * leverage;
+          if (pnlPct >= 5) progress = 0.9;
+          else if (pnlPct >= 2) progress = 0.5;
+        }
+        const currentLockR = position.stopLoss && origRisk > 0
+          ? (isLong ? position.stopLoss - position.entry : position.entry - position.stopLoss) / origRisk
+          : 0;
+        for (const level of LOCK_IN_LEVELS) {
+          if (progress >= level.progress && currentLockR < level.lockR) {
+            const newStop = isLong
+              ? position.entry + origRisk * level.lockR
+              : position.entry - origRisk * level.lockR;
+            const validMove = isLong ? newStop > position.stopLoss && newStop < currentPrice
+              : newStop < position.stopLoss && newStop > currentPrice;
+            if (validMove) {
+              position.stopLoss = newStop;
+              position.actions.push({ type: 'LOCK', bar: t + 1, lockR: level.lockR });
+            }
+            break;
+          }
+        }
+      }
+
+      // --- Score Re-check (mirrors live recheckTradeScores + executeScoreCheckAction) ---
+      // Every SCORE_RECHECK_INTERVAL bars, re-analyze the coin. If score dropped severely
+      // against the trade, take action: reduce position or exit.
+      if ((t - position.entryBar) >= SCORE_RECHECK_INTERVAL &&
+          (t - (position.lastScoreCheckBar || position.entryBar)) >= SCORE_RECHECK_INTERVAL) {
+        position.lastScoreCheckBar = t;
+        const recheckSignal = analyzeCoin(coinData, slice, history, options_bt);
+        const scoreDiff = (recheckSignal.score || 0) - (position.entryScore || 0);
+        const signalFlipped = isLong
+          ? (recheckSignal.signal === 'SELL' || recheckSignal.signal === 'STRONG_SELL')
+          : (recheckSignal.signal === 'BUY' || recheckSignal.signal === 'STRONG_BUY');
+        let effectiveDiff = scoreDiff;
+        if (signalFlipped) effectiveDiff = Math.min(effectiveDiff, -15);
+        else if (recheckSignal.signal === 'HOLD') effectiveDiff -= 4;
+
+        const pnlPct = (isLong ? (currentPrice - position.entry) : (position.entry - currentPrice))
+          / position.entry * 100 * leverage;
+
+        // Consider exit: score collapsed AND signal flipped AND not in profit (mirrors live logic)
+        const wouldExit = effectiveDiff <= -45 || (signalFlipped && effectiveDiff <= -40);
+        const blockExit = pnlPct >= 0 || (pnlPct > -5); // Don't exit on small losses
+        if (wouldExit && !blockExit && pnlPct <= -8) {
+          // Score-check EXIT (mirrors live SCORE_CHECK_EXIT)
+          const exitPrice = isLong ? currentPrice / slipMul : currentPrice * slipMul;
+          const exitFees = position.size * TAKER_FEE;
+          let pnl = isLong
+            ? ((exitPrice - position.entry) / position.entry) * position.size
+            : ((position.entry - exitPrice) / position.entry) * position.size;
+          pnl -= exitFees;
+          equity += pnl;
+          position.actions.push({ type: 'EXIT', bar: t + 1 });
+          trades.push({
+            direction: position.direction, entry: position.entry, exit: exitPrice,
+            entryBar: position.entryBar, exitBar: t + 1, reason: 'SCORE_EXIT',
+            pnl: (position.partialPnl || 0) + pnl, size: position.originalSize,
+            partials: position.partialPnl || 0, actions: [...position.actions]
+          });
+          position = null;
+          continue;
+        }
+
+        // Reduce position by 50% (mirrors live SCORE_CHECK_REDUCE)
+        const wouldReduce = effectiveDiff <= -25 || (signalFlipped && effectiveDiff <= -20);
+        if (wouldReduce && pnlPct < 0 && !position.reducedByScore) {
+          const portion = position.size * 0.5;
+          if (portion > 1) {
+            const exitPrice = isLong ? currentPrice / slipMul : currentPrice * slipMul;
+            const exitFees = portion * TAKER_FEE;
+            let pnl = isLong
+              ? ((exitPrice - position.entry) / position.entry) * portion
+              : ((position.entry - exitPrice) / position.entry) * portion;
+            pnl -= exitFees;
+            equity += pnl;
+            position.partialPnl = (position.partialPnl || 0) + pnl;
+            position.size -= portion;
+            position.reducedByScore = true;
+            position.actions.push({ type: 'RP', bar: t + 1 });
+          }
         }
       }
 
@@ -280,14 +404,17 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 
       if (stopped) {
         const exitPrice = isLong ? position.stopLoss / slipMul : position.stopLoss * slipMul;
-        const pnl = isLong
+        const exitFees = position.size * TAKER_FEE;
+        let pnl = isLong
           ? ((exitPrice - position.entry) / position.entry) * position.size
           : ((position.entry - exitPrice) / position.entry) * position.size;
+        pnl -= exitFees;
         equity += pnl;
         trades.push({
           direction: position.direction, entry: position.entry, exit: exitPrice,
           entryBar: position.entryBar, exitBar: t + 1, reason: 'SL',
-          pnl, size: position.originalSize, partials: position.partialPnl || 0
+          pnl: (position.partialPnl || 0) + pnl, size: position.originalSize,
+          partials: position.partialPnl || 0, actions: [...position.actions]
         });
         position = null;
         continue;
@@ -300,20 +427,25 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
         if (hitTP) {
           const exitPrice = isLong ? position.takeProfit1 / slipMul : position.takeProfit1 * slipMul;
           const portion = position.originalSize * TP1_PCT;
-          const pnl = isLong
+          const exitFees = portion * TAKER_FEE;
+          let pnl = isLong
             ? ((exitPrice - position.entry) / position.entry) * portion
             : ((position.entry - exitPrice) / position.entry) * portion;
+          pnl -= exitFees;
 
           // If no TP2/TP3, close entire position at TP1
           if (!position.takeProfit2 && !position.takeProfit3) {
-            equity += pnl + ((exitPrice - position.entry) / position.entry * (position.size - portion) * (isLong ? 1 : -1));
-            const totalPnl = isLong
+            const totalFees = position.size * TAKER_FEE;
+            const totalPnl = (isLong
               ? ((exitPrice - position.entry) / position.entry) * position.size
-              : ((position.entry - exitPrice) / position.entry) * position.size;
+              : ((position.entry - exitPrice) / position.entry) * position.size) - totalFees;
+            equity += totalPnl;
+            position.actions.push({ type: 'PP', bar: t + 1, label: 'TP1' });
             trades.push({
               direction: position.direction, entry: position.entry, exit: exitPrice,
               entryBar: position.entryBar, exitBar: t + 1, reason: 'TP1',
-              pnl: totalPnl, size: position.originalSize, partials: 0
+              pnl: totalPnl, size: position.originalSize, partials: 0,
+              actions: [...position.actions]
             });
             position = null;
             continue;
@@ -323,6 +455,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
           position.partialPnl = (position.partialPnl || 0) + pnl;
           position.size -= portion;
           position.tp1Hit = true;
+          position.actions.push({ type: 'PP', bar: t + 1, label: 'TP1' });
         }
       }
 
@@ -332,20 +465,25 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
         if (hitTP) {
           const exitPrice = isLong ? position.takeProfit2 / slipMul : position.takeProfit2 * slipMul;
           const portion = position.originalSize * TP2_PCT;
-          const pnl = isLong
+          const exitFees = portion * TAKER_FEE;
+          let pnl = isLong
             ? ((exitPrice - position.entry) / position.entry) * portion
             : ((position.entry - exitPrice) / position.entry) * portion;
+          pnl -= exitFees;
 
-          // If no TP3, close entire remaining position at TP2
+          // If no TP3, close entire remaining at TP2
           if (!position.takeProfit3) {
-            const remainPnl = isLong
+            const remainFees = position.size * TAKER_FEE;
+            const remainPnl = (isLong
               ? ((exitPrice - position.entry) / position.entry) * position.size
-              : ((position.entry - exitPrice) / position.entry) * position.size;
+              : ((position.entry - exitPrice) / position.entry) * position.size) - remainFees;
             equity += remainPnl;
+            position.actions.push({ type: 'PP', bar: t + 1, label: 'TP2' });
             trades.push({
               direction: position.direction, entry: position.entry, exit: exitPrice,
               entryBar: position.entryBar, exitBar: t + 1, reason: 'TP2',
-              pnl: (position.partialPnl || 0) + remainPnl, size: position.originalSize, partials: position.partialPnl || 0
+              pnl: (position.partialPnl || 0) + remainPnl, size: position.originalSize,
+              partials: position.partialPnl || 0, actions: [...position.actions]
             });
             position = null;
             continue;
@@ -355,6 +493,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
           position.partialPnl = (position.partialPnl || 0) + pnl;
           position.size -= portion;
           position.tp2Hit = true;
+          position.actions.push({ type: 'PP', bar: t + 1, label: 'TP2' });
         }
       }
 
@@ -363,14 +502,18 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
         const hitTP = isLong ? high >= position.takeProfit3 : low <= position.takeProfit3;
         if (hitTP) {
           const exitPrice = isLong ? position.takeProfit3 / slipMul : position.takeProfit3 * slipMul;
-          const pnl = isLong
+          const exitFees = position.size * TAKER_FEE;
+          let pnl = isLong
             ? ((exitPrice - position.entry) / position.entry) * position.size
             : ((position.entry - exitPrice) / position.entry) * position.size;
+          pnl -= exitFees;
           equity += pnl;
+          position.actions.push({ type: 'PP', bar: t + 1, label: 'TP3' });
           trades.push({
             direction: position.direction, entry: position.entry, exit: exitPrice,
             entryBar: position.entryBar, exitBar: t + 1, reason: 'TP3',
-            pnl: (position.partialPnl || 0) + pnl, size: position.originalSize, partials: position.partialPnl || 0
+            pnl: (position.partialPnl || 0) + pnl, size: position.originalSize,
+            partials: position.partialPnl || 0, actions: [...position.actions]
           });
           position = null;
           continue;
@@ -380,64 +523,105 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       continue;
     }
 
-    // === TRADE ENTRY: mirrors live openTrade logic ===
+    // === TRADE ENTRY: mirrors live openTrade 1:1 ===
     if (t < tradeStartBar) continue; // warmup period — skip trade entries
     const signal = analyzeCoin(coinData, slice, history, options_bt);
     let canLong = signal.signal === 'BUY' || signal.signal === 'STRONG_BUY';
     let canShort = signal.signal === 'SELL' || signal.signal === 'STRONG_SELL';
 
     // === BTC FILTER: mirrors live system's analyzeAllCoins ===
-    // Block altcoin LONGs when BTC is strongly bearish, SHORTs when strongly bullish
     if (coinId !== 'bitcoin' && cachedBtcSignal) {
       if (canLong && cachedBtcSignal === 'STRONG_SELL') canLong = false;
       if (canShort && cachedBtcSignal === 'STRONG_BUY') canShort = false;
     }
 
-    if ((canLong || canShort) && signal.score >= minScore && signal.stopLoss && signal.takeProfit1) {
-      const direction = canLong ? 'LONG' : 'SHORT';
-      const slipMul = 1 + (SLIPPAGE_BPS / 10000);
-      const rawEntry = nextBar.open;
-      // Slippage: worse entry (higher for longs, lower for shorts) — matches live
-      const entry = direction === 'LONG' ? rawEntry * slipMul : rawEntry / slipMul;
-      const slDist = Math.abs(entry - signal.stopLoss);
-      if (slDist <= 0) continue;
-      const riskAmount = equity * RISK_PER_TRADE;
-      const size = (riskAmount * entry) / slDist;
-      const actualSize = Math.min(size, equity * 0.95);
+    if (!canLong && !canShort) continue;
+    if (signal.score < minScore || !signal.stopLoss || !signal.takeProfit1) continue;
 
-      // Validate TPs: for LONG, TPs must be above entry; for SHORT, below (mirrors live)
-      let tp1 = signal.takeProfit1 || null;
-      let tp2 = signal.takeProfit2 || null;
-      let tp3 = signal.takeProfit3 || null;
-      if (direction === 'LONG') {
-        if (tp1 && tp1 < entry) tp1 = null;
-        if (tp2 && tp2 < entry) tp2 = null;
-        if (tp3 && tp3 < entry) tp3 = null;
-      } else {
-        if (tp1 && tp1 > entry) tp1 = null;
-        if (tp2 && tp2 > entry) tp2 = null;
-        if (tp3 && tp3 > entry) tp3 = null;
+    const direction = canLong ? 'LONG' : 'SHORT';
+
+    // === COOLDOWN: no same-direction re-entry within COOLDOWN_BARS (mirrors live) ===
+    if (trades.length > 0) {
+      const lastTrade = trades[trades.length - 1];
+      if (lastTrade.direction === direction && (t + 1 - lastTrade.exitBar) < COOLDOWN_BARS) {
+        continue; // Still in cooldown
       }
-      if (!tp1) continue; // Must have at least TP1
-
-      position = {
-        direction,
-        entry,
-        entryBar: t + 1,
-        stopLoss: signal.stopLoss,
-        originalSL: signal.stopLoss,
-        takeProfit1: tp1,
-        takeProfit2: tp2,
-        takeProfit3: tp3,
-        size: actualSize,
-        originalSize: actualSize,
-        tp1Hit: false,
-        tp2Hit: false,
-        breakevenHit: false,
-        bestPrice: null,
-        partialPnl: 0
-      };
     }
+
+    const slipMul = 1 + (SLIPPAGE_BPS / 10000);
+    const rawEntry = nextBar.open;
+    const entry = direction === 'LONG' ? rawEntry * slipMul : rawEntry / slipMul;
+
+    // === SL DISTANCE CAP: max 15% from entry (mirrors live MAX_SL_DISTANCE_PCT) ===
+    let stopLoss = signal.stopLoss;
+    if (entry > 0) {
+      const slDistance = Math.abs(entry - stopLoss) / entry;
+      if (slDistance > MAX_SL_DISTANCE_PCT) {
+        stopLoss = direction === 'LONG'
+          ? entry * (1 - MAX_SL_DISTANCE_PCT)
+          : entry * (1 + MAX_SL_DISTANCE_PCT);
+      }
+    }
+
+    const slDist = Math.abs(entry - stopLoss);
+    if (slDist <= 0) continue;
+
+    // === POSITION SIZING: risk-based + confidence-weighted (mirrors live) ===
+    const riskAmount = equity * RISK_PER_TRADE;
+    let size = (riskAmount * entry) / slDist;
+    // Confidence multiplier: higher score = slightly larger size (mirrors live)
+    const score = Math.min(100, Math.max(0, signal.score || 50));
+    const confidenceMult = Math.min(1.2, 0.5 + score / 100);
+    size *= confidenceMult;
+    // Cap at 95% of equity
+    const actualSize = Math.min(size, equity * 0.95);
+
+    // Entry fees (mirrors live maker fee)
+    const entryFees = actualSize * TAKER_FEE;
+    if (entryFees + (actualSize / leverage) > equity) continue; // Can't afford
+
+    // Validate TPs: for LONG, TPs must be above entry; for SHORT, below (mirrors live)
+    let tp1 = signal.takeProfit1 || null;
+    let tp2 = signal.takeProfit2 || null;
+    let tp3 = signal.takeProfit3 || null;
+    if (direction === 'LONG') {
+      if (tp1 && tp1 < entry) tp1 = null;
+      if (tp2 && tp2 < entry) tp2 = null;
+      if (tp3 && tp3 < entry) tp3 = null;
+    } else {
+      if (tp1 && tp1 > entry) tp1 = null;
+      if (tp2 && tp2 > entry) tp2 = null;
+      if (tp3 && tp3 > entry) tp3 = null;
+    }
+    if (!tp1) continue; // Must have at least TP1
+
+    // Deduct entry fees from equity (mirrors live margin + fees deduction)
+    equity -= entryFees;
+
+    position = {
+      direction,
+      entry,
+      entryBar: t + 1,
+      entryScore: signal.score,
+      stopLoss,
+      originalSL: stopLoss,
+      takeProfit1: tp1,
+      takeProfit2: tp2,
+      takeProfit3: tp3,
+      size: actualSize,
+      originalSize: actualSize,
+      tp1Hit: false,
+      tp2Hit: false,
+      breakevenHit: false,
+      trailingActivated: false,
+      reducedByScore: false,
+      bestPrice: null,
+      maxPrice: entry,
+      minPrice: entry,
+      partialPnl: 0,
+      lastScoreCheckBar: t + 1,
+      actions: []  // Track all badges: BE, TS, PP, RP, EXIT, LOCK
+    };
   }
 
   // Close any remaining open position at last bar's close
@@ -445,14 +629,17 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     const lastBar = c1h[c1h.length - 1];
     const exitPrice = lastBar.close;
     const isLong = position.direction === 'LONG';
-    const pnl = isLong
+    const exitFees = position.size * TAKER_FEE;
+    let pnl = isLong
       ? ((exitPrice - position.entry) / position.entry) * position.size
       : ((position.entry - exitPrice) / position.entry) * position.size;
+    pnl -= exitFees;
     equity += pnl;
     trades.push({
       direction: position.direction, entry: position.entry, exit: exitPrice,
       entryBar: position.entryBar, exitBar: c1h.length - 1, reason: 'END',
-      pnl: (position.partialPnl || 0) + pnl, size: position.originalSize, partials: position.partialPnl || 0
+      pnl: (position.partialPnl || 0) + pnl, size: position.originalSize,
+      partials: position.partialPnl || 0, actions: [...(position.actions || [])]
     });
     position = null;
   }
@@ -472,6 +659,21 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const grossLoss = Math.abs(trades.filter(t => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
   const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999 : 0);
 
+  // Count action badges across all trades (mirrors live trade actions)
+  const allActions = trades.flatMap(t => (t.actions || []).map(a => a.type));
+  const actionCounts = {
+    BE: allActions.filter(a => a === 'BE').length,
+    TS: allActions.filter(a => a === 'TS').length,
+    PP: allActions.filter(a => a === 'PP').length,
+    RP: allActions.filter(a => a === 'RP').length,
+    EXIT: allActions.filter(a => a === 'EXIT').length,
+    LOCK: allActions.filter(a => a === 'LOCK').length
+  };
+
+  // Exit reason breakdown
+  const exitReasons = {};
+  trades.forEach(t => { exitReasons[t.reason] = (exitReasons[t.reason] || 0) + 1; });
+
   return {
     coinId,
     symbol: COIN_META[coinId]?.symbol,
@@ -489,7 +691,9 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     returnPct: ((totalPnl / INITIAL_BALANCE) * 100),
     equityCurve,
     maxDrawdown: computeMaxDrawdown(equityCurve),
-    maxDrawdownPct: computeMaxDrawdownPct(equityCurve)
+    maxDrawdownPct: computeMaxDrawdownPct(equityCurve),
+    actionCounts,
+    exitReasons
   };
 }
 
