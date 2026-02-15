@@ -6,6 +6,7 @@
 
 const { analyzeCoin, ENGINE_CONFIG } = require('./trading-engine');
 const { fetchHistoricalCandlesForCoin, fetchHistoricalKrakenCandles, COIN_META, TRACKED_COINS } = require('./crypto-api');
+const fetch = require('node-fetch');
 
 const MIN_SCORE = ENGINE_CONFIG.MIN_SIGNAL_SCORE || 52;
 const INITIAL_BALANCE = 10000;
@@ -36,9 +37,12 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
   const warmupMs = WARMUP_BARS * 3600000; // each 1h bar = 3.6M ms
   const fetchStartMs = startMs - warmupMs;
 
-  // Try Bybit first, then Kraken as fallback
+  // Try Bybit first, then Kraken as fallback.
+  // We track errors so the API response shows exactly WHY it failed.
   let candles1h, candles4h, candles1d;
   let source = 'bybit';
+  let bybitError = null;
+  let krakenError = null;
 
   try {
     [candles1h, candles4h, candles1d] = await fetchWithTimeout(
@@ -50,8 +54,12 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
       PER_COIN_FETCH_TIMEOUT,
       coinId
     );
+    if (!candles1h || candles1h.length === 0) {
+      bybitError = 'Bybit returned 0 candles (API may block cloud IPs)';
+    }
   } catch (err) {
-    console.warn(`[Backtest] ${coinId}: Bybit fetch failed (${err.message}), trying Kraken...`);
+    bybitError = `Bybit error: ${err.message}`;
+    console.warn(`[Backtest] ${coinId}: ${bybitError}`);
   }
 
   // Fallback to Kraken if Bybit returned nothing useful
@@ -68,9 +76,12 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
         PER_COIN_FETCH_TIMEOUT,
         `${coinId}-kraken`
       );
+      if (!candles1h || candles1h.length === 0) {
+        krakenError = 'Kraken returned 0 candles';
+      }
     } catch (err) {
-      console.error(`[Backtest] ${coinId}: Kraken fallback also failed - ${err.message}`);
-      return { error: `Both Bybit and Kraken failed: ${err.message}` };
+      krakenError = `Kraken error: ${err.message}`;
+      console.error(`[Backtest] ${coinId}: ${krakenError}`);
     }
   }
 
@@ -80,9 +91,11 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
   console.log(`[Backtest] ${coinId}: fetched 1h=${c1h}, 4h=${c4h}, 1d=${c1d} candles [${source}] (${WARMUP_BARS} warmup)`);
 
   if (!candles1h || c1h < 50) {
+    // Build a helpful error with details about what went wrong
+    const details = [bybitError, krakenError].filter(Boolean).join('; ');
     const reason = c1h === 0
-      ? `Both Bybit and Kraken returned 0 candles`
-      : `Only ${c1h} candles from ${source} (need 50+)`;
+      ? `No candles from either API. ${details}`
+      : `Only ${c1h} candles from ${source} (need 50+). ${details}`;
     console.warn(`[Backtest] ${coinId}: ${reason}`);
     return { error: reason };
   }

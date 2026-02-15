@@ -1437,37 +1437,63 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// Diagnostic: test Bybit API connectivity (GET /api/bybit-test)
-app.get('/api/bybit-test', async (req, res) => {
+// Diagnostic: test API connectivity from this server (GET /api/connectivity-test)
+app.get('/api/connectivity-test', async (req, res) => {
   const fetch = require('node-fetch');
-  const tests = {};
-  const startTime = Date.now();
+  const results = { nodeVersion: process.version, env: process.env.NODE_ENV || 'development', timestamp: new Date().toISOString() };
+
+  // Test Bybit HTTP API
   try {
-    // Test 1: Can we reach Bybit at all?
-    const t1 = Date.now();
-    const r1 = await fetch('https://api.bybit.com/v5/market/kline?category=spot&symbol=BTCUSDT&interval=60&limit=5', {
-      headers: { 'Accept': 'application/json' },
-      timeout: 10000
+    const t = Date.now();
+    const r = await fetch('https://api.bybit.com/v5/market/kline?category=spot&symbol=BTCUSDT&interval=60&limit=3', {
+      headers: { 'Accept': 'application/json' }, timeout: 10000
     });
-    tests.httpStatus = r1.status;
-    tests.reachable = r1.ok;
-    tests.latencyMs = Date.now() - t1;
-    if (r1.ok) {
-      const json = await r1.json();
-      tests.retCode = json.retCode;
-      tests.candlesReturned = json.result?.list?.length || 0;
-      tests.apiWorking = json.retCode === 0 && tests.candlesReturned > 0;
-    }
+    const body = await r.text();
+    results.bybit = {
+      ok: r.ok, status: r.status, latencyMs: Date.now() - t,
+      bodyLength: body.length, bodyPreview: body.substring(0, 200)
+    };
+    try { const j = JSON.parse(body); results.bybit.retCode = j.retCode; results.bybit.candles = j.result?.list?.length || 0; } catch(e) {}
   } catch (err) {
-    tests.reachable = false;
-    tests.error = err.message;
+    results.bybit = { ok: false, error: err.message, code: err.code, type: err.type };
   }
-  tests.totalMs = Date.now() - startTime;
-  tests.nodeVersion = process.version;
-  tests.env = process.env.NODE_ENV || 'development';
-  console.log('[Bybit-Test]', JSON.stringify(tests));
-  res.json(tests);
+
+  // Test Kraken HTTP API
+  try {
+    const t = Date.now();
+    const r = await fetch('https://api.kraken.com/0/public/OHLC?pair=XXBTZUSD&interval=60', {
+      headers: { 'Accept': 'application/json' }, timeout: 10000
+    });
+    const body = await r.text();
+    results.kraken = {
+      ok: r.ok, status: r.status, latencyMs: Date.now() - t,
+      bodyLength: body.length, bodyPreview: body.substring(0, 200)
+    };
+    try { const j = JSON.parse(body); results.kraken.errors = j.error; const keys = Object.keys(j.result||{}).filter(k=>k!=='last'); results.kraken.candles = keys.length > 0 ? j.result[keys[0]]?.length : 0; } catch(e) {}
+  } catch (err) {
+    results.kraken = { ok: false, error: err.message, code: err.code, type: err.type };
+  }
+
+  // Test DNS resolution
+  const dns = require('dns');
+  await new Promise(resolve => {
+    dns.resolve4('api.bybit.com', (err, addresses) => {
+      results.dns_bybit = err ? { error: err.message, code: err.code } : { resolved: addresses };
+      resolve();
+    });
+  });
+  await new Promise(resolve => {
+    dns.resolve4('api.kraken.com', (err, addresses) => {
+      results.dns_kraken = err ? { error: err.message, code: err.code } : { resolved: addresses };
+      resolve();
+    });
+  });
+
+  console.log('[Connectivity-Test]', JSON.stringify(results));
+  res.json(results);
 });
+// Keep old route as alias
+app.get('/api/bybit-test', (req, res) => res.redirect('/api/connectivity-test'));
 
 // Backtest API (historical simulation)
 app.post('/api/backtest', async (req, res) => {

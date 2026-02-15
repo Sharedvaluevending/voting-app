@@ -281,9 +281,15 @@ async function fetchBybitCandles(symbol, interval, limit, startMs, endMs) {
     if (startMs) url += `&start=${startMs}`;
     if (endMs) url += `&end=${endMs}`;
     const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.warn(`[Bybit] OHLC ${symbol} ${interval}: HTTP ${res.status} ${res.statusText}`);
+      return [];
+    }
     const json = await res.json();
-    if (json.retCode !== 0 || !json.result || !json.result.list) return [];
+    if (json.retCode !== 0 || !json.result || !json.result.list) {
+      console.warn(`[Bybit] OHLC ${symbol} ${interval}: retCode=${json.retCode}, msg=${json.retMsg}, listLen=${json.result?.list?.length || 0}`);
+      return [];
+    }
     // Bybit returns newest first, reverse to chronological order
     // Each entry: [startTime, open, high, low, close, volume, turnover]
     const raw = json.result.list.reverse();
