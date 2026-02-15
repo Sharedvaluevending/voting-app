@@ -142,7 +142,8 @@ function analyzeWithCandles(coinData, candles, options) {
   }
 
   // Session filter: outside 12–22 UTC reduce score slightly
-  const utcHour = new Date().getUTCHours();
+  // In backtest, use the bar's timestamp (options.barTime) instead of current clock.
+  const utcHour = options.barTime ? new Date(options.barTime).getUTCHours() : new Date().getUTCHours();
   const inSession = utcHour >= ENGINE_CONFIG.SESSION_START_UTC && utcHour < ENGINE_CONFIG.SESSION_END_UTC;
   if (!inSession) {
     finalScore = Math.max(0, finalScore - ENGINE_CONFIG.SESSION_PENALTY);

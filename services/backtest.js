@@ -227,7 +227,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       btcSignal: cachedBtcSignal,
       btcDirection: cachedBtcDirection,
       btcCandles: cachedBtcSlice ? cachedBtcSlice['1h'] : null,
-      fundingRates: {}
+      fundingRates: {},
+      barTime: bar.openTime  // Use historical bar time for session filter (not current clock)
     };
 
     // Check if we have an open position - did SL or TP hit?
