@@ -674,13 +674,13 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc) {
           trade.stopLoss = trade.direction === 'LONG'
             ? trade.entryPrice * (1 + BE_BUFFER)
             : trade.entryPrice * (1 - BE_BUFFER);
-          logTradeAction(trade, 'BE', `Stop moved to breakeven at $${trade.entryPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, trade.entryPrice, currentPrice);
+          logTradeAction(trade, 'BE', `Stop moved to breakeven at $${trade.stopLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, trade.stopLoss, currentPrice);
           await trade.save();
-          // Bitget: update SL on exchange
+          // Bitget: update SL on exchange (use trade.stopLoss = entry + buffer, not raw entry)
           if (trade.isLive) {
             try {
               const liveUser = await User.findById(trade.userId);
-              if (liveUser) await bitget.executeLiveStopUpdate(liveUser, trade, trade.entryPrice);
+              if (liveUser) await bitget.executeLiveStopUpdate(liveUser, trade, trade.stopLoss);
             } catch (e) { console.error(`[Bitget] BE SL update error: ${e.message}`); }
           }
         }
