@@ -81,6 +81,12 @@
       </label>
 
       <!-- Risk Management -->
+      <label class="ft-toggle" title="Use bar close for SL check (matches live system). OFF = use candle wicks (conservative, more stops)">
+        <input type="checkbox" id="ft-closeBasedStops" checked> <span class="ft-badge ft-fix">FIX</span> Close-Based Stops (realistic)
+      </label>
+      <label class="ft-toggle" title="Widen stops tighter than 1x ATR to prevent noise-level stop-outs">
+        <input type="checkbox" id="ft-minSlDistance" checked> <span class="ft-badge ft-fix">FIX</span> Min SL Distance (1x ATR)
+      </label>
       <label class="ft-toggle" title="Re-analyze signal while in trade. Exit on score collapse, reduce 50% on score drop">
         <input type="checkbox" id="ft-scoreRecheck" checked> <span class="ft-badge ft-risk">RISK</span> Score Re-check (Exit/Reduce)
       </label>
@@ -219,8 +225,10 @@ function setAllToggles(val) {
 }
 function setPresetsMinimal() {
   setAllToggles(false);
-  // Only keep slippage on for realism
+  // Keep realism fixes ON even in minimal mode
   document.getElementById('ft-slippage').checked = true;
+  document.getElementById('ft-closeBasedStops').checked = true;
+  document.getElementById('ft-minSlDistance').checked = true;
 }
 function getFeatureFlags() {
   return {
@@ -236,7 +244,9 @@ function getFeatureFlags() {
     cooldown: document.getElementById('ft-cooldown').checked,
     confidenceSizing: document.getElementById('ft-confidenceSizing').checked,
     fees: document.getElementById('ft-fees').checked,
-    slippage: document.getElementById('ft-slippage').checked
+    slippage: document.getElementById('ft-slippage').checked,
+    closeBasedStops: document.getElementById('ft-closeBasedStops').checked,
+    minSlDistance: document.getElementById('ft-minSlDistance').checked
   };
 }
 
@@ -443,4 +453,5 @@ function renderActionBadgesForTrade(actions) {
 .ft-pos { background: #10b98122; color: #10b981; }
 .ft-risk { background: #f59e0b22; color: #f59e0b; }
 .ft-cost { background: #8b5cf622; color: #8b5cf6; }
+.ft-fix { background: #ef444422; color: #ef4444; }
 </style>

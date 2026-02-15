@@ -24,6 +24,8 @@ const BREAKEVEN_R = 1;  // Move stop to breakeven at 1R profit
 const TRAILING_START_R = 1.5; // Start trailing at 1.5R
 const TRAILING_DIST_R = 1;   // Trail 1R behind best price
 const MAX_SL_DISTANCE_PCT = 0.15; // Cap SL at 15% from entry (matches live)
+const MIN_SL_ATR_MULT = 1.0; // Minimum SL distance = 1.0 * ATR (prevents noise-level stops)
+const BE_BUFFER_PCT = 0.003; // 0.3% buffer on breakeven stop to cover round-trip costs
 const COOLDOWN_BARS = 4; // 4h cooldown: no same-direction re-entry (matches live DEFAULT_COOLDOWN_HOURS=4)
 const SCORE_RECHECK_INTERVAL = 4; // Re-analyze signal every 4 bars while in a trade (matches live 5-min check scaled to 1h bars)
 
@@ -194,6 +196,11 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const F_CONFIDENCE_SIZING = ft.confidenceSizing !== false;
   const F_FEES = ft.fees !== false;
   const F_SLIPPAGE = ft.slippage !== false;
+  // Close-based stops: use bar close instead of wicks for SL check (matches live system behavior).
+  // Live system polls prices (sees close/last), not intra-bar wicks. Default ON = realistic.
+  const F_CLOSE_STOPS = ft.closeBasedStops !== false;
+  // Minimum SL distance floor: widen stops that are tighter than 1.0 * ATR (prevents noise-level stops)
+  const F_MIN_SL = ft.minSlDistance !== false;
 
   const candles = await fetchHistoricalCandlesMultiTF(coinId, startMs, endMs);
   if (!candles || candles.error) return { error: candles?.error || 'Insufficient candles', trades: [], equityCurve: [] };
@@ -283,12 +290,17 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       if (low < (position.minPrice || Infinity)) position.minPrice = low;
 
       // --- Breakeven at 1R (mirrors live autoBE) ---
+      // BUG FIX: Move SL to entry + buffer (0.3%) instead of exact entry.
+      // At exact entry, round-trip fees + slippage make "breakeven" a net loss (~0.3%).
       if (F_BREAKEVEN && origRisk > 0 && !position.breakevenHit && !position.trailingActivated) {
         const at1R = isLong
           ? currentPrice >= position.entry + origRisk
           : currentPrice <= position.entry - origRisk;
         if (at1R) {
-          position.stopLoss = position.entry;
+          const beStop = isLong
+            ? position.entry * (1 + BE_BUFFER_PCT)
+            : position.entry * (1 - BE_BUFFER_PCT);
+          position.stopLoss = beStop;
           position.breakevenHit = true;
           position.actions.push({ type: 'BE', bar: t + 1 });
         }
@@ -414,10 +426,48 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
         }
       }
 
-      // --- Stop loss check ---
+      // --- Stop loss & Take profit checks ---
+      // BUG FIX: Use close-based stops (F_CLOSE_STOPS) to match live system behavior.
+      // Live system polls prices (sees close/last), not intra-bar wicks.
+      // BUG FIX: When both SL and TP are hit in the same bar, use open-price heuristic
+      // to infer which was hit first (standard OHLC backtesting approach).
+
+      // Determine SL price source: close (realistic, matches live) or high/low (conservative)
+      const slCheckPrice = F_CLOSE_STOPS ? currentPrice : (isLong ? low : high);
       let stopped = false;
-      if (isLong && position.stopLoss && low <= position.stopLoss) stopped = true;
-      if (!isLong && position.stopLoss && high >= position.stopLoss) stopped = true;
+      if (isLong && position.stopLoss && slCheckPrice <= position.stopLoss) stopped = true;
+      if (!isLong && position.stopLoss && slCheckPrice >= position.stopLoss) stopped = true;
+
+      // TP check still uses high/low (limit orders fill on wicks in reality)
+      const activeTP = !position.tp1Hit ? position.takeProfit1
+        : !position.tp2Hit ? position.takeProfit2
+        : position.takeProfit3;
+      let tpHit = false;
+      if (activeTP) {
+        if (isLong && high >= activeTP) tpHit = true;
+        if (!isLong && low <= activeTP) tpHit = true;
+      }
+
+      // === CONFLICT RESOLUTION: when both SL and TP hit in same bar ===
+      // Use open-price heuristic to determine which was likely hit first.
+      // If open is closer to TP side, assume TP hit first. Otherwise SL first.
+      if (stopped && tpHit) {
+        const openPrice = nextBar.open;
+        if (isLong) {
+          // Long: TP is above, SL is below. If open is above midpoint → likely went up first (TP)
+          const mid = (position.stopLoss + activeTP) / 2;
+          if (openPrice > mid) {
+            stopped = false; // TP wins — let TP logic handle it
+          }
+          // else SL wins (open closer to SL side)
+        } else {
+          // Short: TP is below, SL is above. If open is below midpoint → likely went down first (TP)
+          const mid = (position.stopLoss + activeTP) / 2;
+          if (openPrice < mid) {
+            stopped = false; // TP wins
+          }
+        }
+      }
 
       if (stopped) {
         const exitPrice = F_SLIPPAGE ? (isLong ? position.stopLoss / slipMul : position.stopLoss * slipMul) : position.stopLoss;
@@ -604,12 +654,29 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       }
     }
 
+    // === MIN SL DISTANCE FLOOR: prevent noise-level stops ===
+    // Widen stops that are tighter than 1.0 * ATR. Without this, fib refinement
+    // and tight S/R can create sub-ATR stops that get clipped by normal volatility.
+    if (F_MIN_SL) {
+      const atr = signal.indicators?.atr || 0;
+      if (atr > 0) {
+        const minSlDist = atr * MIN_SL_ATR_MULT;
+        const currentSlDist = Math.abs(entry - stopLoss);
+        if (currentSlDist < minSlDist) {
+          stopLoss = direction === 'LONG'
+            ? entry - minSlDist
+            : entry + minSlDist;
+        }
+      }
+    }
+
     const slDist = Math.abs(entry - stopLoss);
     if (slDist <= 0) continue;
 
     // === POSITION SIZING: risk-based + confidence-weighted (mirrors live) ===
+    // BUG FIX: Added * leverage — live system uses (riskAmount / stopDistance) * leverage
     const riskAmount = equity * RISK_PER_TRADE;
-    let size = (riskAmount * entry) / slDist;
+    let size = ((riskAmount * entry) / slDist) * leverage;
     // Confidence multiplier: higher score = slightly larger size (mirrors live)
     if (F_CONFIDENCE_SIZING) {
       const score = Math.min(100, Math.max(0, signal.score || 50));
