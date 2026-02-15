@@ -219,7 +219,15 @@ app.use((req, res, next) => {
 
   // Step 2: Generate token for templates (only creates if not already set)
   if (req.session) {
+    const hadSecret = !!req.session._csrfSecret;
     res.locals.csrfToken = generateCsrfToken(req.session);
+    // If we just created the secret, force save so it persists (fixes MongoStore before first POST)
+    if (!hadSecret && req.session._csrfSecret) {
+      return req.session.save((err) => {
+        if (err) console.warn('[CSRF] Session save:', err?.message);
+        next();
+      });
+    }
   }
   next();
 });

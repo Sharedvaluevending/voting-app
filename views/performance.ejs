@@ -238,21 +238,21 @@
         <button type="button" class="btn btn-sm" onclick="setLiveToggles(false)" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:4px;cursor:pointer;">All OFF</button>
         <button type="button" class="btn btn-sm" onclick="loadBacktestPreset()" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #3b82f6;color:#3b82f6;border-radius:4px;cursor:pointer;" title="Load toggle config saved from the Backtest page">Load from Backtest</button>
         <button type="button" class="btn btn-sm" onclick="loadCoinWeightsFromBacktest()" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #10b981;color:#10b981;border-radius:4px;cursor:pointer;" title="Load coin weights from latest massive backtest (prioritizes top performers in auto-trade)">Load Coin Weights</button>
-        <form id="coin-weight-form" action="/account/coin-weight-settings" method="POST" style="display:inline-flex;align-items:center;gap:8px;margin-left:12px;padding-left:12px;border-left:1px solid #334155;">
-          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-          <label class="ft-toggle" style="margin:0;" title="When ON, auto-trade prefers coins with higher backtest weights">
-            <input type="hidden" name="coinWeightEnabled" value="false">
-            <input type="checkbox" name="coinWeightEnabled" value="true" <%= user.coinWeightEnabled ? 'checked' : '' %>> Use coin weights
-          </label>
-          <select name="coinWeightStrength" style="padding:4px 8px;background:#1e293b;border:1px solid #334155;border-radius:4px;color:#e5e7eb;font-size:12px;">
-            <option value="conservative" <%= user.coinWeightStrength === 'conservative' ? 'selected' : '' %>>Conservative</option>
-            <option value="moderate" <%= user.coinWeightStrength === 'moderate' || !user.coinWeightStrength ? 'selected' : '' %>>Moderate</option>
-            <option value="aggressive" <%= user.coinWeightStrength === 'aggressive' ? 'selected' : '' %>>Aggressive</option>
-          </select>
-          <button type="submit" class="btn btn-outline btn-sm" style="padding:4px 10px;font-size:11px;">Save</button>
-        </form>
         <button type="submit" class="btn btn-outline btn-sm" style="margin-left:auto;">Save Toggles</button>
       </div>
+    </form>
+    <form id="coin-weight-form" action="/account/coin-weight-settings" method="POST" style="display:inline-flex;align-items:center;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #334155;">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <label class="ft-toggle" style="margin:0;" title="When ON, auto-trade prefers coins with higher backtest weights">
+        <input type="hidden" name="coinWeightEnabled" value="false">
+        <input type="checkbox" name="coinWeightEnabled" value="true" <%= user.coinWeightEnabled ? 'checked' : '' %>> Use coin weights
+      </label>
+      <select name="coinWeightStrength" style="padding:4px 8px;background:#1e293b;border:1px solid #334155;border-radius:4px;color:#e5e7eb;font-size:12px;">
+        <option value="conservative" <%= user.coinWeightStrength === 'conservative' ? 'selected' : '' %>>Conservative</option>
+        <option value="moderate" <%= user.coinWeightStrength === 'moderate' || !user.coinWeightStrength ? 'selected' : '' %>>Moderate</option>
+        <option value="aggressive" <%= user.coinWeightStrength === 'aggressive' ? 'selected' : '' %>>Aggressive</option>
+      </select>
+      <button type="submit" class="btn btn-outline btn-sm" style="padding:4px 10px;font-size:11px;">Save</button>
     </form>
   </div>
 </div>
