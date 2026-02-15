@@ -5,7 +5,7 @@
 // ====================================================
 
 const { analyzeCoin, ENGINE_CONFIG } = require('./trading-engine');
-const { fetchHistoricalCandlesForCoin, COIN_META, TRACKED_COINS } = require('./crypto-api');
+const { fetchHistoricalCandlesForCoin, fetchHistoricalKrakenCandles, COIN_META, TRACKED_COINS } = require('./crypto-api');
 
 const MIN_SCORE = ENGINE_CONFIG.MIN_SIGNAL_SCORE || 52;
 const INITIAL_BALANCE = 10000;
@@ -36,8 +36,12 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
   const warmupMs = WARMUP_BARS * 3600000; // each 1h bar = 3.6M ms
   const fetchStartMs = startMs - warmupMs;
 
+  // Try Bybit first, then Kraken as fallback
+  let candles1h, candles4h, candles1d;
+  let source = 'bybit';
+
   try {
-    const [candles1h, candles4h, candles1d] = await fetchWithTimeout(
+    [candles1h, candles4h, candles1d] = await fetchWithTimeout(
       Promise.all([
         fetchHistoricalCandlesForCoin(coinId, '1h', fetchStartMs, endMs),
         fetchHistoricalCandlesForCoin(coinId, '4h', fetchStartMs, endMs),
@@ -46,31 +50,50 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
       PER_COIN_FETCH_TIMEOUT,
       coinId
     );
-
-    const c1h = (candles1h || []).length;
-    const c4h = (candles4h || []).length;
-    const c1d = (candles1d || []).length;
-    console.log(`[Backtest] ${coinId}: fetched 1h=${c1h}, 4h=${c4h}, 1d=${c1d} candles (${WARMUP_BARS} warmup)`);
-
-    if (!candles1h || c1h < 50) {
-      const reason = c1h === 0
-        ? 'Bybit returned 0 candles (API may be blocked or rate-limited)'
-        : `Only ${c1h} candles returned (need 50+)`;
-      console.warn(`[Backtest] ${coinId}: ${reason}`);
-      return { error: reason };
-    }
-
-    return {
-      '1h': candles1h,
-      '4h': candles4h && c4h >= 5 ? candles4h : null,
-      '1d': candles1d && c1d >= 5 ? candles1d : null,
-      '15m': null,
-      '1w': null
-    };
   } catch (err) {
-    console.error(`[Backtest] ${coinId}: candle fetch failed - ${err.message}`);
-    return { error: `Fetch failed: ${err.message}` };
+    console.warn(`[Backtest] ${coinId}: Bybit fetch failed (${err.message}), trying Kraken...`);
   }
+
+  // Fallback to Kraken if Bybit returned nothing useful
+  if (!candles1h || candles1h.length < 50) {
+    try {
+      console.log(`[Backtest] ${coinId}: Bybit got ${(candles1h||[]).length} candles, falling back to Kraken...`);
+      source = 'kraken';
+      [candles1h, candles4h, candles1d] = await fetchWithTimeout(
+        Promise.all([
+          fetchHistoricalKrakenCandles(coinId, '1h', fetchStartMs, endMs),
+          fetchHistoricalKrakenCandles(coinId, '4h', fetchStartMs, endMs),
+          fetchHistoricalKrakenCandles(coinId, '1d', fetchStartMs, endMs)
+        ]),
+        PER_COIN_FETCH_TIMEOUT,
+        `${coinId}-kraken`
+      );
+    } catch (err) {
+      console.error(`[Backtest] ${coinId}: Kraken fallback also failed - ${err.message}`);
+      return { error: `Both Bybit and Kraken failed: ${err.message}` };
+    }
+  }
+
+  const c1h = (candles1h || []).length;
+  const c4h = (candles4h || []).length;
+  const c1d = (candles1d || []).length;
+  console.log(`[Backtest] ${coinId}: fetched 1h=${c1h}, 4h=${c4h}, 1d=${c1d} candles [${source}] (${WARMUP_BARS} warmup)`);
+
+  if (!candles1h || c1h < 50) {
+    const reason = c1h === 0
+      ? `Both Bybit and Kraken returned 0 candles`
+      : `Only ${c1h} candles from ${source} (need 50+)`;
+    console.warn(`[Backtest] ${coinId}: ${reason}`);
+    return { error: reason };
+  }
+
+  return {
+    '1h': candles1h,
+    '4h': candles4h && c4h >= 5 ? candles4h : null,
+    '1d': candles1d && c1d >= 5 ? candles1d : null,
+    '15m': null,
+    '1w': null
+  };
 }
 
 /**

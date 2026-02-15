@@ -344,6 +344,69 @@ async function fetchKrakenCandles(pair, interval, limit) {
   }
 }
 
+/**
+ * Fetch historical candles from Kraken for backtesting.
+ * Kraken OHLC supports 'since' parameter (Unix seconds) and returns up to 720 candles.
+ * For longer ranges, paginates using the 'last' timestamp from each response.
+ */
+async function fetchHistoricalKrakenCandles(coinId, interval, startMs, endMs) {
+  const pair = KRAKEN_PAIRS[coinId];
+  if (!pair) return [];
+  const krakenInterval = KRAKEN_INTERVAL_MAP[interval];
+  if (!krakenInterval) return [];
+  const msPerCandle = krakenInterval * 60 * 1000;
+  const all = [];
+  let since = Math.floor(startMs / 1000); // Kraken uses Unix seconds
+
+  while (true) {
+    try {
+      const url = `https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=${krakenInterval}&since=${since}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
+      if (!res.ok) break;
+      const json = await res.json();
+      if (json.error && json.error.length > 0) break;
+      const result = json.result || {};
+      const keys = Object.keys(result).filter(k => k !== 'last');
+      if (keys.length === 0) break;
+      const raw = result[keys[0]];
+      if (!Array.isArray(raw) || raw.length === 0) break;
+
+      let added = 0;
+      for (const c of raw) {
+        const ts = c[0] * 1000;
+        if (ts >= endMs) break; // past our end date
+        if (ts < startMs - msPerCandle) continue; // before our range (with buffer)
+        all.push({
+          openTime: ts,
+          open: parseFloat(c[1]),
+          high: parseFloat(c[2]),
+          low: parseFloat(c[3]),
+          close: parseFloat(c[4]),
+          volume: parseFloat(c[6]),
+          closeTime: ts + msPerCandle,
+          quoteVolume: 0,
+          trades: c[7] || 0,
+          takerBuyVolume: 0,
+          takerBuyQuoteVolume: 0
+        });
+        added++;
+      }
+
+      // Check if we've reached the end
+      const lastTs = raw[raw.length - 1][0] * 1000;
+      if (lastTs >= endMs || added === 0 || raw.length < 700) break;
+
+      // Paginate: use 'last' from response or the last candle timestamp
+      since = json.result.last || raw[raw.length - 1][0];
+      await new Promise(r => setTimeout(r, 500)); // Kraken rate limit: ~1 req/sec
+    } catch (err) {
+      console.error(`[Kraken] Historical ${coinId} ${interval} failed:`, err.message);
+      break;
+    }
+  }
+  return all;
+}
+
 async function fetchAllKrakenCandlesForCoin(coinId) {
   const pair = KRAKEN_PAIRS[coinId];
   if (!pair) return null;
@@ -804,7 +867,7 @@ refreshAllData().catch(err => console.error('[CryptoAPI] Initial error:', err.me
 
 module.exports = {
   fetchAllPrices, fetchPriceHistory, fetchAllHistory,
-  fetchCandles, fetchAllCandles, fetchAllCandlesForCoin, fetchHistoricalCandlesForCoin, getCurrentPrice, fetchLivePrice, isDataReady,
+  fetchCandles, fetchAllCandles, fetchAllCandlesForCoin, fetchHistoricalCandlesForCoin, fetchHistoricalKrakenCandles, getCurrentPrice, fetchLivePrice, isDataReady,
   getFundingRate, getAllFundingRates,
   isCandleFresh, getCandleSource, getCandleAge,
   recordScoreHistory, getScoreHistory,
