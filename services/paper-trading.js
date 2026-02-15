@@ -156,6 +156,18 @@ async function openTrade(userId, signalData) {
     }
   }
 
+  // Validate SL is on the correct side of entry — wrong-side SL causes instant stop-out
+  if (stopLoss != null && entryPrice > 0) {
+    const wrongSide = (signalData.direction === 'LONG' && stopLoss >= entryPrice)
+                    || (signalData.direction === 'SHORT' && stopLoss <= entryPrice);
+    if (wrongSide) {
+      console.warn(`[OpenTrade] ${signalData.symbol}: SL $${stopLoss} on wrong side of entry $${entryPrice} for ${signalData.direction} — using default 2% distance`);
+      stopLoss = signalData.direction === 'LONG'
+        ? entryPrice * 0.98
+        : entryPrice * 1.02;
+    }
+  }
+
   let positionSize = calculatePositionSize(
     user.paperBalance, riskPercent, entryPrice, stopLoss, leverage
   );
@@ -345,7 +357,7 @@ async function closeTradePartial(trade, exitPrice, portionSize, reason) {
   pnl -= exitFees;
 
   const marginPortion = portion / trade.leverage;
-  user.paperBalance += marginPortion + pnl;
+  user.paperBalance = Math.max(0, user.paperBalance + marginPortion + pnl); // Prevent negative balance
   await user.save();
 
   trade.positionSize -= portion;
@@ -444,6 +456,7 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
     : reason === 'TP2' ? 'TP2_HIT'
     : reason === 'TP3' ? 'TP3_HIT'
     : reason === 'SCORE_CHECK_EXIT' ? 'SCORE_EXIT'
+    : reason === 'DUST_CLEANUP' ? 'DUST_CLEANUP'
     : 'CLOSED_MANUAL';
   trade.updatedAt = new Date();
 
@@ -451,7 +464,7 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
 
   console.log(`[CloseTrade] ${trade.symbol} ${trade.direction} | entry=$${trade.entryPrice} exit=$${exitPrice} (fed price=$${currentPrice}) | reason=${reason} | PnL=$${totalPnl.toFixed(2)} (${pnlPercent.toFixed(1)}%) | duration=${Math.round((Date.now() - new Date(trade.createdAt).getTime()) / 60000)}min`);
 
-  user.paperBalance += trade.margin + pnl;
+  user.paperBalance = Math.max(0, user.paperBalance + trade.margin + pnl); // Prevent negative balance
   user.stats.totalTrades += 1;
   if (totalPnl > 0) {
     user.stats.wins += 1;
@@ -508,7 +521,15 @@ function logTradeAction(trade, type, description, oldValue, newValue, marketPric
   });
 }
 
+let _stopsCheckRunning = false;
 async function checkStopsAndTPs(getCurrentPriceFunc) {
+  // Prevent concurrent execution — avoids double partial closes and stale reads
+  if (_stopsCheckRunning) return 0;
+  _stopsCheckRunning = true;
+  try { return await _checkStopsAndTPsInner(getCurrentPriceFunc); }
+  finally { _stopsCheckRunning = false; }
+}
+async function _checkStopsAndTPsInner(getCurrentPriceFunc) {
   const openTrades = await Trade.find({ status: 'OPEN' });
   let closedCount = 0;
 
@@ -520,6 +541,12 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       continue;
     }
     const currentPrice = priceData.price;
+
+    // Guard: reject invalid prices (0, negative, NaN) — prevents catastrophic stop-outs
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
+      console.warn(`[StopTP] Invalid price ${currentPrice} for ${trade.symbol} – skipping`);
+      continue;
+    }
 
     // DUST POSITION CLEANUP: if remaining position < 1% of original, close it out
     const origPosSize = trade.originalPositionSize || trade.positionSize;
@@ -583,13 +610,14 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
     const autoTrail = user?.settings?.autoTrailingStop !== false;
 
     // Risk (1R) = distance from entry to original stop
-    const origSl = trade.originalStopLoss || trade.stopLoss;
+    const origSl = trade.originalStopLoss ?? trade.stopLoss;
     let risk = trade.direction === 'LONG'
-      ? trade.entryPrice - (origSl || 0)
-      : (origSl || 0) - trade.entryPrice;
+      ? trade.entryPrice - (origSl ?? trade.entryPrice * 0.98)
+      : (origSl ?? trade.entryPrice * 1.02) - trade.entryPrice;
     if (risk <= 0) {
       const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
       if (tp) risk = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
+      else risk = trade.entryPrice * 0.02; // Fallback: 2% of entry as 1R
     }
 
     // Diagnostic vars (used in action logging below, NOT logged every cycle)
@@ -604,11 +632,15 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
       const pastStopGrace = ageMs >= stopGrace * 60 * 1000;
 
       // Breakeven at 1R (if autoMoveBreakeven) — only if trailing hasn't started yet
+      // Uses entry + 0.3% buffer so "breakeven" actually breaks even after round-trip fees + slippage
       if (pastStopGrace && autoBE && !trade.trailingActivated && trade.stopLoss !== trade.entryPrice) {
         const at1R = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk : currentPrice <= trade.entryPrice - risk;
         if (at1R) {
           const oldSl = trade.stopLoss;
-          trade.stopLoss = trade.entryPrice;
+          const BE_BUFFER = 0.003; // 0.3% covers round-trip fees + slippage
+          trade.stopLoss = trade.direction === 'LONG'
+            ? trade.entryPrice * (1 + BE_BUFFER)
+            : trade.entryPrice * (1 - BE_BUFFER);
           logTradeAction(trade, 'BE', `Stop moved to breakeven at $${trade.entryPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, trade.entryPrice, currentPrice);
           await trade.save();
           // Bitget: update SL on exchange
@@ -776,7 +808,7 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
         continue; // trade closed
       }
     } else {
-      if (trade.stopLoss && currentPrice >= trade.stopLoss) {
+      if (trade.stopLoss != null && currentPrice >= trade.stopLoss) {
         console.log(`[StopTP] ${trade.symbol}: STOP LOSS HIT (SHORT) price=$${currentPrice} >= SL=$${trade.stopLoss} → FULL CLOSE`);
         await closeTrade(trade.userId, trade._id, trade.stopLoss, 'STOPPED_OUT');
         closedCount++;

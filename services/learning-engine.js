@@ -57,7 +57,7 @@ async function initializeStrategies() {
   for (const strategy of DEFAULT_STRATEGIES) {
     await StrategyWeight.findOneAndUpdate(
       { strategyId: strategy.strategyId },
-      { $set: { weights: strategy.weights, description: strategy.description }, $setOnInsert: { name: strategy.name } },
+      { $set: { weights: strategy.weights, description: strategy.description, active: true }, $setOnInsert: { name: strategy.name } },
       { upsert: true, new: true }
     );
   }
@@ -80,33 +80,38 @@ async function recordTradeOutcome(trade) {
   if (!strategy) return;
 
   const isWin = trade.pnl > 0;
+  const isLoss = trade.pnl < 0;
   const regime = trade.regime || 'unknown';
 
   strategy.performance.totalTrades += 1;
   if (isWin) {
     strategy.performance.wins += 1;
-  } else {
+  } else if (isLoss) {
     strategy.performance.losses += 1;
   }
+  // Breakeven trades (pnl === 0) count toward totalTrades but NOT wins or losses
 
   const total = strategy.performance.totalTrades;
-  strategy.performance.winRate = (strategy.performance.wins / total) * 100;
+  strategy.performance.winRate = total > 0 ? (strategy.performance.wins / total) * 100 : 0;
 
-  if (trade.pnl && trade.margin) {
-    const rr = Math.abs(trade.pnl / trade.margin);
+  if (trade.pnl !== 0 && trade.margin && trade.margin > 0.01) {
+    const rr = Math.min(Math.abs(trade.pnl / trade.margin), 100); // Cap at 100R to prevent outlier corruption
     strategy.performance.avgRR =
       ((strategy.performance.avgRR * (total - 1)) + rr) / total;
   }
 
-  if (regime && regime !== 'unknown') {
+  // Only record known regimes that exist in the schema
+  const VALID_REGIMES = ['trending', 'ranging', 'volatile', 'compression', 'mixed'];
+  if (regime && regime !== 'unknown' && VALID_REGIMES.includes(regime)) {
     if (!strategy.performance.byRegime[regime]) {
       strategy.performance.byRegime[regime] = { wins: 0, losses: 0 };
     }
     if (isWin) strategy.performance.byRegime[regime].wins += 1;
-    else strategy.performance.byRegime[regime].losses += 1;
+    else if (isLoss) strategy.performance.byRegime[regime].losses += 1;
   }
 
   strategy.updatedAt = new Date();
+  strategy.markModified('performance');
   await strategy.save();
 }
 
@@ -186,9 +191,24 @@ async function adjustWeights() {
       }
     }
 
+    // Normalize weights back to 100 to prevent drift
+    const weightTotal = Object.values(strategy.weights).reduce((a, b) => a + b, 0);
+    if (weightTotal > 0 && weightTotal !== 100) {
+      for (const key of Object.keys(strategy.weights)) {
+        strategy.weights[key] = Math.max(5, Math.round((strategy.weights[key] / weightTotal) * 100));
+      }
+      // Fix rounding drift by adjusting the largest weight
+      const newTotal = Object.values(strategy.weights).reduce((a, b) => a + b, 0);
+      if (newTotal !== 100) {
+        const largestKey = Object.entries(strategy.weights).sort((a, b) => b[1] - a[1])[0][0];
+        strategy.weights[largestKey] += (100 - newTotal);
+      }
+    }
+
     // Store profit factor for reporting
     strategy.performance.profitFactor = Math.round(profitFactor * 100) / 100;
     strategy.updatedAt = new Date();
+    strategy.markModified('weights');
     strategy.markModified('performance');
     await strategy.save();
   }
@@ -227,14 +247,17 @@ async function resetStrategyWeights() {
 
 async function getPerformanceReport() {
   const strategies = await StrategyWeight.find({}).lean();
-  return strategies.map(s => ({
-    id: s.strategyId,
-    name: s.name,
-    winRate: s.performance.winRate.toFixed(1),
-    avgRR: s.performance.avgRR.toFixed(2),
-    totalTrades: s.performance.totalTrades,
-    byRegime: s.performance.byRegime
-  }));
+  return strategies.map(s => {
+    const perf = s.performance || {};
+    return {
+      id: s.strategyId,
+      name: s.name,
+      winRate: (perf.winRate || 0).toFixed(1),
+      avgRR: (perf.avgRR || 0).toFixed(2),
+      totalTrades: perf.totalTrades || 0,
+      byRegime: perf.byRegime || {}
+    };
+  });
 }
 
 module.exports = {

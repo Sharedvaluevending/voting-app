@@ -9,7 +9,16 @@ function requireLogin(req, res, next) {
 }
 
 function optionalUser(req, res, next) {
-  res.locals.user = req.session?.userId ? req.session : null;
+  // Only expose safe session fields to templates — prevents leaking internal session data
+  if (req.session?.userId) {
+    res.locals.user = {
+      userId: req.session.userId,
+      username: req.session.username,
+      email: req.session.email
+    };
+  } else {
+    res.locals.user = null;
+  }
   next();
 }
 

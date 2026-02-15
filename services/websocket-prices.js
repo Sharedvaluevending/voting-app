@@ -34,8 +34,12 @@ TRACKED_COINS.forEach(id => {
   if (sym) SYMBOL_TO_COIN[sym] = id;
 });
 
+const MAX_WS_PRICE_AGE_MS = 30000; // 30 seconds — reject prices older than this
+
 function connect() {
-  if (bybitWs && bybitWs.readyState === WebSocket.OPEN) return;
+  // Clear any pending reconnect timer to prevent double-connections
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  if (bybitWs && (bybitWs.readyState === WebSocket.OPEN || bybitWs.readyState === WebSocket.CONNECTING)) return;
 
   try {
     bybitWs = new WebSocket(BYBIT_WS_URL);
@@ -70,6 +74,10 @@ function connect() {
             broadcast({ type: 'price', coinId, ...wsPriceCache[coinId] });
           }
         }
+        // Handle subscription response
+        if (msg.op === 'subscribe' && !msg.success) {
+          console.error('[WS] Subscription failed:', msg.ret_msg);
+        }
         if (msg.pong) {
           // Heartbeat response
         }
@@ -81,6 +89,7 @@ function connect() {
     bybitWs.on('close', () => {
       isConnected = false;
       console.log('[WS] Bybit disconnected, reconnecting in 5s...');
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS);
     });
 
@@ -89,13 +98,16 @@ function connect() {
     });
   } catch (err) {
     console.error('[WS] Connect error:', err.message);
+    if (reconnectTimer) clearTimeout(reconnectTimer);
     reconnectTimer = setTimeout(connect, RECONNECT_DELAY_MS);
   }
 }
 
 // Ping to keep connection alive
+let pingInterval = null;
 function startPing() {
-  setInterval(() => {
+  if (pingInterval) clearInterval(pingInterval);
+  pingInterval = setInterval(() => {
     if (bybitWs && bybitWs.readyState === WebSocket.OPEN) {
       bybitWs.send(JSON.stringify({ op: 'ping' }));
     }
@@ -116,7 +128,11 @@ function broadcast(payload) {
 }
 
 function getWebSocketPrice(coinId) {
-  return wsPriceCache[coinId] || null;
+  const cached = wsPriceCache[coinId];
+  if (!cached) return null;
+  // Reject stale prices — prevents using old data as "live" during WS disconnects
+  if (Date.now() - cached.timestamp > MAX_WS_PRICE_AGE_MS) return null;
+  return cached;
 }
 
 function getAllWebSocketPrices() {

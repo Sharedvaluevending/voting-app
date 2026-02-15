@@ -222,6 +222,9 @@ function analyzeWithCandles(coinData, candles, options) {
     }
   }
 
+  // Final score clamp: ensure score stays within 0-100 after all modifiers
+  finalScore = Math.max(0, Math.min(100, finalScore));
+
   // Fibonacci retracement levels (used in trade levels calculation too)
   const fibLevels = calculateFibonacci(tf4h.highs || [], tf4h.lows || []);
 
@@ -400,11 +403,23 @@ function analyzeOHLCV(candles, currentPrice) {
     return defaultAnalysis(currentPrice);
   }
 
-  const closes = candles.map(c => c.close);
-  const highs = candles.map(c => c.high);
-  const lows = candles.map(c => c.low);
-  const volumes = candles.map(c => c.volume);
-  const opens = candles.map(c => c.open);
+  // Filter out invalid candles (NaN, zero, negative, impossible OHLC)
+  const validCandles = candles.filter(c =>
+    Number.isFinite(c.open) && c.open > 0 &&
+    Number.isFinite(c.high) && c.high > 0 &&
+    Number.isFinite(c.low) && c.low > 0 &&
+    Number.isFinite(c.close) && c.close > 0 &&
+    c.high >= c.low
+  );
+  if (validCandles.length < 5) {
+    return defaultAnalysis(currentPrice);
+  }
+
+  const closes = validCandles.map(c => c.close);
+  const highs = validCandles.map(c => c.high);
+  const lows = validCandles.map(c => c.low);
+  const volumes = validCandles.map(c => c.volume);
+  const opens = validCandles.map(c => c.open);
 
   // Moving averages
   const sma20 = SMA(closes, 20);
@@ -437,7 +452,7 @@ function analyzeOHLCV(candles, currentPrice) {
   const stoch = stochasticOHLC(highs, lows, closes, 14);
 
   // VWAP (using volume-weighted average)
-  const vwap = calculateVWAP(candles);
+  const vwap = calculateVWAP(validCandles);
 
   // Support & Resistance from swing points
   const sr = findSR(highs, lows, closes);
@@ -489,7 +504,7 @@ function analyzeOHLCV(candles, currentPrice) {
   }
 
   // Candlestick pattern detection (v4.1)
-  const candlestickPatterns = detectAllPatterns(candles);
+  const candlestickPatterns = detectAllPatterns(validCandles);
 
   // Build context for pattern scoring
   const srRange = sr.resistance - sr.support;
@@ -525,7 +540,7 @@ function analyzeOHLCV(candles, currentPrice) {
   const patternScore = scorePatterns(candlestickPatterns, patternContext);
 
   // Chart pattern detection (v4.2) — geometric formations (flags, wedges, triangles, H&S, etc.)
-  const chartPatterns = detectChartPatterns(candles);
+  const chartPatterns = detectChartPatterns(validCandles);
   const chartPatternContext = {
     trendUp: trend === 'UP' || trend === 'STRONG_UP',
     trendDown: trend === 'DOWN' || trend === 'STRONG_DOWN',
@@ -876,7 +891,7 @@ function RSI(prices, period) {
   }
   const avgGain = gains / period;
   const avgLoss = losses / period;
-  if (avgLoss === 0) return 100;
+  if (avgLoss === 0) return avgGain === 0 ? 50 : 100; // Zero movement = neutral, not overbought
   return 100 - (100 / (1 + avgGain / avgLoss));
 }
 
@@ -931,8 +946,6 @@ function bollingerBands(prices, period, stdDev) {
 
 function detectBBSqueeze(closes, highs, lows, period) {
   const bb = bollingerBands(closes, period, 2);
-  const bbWidth = (bb.upper - bb.lower) / bb.mid;
-
   // Keltner channel
   const atr = ATR_OHLC(highs, lows, closes, period);
   const ema = EMA(closes, period);
@@ -1504,7 +1517,8 @@ function calculateCorrelation(coinCandles, btcCandles) {
     denBtc += db * db;
   }
   const den = Math.sqrt(denCoin * denBtc);
-  return den > 0 ? num / den : 0;
+  const raw = den > 0 ? num / den : 0;
+  return Math.max(-1, Math.min(1, raw)); // Clamp to [-1, 1] for floating point safety
 }
 
 // ====================================================
@@ -1849,62 +1863,75 @@ function calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, signal, direction,
     entry = r2(currentPrice);
     stopLoss = r2(Math.max(support * 0.995, entry - atr * atrMult));
     if (stopLoss >= entry) stopLoss = r2(entry - atr * (atrMult + 0.5));
+    // Minimum stop distance floor: prevent noise-level stops from S/R proximity
+    const minStopDist = atr * Math.max(0.5, atrMult * 0.3);
+    if (entry - stopLoss < minStopDist) stopLoss = r2(entry - minStopDist);
+  } else if (signal === 'STRONG_SELL' || signal === 'SELL') {
+    entry = r2(currentPrice);
+    stopLoss = r2(Math.min(resistance * 1.005, entry + atr * atrMult));
+    if (stopLoss <= entry) stopLoss = r2(entry + atr * (atrMult + 0.5));
+    // Minimum stop distance floor
+    const minStopDist = atr * Math.max(0.5, atrMult * 0.3);
+    if (stopLoss - entry < minStopDist) stopLoss = r2(entry + minStopDist);
+  } else {
+    // HOLD / unknown direction: use direction hint to set levels with R-multiples
+    entry = r2(currentPrice);
+    if (direction === 'BEAR') {
+      stopLoss = r2(resistance * 1.005);
+      // Guard: ensure SL is above entry for SHORT-direction
+      if (stopLoss <= entry) stopLoss = r2(entry + atr * 2);
+    } else {
+      stopLoss = r2(support * 0.995);
+      // Guard: ensure SL is below entry for LONG-direction
+      if (stopLoss >= entry) stopLoss = r2(entry - atr * 2);
+    }
+  }
+
+  // Fibonacci stop refinement: if a strong fib level (0.618, 0.786) sits between entry and stop, use it
+  // Guard: respect strategy minimum stop distance (don't tighten below atrMult * 0.4)
+  const minFibStopDist = atr * Math.max(0.5, atrMult * 0.4);
+  if (entry && stopLoss) {
+    const fibLevelsArr = [fib.fib618, fib.fib786, fib.fib500].filter(f => f > 0);
+    if (signal === 'STRONG_BUY' || signal === 'BUY') {
+      for (const fl of fibLevelsArr) {
+        if (fl < entry && fl > stopLoss && (entry - fl) > minFibStopDist) {
+          stopLoss = r2(fl - atr * 0.2);
+          break;
+        }
+      }
+    } else if (signal === 'STRONG_SELL' || signal === 'SELL') {
+      for (const fl of fibLevelsArr) {
+        if (fl > entry && fl < stopLoss && (fl - entry) > minFibStopDist) {
+          stopLoss = r2(fl + atr * 0.2);
+          break;
+        }
+      }
+    }
+  }
+
+  // Calculate TPs AFTER Fibonacci refinement so R-multiples use the final stop distance
+  if (signal === 'STRONG_BUY' || signal === 'BUY') {
     const risk = entry - stopLoss;
     tp1 = tpCount >= 1 ? r2(entry + risk * tp1R) : null;
     tp2 = tpCount >= 2 ? r2(entry + risk * tp2R) : null;
     tp3 = tpCount >= 3 ? r2(entry + risk * tp3R) : null;
   } else if (signal === 'STRONG_SELL' || signal === 'SELL') {
-    entry = r2(currentPrice);
-    stopLoss = r2(Math.min(resistance * 1.005, entry + atr * atrMult));
-    if (stopLoss <= entry) stopLoss = r2(entry + atr * (atrMult + 0.5));
     const risk = stopLoss - entry;
     tp1 = tpCount >= 1 ? r2(entry - risk * tp1R) : null;
     tp2 = tpCount >= 2 ? r2(entry - risk * tp2R) : null;
     tp3 = tpCount >= 3 ? r2(entry - risk * tp3R) : null;
   } else {
-    // HOLD / unknown direction: use direction hint to set levels
-    entry = r2(currentPrice);
+    // HOLD path: use R-multiples from final stop (consistent with BUY/SELL paths)
     if (direction === 'BEAR') {
-      stopLoss = r2(resistance * 1.005);
-      tp1 = tpCount >= 1 ? r2(support) : null;
-      tp2 = tpCount >= 2 ? r2(support * 0.97) : null;
-      tp3 = tpCount >= 3 ? r2(support * 0.94) : null;
+      const risk = stopLoss - entry;
+      tp1 = tpCount >= 1 ? r2(entry - risk * tp1R) : null;
+      tp2 = tpCount >= 2 ? r2(entry - risk * tp2R) : null;
+      tp3 = tpCount >= 3 ? r2(entry - risk * tp3R) : null;
     } else {
-      stopLoss = r2(support * 0.995);
-      tp1 = tpCount >= 1 ? r2(resistance) : null;
-      tp2 = tpCount >= 2 ? r2(resistance * 1.03) : null;
-      tp3 = tpCount >= 3 ? r2(resistance * 1.06) : null;
-    }
-  }
-
-  // Fibonacci stop refinement: if a strong fib level (0.618, 0.786) sits between entry and stop, use it
-  if (entry && stopLoss) {
-    const fibLevelsArr = [fib.fib618, fib.fib786, fib.fib500].filter(f => f > 0);
-    if (signal === 'STRONG_BUY' || signal === 'BUY') {
-      // For longs: fib level below entry but above our calculated stop = tighter, stronger stop
-      for (const fl of fibLevelsArr) {
-        if (fl < entry && fl > stopLoss && (entry - fl) > atr * 0.3) {
-          stopLoss = r2(fl - atr * 0.2);  // Place stop just below fib level
-          break;
-        }
-      }
-    } else if (signal === 'STRONG_SELL' || signal === 'SELL') {
-      // For shorts: fib level above entry but below our calculated stop
-      for (const fl of fibLevelsArr) {
-        if (fl > entry && fl < stopLoss && (fl - entry) > atr * 0.3) {
-          stopLoss = r2(fl + atr * 0.2);  // Place stop just above fib level
-          break;
-        }
-      }
-    }
-  }
-
-  // POC as additional TP target: if POC is between entry and TP1, use it
-  if (poc > 0 && entry && tp1) {
-    if ((signal === 'STRONG_BUY' || signal === 'BUY') && poc > entry && poc < tp1) {
-      // POC is between entry and TP1 — acts as potential resistance/magnet
-    } else if ((signal === 'STRONG_SELL' || signal === 'SELL') && poc < entry && poc > tp1) {
-      // POC acts as support/magnet for shorts
+      const risk = entry - stopLoss;
+      tp1 = tpCount >= 1 ? r2(entry + risk * tp1R) : null;
+      tp2 = tpCount >= 2 ? r2(entry + risk * tp2R) : null;
+      tp3 = tpCount >= 3 ? r2(entry + risk * tp3R) : null;
     }
   }
 

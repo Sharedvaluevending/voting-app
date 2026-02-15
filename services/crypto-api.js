@@ -122,13 +122,13 @@ async function fetchCoinGeckoPricesOnce() {
       symbol: meta.symbol,
       name: meta.name,
       bybitSymbol: meta.bybit,
-      price: info.usd || 0,
+      price: (info.usd && info.usd > 0) ? info.usd : null, // Reject zero/negative prices
       change24h: info.usd_24h_change || 0,
       volume24h: info.usd_24h_vol || 0,
       marketCap: info.usd_market_cap || 0,
       lastUpdated: info.last_updated_at ? new Date(info.last_updated_at * 1000) : new Date()
     };
-  }).filter(Boolean);
+  }).filter(p => p && p.price && p.price > 0); // Filter out null entries and zero prices
 }
 
 // ====================================================
@@ -305,7 +305,14 @@ async function fetchBybitCandles(symbol, interval, limit, startMs, endMs) {
       trades: 0,
       takerBuyVolume: 0,
       takerBuyQuoteVolume: 0
-    }));
+    })).filter(c =>
+      Number.isFinite(c.open) && c.open > 0 &&
+      Number.isFinite(c.high) && c.high > 0 &&
+      Number.isFinite(c.low) && c.low > 0 &&
+      Number.isFinite(c.close) && c.close > 0 &&
+      Number.isFinite(c.openTime) &&
+      c.high >= c.low
+    );
   } catch (err) {
     console.error(`[Bybit] OHLC ${symbol} ${interval} failed:`, err.message);
     return [];
@@ -343,7 +350,13 @@ async function fetchKrakenCandles(pair, interval, limit) {
       trades: c[7] || 0,
       takerBuyVolume: 0,
       takerBuyQuoteVolume: 0
-    }));
+    })).filter(c =>
+      Number.isFinite(c.open) && c.open > 0 &&
+      Number.isFinite(c.high) && c.high > 0 &&
+      Number.isFinite(c.low) && c.low > 0 &&
+      Number.isFinite(c.close) && c.close > 0 &&
+      c.high >= c.low
+    );
   } catch (err) {
     console.error(`[Kraken] OHLC ${pair} ${interval} failed:`, err.message);
     return [];
@@ -398,7 +411,13 @@ async function fetchHistoricalKrakenCandles(coinId, interval, startMs, endMs) {
       trades: c[7] || 0,
       takerBuyVolume: 0,
       takerBuyQuoteVolume: 0
-    }));
+    })).filter(c =>
+      Number.isFinite(c.open) && c.open > 0 &&
+      Number.isFinite(c.high) && c.high > 0 &&
+      Number.isFinite(c.low) && c.low > 0 &&
+      Number.isFinite(c.close) && c.close > 0 &&
+      c.high >= c.low
+    );
     console.log(`[Kraken] Historical ${coinId} ${interval}: ${candles.length} candles (${new Date(candles[0].openTime).toISOString().slice(0,10)} to ${new Date(candles[candles.length-1].openTime).toISOString().slice(0,10)})`);
     return candles;
   } catch (err) {
@@ -520,7 +539,15 @@ async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
     cursor = lastTs + msPerCandle;
     await new Promise(r => setTimeout(r, 350)); // rate limit
   }
-  return all;
+  // Deduplicate by timestamp and sort chronologically
+  const seen = new Set();
+  const deduped = all.filter(c => {
+    if (seen.has(c.openTime)) return false;
+    seen.add(c.openTime);
+    return true;
+  });
+  deduped.sort((a, b) => a.openTime - b.openTime);
+  return deduped;
 }
 
 // ====================================================

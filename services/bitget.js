@@ -378,16 +378,45 @@ async function updateStopLoss(user, coinId, direction, newStopPrice) {
       console.log(`[Bitget] No existing plan orders to cancel for ${symbol}`);
     }
 
-    // Place new SL plan order
-    // We use a trigger order that closes the position when price hits stopLoss
+    // Place new SL plan order via trigger/plan order endpoint
     const triggerSide = direction === 'LONG' ? 'sell' : 'buy';
     console.log(`[Bitget] Setting SL for ${symbol} ${direction} at $${newStopPrice}`);
 
-    // For stop loss, we use the plan order endpoint
-    // Bitget's approach: place a plan order that triggers at the stop price
-    // Since the SDK may not have a dedicated SL endpoint, we log the intent
-    // The actual SL is handled by the preset on the original order or via plan orders
-    return { success: true, message: `Stop loss updated to $${newStopPrice}` };
+    try {
+      // Use Bitget plan order API to set a stop-loss trigger
+      const planResult = await client.futuresSubmitPlanOrder({
+        symbol,
+        productType: 'USDT-FUTURES',
+        marginMode: 'crossed',
+        marginCoin,
+        size: '0', // 0 = close entire position
+        side: triggerSide,
+        tradeSide: 'close',
+        orderType: 'market',
+        triggerPrice: String(newStopPrice),
+        triggerType: 'mark_price',
+        planType: 'loss_plan'
+      });
+      console.log(`[Bitget] SL plan order placed for ${symbol} at $${newStopPrice}`, planResult);
+      return { success: true, message: `Stop loss updated to $${newStopPrice}`, orderId: planResult?.data?.orderId };
+    } catch (planErr) {
+      // If plan order API fails, try alternative approach via modify-position endpoint
+      console.warn(`[Bitget] Plan order failed for ${symbol}: ${planErr.message}, trying position TP/SL...`);
+      try {
+        const posResult = await client.futuresModifyPositionTPSL?.({
+          symbol,
+          productType: 'USDT-FUTURES',
+          marginCoin,
+          holdSide: direction.toLowerCase(),
+          stopLossPrice: String(newStopPrice)
+        });
+        console.log(`[Bitget] Position SL modified for ${symbol} at $${newStopPrice}`, posResult);
+        return { success: true, message: `Stop loss updated via position modify to $${newStopPrice}` };
+      } catch (modErr) {
+        console.error(`[Bitget] Both SL methods failed for ${symbol}: plan=${planErr.message}, modify=${modErr.message}`);
+        return { success: false, error: `SL update failed: ${modErr.message}` };
+      }
+    }
   } catch (err) {
     console.error('[Bitget] Update SL error:', err.message);
     return { success: false, error: err.message };

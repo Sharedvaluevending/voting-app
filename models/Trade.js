@@ -66,15 +66,17 @@ tradeSchema.index({ userId: 1, coinId: 1, status: 1 });
 tradeSchema.index({ userId: 1, createdAt: -1 });
 
 tradeSchema.methods.getCurrentPnl = function(currentPrice) {
-  if (!currentPrice) return { pnl: 0, pnlPercent: 0 };
+  if (!currentPrice || !this.entryPrice || this.entryPrice <= 0) return { pnl: 0, pnlPercent: 0 };
   let pnl;
   if (this.direction === 'LONG') {
     pnl = (currentPrice - this.entryPrice) / this.entryPrice * this.positionSize;
   } else {
     pnl = (this.entryPrice - currentPrice) / this.entryPrice * this.positionSize;
   }
-  const pnlPercent = (pnl / this.margin) * 100;
-  return { pnl: Math.round(pnl * 100) / 100, pnlPercent: Math.round(pnlPercent * 100) / 100 };
+  // Subtract fees for accurate unrealized PnL display
+  const netPnl = pnl - (this.fees || 0);
+  const pnlPercent = this.margin > 0 ? (netPnl / this.margin) * 100 : 0;
+  return { pnl: Math.round(netPnl * 100) / 100, pnlPercent: Math.round(pnlPercent * 100) / 100 };
 };
 
 tradeSchema.methods.getTimeHeld = function() {
