@@ -2051,6 +2051,33 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ type: 'connected', wsConnected: isWebSocketConnected() }));
 });
 
+// ====================================================
+// KEEP-ALIVE: Prevent Render free tier from sleeping (15 min inactivity timeout)
+// Self-pings every 14 minutes. Only runs when RENDER_EXTERNAL_URL is set.
+// ====================================================
+const KEEP_ALIVE_INTERVAL = 14 * 60 * 1000; // 14 minutes
+function startKeepAlive() {
+  const url = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
+  if (!url) {
+    console.log('[KeepAlive] No RENDER_EXTERNAL_URL or APP_URL set — skipping keep-alive (local dev)');
+    return;
+  }
+  console.log(`[KeepAlive] Self-ping enabled: ${url}/api/health every 14 minutes`);
+  setInterval(async () => {
+    try {
+      const res = await fetch(`${url}/api/health`, { timeout: 10000 });
+      console.log(`[KeepAlive] Ping: ${res.status}`);
+    } catch (err) {
+      console.warn(`[KeepAlive] Ping failed: ${err.message}`);
+    }
+  }, KEEP_ALIVE_INTERVAL);
+}
+
+// Health endpoint for keep-alive pings (lightweight, no auth)
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
+});
+
 Promise.race([
   pricesReadyPromise,
   new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), START_TIMEOUT))
@@ -2060,11 +2087,13 @@ Promise.race([
       console.log(`[Server] CryptoSignals Pro v3.0 running on port ${PORT}`);
       console.log(`[Server] Dashboard: http://localhost:${PORT}`);
       console.log(`[Server] WebSocket: ws://localhost:${PORT}/ws/prices`);
+      startKeepAlive();
     });
   })
   .catch(() => {
     server.listen(PORT, () => {
       console.log(`[Server] CryptoSignals Pro v3.0 running on port ${PORT} (started without waiting for prices)`);
       console.log(`[Server] WebSocket: ws://localhost:${PORT}/ws/prices`);
+      startKeepAlive();
     });
   });

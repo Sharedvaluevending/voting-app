@@ -14,6 +14,15 @@ const RISK_PER_TRADE = 0.02;  // 2% per trade
 const DEFAULT_LEVERAGE = 2;
 const WARMUP_BARS = 100;      // Extra 1h bars to fetch before start date for indicator warmup
 
+// === POSITION MANAGEMENT: mirrors live paper-trading.js ===
+const TP1_PCT = 0.4;   // 40% at TP1
+const TP2_PCT = 0.3;   // 30% at TP2
+const TP3_PCT = 0.3;   // 30% at TP3 (remaining)
+const SLIPPAGE_BPS = 5; // 0.05% slippage on entry/exit
+const BREAKEVEN_R = 1;  // Move stop to breakeven at 1R profit
+const TRAILING_START_R = 1.5; // Start trailing at 1.5R
+const TRAILING_DIST_R = 1;   // Trail 1R behind best price
+
 /**
  * Fetch multi-timeframe historical candles for a coin
  * Wraps each fetch in a per-coin timeout so one slow coin doesn't block everything.
@@ -231,57 +240,147 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       barTime: bar.openTime  // Use historical bar time for session filter (not current clock)
     };
 
-    // Check if we have an open position - did SL or TP hit?
+    // === POSITION MANAGEMENT: mirrors live paper-trading.js ===
+    // Handles: SL, TP1 (40%), TP2 (30%), TP3 (30%), breakeven, trailing stop
     if (position) {
       const high = nextBar.high;
       const low = nextBar.low;
-      let closed = false;
-      let exitPrice = nextBar.close;
-      let reason = '';
+      const isLong = position.direction === 'LONG';
+      const slipMul = 1 + (SLIPPAGE_BPS / 10000);
+      const origRisk = Math.abs(position.entry - position.originalSL);
 
-      if (position.direction === 'LONG') {
-        if (position.stopLoss && low <= position.stopLoss) {
-          closed = true;
-          exitPrice = position.stopLoss;
-          reason = 'SL';
-        } else if (position.takeProfit1 && high >= position.takeProfit1) {
-          closed = true;
-          exitPrice = position.takeProfit1;
-          reason = 'TP1';
+      // --- Breakeven & trailing stop logic (mirrors live stopManagement) ---
+      if (origRisk > 0) {
+        const currentProfit = isLong
+          ? (high - position.entry) / origRisk
+          : (position.entry - low) / origRisk;
+
+        // Trailing stop: at 1.5R, trail 1R behind best price
+        if (currentProfit >= TRAILING_START_R) {
+          const bestPrice = isLong ? high : low;
+          if (isLong && (!position.bestPrice || bestPrice > position.bestPrice)) position.bestPrice = bestPrice;
+          if (!isLong && (!position.bestPrice || bestPrice < position.bestPrice)) position.bestPrice = bestPrice;
+          const trailStop = isLong
+            ? position.bestPrice - (TRAILING_DIST_R * origRisk)
+            : position.bestPrice + (TRAILING_DIST_R * origRisk);
+          if (isLong && trailStop > position.stopLoss) position.stopLoss = trailStop;
+          if (!isLong && trailStop < position.stopLoss) position.stopLoss = trailStop;
         }
-      } else {
-        if (position.stopLoss && high >= position.stopLoss) {
-          closed = true;
-          exitPrice = position.stopLoss;
-          reason = 'SL';
-        } else if (position.takeProfit1 && low <= position.takeProfit1) {
-          closed = true;
-          exitPrice = position.takeProfit1;
-          reason = 'TP1';
+        // Breakeven: at 1R profit, move stop to entry
+        else if (currentProfit >= BREAKEVEN_R && !position.breakevenHit) {
+          position.stopLoss = position.entry;
+          position.breakevenHit = true;
         }
       }
 
-      if (closed) {
-        const pnl = position.direction === 'LONG'
+      // --- Stop loss check ---
+      let stopped = false;
+      if (isLong && position.stopLoss && low <= position.stopLoss) stopped = true;
+      if (!isLong && position.stopLoss && high >= position.stopLoss) stopped = true;
+
+      if (stopped) {
+        const exitPrice = isLong ? position.stopLoss / slipMul : position.stopLoss * slipMul;
+        const pnl = isLong
           ? ((exitPrice - position.entry) / position.entry) * position.size
           : ((position.entry - exitPrice) / position.entry) * position.size;
         equity += pnl;
         trades.push({
-          direction: position.direction,
-          entry: position.entry,
-          exit: exitPrice,
-          entryBar: position.entryBar,
-          exitBar: t + 1,
-          reason,
-          pnl,
-          size: position.size
+          direction: position.direction, entry: position.entry, exit: exitPrice,
+          entryBar: position.entryBar, exitBar: t + 1, reason: 'SL',
+          pnl, size: position.originalSize, partials: position.partialPnl || 0
         });
         position = null;
+        continue;
       }
+
+      // --- Take profit checks: TP1 → 40%, TP2 → 30%, TP3 → 30% ---
+      // TP1: close 40% of original position
+      if (!position.tp1Hit && position.takeProfit1) {
+        const hitTP = isLong ? high >= position.takeProfit1 : low <= position.takeProfit1;
+        if (hitTP) {
+          const exitPrice = isLong ? position.takeProfit1 / slipMul : position.takeProfit1 * slipMul;
+          const portion = position.originalSize * TP1_PCT;
+          const pnl = isLong
+            ? ((exitPrice - position.entry) / position.entry) * portion
+            : ((position.entry - exitPrice) / position.entry) * portion;
+
+          // If no TP2/TP3, close entire position at TP1
+          if (!position.takeProfit2 && !position.takeProfit3) {
+            equity += pnl + ((exitPrice - position.entry) / position.entry * (position.size - portion) * (isLong ? 1 : -1));
+            const totalPnl = isLong
+              ? ((exitPrice - position.entry) / position.entry) * position.size
+              : ((position.entry - exitPrice) / position.entry) * position.size;
+            trades.push({
+              direction: position.direction, entry: position.entry, exit: exitPrice,
+              entryBar: position.entryBar, exitBar: t + 1, reason: 'TP1',
+              pnl: totalPnl, size: position.originalSize, partials: 0
+            });
+            position = null;
+            continue;
+          }
+
+          equity += pnl;
+          position.partialPnl = (position.partialPnl || 0) + pnl;
+          position.size -= portion;
+          position.tp1Hit = true;
+        }
+      }
+
+      // TP2: close 30% of original position
+      if (position && !position.tp2Hit && position.takeProfit2) {
+        const hitTP = isLong ? high >= position.takeProfit2 : low <= position.takeProfit2;
+        if (hitTP) {
+          const exitPrice = isLong ? position.takeProfit2 / slipMul : position.takeProfit2 * slipMul;
+          const portion = position.originalSize * TP2_PCT;
+          const pnl = isLong
+            ? ((exitPrice - position.entry) / position.entry) * portion
+            : ((position.entry - exitPrice) / position.entry) * portion;
+
+          // If no TP3, close entire remaining position at TP2
+          if (!position.takeProfit3) {
+            const remainPnl = isLong
+              ? ((exitPrice - position.entry) / position.entry) * position.size
+              : ((position.entry - exitPrice) / position.entry) * position.size;
+            equity += remainPnl;
+            trades.push({
+              direction: position.direction, entry: position.entry, exit: exitPrice,
+              entryBar: position.entryBar, exitBar: t + 1, reason: 'TP2',
+              pnl: (position.partialPnl || 0) + remainPnl, size: position.originalSize, partials: position.partialPnl || 0
+            });
+            position = null;
+            continue;
+          }
+
+          equity += pnl;
+          position.partialPnl = (position.partialPnl || 0) + pnl;
+          position.size -= portion;
+          position.tp2Hit = true;
+        }
+      }
+
+      // TP3: close remaining position
+      if (position && position.takeProfit3) {
+        const hitTP = isLong ? high >= position.takeProfit3 : low <= position.takeProfit3;
+        if (hitTP) {
+          const exitPrice = isLong ? position.takeProfit3 / slipMul : position.takeProfit3 * slipMul;
+          const pnl = isLong
+            ? ((exitPrice - position.entry) / position.entry) * position.size
+            : ((position.entry - exitPrice) / position.entry) * position.size;
+          equity += pnl;
+          trades.push({
+            direction: position.direction, entry: position.entry, exit: exitPrice,
+            entryBar: position.entryBar, exitBar: t + 1, reason: 'TP3',
+            pnl: (position.partialPnl || 0) + pnl, size: position.originalSize, partials: position.partialPnl || 0
+          });
+          position = null;
+          continue;
+        }
+      }
+
       continue;
     }
 
-    // No position - look for entry (only within user's requested date range)
+    // === TRADE ENTRY: mirrors live openTrade logic ===
     if (t < tradeStartBar) continue; // warmup period — skip trade entries
     const signal = analyzeCoin(coinData, slice, history, options_bt);
     let canLong = signal.signal === 'BUY' || signal.signal === 'STRONG_BUY';
@@ -296,21 +395,66 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 
     if ((canLong || canShort) && signal.score >= minScore && signal.stopLoss && signal.takeProfit1) {
       const direction = canLong ? 'LONG' : 'SHORT';
-      const entry = nextBar.open;  // Enter at next bar open
+      const slipMul = 1 + (SLIPPAGE_BPS / 10000);
+      const rawEntry = nextBar.open;
+      // Slippage: worse entry (higher for longs, lower for shorts) — matches live
+      const entry = direction === 'LONG' ? rawEntry * slipMul : rawEntry / slipMul;
       const slDist = Math.abs(entry - signal.stopLoss);
       if (slDist <= 0) continue;
       const riskAmount = equity * RISK_PER_TRADE;
       const size = (riskAmount * entry) / slDist;
       const actualSize = Math.min(size, equity * 0.95);
+
+      // Validate TPs: for LONG, TPs must be above entry; for SHORT, below (mirrors live)
+      let tp1 = signal.takeProfit1 || null;
+      let tp2 = signal.takeProfit2 || null;
+      let tp3 = signal.takeProfit3 || null;
+      if (direction === 'LONG') {
+        if (tp1 && tp1 < entry) tp1 = null;
+        if (tp2 && tp2 < entry) tp2 = null;
+        if (tp3 && tp3 < entry) tp3 = null;
+      } else {
+        if (tp1 && tp1 > entry) tp1 = null;
+        if (tp2 && tp2 > entry) tp2 = null;
+        if (tp3 && tp3 > entry) tp3 = null;
+      }
+      if (!tp1) continue; // Must have at least TP1
+
       position = {
         direction,
         entry,
         entryBar: t + 1,
         stopLoss: signal.stopLoss,
-        takeProfit1: signal.takeProfit1,
-        size: actualSize
+        originalSL: signal.stopLoss,
+        takeProfit1: tp1,
+        takeProfit2: tp2,
+        takeProfit3: tp3,
+        size: actualSize,
+        originalSize: actualSize,
+        tp1Hit: false,
+        tp2Hit: false,
+        breakevenHit: false,
+        bestPrice: null,
+        partialPnl: 0
       };
     }
+  }
+
+  // Close any remaining open position at last bar's close
+  if (position) {
+    const lastBar = c1h[c1h.length - 1];
+    const exitPrice = lastBar.close;
+    const isLong = position.direction === 'LONG';
+    const pnl = isLong
+      ? ((exitPrice - position.entry) / position.entry) * position.size
+      : ((position.entry - exitPrice) / position.entry) * position.size;
+    equity += pnl;
+    trades.push({
+      direction: position.direction, entry: position.entry, exit: exitPrice,
+      entryBar: position.entryBar, exitBar: c1h.length - 1, reason: 'END',
+      pnl: (position.partialPnl || 0) + pnl, size: position.originalSize, partials: position.partialPnl || 0
+    });
+    position = null;
   }
 
   // Build equity curve
