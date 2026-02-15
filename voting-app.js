@@ -18,7 +18,7 @@ const MongoStore = require('connect-mongo');
 const crypto = require('crypto');
 const path = require('path');
 
-const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, isCandleFresh, getCandleSource, recordScoreHistory, getScoreHistory, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
+const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, isCandleFresh, getCandleSource, recordScoreHistory, getScoreHistory, recordRegimeSnapshot, getRegimeTimeline, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
 const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
@@ -345,6 +345,7 @@ app.get('/', async (req, res) => {
     const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
 
     // Record score history for each coin (for score evolution tracking)
+    const regimeCounts = {};
     signals.forEach(sig => {
       if (sig.coin && sig.coin.id) {
         recordScoreHistory(sig.coin.id, {
@@ -354,8 +355,13 @@ app.get('/', async (req, res) => {
           strategyName: sig.strategyName,
           confidence: sig.confidence
         });
+        const r = sig.regime || 'unknown';
+        regimeCounts[r] = (regimeCounts[r] || 0) + 1;
       }
     });
+    if (Object.keys(regimeCounts).length > 0) {
+      recordRegimeSnapshot(regimeCounts);
+    }
 
     res.render('dashboard', {
       activePage: 'dashboard',
@@ -700,7 +706,8 @@ app.get('/performance', requireLogin, async (req, res) => {
       balance: 10000, initialBalance: 10000, totalPnl: 0, totalPnlPercent: '0', totalTrades: 0,
       openTrades: 0, wins: 0, losses: 0, winRate: '0', avgWin: 0, avgLoss: 0, profitFactor: '0',
       bestTrade: 0, worstTrade: 0, currentStreak: 0, bestStreak: 0, pnl7d: 0,
-      byStrategy: {}, byCoin: {}, equityCurve: []
+      byStrategy: {}, byCoin: {}, equityCurve: [],
+      drawdownAnalysis: {}, riskByStrategyRegime: { byStrategy: {}, byRegime: {} }
     };
     res.render('performance', {
       activePage: 'performance',
@@ -713,6 +720,35 @@ app.get('/performance', requireLogin, async (req, res) => {
   } catch (err) {
     console.error('[Performance] Error:', err);
     res.status(500).send('Error loading performance');
+  }
+});
+
+// ====================================================
+// ADVANCED ANALYTICS
+// ====================================================
+app.get('/analytics', requireLogin, async (req, res) => {
+  try {
+    const { getPerformanceStats } = require('./services/paper-trading');
+    const { computeCorrelationMatrix } = require('./services/analytics');
+
+    const [stats, allCandles] = await Promise.all([
+      getPerformanceStats(req.session.userId),
+      Promise.resolve(fetchAllCandles())
+    ]);
+
+    const correlation = computeCorrelationMatrix(allCandles);
+    const regimeTimeline = getRegimeTimeline();
+
+    res.render('analytics', {
+      activePage: 'analytics',
+      stats: stats || {},
+      correlation,
+      regimeTimeline,
+      user: await User.findById(req.session.userId).lean()
+    });
+  } catch (err) {
+    console.error('[Analytics] Error:', err);
+    res.status(500).send('Error loading analytics');
   }
 });
 

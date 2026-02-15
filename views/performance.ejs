@@ -289,7 +289,21 @@
     <div class="perf-label">Max Drawdown</div>
     <div class="perf-value down">$<%= (stats.maxDrawdown || 0).toFixed(2) %> (<%= (stats.maxDrawdownPct || 0) %>% of peak)</div>
   </div>
+  <% if (stats.calmar != null) { %>
+  <div class="perf-card">
+    <div class="perf-label">Calmar Ratio</div>
+    <div class="perf-value <%= stats.calmar >= 0 ? 'up' : 'down' %>"><%= stats.calmar %></div>
+  </div>
+  <% } %>
 </div>
+
+<% var dd = stats.drawdownAnalysis || {}; %>
+<% if (dd.avgRecoveryHours != null || dd.longestUnderwaterHours != null) { %>
+<div class="section" style="margin-bottom:16px;">
+  <h3 style="color:#e5e7eb;margin-bottom:8px;">Drawdown Details</h3>
+  <p style="font-size:12px;color:#9ca3af;margin-bottom:8px;">Avg recovery: <strong><%= dd.avgRecoveryHours != null ? dd.avgRecoveryHours + 'h' : '-' %></strong> &middot; Longest underwater: <strong><%= dd.longestUnderwaterHours != null ? dd.longestUnderwaterHours + 'h' : '-' %></strong> &middot; <a href="/analytics" style="color:#3b82f6;">Full analytics &rarr;</a></p>
+</div>
+<% } %>
 
 <% if (stats.equityCurve && stats.equityCurve.length > 1) { %>
 <div class="section">

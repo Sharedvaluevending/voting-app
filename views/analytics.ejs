@@ -1,0 +1,186 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Advanced Analytics</h2>
+  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Correlation matrix, regime timeline, drawdown analysis, and risk metrics by strategy/regime.</p>
+</div>
+
+<!-- WebSocket note -->
+<div class="section" style="margin-bottom:20px;padding:12px 16px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.3);border-radius:8px;">
+  <h3 style="color:#3b82f6;font-size:13px;margin:0 0 6px 0;">WebSockets</h3>
+  <p style="color:#9ca3af;font-size:12px;margin:0;">WebSockets push updates in real-time — the server sends new data as soon as it changes (no polling). Bybit and Kraken offer free public WebSocket APIs for prices and candles.</p>
+</div>
+
+<!-- Correlation Matrix -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Correlation Matrix</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Coin vs BTC and coin vs coin. Values near 1 = move together; near -1 = opposite; near 0 = uncorrelated. Based on <%= typeof correlation !== 'undefined' && correlation.timeframe ? correlation.timeframe : '1h' %> returns.</p>
+  <% if (correlation && correlation.btcCorrelations && Object.keys(correlation.btcCorrelations).length > 0) { %>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:16px;">
+    <div style="font-size:11px;color:#6b7280;margin-bottom:6px;">vs BTC</div>
+    <% Object.entries(correlation.btcCorrelations).forEach(function([sym, val]) {
+      var color = val > 0.7 ? '#10b981' : val > 0.3 ? '#3b82f6' : val > -0.3 ? '#9ca3af' : val > -0.7 ? '#eab308' : '#ef4444';
+    %>
+    <div style="padding:8px 12px;background:#1e293b;border-radius:6px;border-left:3px solid <%= color %>;">
+      <span style="color:#e5e7eb;font-weight:600;"><%= sym %></span>
+      <span style="color:<%= color %>;font-weight:700;float:right;"><%= val %></span>
+    </div>
+    <% }); %>
+  </div>
+  <% if (correlation.coinCorrelations && Object.keys(correlation.coinCorrelations).length > 0) { %>
+  <div style="font-size:11px;color:#6b7280;margin-bottom:6px;">Coin vs Coin</div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;">
+    <% Object.entries(correlation.coinCorrelations).forEach(function([pair, val]) {
+      var color = val > 0.7 ? '#10b981' : val > 0.3 ? '#3b82f6' : val > -0.3 ? '#9ca3af' : '#ef4444';
+    %>
+    <span style="padding:4px 10px;background:#1e293b;border-radius:4px;font-size:12px;"><%= pair %>: <strong style="color:<%= color %>"><%= val %></strong></span>
+    <% }); %>
+  </div>
+  <% } %>
+  <% } else { %>
+  <p style="color:#6b7280;font-size:13px;">No correlation data yet. Ensure candles are loaded (dashboard refresh).</p>
+  <% } %>
+</div>
+
+<!-- Regime Timeline -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Regime Timeline</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">How often each regime appears across coins over time. Each snapshot = one dashboard load.</p>
+  <% if (regimeTimeline && regimeTimeline.length > 0) {
+    var latest = regimeTimeline[regimeTimeline.length - 1];
+    var total = Object.values(latest.counts).reduce(function(a,b){ return a+b; }, 0);
+    var regimes = ['trending','ranging','compression','volatile','mixed'];
+  %>
+  <div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+    <% regimes.forEach(function(r) {
+      var count = latest.counts[r] || 0;
+      var pct = total > 0 ? Math.round((count/total)*100) : 0;
+    %>
+    <div style="padding:10px 16px;background:#1e293b;border-radius:8px;min-width:100px;">
+      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;"><%= r %></div>
+      <div style="font-size:18px;font-weight:700;color:#e5e7eb;"><%= count %></div>
+      <div style="font-size:12px;color:#9ca3af;"><%= pct %>% of coins</div>
+    </div>
+    <% }); %>
+  </div>
+  <div style="font-size:11px;color:#6b7280;">Last <%= regimeTimeline.length %> snapshots. Latest: <%= new Date(latest.timestamp).toLocaleString() %></div>
+  <% } else { %>
+  <p style="color:#6b7280;font-size:13px;">No regime data yet. Load the dashboard to record regime snapshots.</p>
+  <% } %>
+</div>
+
+<!-- Drawdown Analysis -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Drawdown Analysis</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Max drawdown, average recovery time, and longest underwater period.</p>
+  <% var dd = stats.drawdownAnalysis || {}; %>
+  <div class="perf-grid" style="margin-bottom:16px;">
+    <div class="perf-card">
+      <div class="perf-label">Max Drawdown</div>
+      <div class="perf-value down">$<%= (dd.maxDrawdown || 0).toFixed(2) %> (<%= (dd.maxDrawdownPct || 0).toFixed(1) %>%)</div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Avg Recovery Time</div>
+      <div class="perf-value"><%= dd.avgRecoveryHours != null ? dd.avgRecoveryHours + 'h' : '-' %></div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Longest Underwater</div>
+      <div class="perf-value"><%= dd.longestUnderwaterHours != null ? dd.longestUnderwaterHours + 'h' : '-' %></div>
+    </div>
+  </div>
+  <% if (dd.underwaterPeriods && dd.underwaterPeriods.length > 0) { %>
+  <div style="font-size:12px;color:#6b7280;margin-top:8px;">Recent underwater periods: <%= dd.underwaterPeriods.length %> recorded</div>
+  <% } %>
+</div>
+
+<!-- Risk Metrics by Strategy & Regime -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Risk Metrics by Strategy & Regime</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Sharpe, Sortino, Calmar, and Profit Factor for each strategy and regime (min 2 trades).</p>
+  <% var rbr = stats.riskByStrategyRegime || { byStrategy: {}, byRegime: {} }; %>
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="border-bottom:1px solid #1e2a3a;">
+          <th style="text-align:left;padding:10px 8px;color:#9ca3af;">Strategy</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Trades</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Sharpe</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Sortino</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Calmar</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Profit Factor</th>
+          <th style="text-align:right;padding:10px 8px;color:#9ca3af;">P&L</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% Object.entries(rbr.byStrategy || {}).forEach(function([name, d]) { %>
+        <tr style="border-bottom:1px solid rgba(30,42,58,0.5);">
+          <td style="padding:10px 8px;color:#e5e7eb;font-weight:600;"><%= name %></td>
+          <td style="text-align:center;padding:10px 8px;color:#9ca3af;"><%= d.trades %></td>
+          <td style="text-align:center;padding:10px 8px;color:<%= d.sharpe != null && d.sharpe > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sharpe != null ? d.sharpe : '-' %></td>
+          <td style="text-align:center;padding:10px 8px;color:<%= d.sortino != null && d.sortino > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sortino != null ? d.sortino : '-' %></td>
+          <td style="text-align:center;padding:10px 8px;color:<%= d.calmar != null && d.calmar > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.calmar != null ? d.calmar : '-' %></td>
+          <td style="text-align:center;padding:10px 8px;color:<%= d.profitFactor != null && d.profitFactor > 1 ? '#10b981' : '#9ca3af' %>;"><%= d.profitFactor != null ? d.profitFactor : '-' %></td>
+          <td style="text-align:right;padding:10px 8px;color:<%= d.pnl >= 0 ? '#10b981' : '#ef4444' %>;"><%= d.pnl >= 0 ? '+' : '' %>$<%= (d.pnl || 0).toFixed(2) %></td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+  <h4 style="color:#9ca3af;font-size:14px;margin:20px 0 10px 0;">By Regime</h4>
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="border-bottom:1px solid #1e2a3a;">
+          <th style="text-align:left;padding:10px 8px;color:#9ca3af;">Regime</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Trades</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Sharpe</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Sortino</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Calmar</th>
+          <th style="text-align:center;padding:10px 8px;color:#9ca3af;">Profit Factor</th>
+          <th style="text-align:right;padding:10px 8px;color:#9ca3af;">P&L</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% Object.entries(rbr.byRegime || {}).forEach(function([name, d]) { %>
+        <tr style="border-bottom:1px solid rgba(30,42,58,0.5);">
+          <td style="padding:10px 8px;color:#e5e7eb;font-weight:600;"><%= name %></td>
+          <td style="text-align:center;padding:10px 8px;color:#9ca3af;"><%= d.trades %></td>
+          <td style="text-align:center;padding:10px 8px;color:<%= d.sharpe != null && d.sharpe > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sharpe != null ? d.sharpe : '-' %></td>
+          <td style="text-align:center;padding:10px 8px;color:<%= d.sortino != null && d.sortino > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sortino != null ? d.sortino : '-' %></td>
+          <td style="text-align:center;padding:10px 8px;color:<%= d.calmar != null && d.calmar > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.calmar != null ? d.calmar : '-' %></td>
+          <td style="text-align:center;padding:10px 8px;color:<%= d.profitFactor != null && d.profitFactor > 1 ? '#10b981' : '#9ca3af' %>;"><%= d.profitFactor != null ? d.profitFactor : '-' %></td>
+          <td style="text-align:right;padding:10px 8px;color:<%= d.pnl >= 0 ? '#10b981' : '#ef4444' %>;"><%= d.pnl >= 0 ? '+' : '' %>$<%= (d.pnl || 0).toFixed(2) %></td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+  <% if (Object.keys(rbr.byStrategy || {}).length === 0 && Object.keys(rbr.byRegime || {}).length === 0) { %>
+  <p style="color:#6b7280;font-size:13px;margin-top:12px;">No trade data yet. Close some trades to see risk metrics by strategy and regime.</p>
+  <% } %>
+</div>
+
+<!-- Overall Risk Metrics -->
+<div class="section">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Overall Risk Metrics</h3>
+  <div class="perf-grid">
+    <div class="perf-card">
+      <div class="perf-label">Sharpe Ratio</div>
+      <div class="perf-value <%= stats.sharpe != null && stats.sharpe > 0 ? 'up' : '' %>"><%= stats.sharpe != null ? stats.sharpe : '-' %></div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Sortino Ratio</div>
+      <div class="perf-value <%= stats.sortino != null && stats.sortino > 0 ? 'up' : '' %>"><%= stats.sortino != null ? stats.sortino : '-' %></div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Calmar Ratio</div>
+      <div class="perf-value <%= stats.calmar != null && stats.calmar > 0 ? 'up' : '' %>"><%= stats.calmar != null ? stats.calmar : '-' %></div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Profit Factor</div>
+      <div class="perf-value <%= parseFloat(stats.profitFactor || 0) > 1 ? 'up' : '' %>"><%= stats.profitFactor || '-' %></div>
+    </div>
+  </div>
+</div>
+
+<%- include('partials/footer') %>

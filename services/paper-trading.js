@@ -1756,6 +1756,15 @@ async function getPerformanceStats(userId) {
   const sharpe = stdRet > 0 ? meanRet / stdRet : 0;
   const sortino = downsideStd > 0 ? meanRet / downsideStd : (meanRet >= 0 ? (returns.length > 0 ? 99 : 0) : -99);
 
+  // Calmar ratio: return / max drawdown (annualized proxy)
+  const totalReturn = initialBalance > 0 ? (equity - initialBalance) / initialBalance : 0;
+  const calmar = maxDrawdownPct > 0 ? (totalReturn * 100) / maxDrawdownPct : null;
+
+  // Drawdown analysis: recovery time, underwater periods
+  const { computeDrawdownAnalysis, computeRiskMetricsByStrategyAndRegime } = require('./analytics');
+  const drawdownAnalysis = computeDrawdownAnalysis(equityCurve);
+  const riskByStrategyRegime = computeRiskMetricsByStrategyAndRegime(closedTrades, initialBalance, equityCurve);
+
   return {
     balance: user.paperBalance,
     initialBalance,
@@ -1778,8 +1787,11 @@ async function getPerformanceStats(userId) {
     byCoin,
     sharpe: returns.length >= 2 ? Math.round(sharpe * 100) / 100 : null,
     sortino: returns.length >= 2 ? Math.round(sortino * 100) / 100 : null,
+    calmar: calmar != null ? Math.round(calmar * 100) / 100 : null,
     maxDrawdown: Math.round(maxDrawdown * 100) / 100,
     maxDrawdownPct: Math.round(maxDrawdownPct * 100) / 100,
+    drawdownAnalysis,
+    riskByStrategyRegime,
     equityCurve
   };
 }

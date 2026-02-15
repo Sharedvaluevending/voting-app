@@ -15,6 +15,7 @@ const cache = {
   history: {},
   fundingRates: {},   // coinId -> { rate, time }
   scoreHistory: {},   // coinId -> [{ score, signal, regime, timestamp }]
+  regimeTimeline: [], // [{ timestamp, counts: { trending: 5, ranging: 3, ... } }]
   lastRefresh: 0,
   refreshing: false
 };
@@ -491,6 +492,23 @@ function getScoreHistory(coinId) {
 }
 
 // ====================================================
+// REGIME TIMELINE (how often each regime appears over time)
+// ====================================================
+function recordRegimeSnapshot(regimeCounts) {
+  cache.regimeTimeline.push({
+    timestamp: Date.now(),
+    counts: { ...regimeCounts }
+  });
+  if (cache.regimeTimeline.length > 200) {
+    cache.regimeTimeline = cache.regimeTimeline.slice(-200);
+  }
+}
+
+function getRegimeTimeline() {
+  return cache.regimeTimeline.slice();
+}
+
+// ====================================================
 // BACKGROUND REFRESH
 // ====================================================
 async function refreshAllData() {
@@ -742,6 +760,7 @@ module.exports = {
   getFundingRate, getAllFundingRates,
   isCandleFresh, getCandleSource, getCandleAge,
   recordScoreHistory, getScoreHistory,
+  recordRegimeSnapshot, getRegimeTimeline,
   pricesReadyPromise,
   TRACKED_COINS, COIN_META
 };
