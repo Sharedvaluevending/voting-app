@@ -237,6 +237,9 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   let lastBtcAnalysisBar = -999;
 
   for (let t = 50; t < c1h.length - 1; t++) {
+    // Guard: if equity is blown (0 or negative), stop trading
+    if (equity <= 0) { equity = 0; break; }
+
     const bar = c1h[t];
     const nextBar = c1h[t + 1];
     const slice = sliceCandlesAt(candles, t);
@@ -281,6 +284,12 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       const high = nextBar.high;
       const low = nextBar.low;
       const currentPrice = nextBar.close;
+
+      // Guard: skip invalid candle data (NaN, zero, negative) — prevents equity corruption
+      if (!Number.isFinite(currentPrice) || currentPrice <= 0 ||
+          !Number.isFinite(high) || high <= 0 ||
+          !Number.isFinite(low) || low <= 0) continue;
+
       const isLong = position.direction === 'LONG';
       const slipMul = 1 + (SLIPPAGE_BPS / 10000);
       const origRisk = Math.abs(position.entry - position.originalSL);
@@ -394,7 +403,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             ? ((exitPrice - position.entry) / position.entry) * position.size
             : ((position.entry - exitPrice) / position.entry) * position.size;
           pnl -= exitFees;
-          equity += pnl;
+          equity = Math.max(0, equity + pnl);
           position.actions.push({ type: 'EXIT', bar: t + 1 });
           trades.push({
             direction: position.direction, entry: position.entry, exit: exitPrice,
@@ -417,7 +426,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
               ? ((exitPrice - position.entry) / position.entry) * portion
               : ((position.entry - exitPrice) / position.entry) * portion;
             pnl -= exitFees;
-            equity += pnl;
+            equity = Math.max(0, equity + pnl);
             position.partialPnl = (position.partialPnl || 0) + pnl;
             position.size -= portion;
             position.reducedByScore = true;
@@ -435,8 +444,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       // Determine SL price source: close (realistic, matches live) or high/low (conservative)
       const slCheckPrice = F_CLOSE_STOPS ? currentPrice : (isLong ? low : high);
       let stopped = false;
-      if (isLong && position.stopLoss && slCheckPrice <= position.stopLoss) stopped = true;
-      if (!isLong && position.stopLoss && slCheckPrice >= position.stopLoss) stopped = true;
+      if (isLong && position.stopLoss != null && slCheckPrice <= position.stopLoss) stopped = true;
+      if (!isLong && position.stopLoss != null && slCheckPrice >= position.stopLoss) stopped = true;
 
       // TP check still uses high/low (limit orders fill on wicks in reality)
       const activeTP = !position.tp1Hit ? position.takeProfit1
@@ -476,7 +485,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
           ? ((exitPrice - position.entry) / position.entry) * position.size
           : ((position.entry - exitPrice) / position.entry) * position.size;
         pnl -= exitFees;
-        equity += pnl;
+        equity = Math.max(0, equity + pnl);
         trades.push({
           direction: position.direction, entry: position.entry, exit: exitPrice,
           entryBar: position.entryBar, exitBar: t + 1, reason: 'SL',
@@ -501,7 +510,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             const pnl = (isLong
               ? ((exitPrice - position.entry) / position.entry) * position.size
               : ((position.entry - exitPrice) / position.entry) * position.size) - exitFees;
-            equity += pnl;
+            equity = Math.max(0, equity + pnl);
             trades.push({
               direction: position.direction, entry: position.entry, exit: exitPrice,
               entryBar: position.entryBar, exitBar: t + 1, reason: 'TP1',
@@ -543,7 +552,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
               continue;
             }
 
-            equity += pnl;
+            equity = Math.max(0, equity + pnl);
             position.partialPnl = (position.partialPnl || 0) + pnl;
             position.size -= portion;
             position.tp1Hit = true;
@@ -580,7 +589,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
               continue;
             }
 
-            equity += pnl;
+            equity = Math.max(0, equity + pnl);
             position.partialPnl = (position.partialPnl || 0) + pnl;
             position.size -= portion;
             position.tp2Hit = true;
@@ -597,7 +606,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             let pnl = (isLong
               ? ((exitPrice - position.entry) / position.entry) * position.size
               : ((position.entry - exitPrice) / position.entry) * position.size) - exitFees;
-            equity += pnl;
+            equity = Math.max(0, equity + pnl);
             position.actions.push({ type: 'PP', bar: t + 1, label: 'TP3' });
             trades.push({
               direction: position.direction, entry: position.entry, exit: exitPrice,
@@ -668,6 +677,13 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             : entry + minSlDist;
         }
       }
+    }
+
+    // Validate SL is on correct side of entry (mirrors live wrong-side guard)
+    const wrongSide = (direction === 'LONG' && stopLoss >= entry)
+                   || (direction === 'SHORT' && stopLoss <= entry);
+    if (wrongSide) {
+      stopLoss = direction === 'LONG' ? entry * 0.98 : entry * 1.02;
     }
 
     const slDist = Math.abs(entry - stopLoss);
@@ -744,7 +760,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       ? ((exitPrice - position.entry) / position.entry) * position.size
       : ((position.entry - exitPrice) / position.entry) * position.size;
     pnl -= exitFees;
-    equity += pnl;
+    equity = Math.max(0, equity + pnl);
     trades.push({
       direction: position.direction, entry: position.entry, exit: exitPrice,
       entryBar: position.entryBar, exitBar: c1h.length - 1, reason: 'END',

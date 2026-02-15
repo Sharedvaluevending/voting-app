@@ -917,6 +917,48 @@ app.post('/account/settings', requireLogin, async (req, res) => {
 });
 
 // ====================================================
+// FEATURE TOGGLES (separate form on performance page)
+// ====================================================
+app.post('/account/feature-toggles', requireLogin, async (req, res) => {
+  try {
+    const u = await User.findById(req.session.userId);
+    if (!u) return res.redirect('/performance');
+    const s = u.settings || {};
+    const parseBool = (val) => val === 'true' || (Array.isArray(val) && val.includes('true'));
+
+    // Feature toggle fields — unchecked checkboxes don't submit, so default to false
+    s.featureBtcFilter = req.body.featureBtcFilter ? parseBool(req.body.featureBtcFilter) : false;
+    s.featureBtcCorrelation = req.body.featureBtcCorrelation ? parseBool(req.body.featureBtcCorrelation) : false;
+    s.featureSessionFilter = req.body.featureSessionFilter ? parseBool(req.body.featureSessionFilter) : false;
+    s.featurePartialTP = req.body.featurePartialTP ? parseBool(req.body.featurePartialTP) : false;
+    s.featureLockIn = req.body.featureLockIn ? parseBool(req.body.featureLockIn) : false;
+    s.featureScoreRecheck = req.body.featureScoreRecheck ? parseBool(req.body.featureScoreRecheck) : false;
+    s.featureSlCap = req.body.featureSlCap ? parseBool(req.body.featureSlCap) : false;
+    s.featureMinSlDistance = req.body.featureMinSlDistance ? parseBool(req.body.featureMinSlDistance) : false;
+    s.featureConfidenceSizing = req.body.featureConfidenceSizing ? parseBool(req.body.featureConfidenceSizing) : false;
+
+    // BE and TS are shared with existing settings
+    if (req.body.autoMoveBreakeven !== undefined) {
+      s.autoMoveBreakeven = parseBool(req.body.autoMoveBreakeven);
+    } else {
+      s.autoMoveBreakeven = false;
+    }
+    if (req.body.autoTrailingStop !== undefined) {
+      s.autoTrailingStop = parseBool(req.body.autoTrailingStop);
+    } else {
+      s.autoTrailingStop = false;
+    }
+
+    u.settings = s;
+    u.markModified('settings');
+    await u.save();
+    res.redirect('/performance?success=Feature+toggles+saved');
+  } catch (err) {
+    res.redirect('/performance?error=' + encodeURIComponent(err.message || 'Failed to save toggles'));
+  }
+});
+
+// ====================================================
 // SYNC PAPER BALANCE FROM BITGET
 // ====================================================
 app.post('/account/sync-balance-from-bitget', requireLogin, async (req, res) => {

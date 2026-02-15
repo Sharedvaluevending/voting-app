@@ -180,6 +180,68 @@
     </div>
   </form>
 </div>
+
+<!-- Feature Toggles for Live/Paper Trading -->
+<div class="section" style="margin-bottom:24px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;cursor:pointer;" onclick="document.getElementById('live-feature-toggles').style.display = document.getElementById('live-feature-toggles').style.display === 'none' ? 'block' : 'none'; this.querySelector('.toggle-arrow').textContent = document.getElementById('live-feature-toggles').style.display === 'none' ? '\u25B6' : '\u25BC';">
+    <h3 style="color:#e5e7eb;margin:0;">Feature Toggles</h3>
+    <span class="toggle-arrow" style="color:#6b7280;font-size:14px;">&#x25BC;</span>
+  </div>
+  <div id="live-feature-toggles">
+    <p style="color:#6b7280;font-size:12px;margin-bottom:12px;">Toggle trading features on/off for live &amp; paper trading. These match the backtest feature toggles for consistent behavior.</p>
+    <form id="feature-toggles-form" action="/account/feature-toggles" method="POST">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
+        <!-- Signal Filters -->
+        <label class="ft-toggle" title="Block altcoin LONGs when BTC is STRONG_SELL, block SHORTs when BTC is STRONG_BUY">
+          <input type="checkbox" name="featureBtcFilter" value="true" <%= (user.settings && user.settings.featureBtcFilter) !== false ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> BTC Signal Filter
+        </label>
+        <label class="ft-toggle" title="Penalize score up to -8 when coin is highly correlated with BTC but trading against BTC direction">
+          <input type="checkbox" name="featureBtcCorrelation" value="true" <%= (user.settings && user.settings.featureBtcCorrelation) !== false ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> BTC Correlation Penalty
+        </label>
+        <label class="ft-toggle" title="Apply session penalty (-5 score) outside 12-22 UTC peak hours">
+          <input type="checkbox" name="featureSessionFilter" value="true" <%= (user.settings && user.settings.featureSessionFilter) !== false ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Session Filter (12-22 UTC)
+        </label>
+
+        <!-- Position Management -->
+        <label class="ft-toggle" title="TP1 closes 40%, TP2 closes 30%, TP3 closes remaining 30%. OFF = close 100% at TP1">
+          <input type="checkbox" name="featurePartialTP" value="true" <%= (user.settings && user.settings.featurePartialTP) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">TP</span> Partial Take Profits (40/30/30)
+        </label>
+        <label class="ft-toggle" title="Move stop to entry (+0.3% buffer) when trade reaches 1R profit">
+          <input type="checkbox" name="autoMoveBreakeven" value="true" <%= (user.settings && user.settings.autoMoveBreakeven) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">BE</span> Breakeven at 1R
+        </label>
+        <label class="ft-toggle" title="Trail stop 1R behind best price after 1.5R profit">
+          <input type="checkbox" name="autoTrailingStop" value="true" <%= (user.settings && user.settings.autoTrailingStop) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">TS</span> Trailing Stop (1.5R)
+        </label>
+        <label class="ft-toggle" title="Lock stop at 0.5R/0.75R/1R as trade progresses 50%/75%/90% toward TP2">
+          <input type="checkbox" name="featureLockIn" value="true" <%= (user.settings && user.settings.featureLockIn) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">LOCK</span> Stepped Lock-In
+        </label>
+
+        <!-- Risk Management -->
+        <label class="ft-toggle" title="Widen stops tighter than 1x ATR to prevent noise-level stop-outs">
+          <input type="checkbox" name="featureMinSlDistance" value="true" <%= (user.settings && user.settings.featureMinSlDistance) !== false ? 'checked' : '' %>> <span class="ft-badge ft-fix">FIX</span> Min SL Distance (1x ATR)
+        </label>
+        <label class="ft-toggle" title="Re-analyze signal while in trade. Exit on score collapse, reduce 50% on score drop">
+          <input type="checkbox" name="featureScoreRecheck" value="true" <%= (user.settings && user.settings.featureScoreRecheck) !== false ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> Score Re-check (Exit/Reduce)
+        </label>
+        <label class="ft-toggle" title="Cap stop loss distance to max 15% from entry">
+          <input type="checkbox" name="featureSlCap" value="true" <%= (user.settings && user.settings.featureSlCap) !== false ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> SL Distance Cap (15%)
+        </label>
+
+        <!-- Sizing -->
+        <label class="ft-toggle" title="Higher score = slightly larger position (0.5 + score/100, cap 1.2x)">
+          <input type="checkbox" name="featureConfidenceSizing" value="true" <%= (user.settings && user.settings.featureConfidenceSizing) !== false ? 'checked' : '' %>> <span class="ft-badge ft-cost">SIZE</span> Confidence Sizing
+        </label>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button type="button" class="btn btn-sm" onclick="setLiveToggles(true)" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:4px;cursor:pointer;">All ON</button>
+        <button type="button" class="btn btn-sm" onclick="setLiveToggles(false)" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:4px;cursor:pointer;">All OFF</button>
+        <button type="button" class="btn btn-sm" onclick="loadBacktestPreset()" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #3b82f6;color:#3b82f6;border-radius:4px;cursor:pointer;" title="Load toggle config saved from the Backtest page">Load from Backtest</button>
+        <button type="submit" class="btn btn-outline btn-sm" style="margin-left:auto;">Save Toggles</button>
+      </div>
+    </form>
+  </div>
+</div>
 <% } %>
 
 <!-- Position Sizing Calculator -->
@@ -607,6 +669,72 @@
     }
   })();
 })();
+
+// Feature toggle helpers (global scope for onclick handlers)
+function setLiveToggles(val) {
+    document.querySelectorAll('#live-feature-toggles input[type=checkbox]').forEach(function(cb) { cb.checked = val; });
+  }
+
+  // Save current toggle state to localStorage for backtest → live transfer
+  function saveLiveTogglesToLocal() {
+    var toggles = {};
+    document.querySelectorAll('#feature-toggles-form input[type=checkbox]').forEach(function(cb) {
+      toggles[cb.name] = cb.checked;
+    });
+    localStorage.setItem('tradingFeatureToggles', JSON.stringify(toggles));
+  }
+
+  // Load toggle preset saved from backtest page
+  function loadBacktestPreset() {
+    var saved = localStorage.getItem('backtestFeaturePreset');
+    if (!saved) {
+      alert('No backtest preset found. Go to the Backtest page and click "Save as Live Preset" first.');
+      return;
+    }
+    try {
+      var preset = JSON.parse(saved);
+      // Map backtest toggle IDs to live form field names
+      var mapping = {
+        btcFilter: 'featureBtcFilter',
+        btcCorrelation: 'featureBtcCorrelation',
+        sessionFilter: 'featureSessionFilter',
+        partialTP: 'featurePartialTP',
+        breakeven: 'autoMoveBreakeven',
+        trailingStop: 'autoTrailingStop',
+        lockIn: 'featureLockIn',
+        minSlDistance: 'featureMinSlDistance',
+        scoreRecheck: 'featureScoreRecheck',
+        slCap: 'featureSlCap',
+        confidenceSizing: 'featureConfidenceSizing'
+      };
+      for (var key in mapping) {
+        var input = document.querySelector('#feature-toggles-form input[name="' + mapping[key] + '"]');
+        if (input && preset[key] !== undefined) {
+          input.checked = preset[key];
+        }
+      }
+      alert('Backtest preset loaded! Click "Save Toggles" to apply.');
+    } catch (e) {
+      alert('Error loading preset: ' + e.message);
+    }
+  }
 </script>
+
+<style>
+/* Feature toggle styles */
+.ft-toggle {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  background: rgba(15,23,42,0.5); border: 1px solid #1e2a3a; border-radius: 6px;
+  color: #e5e7eb; font-size: 12px; cursor: pointer; transition: border-color 0.2s;
+}
+.ft-toggle:hover { border-color: #334155; }
+.ft-toggle input[type=checkbox] { accent-color: #3b82f6; width: 14px; height: 14px; cursor: pointer; }
+.ft-badge { padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: 700; letter-spacing: 0.5px; }
+.ft-signal { background: #3b82f622; color: #3b82f6; }
+.ft-pos { background: #10b98122; color: #10b981; }
+.ft-risk { background: #f59e0b22; color: #f59e0b; }
+.ft-cost { background: #8b5cf622; color: #8b5cf6; }
+.ft-fix { background: #ef444422; color: #ef4444; }
+</style>
 
 <%- include('partials/footer') %>

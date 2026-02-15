@@ -25,6 +25,24 @@ const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
 const DEFAULT_COOLDOWN_HOURS = 4;  // no same-direction re-entry on same coin within N hours
 const MIN_HOLD_MINUTES = 30;       // Don't score-exit trades within first 30 minutes
 
+// Feature flag helper: reads user's settings with defaults (all ON)
+function getFeatureFlags(user) {
+  const s = user?.settings || {};
+  return {
+    btcFilter: s.featureBtcFilter !== false,
+    btcCorrelation: s.featureBtcCorrelation !== false,
+    sessionFilter: s.featureSessionFilter !== false,
+    partialTP: s.featurePartialTP !== false,
+    breakeven: s.autoMoveBreakeven !== false,
+    trailingStop: s.autoTrailingStop !== false,
+    lockIn: s.featureLockIn !== false,
+    scoreRecheck: s.featureScoreRecheck !== false,
+    slCap: s.featureSlCap !== false,
+    minSlDistance: s.featureMinSlDistance !== false,
+    confidenceSizing: s.featureConfidenceSizing !== false
+  };
+}
+
 // Take-profit position split: balanced scale-out
 const TP1_PCT = 0.4;   // 40% at TP1
 const TP2_PCT = 0.3;   // 30% at TP2
@@ -142,10 +160,11 @@ async function openTrade(userId, signalData) {
     : signalData.entry / slippage;
   let stopLoss = signalData.stopLoss;
 
+  const ff = getFeatureFlags(user);
+
   // CAP STOP LOSS DISTANCE: prevent absurdly wide stops (max 15% from entry)
-  // This protects against bad support/resistance calculations setting stops way too far
   const MAX_SL_DISTANCE_PCT = 0.15;
-  if (stopLoss != null && entryPrice > 0) {
+  if (ff.slCap && stopLoss != null && entryPrice > 0) {
     const slDistance = Math.abs(entryPrice - stopLoss) / entryPrice;
     if (slDistance > MAX_SL_DISTANCE_PCT) {
       const cappedSL = signalData.direction === 'LONG'
@@ -168,13 +187,26 @@ async function openTrade(userId, signalData) {
     }
   }
 
+  // MIN SL DISTANCE: prevent noise-level stops (1x ATR floor)
+  if (ff.minSlDistance && signalData.indicators?.atr > 0) {
+    const minSlDist = signalData.indicators.atr * 1.0;
+    const currentSlDist = Math.abs(entryPrice - stopLoss);
+    if (currentSlDist < minSlDist) {
+      stopLoss = signalData.direction === 'LONG'
+        ? entryPrice - minSlDist
+        : entryPrice + minSlDist;
+    }
+  }
+
   let positionSize = calculatePositionSize(
     user.paperBalance, riskPercent, entryPrice, stopLoss, leverage
   );
   // Confidence-weighted size: scale by score (0.5 + score/100), cap 1.2
-  const score = Math.min(100, Math.max(0, signalData.score || 50));
-  const confidenceMult = Math.min(1.2, 0.5 + score / 100);
-  positionSize = positionSize * confidenceMult;
+  if (ff.confidenceSizing) {
+    const score = Math.min(100, Math.max(0, signalData.score || 50));
+    const confidenceMult = Math.min(1.2, 0.5 + score / 100);
+    positionSize = positionSize * confidenceMult;
+  }
 
   // Win/loss streak adjustment: reduce size after consecutive losses, slight boost after wins
   const streak = user.stats?.currentStreak || 0;
@@ -606,8 +638,9 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc) {
     }
 
     const user = await User.findById(trade.userId);
-    const autoBE = user?.settings?.autoMoveBreakeven !== false;
-    const autoTrail = user?.settings?.autoTrailingStop !== false;
+    const ff = getFeatureFlags(user);
+    const autoBE = ff.breakeven;
+    const autoTrail = ff.trailingStop;
 
     // Risk (1R) = distance from entry to original stop
     const origSl = trade.originalStopLoss ?? trade.stopLoss;
@@ -684,7 +717,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc) {
       }
 
       // Stepped profit lock-in (ALWAYS runs — works alongside trailing)
-      if (pastStopGrace) {
+      if (pastStopGrace && ff.lockIn) {
         const progress = getProgressTowardTP(trade, currentPrice);
         let effectiveProgress = progress;
         if (progress <= 0 && trade.entryPrice > 0) {
@@ -763,10 +796,10 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc) {
       }
       const orig = trade.originalPositionSize || trade.positionSize;
 
-      // TP1: take partial (or full if only TP)
+      // TP1: take partial (or full if only TP or partialTP is off)
       if (hitTP1Long && !trade.partialTakenAtTP1 && trade.takeProfit1) {
         const exit1 = trade.takeProfit1 / slippage;
-        if (!trade.takeProfit2 && !trade.takeProfit3) {
+        if (!ff.partialTP || (!trade.takeProfit2 && !trade.takeProfit3)) {
           console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → FULL CLOSE (only TP)`);
           await closeTrade(trade.userId, trade._id, exit1, 'TP1');
           closedCount++;
@@ -816,10 +849,10 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc) {
       }
       const orig = trade.originalPositionSize || trade.positionSize;
 
-      // TP1: take partial (or full if only TP)
+      // TP1: take partial (or full if only TP or partialTP is off)
       if (hitTP1Short && !trade.partialTakenAtTP1 && trade.takeProfit1) {
         const exit1 = trade.takeProfit1 * slippage;
-        if (!trade.takeProfit2 && !trade.takeProfit3) {
+        if (!ff.partialTP || (!trade.takeProfit2 && !trade.takeProfit3)) {
           console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → FULL CLOSE (only TP)`);
           await closeTrade(trade.userId, trade._id, exit1, 'TP1');
           closedCount++;
@@ -1538,6 +1571,10 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
   let checkedCount = 0;
   for (const trade of openTrades) {
     try {
+      // Check if score recheck is enabled for this user
+      const user = await User.findById(trade.userId);
+      const ff = getFeatureFlags(user);
+      if (!ff.scoreRecheck) continue;
       // Try live price first, fall back to cached
       let currentPrice;
       try {
@@ -1665,9 +1702,9 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
 
       // Auto-execute suggested action if user has enabled it
       // Enforce minimum hold time before score-exit
-      const user = await User.findById(trade.userId);
-      const autoExec = user?.settings?.autoExecuteActions;
-      const minHold = user?.settings?.minHoldMinutes ?? MIN_HOLD_MINUTES;
+      const tradeUser = user || await User.findById(trade.userId);
+      const autoExec = tradeUser?.settings?.autoExecuteActions;
+      const minHold = tradeUser?.settings?.minHoldMinutes ?? MIN_HOLD_MINUTES;
       const tradeAgeMs = Date.now() - new Date(trade.createdAt || trade.entryTime).getTime();
       const pastMinHold = tradeAgeMs >= minHold * 60 * 1000;
 
@@ -1854,5 +1891,6 @@ module.exports = {
   getOpenTrades,
   getTradeHistory,
   getPerformanceStats,
-  resetAccount
+  resetAccount,
+  getFeatureFlags
 };

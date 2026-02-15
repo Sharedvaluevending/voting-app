@@ -27,7 +27,17 @@ const userSchema = new mongoose.Schema({
     notifyTradeOpen: { type: Boolean, default: true },
     notifyTradeClose: { type: Boolean, default: true },
     makerFeePercent: { type: Number, default: 0.1, min: 0, max: 1 },
-    takerFeePercent: { type: Number, default: 0.1, min: 0, max: 1 }
+    takerFeePercent: { type: Number, default: 0.1, min: 0, max: 1 },
+    // Feature toggles (match backtest toggles for 1:1 config transfer)
+    featureBtcFilter: { type: Boolean, default: true },
+    featureBtcCorrelation: { type: Boolean, default: true },
+    featureSessionFilter: { type: Boolean, default: true },
+    featurePartialTP: { type: Boolean, default: true },
+    featureLockIn: { type: Boolean, default: true },
+    featureScoreRecheck: { type: Boolean, default: true },
+    featureSlCap: { type: Boolean, default: true },
+    featureMinSlDistance: { type: Boolean, default: true },
+    featureConfidenceSizing: { type: Boolean, default: true }
   },
   resetToken: { type: String },
   resetTokenExpiry: { type: Date },
