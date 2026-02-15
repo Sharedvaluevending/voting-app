@@ -1437,6 +1437,38 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// Diagnostic: test Bybit API connectivity (GET /api/bybit-test)
+app.get('/api/bybit-test', async (req, res) => {
+  const fetch = require('node-fetch');
+  const tests = {};
+  const startTime = Date.now();
+  try {
+    // Test 1: Can we reach Bybit at all?
+    const t1 = Date.now();
+    const r1 = await fetch('https://api.bybit.com/v5/market/kline?category=spot&symbol=BTCUSDT&interval=60&limit=5', {
+      headers: { 'Accept': 'application/json' },
+      timeout: 10000
+    });
+    tests.httpStatus = r1.status;
+    tests.reachable = r1.ok;
+    tests.latencyMs = Date.now() - t1;
+    if (r1.ok) {
+      const json = await r1.json();
+      tests.retCode = json.retCode;
+      tests.candlesReturned = json.result?.list?.length || 0;
+      tests.apiWorking = json.retCode === 0 && tests.candlesReturned > 0;
+    }
+  } catch (err) {
+    tests.reachable = false;
+    tests.error = err.message;
+  }
+  tests.totalMs = Date.now() - startTime;
+  tests.nodeVersion = process.version;
+  tests.env = process.env.NODE_ENV || 'development';
+  console.log('[Bybit-Test]', JSON.stringify(tests));
+  res.json(tests);
+});
+
 // Backtest API (historical simulation)
 app.post('/api/backtest', async (req, res) => {
   try {

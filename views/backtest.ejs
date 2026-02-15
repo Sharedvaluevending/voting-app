@@ -184,7 +184,13 @@
       var successResults = (data.results || []).filter(function(r) { return !r.error; });
       if ((s.coinsFailed || 0) > 0 && successResults.length === 0) {
         diag.style.display = 'block';
-        diagMsg.textContent = 'Could not fetch candles for any coin (' + (s.coinsFailed || 0) + ' failed). The request may have timed out. Try a single coin and shorter date range (e.g. 7 days).';
+        var failDetails = (data.failed || []).map(function(f) { return f.coinId + ': ' + f.error; }).join(', ');
+        diagMsg.textContent = 'Could not fetch candles for any coin (' + (s.coinsFailed || 0) + ' failed). Errors: ' + (failDetails || 'unknown') + '. Try a single coin and shorter date range.';
+      } else if ((s.coinsFailed || 0) > 0) {
+        diag.style.display = 'block';
+        var partialFails = (data.failed || []).map(function(f) { return f.coinId + ': ' + f.error; }).join(', ');
+        diagMsg.textContent = 'Some coins failed (' + s.coinsFailed + '): ' + partialFails;
+        diagMsg.style.color = '#f59e0b';
       } else if (successResults.length > 0 && s.totalTrades === 0) {
         diag.style.display = 'block';
         diagMsg.textContent = 'No trades met the criteria across ' + (s.coinsProcessed || successResults.length) + ' coins (' + (s.totalBars || 0) + ' bars). Try lowering Min Score to 48 or a different date range.';

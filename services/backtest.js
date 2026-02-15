@@ -28,7 +28,7 @@ async function fetchWithTimeout(promise, timeoutMs, label) {
 
 async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
   const meta = COIN_META[coinId];
-  if (!meta?.bybit) return null;
+  if (!meta?.bybit) return { error: `No Bybit symbol for ${coinId}` };
 
   // Extend start backward to get warmup bars for indicator calculation.
   // Without warmup, short date ranges (e.g. 3 days) don't have enough candles
@@ -47,23 +47,29 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
       coinId
     );
 
-    console.log(`[Backtest] ${coinId}: fetched 1h=${(candles1h||[]).length}, 4h=${(candles4h||[]).length}, 1d=${(candles1d||[]).length} candles (${WARMUP_BARS} warmup)`);
+    const c1h = (candles1h || []).length;
+    const c4h = (candles4h || []).length;
+    const c1d = (candles1d || []).length;
+    console.log(`[Backtest] ${coinId}: fetched 1h=${c1h}, 4h=${c4h}, 1d=${c1d} candles (${WARMUP_BARS} warmup)`);
 
-    if (!candles1h || candles1h.length < 50) {
-      console.warn(`[Backtest] ${coinId}: insufficient 1h candles (${(candles1h||[]).length} < 50)`);
-      return null;
+    if (!candles1h || c1h < 50) {
+      const reason = c1h === 0
+        ? 'Bybit returned 0 candles (API may be blocked or rate-limited)'
+        : `Only ${c1h} candles returned (need 50+)`;
+      console.warn(`[Backtest] ${coinId}: ${reason}`);
+      return { error: reason };
     }
 
     return {
       '1h': candles1h,
-      '4h': candles4h && candles4h.length >= 5 ? candles4h : null,
-      '1d': candles1d && candles1d.length >= 5 ? candles1d : null,
+      '4h': candles4h && c4h >= 5 ? candles4h : null,
+      '1d': candles1d && c1d >= 5 ? candles1d : null,
       '15m': null,
       '1w': null
     };
   } catch (err) {
     console.error(`[Backtest] ${coinId}: candle fetch failed - ${err.message}`);
-    return null;
+    return { error: `Fetch failed: ${err.message}` };
   }
 }
 
@@ -115,7 +121,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const leverage = options.leverage ?? DEFAULT_LEVERAGE;
 
   const candles = await fetchHistoricalCandlesMultiTF(coinId, startMs, endMs);
-  if (!candles) return { error: 'Insufficient candles', trades: [], equityCurve: [] };
+  if (!candles || candles.error) return { error: candles?.error || 'Insufficient candles', trades: [], equityCurve: [] };
 
   const c1h = candles['1h'];
   const trades = [];
