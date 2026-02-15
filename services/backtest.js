@@ -150,7 +150,9 @@ function buildCoinData(coinId, candles, t) {
 }
 
 /**
- * Run backtest for one coin
+ * Run backtest for one coin.
+ * Mirrors the live system: analyzes BTC at each bar to get btcSignal/btcDirection,
+ * passes BTC candles for correlation penalty, applies the same filters.
  */
 async function runBacktestForCoin(coinId, startMs, endMs, options) {
   options = options || {};
@@ -159,6 +161,12 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 
   const candles = await fetchHistoricalCandlesMultiTF(coinId, startMs, endMs);
   if (!candles || candles.error) return { error: candles?.error || 'Insufficient candles', trades: [], equityCurve: [] };
+
+  // If not BTC, also fetch BTC candles for BTC signal + correlation (matches live system)
+  let btcCandles = null;
+  if (coinId !== 'bitcoin' && options.btcCandles) {
+    btcCandles = options.btcCandles;
+  }
 
   const c1h = candles['1h'];
   const trades = [];
@@ -177,6 +185,14 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 
   const history = { prices: [], volumes: [], marketCaps: [] };
 
+  // BTC signal cache: re-analyze BTC every 4 bars (4 hours) instead of every bar.
+  // Live system only runs every ~15 min, so 4h is conservative and much faster.
+  const BTC_REANALYZE_INTERVAL = 4;
+  let cachedBtcSignal = null;
+  let cachedBtcDirection = null;
+  let cachedBtcSlice = null;
+  let lastBtcAnalysisBar = -999;
+
   for (let t = 50; t < c1h.length - 1; t++) {
     const bar = c1h[t];
     const nextBar = c1h[t + 1];
@@ -184,7 +200,35 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     if (!slice) continue;
 
     const coinData = buildCoinData(coinId, candles, t);
-    const options_bt = { strategyWeights: options.strategyWeights || [], btcSignal: null, fundingRates: {} };
+
+    // === BTC SIGNAL: mirrors live system's buildEngineOptions ===
+    // Re-analyze BTC periodically (not every bar, for performance).
+    if (btcCandles && btcCandles['1h'] && (t - lastBtcAnalysisBar >= BTC_REANALYZE_INTERVAL)) {
+      const btc1h = btcCandles['1h'];
+      const btcIdx = btc1h.findIndex(b => b.openTime >= bar.openTime);
+      const btcT = btcIdx >= 0 ? Math.min(btcIdx, btc1h.length - 1) : btc1h.length - 1;
+      if (btcT >= 50) {
+        const btcSlice = sliceCandlesAt(btcCandles, btcT);
+        if (btcSlice) {
+          const btcData = buildCoinData('bitcoin', btcCandles, btcT);
+          const btcResult = analyzeCoin(btcData, btcSlice, history, {});
+          cachedBtcSignal = btcResult.signal;
+          cachedBtcDirection = null;
+          if (btcResult.signal === 'STRONG_BUY' || btcResult.signal === 'BUY') cachedBtcDirection = 'BULL';
+          else if (btcResult.signal === 'STRONG_SELL' || btcResult.signal === 'SELL') cachedBtcDirection = 'BEAR';
+          cachedBtcSlice = btcSlice;
+          lastBtcAnalysisBar = t;
+        }
+      }
+    }
+
+    const options_bt = {
+      strategyWeights: options.strategyWeights || [],
+      btcSignal: cachedBtcSignal,
+      btcDirection: cachedBtcDirection,
+      btcCandles: cachedBtcSlice ? cachedBtcSlice['1h'] : null,
+      fundingRates: {}
+    };
 
     // Check if we have an open position - did SL or TP hit?
     if (position) {
@@ -239,8 +283,15 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     // No position - look for entry (only within user's requested date range)
     if (t < tradeStartBar) continue; // warmup period — skip trade entries
     const signal = analyzeCoin(coinData, slice, history, options_bt);
-    const canLong = signal.signal === 'BUY' || signal.signal === 'STRONG_BUY';
-    const canShort = signal.signal === 'SELL' || signal.signal === 'STRONG_SELL';
+    let canLong = signal.signal === 'BUY' || signal.signal === 'STRONG_BUY';
+    let canShort = signal.signal === 'SELL' || signal.signal === 'STRONG_SELL';
+
+    // === BTC FILTER: mirrors live system's analyzeAllCoins ===
+    // Block altcoin LONGs when BTC is strongly bearish, SHORTs when strongly bullish
+    if (coinId !== 'bitcoin' && cachedBtcSignal) {
+      if (canLong && cachedBtcSignal === 'STRONG_SELL') canLong = false;
+      if (canShort && cachedBtcSignal === 'STRONG_BUY') canShort = false;
+    }
 
     if ((canLong || canShort) && signal.score >= minScore && signal.stopLoss && signal.takeProfit1) {
       const direction = canLong ? 'LONG' : 'SHORT';
@@ -336,6 +387,26 @@ async function runBacktest(startMs, endMs, options) {
   const days = Math.round((endMs - startMs) / 86400000);
   console.log(`[Backtest] Starting: ${coins.length} coins, ${days} days range (parallel batches of ${PARALLEL_BATCH_SIZE})`);
 
+  // === PRE-FETCH BTC CANDLES (mirrors live system) ===
+  // The live system analyzes BTC first and uses the result to filter altcoin signals.
+  // We fetch BTC candles once and share across all coin backtests.
+  let btcCandles = null;
+  if (!coins.includes('bitcoin') || coins.length > 1) {
+    try {
+      console.log(`[Backtest] Pre-fetching BTC candles for signal filter...`);
+      btcCandles = await fetchHistoricalCandlesMultiTF('bitcoin', startMs, endMs);
+      if (btcCandles && !btcCandles.error && btcCandles['1h'] && btcCandles['1h'].length >= 50) {
+        console.log(`[Backtest] BTC candles loaded: ${btcCandles['1h'].length} bars`);
+      } else {
+        console.warn(`[Backtest] BTC candle fetch failed (${btcCandles?.error || 'insufficient data'}) - running without BTC filter`);
+        btcCandles = null;
+      }
+    } catch (err) {
+      console.warn(`[Backtest] BTC candle fetch error: ${err.message} - running without BTC filter`);
+      btcCandles = null;
+    }
+  }
+
   // Process coins in parallel batches
   for (let i = 0; i < coins.length; i += PARALLEL_BATCH_SIZE) {
     const batch = coins.slice(i, i + PARALLEL_BATCH_SIZE);
@@ -343,8 +414,9 @@ async function runBacktest(startMs, endMs, options) {
       batch.map(async (coinId) => {
         const coinStart = Date.now();
         try {
+          const optionsWithBtc = { ...options, btcCandles: coinId !== 'bitcoin' ? btcCandles : null };
           const result = await fetchWithTimeout(
-            runBacktestForCoin(coinId, startMs, endMs, options),
+            runBacktestForCoin(coinId, startMs, endMs, optionsWithBtc),
             PER_COIN_BACKTEST_TIMEOUT,
             `backtest ${coinId}`
           );
