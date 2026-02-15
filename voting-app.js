@@ -195,22 +195,20 @@ function validateCsrfToken(req) {
   return secret.length > 0 && token === secret;
 }
 
-// CSRF: validate FIRST on POST/PUT/DELETE, THEN generate token for templates.
-// This prevents the token generator from overwriting the session secret
-// before validation can compare the submitted token against the stored one.
+// CSRF: validate on POST/PUT/DELETE, then generate token for templates.
+// Login/register are exempt — no authenticated session to protect.
+const CSRF_EXEMPT_PATHS = ['/login', '/register', '/forgot-password', '/reset-password'];
+
 app.use((req, res, next) => {
   // Step 1: Validate CSRF on state-changing requests
   if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
-    // Skip CSRF for JSON API calls (they use fetch with same-origin and custom headers)
     const isJsonApi = req.path.startsWith('/api/') || req.xhr || req.headers['content-type']?.includes('application/json');
-    if (!isJsonApi) {
-      if (!validateCsrfToken(req)) {
-        console.warn(`[CSRF] Blocked ${req.method} ${req.path} from ${req.ip} (bad/missing token)`);
-        // Redirect back to the page with a friendly error instead of a raw 403
-        const referer = req.headers.referer || req.path;
-        const redirectUrl = referer.includes('?') ? referer + '&error=Session+expired.+Please+try+again.' : referer + '?error=Session+expired.+Please+try+again.';
-        return res.redirect(redirectUrl);
-      }
+    const isExempt = CSRF_EXEMPT_PATHS.includes(req.path);
+    if (!isJsonApi && !isExempt && !validateCsrfToken(req)) {
+      console.warn(`[CSRF] Blocked ${req.method} ${req.path} from ${req.ip}`);
+      const referer = req.headers.referer || req.path;
+      const sep = referer.includes('?') ? '&' : '?';
+      return res.redirect(referer + sep + 'error=Session+expired.+Please+try+again.');
     }
   }
 
@@ -251,6 +249,9 @@ app.get('/login', guestOnly, (req, res) => {
 });
 
 app.post('/login', guestOnly, async (req, res) => {
+  if (!dbConnected) {
+    return res.render('login', { activePage: 'login', error: 'Database not available. Login requires MongoDB.' });
+  }
   try {
     const { email, password } = req.body;
     const user = await User.findOne({ email: email.toLowerCase().trim() });
@@ -261,7 +262,8 @@ app.post('/login', guestOnly, async (req, res) => {
     req.session.username = user.username;
     res.redirect('/');
   } catch (err) {
-    res.render('login', { activePage: 'login', error: 'Something went wrong' });
+    console.error('[Login] Error:', err.message);
+    res.render('login', { activePage: 'login', error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -270,6 +272,9 @@ app.get('/register', guestOnly, (req, res) => {
 });
 
 app.post('/register', guestOnly, async (req, res) => {
+  if (!dbConnected) {
+    return res.render('register', { activePage: 'register', error: 'Database not available. Registration requires MongoDB.' });
+  }
   try {
     const { username, email, password } = req.body;
     if (!username || !email || !password) {
