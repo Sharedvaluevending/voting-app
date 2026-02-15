@@ -30,6 +30,7 @@ const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
 const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
 const { initializeStrategies, getPerformanceReport, resetStrategyWeights } = require('./services/learning-engine');
 const { runBacktest, runBacktestForCoin } = require('./services/backtest');
+const { getLatestBacktestResult, saveBacktestResult, transformBacktestToResultFormat } = require('./services/backtest-results');
 const bitget = require('./services/bitget');
 const { getWebSocketPrice, getAllWebSocketPrices, addBrowserClient, isWebSocketConnected } = require('./services/websocket-prices');
 const StrategyWeight = require('./models/StrategyWeight');
@@ -459,14 +460,9 @@ app.get('/', async (req, res) => {
     // Top 5 coins from latest backtest (for "Top performer" badge)
     let topPerformerCoins = [];
     try {
-      const resultsDir = path.join(__dirname, 'data/backtest-results');
-      if (fs.existsSync(resultsDir)) {
-        const files = fs.readdirSync(resultsDir).filter(f => f.startsWith('massive-') && f.endsWith('.json'));
-        if (files.length > 0) {
-          const latest = files.sort().reverse()[0];
-          const data = JSON.parse(fs.readFileSync(path.join(resultsDir, latest), 'utf8'));
-          topPerformerCoins = (data.top10 || []).slice(0, 5).map(c => c.symbol);
-        }
+      const data = await getLatestBacktestResult();
+      if (data && data.top10) {
+        topPerformerCoins = data.top10.slice(0, 5).map(c => c.symbol);
       }
     } catch (e) { /* ignore */ }
 
@@ -1067,16 +1063,10 @@ app.post('/api/coin-weights', requireLogin, async (req, res) => {
 
 app.post('/api/load-coin-weights-from-backtest', requireLogin, async (req, res) => {
   try {
-    const resultsDir = path.join(__dirname, 'data/backtest-results');
-    if (!fs.existsSync(resultsDir)) {
-      return res.status(404).json({ success: false, error: 'No backtest results. Run backtest-massive.js first.' });
+    const data = await getLatestBacktestResult();
+    if (!data) {
+      return res.status(404).json({ success: false, error: 'No backtest results. Run a backtest and save to Results first.' });
     }
-    const files = fs.readdirSync(resultsDir).filter(f => f.startsWith('massive-') && f.endsWith('.json'));
-    if (files.length === 0) {
-      return res.status(404).json({ success: false, error: 'No massive backtest results found.' });
-    }
-    const latest = files.sort().reverse()[0];
-    const data = JSON.parse(fs.readFileSync(path.join(resultsDir, latest), 'utf8'));
     const allCoins = data.allCoins || data.top10 || [];
     if (allCoins.length === 0) {
       return res.status(400).json({ success: false, error: 'No coin data in backtest results.' });
@@ -1096,7 +1086,7 @@ app.post('/api/load-coin-weights-from-backtest', requireLogin, async (req, res) 
     u.coinWeights = weights;
     u.coinWeightEnabled = true;
     await u.save();
-    res.json({ success: true, coinWeights: weights, message: `Loaded weights from ${latest}. Coin weights enabled.` });
+    res.json({ success: true, coinWeights: weights, message: 'Loaded weights from backtest results. Coin weights enabled.' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1175,6 +1165,7 @@ app.post('/account/reset', requireLogin, async (req, res) => {
 
 // ====================================================
 // FULL PLATFORM RESET (keeps accounts, wipes everything else)
+// BacktestResult collection is NOT deleted — Results page data persists.
 // ====================================================
 app.post('/account/full-platform-reset', requireLogin, async (req, res) => {
   try {
@@ -1509,19 +1500,14 @@ app.get('/backtest', (req, res) => {
 
 // ====================================================
 // BACKTEST RESULTS (latest massive backtest)
+// Stored in DB so they persist through platform resets. Falls back to files if no DB data.
 // ====================================================
-app.get('/backtest-results', (req, res) => {
+app.get('/backtest-results', async (req, res) => {
   try {
-    const resultsDir = path.join(__dirname, 'data/backtest-results');
-    if (!fs.existsSync(resultsDir)) {
-      return res.render('backtest-results', { activePage: 'backtest-results', error: 'No backtest results directory.' });
+    const data = await getLatestBacktestResult();
+    if (!data) {
+      return res.render('backtest-results', { activePage: 'backtest-results', error: 'No backtest results found. Run a backtest and click "Save to Results", or run backtest-massive.js to generate.' });
     }
-    const files = fs.readdirSync(resultsDir).filter(f => f.startsWith('massive-') && f.endsWith('.json'));
-    if (files.length === 0) {
-      return res.render('backtest-results', { activePage: 'backtest-results', error: 'No massive backtest results found.' });
-    }
-    const latest = files.sort().reverse()[0];
-    const data = JSON.parse(fs.readFileSync(path.join(resultsDir, latest), 'utf8'));
     res.render('backtest-results', { activePage: 'backtest-results', result: data });
   } catch (err) {
     console.error('[BacktestResults] Error:', err);
@@ -1701,6 +1687,22 @@ app.get('/api/connectivity-test', async (req, res) => {
 });
 // Keep old route as alias
 app.get('/api/bybit-test', (req, res) => res.redirect('/api/connectivity-test'));
+
+// Save backtest result to DB (persists through platform resets)
+app.post('/api/backtest-results/save', requireLogin, async (req, res) => {
+  try {
+    const { result } = req.body || {};
+    if (!result || !result.results) {
+      return res.status(400).json({ success: false, error: 'Invalid backtest result. Run a backtest first.' });
+    }
+    const formatted = transformBacktestToResultFormat(result);
+    await saveBacktestResult(formatted);
+    res.json({ success: true, message: 'Backtest results saved. They will persist through platform resets.' });
+  } catch (err) {
+    console.error('[BacktestResults] Save error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // Backtest API (historical simulation)
 app.post('/api/backtest', async (req, res) => {
