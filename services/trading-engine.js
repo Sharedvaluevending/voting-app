@@ -226,12 +226,6 @@ function analyzeWithCandles(coinData, candles, options) {
 
   // Detect market regime (adaptive per-coin volatility)
   const regime = detectRegime(tf1d, tf4h);
-  if (coinData.symbol) {
-    const atrPct = tf1d.atr && tf1d.closes && tf1d.closes.length > 0
-      ? ((tf1d.atr / tf1d.closes[tf1d.closes.length - 1]) * 100).toFixed(2)
-      : '?';
-    console.log(`[Regime] ${coinData.symbol}: ${regime} (vol=${tf1d.volatilityState}, ADX_1d=${(tf1d.adx||0).toFixed(1)}, ADX_4h=${(tf4h.adx||0).toFixed(1)}, ATR%=${atrPct}, trend=${tf1d.trend})`);
-  }
 
   // Best strategy + all strategies (with regime gating and optional learned weights)
   const strategyStats = options.strategyStats || {};

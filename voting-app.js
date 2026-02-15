@@ -14,6 +14,11 @@
 const express = require('express');
 const http = require('http');
 const mongoose = require('mongoose');
+
+// Prevent unhandled promise rejections (e.g. MongoDB) from crashing the server
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Process] Unhandled rejection (non-fatal):', reason?.message || reason);
+});
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const crypto = require('crypto');
@@ -37,31 +42,41 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ====================================================
-// MONGODB
-// On Render: use the STANDARD connection string (not mongodb+srv) to avoid
-// DNS ENOTFOUND. In Atlas: Cluster → Connect → "Connect your application"
-// → toggle "Driver" to see standard format, or use "Direct connection" host.
+// MONGODB — non-fatal: app works without DB (backtest, signals still run)
+// Features that need DB (trades, journal, auth) degrade gracefully.
 // ====================================================
 const mongoURI = process.env.MONGODB_URI || (process.env.NODE_ENV === 'production' ? null : 'mongodb://127.0.0.1:27017/votingApp');
-if (!mongoURI) {
+if (!mongoURI && process.env.NODE_ENV === 'production') {
   console.error('[DB] MONGODB_URI is required in production. Set it in Render Environment.');
   process.exit(1);
 }
 
 // Prefer explicit standard URI on Render to avoid SRV DNS issues (ENOTFOUND)
 const uri = process.env.MONGODB_URI_STANDARD || mongoURI;
+let dbConnected = false;
 
-mongoose.connect(uri)
-  .then(() => {
-    console.log('[DB] Connected to MongoDB');
-    initializeStrategies().catch(err => console.error('[DB] Strategy init error:', err.message));
-  })
-  .catch(err => {
-    console.error('[DB] MongoDB connection error:', err);
-    if (uri.startsWith('mongodb+srv://') && process.env.NODE_ENV === 'production') {
-      console.error('[DB] Tip: On Render, use the standard connection string (mongodb://...) in MONGODB_URI or MONGODB_URI_STANDARD to avoid SRV DNS errors.');
-    }
+if (uri) {
+  mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 })
+    .then(() => {
+      dbConnected = true;
+      console.log('[DB] Connected to MongoDB');
+      initializeStrategies().catch(err => console.error('[DB] Strategy init error:', err.message));
+    })
+    .catch(err => {
+      console.warn('[DB] MongoDB not available — running without database. Trades, auth, and journal disabled.');
+      console.warn('[DB] Reason:', err.message);
+      if (uri.startsWith('mongodb+srv://') && process.env.NODE_ENV === 'production') {
+        console.warn('[DB] Tip: On Render, use the standard connection string (mongodb://...) in MONGODB_URI or MONGODB_URI_STANDARD to avoid SRV DNS errors.');
+      }
+    });
+
+  // Prevent MongoDB errors from crashing the process
+  mongoose.connection.on('error', err => {
+    console.warn('[DB] MongoDB error (non-fatal):', err.message);
   });
+} else {
+  console.warn('[DB] No MongoDB URI configured — running without database.');
+}
 
 // ====================================================
 // MIDDLEWARE
@@ -80,13 +95,40 @@ if (!sessionSecret) {
   console.warn('[SECURITY] SESSION_SECRET not set — using random secret. Sessions will reset on restart. Set SESSION_SECRET env var for persistent sessions.');
 }
 
-app.use(session({
+// Session store: use MongoStore only when MONGODB_URI is explicitly set (production).
+// In local dev without env var, use MemoryStore to avoid crashes when MongoDB isn't running.
+const sessionConfig = {
   secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
-  store: MongoStore.create({ mongoUrl: uri, collectionName: 'sessions' }),
   cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
-}));
+};
+
+const hasExplicitMongoURI = !!(process.env.MONGODB_URI || process.env.MONGODB_URI_STANDARD);
+if (hasExplicitMongoURI && uri) {
+  try {
+    sessionConfig.store = MongoStore.create({
+      mongoUrl: uri,
+      collectionName: 'sessions',
+      ttl: 7 * 24 * 60 * 60, // 7 days
+      autoRemove: 'native',
+      touchAfter: 24 * 3600, // lazy session update
+      crypto: { secret: sessionSecret },
+      mongoOptions: { serverSelectionTimeoutMS: 10000 }
+    });
+    sessionConfig.store.on('error', function(err) {
+      console.warn('[Session] MongoStore error (non-fatal):', err.message);
+    });
+  } catch (err) {
+    console.warn('[Session] MongoStore creation failed, using MemoryStore:', err.message);
+  }
+}
+
+if (!sessionConfig.store) {
+  console.warn('[Session] Using MemoryStore (sessions lost on restart, no auth features)');
+}
+
+app.use(session(sessionConfig));
 
 // Load user data into res.locals for all templates
 app.use(async (req, res, next) => {
@@ -1548,6 +1590,7 @@ app.get('/api/candles/:coinId', async (req, res) => {
 // Uses live exchange prices so TPs/SLs aren't missed due to stale cache
 // ====================================================
 async function runStopTPCheck() {
+  if (!dbConnected) return; // Skip if no database
   try {
     const openTrades = await Trade.find({ status: 'OPEN' }).select('coinId').lean();
     if (openTrades.length === 0) return;
@@ -1577,6 +1620,7 @@ setTimeout(runStopTPCheck, 15 * 1000);
 // status messages: confidence, momentum, structure, etc.
 // ====================================================
 async function runScoreRecheck() {
+  if (!dbConnected) return; // Skip if no database
   try {
     const [prices, allCandles, allHistory] = await Promise.all([
       fetchAllPrices(),
@@ -1612,6 +1656,7 @@ setTimeout(runScoreRecheck, 30 * 1000);
 // when signal score meets threshold. Runs every 2 minutes.
 // ====================================================
 async function runAutoTrade() {
+  if (!dbConnected) return; // Skip if no database
   try {
     // Find all users with autoTrade enabled
     const autoTradeUsers = await User.find({ 'settings.autoTrade': true }).lean();
