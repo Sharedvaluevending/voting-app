@@ -61,10 +61,19 @@
 
 <div class="signals-grid">
   <% signals.forEach(function(sig) { %>
-    <div class="signal-card <%= sig.signal.toLowerCase().replace('_', '-') %>" data-coin-id="<%= sig.coin.id %>">
+    <% var isExcluded = typeof excludedCoins !== 'undefined' && excludedCoins.indexOf(sig.coin.id) !== -1; %>
+    <div class="signal-card <%= sig.signal.toLowerCase().replace('_', '-') %> <%= isExcluded ? 'coin-excluded' : '' %>" data-coin-id="<%= sig.coin.id %>">
       <div class="card-header">
         <div class="coin-info">
-          <h3><a href="/coin/<%= sig.coin.id %>" style="color:#fff;text-decoration:none;"><%= sig.coin.name %></a> <span class="symbol"><%= sig.coin.symbol %></span></h3>
+          <h3>
+            <a href="/coin/<%= sig.coin.id %>" style="color:#fff;text-decoration:none;"><%= sig.coin.name %></a> <span class="symbol"><%= sig.coin.symbol %></span>
+            <% if (typeof user !== 'undefined' && user) { %>
+              <button class="coin-toggle-btn <%= isExcluded ? 'excluded' : '' %>" data-coin="<%= sig.coin.id %>" onclick="toggleCoin(this, '<%= sig.coin.id %>')" title="<%= isExcluded ? 'Click to enable auto-trade for this coin' : 'Click to exclude from auto-trade' %>">
+                <%= isExcluded ? 'OFF' : 'ON' %>
+              </button>
+              <span class="coin-excluded-label">EXCLUDED</span>
+            <% } %>
+          </h3>
           <span class="signal-badge badge-<%= sig.signal %>"><%= sig.signal.replace('_', ' ') %></span>
           <% if (sig.regime && sig.regime !== 'unknown') { %>
             <span class="regime-badge regime-<%= sig.regime %>"><%= sig.regime %></span>
@@ -257,6 +266,98 @@
 })();
 </script>
 <% } %>
+<!-- Coin toggle styles -->
+<style>
+.coin-toggle-btn {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  border-radius: 4px;
+  border: 1px solid #10b981;
+  background: rgba(16,185,129,0.15);
+  color: #10b981;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: all 0.2s ease;
+}
+.coin-toggle-btn:hover {
+  background: rgba(16,185,129,0.3);
+}
+.coin-toggle-btn.excluded {
+  border-color: #ef4444;
+  background: rgba(239,68,68,0.15);
+  color: #ef4444;
+}
+.coin-toggle-btn.excluded:hover {
+  background: rgba(239,68,68,0.3);
+}
+.signal-card.coin-excluded {
+  opacity: 0.5;
+  border-color: #ef4444 !important;
+}
+.coin-excluded-label {
+  display: none;
+  background: rgba(239,68,68,0.85);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.signal-card.coin-excluded .coin-excluded-label {
+  display: inline-block;
+}
+</style>
+
+<!-- Coin toggle script -->
+<script>
+function toggleCoin(btn, coinId) {
+  var isCurrentlyExcluded = btn.classList.contains('excluded');
+  var newExcluded = !isCurrentlyExcluded;
+  btn.disabled = true;
+  btn.textContent = '...';
+
+  fetch('/api/toggle-coin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ coinId: coinId, excluded: newExcluded })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.success) {
+      var card = btn.closest('.signal-card');
+      var label = btn.parentElement.querySelector('.coin-excluded-label');
+      if (newExcluded) {
+        btn.classList.add('excluded');
+        btn.textContent = 'OFF';
+        btn.title = 'Click to enable auto-trade for this coin';
+        if (card) card.classList.add('coin-excluded');
+      } else {
+        btn.classList.remove('excluded');
+        btn.textContent = 'ON';
+        btn.title = 'Click to exclude from auto-trade';
+        if (card) card.classList.remove('coin-excluded');
+      }
+    } else {
+      alert('Failed to update: ' + (data.error || 'Unknown error'));
+    }
+    btn.disabled = false;
+  })
+  .catch(function(err) {
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = isCurrentlyExcluded ? 'OFF' : 'ON';
+  });
+}
+</script>
+
 <!-- WebSocket prices via ws-prices.js (footer) - real-time ticker, cards, trades, nav PnL -->
 
 <%- include('partials/footer') %>

@@ -39,6 +39,7 @@ const userSchema = new mongoose.Schema({
     featureMinSlDistance: { type: Boolean, default: true },
     featureConfidenceSizing: { type: Boolean, default: true }
   },
+  excludedCoins: [{ type: String }], // Coins excluded from auto-trade (e.g. ['dogecoin', 'cardano'])
   resetToken: { type: String },
   resetTokenExpiry: { type: Date },
   pushSubscriptions: [{ type: mongoose.Schema.Types.Mixed }],

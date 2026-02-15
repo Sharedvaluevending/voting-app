@@ -439,11 +439,21 @@ app.get('/', async (req, res) => {
       recordRegimeSnapshot(regimeCounts);
     }
 
+    // Fetch user's excluded coins if logged in
+    let excludedCoins = [];
+    if (req.session?.userId) {
+      try {
+        const dashUser = await User.findById(req.session.userId).select('excludedCoins').lean();
+        excludedCoins = dashUser?.excludedCoins || [];
+      } catch (e) { /* ignore */ }
+    }
+
     res.render('dashboard', {
       activePage: 'dashboard',
       prices: pricesMerged,
       signals,
-      deleted: req.query.deleted === '1'
+      deleted: req.query.deleted === '1',
+      excludedCoins
     });
   } catch (err) {
     console.error('[Dashboard] Error:', err);
@@ -955,6 +965,35 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
     res.redirect('/performance?success=Feature+toggles+saved');
   } catch (err) {
     res.redirect('/performance?error=' + encodeURIComponent(err.message || 'Failed to save toggles'));
+  }
+});
+
+// ====================================================
+// TOGGLE COIN EXCLUSION (auto-trade skip list)
+// ====================================================
+app.post('/api/toggle-coin', requireLogin, async (req, res) => {
+  try {
+    const { coinId, excluded } = req.body;
+    if (!coinId) return res.status(400).json({ success: false, error: 'Missing coinId' });
+    const u = await User.findById(req.session.userId);
+    if (!u) return res.status(404).json({ success: false, error: 'User not found' });
+
+    if (!u.excludedCoins) u.excludedCoins = [];
+
+    if (excluded) {
+      // Add to excluded list
+      if (!u.excludedCoins.includes(coinId)) {
+        u.excludedCoins.push(coinId);
+      }
+    } else {
+      // Remove from excluded list
+      u.excludedCoins = u.excludedCoins.filter(c => c !== coinId);
+    }
+
+    await u.save();
+    res.json({ success: true, excludedCoins: u.excludedCoins });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -1854,12 +1893,14 @@ async function runAutoTrade() {
         }).select('coinId direction').lean();
         const cooldownSet = new Set(recentTrades.map(t => `${t.coinId}_${t.direction}`));
 
-        // Filter signals: best strategy score >= threshold, has direction, not open, not in cooldown
+        // Filter signals: best strategy score >= threshold, has direction, not open, not in cooldown, not excluded
+        const userExcluded = user.excludedCoins || [];
         const candidates = signalsWithBestStrategy.filter(sig => {
           if (sig._bestScore < minScore) return false;
           if (!sig._direction) return false; // HOLD signals ignored
           if (openCoinIds.includes(sig._coinId)) return false;
           if (cooldownSet.has(`${sig._coinId}_${sig._direction}`)) return false;
+          if (userExcluded.includes(sig._coinId)) return false; // Skip excluded coins
           return true;
         }).sort((a, b) => b._bestScore - a._bestScore);
 
