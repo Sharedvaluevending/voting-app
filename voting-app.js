@@ -99,8 +99,8 @@ if (!sessionSecret) {
 // In local dev without env var, use MemoryStore to avoid crashes when MongoDB isn't running.
 const sessionConfig = {
   secret: sessionSecret,
-  resave: false,
-  saveUninitialized: false,
+  resave: true,              // always re-save session to store (needed for MemoryStore + CSRF)
+  saveUninitialized: true,   // save new sessions immediately so CSRF tokens persist
   cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
 };
 
