@@ -37,51 +37,52 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
   const warmupMs = WARMUP_BARS * 3600000; // each 1h bar = 3.6M ms
   const fetchStartMs = startMs - warmupMs;
 
-  // Try Bybit first, then Kraken as fallback.
-  // We track errors so the API response shows exactly WHY it failed.
+  // Kraken is primary for backtest (Bybit returns 403 from cloud servers like Render).
+  // Try Kraken first, fall back to Bybit (which works locally).
   let candles1h, candles4h, candles1d;
-  let source = 'bybit';
-  let bybitError = null;
+  let source = 'kraken';
   let krakenError = null;
+  let bybitError = null;
 
+  // Try Kraken first (works from cloud servers)
   try {
     [candles1h, candles4h, candles1d] = await fetchWithTimeout(
       Promise.all([
-        fetchHistoricalCandlesForCoin(coinId, '1h', fetchStartMs, endMs),
-        fetchHistoricalCandlesForCoin(coinId, '4h', fetchStartMs, endMs),
-        fetchHistoricalCandlesForCoin(coinId, '1d', fetchStartMs, endMs)
+        fetchHistoricalKrakenCandles(coinId, '1h', fetchStartMs, endMs),
+        fetchHistoricalKrakenCandles(coinId, '4h', fetchStartMs, endMs),
+        fetchHistoricalKrakenCandles(coinId, '1d', fetchStartMs, endMs)
       ]),
       PER_COIN_FETCH_TIMEOUT,
-      coinId
+      `${coinId}-kraken`
     );
     if (!candles1h || candles1h.length === 0) {
-      bybitError = 'Bybit returned 0 candles (API may block cloud IPs)';
+      krakenError = 'Kraken returned 0 candles';
     }
   } catch (err) {
-    bybitError = `Bybit error: ${err.message}`;
-    console.warn(`[Backtest] ${coinId}: ${bybitError}`);
+    krakenError = `Kraken error: ${err.message}`;
+    console.warn(`[Backtest] ${coinId}: ${krakenError}`);
   }
 
-  // Fallback to Kraken if Bybit returned nothing useful
+  // Fallback to Bybit if Kraken failed (works locally)
   if (!candles1h || candles1h.length < 50) {
     try {
-      console.log(`[Backtest] ${coinId}: Bybit got ${(candles1h||[]).length} candles, falling back to Kraken...`);
-      source = 'kraken';
+      console.log(`[Backtest] ${coinId}: Kraken got ${(candles1h||[]).length} candles, trying Bybit...`);
+      source = 'bybit';
       [candles1h, candles4h, candles1d] = await fetchWithTimeout(
         Promise.all([
-          fetchHistoricalKrakenCandles(coinId, '1h', fetchStartMs, endMs),
-          fetchHistoricalKrakenCandles(coinId, '4h', fetchStartMs, endMs),
-          fetchHistoricalKrakenCandles(coinId, '1d', fetchStartMs, endMs)
+          fetchHistoricalCandlesForCoin(coinId, '1h', fetchStartMs, endMs),
+          fetchHistoricalCandlesForCoin(coinId, '4h', fetchStartMs, endMs),
+          fetchHistoricalCandlesForCoin(coinId, '1d', fetchStartMs, endMs)
         ]),
         PER_COIN_FETCH_TIMEOUT,
-        `${coinId}-kraken`
+        coinId
       );
       if (!candles1h || candles1h.length === 0) {
-        krakenError = 'Kraken returned 0 candles';
+        bybitError = 'Bybit returned 0 candles (HTTP 403 - blocked)';
       }
     } catch (err) {
-      krakenError = `Kraken error: ${err.message}`;
-      console.error(`[Backtest] ${coinId}: ${krakenError}`);
+      bybitError = `Bybit error: ${err.message}`;
+      console.warn(`[Backtest] ${coinId}: ${bybitError}`);
     }
   }
 
