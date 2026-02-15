@@ -1,0 +1,77 @@
+{
+  "timestamp": "2026-02-15T17:11:06.700Z",
+  "results": [
+    {
+      "name": "Cooldown 2h",
+      "minScore": 52,
+      "btcFilter": false,
+      "cooldownHours": 2,
+      "slCapPct": 0.15,
+      "totalPnl": 3188.661992989158,
+      "totalTrades": 121
+    },
+    {
+      "name": "Baseline (52, BTC off, 4h, 15%)",
+      "minScore": 52,
+      "btcFilter": false,
+      "cooldownHours": 4,
+      "slCapPct": 0.15,
+      "totalPnl": 2691.0498589020026,
+      "totalTrades": 109
+    },
+    {
+      "name": "BTC filter ON",
+      "minScore": 52,
+      "btcFilter": true,
+      "cooldownHours": 4,
+      "slCapPct": 0.15,
+      "totalPnl": 2691.0498589020026,
+      "totalTrades": 109
+    },
+    {
+      "name": "SL cap 10%",
+      "minScore": 52,
+      "btcFilter": false,
+      "cooldownHours": 4,
+      "slCapPct": 0.1,
+      "totalPnl": 2691.0498589020026,
+      "totalTrades": 109
+    },
+    {
+      "name": "SL cap 20%",
+      "minScore": 52,
+      "btcFilter": false,
+      "cooldownHours": 4,
+      "slCapPct": 0.2,
+      "totalPnl": 2691.0498589020026,
+      "totalTrades": 109
+    },
+    {
+      "name": "Cooldown 6h",
+      "minScore": 52,
+      "btcFilter": false,
+      "cooldownHours": 6,
+      "slCapPct": 0.15,
+      "totalPnl": 2301.5135952423943,
+      "totalTrades": 103
+    },
+    {
+      "name": "Min score 56",
+      "minScore": 56,
+      "btcFilter": false,
+      "cooldownHours": 4,
+      "slCapPct": 0.15,
+      "totalPnl": 1641.076273581577,
+      "totalTrades": 105
+    },
+    {
+      "name": "Min score 54",
+      "minScore": 54,
+      "btcFilter": false,
+      "cooldownHours": 4,
+      "slCapPct": 0.15,
+      "totalPnl": 1461.785778287218,
+      "totalTrades": 113
+    }
+  ]
+}

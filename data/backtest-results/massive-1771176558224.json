@@ -1,0 +1,826 @@
+{
+  "timestamp": "2026-02-15T17:29:18.224Z",
+  "config": {
+    "features": {
+      "btcFilter": false,
+      "slCap": true,
+      "cooldown": true,
+      "btcCorrelation": false
+    },
+    "useBybitOnly": true,
+    "useCache": true
+  },
+  "top10": [
+    {
+      "symbol": "AVAX",
+      "totalPnl": 37778.44661731064,
+      "winRate": 55.24126455906821,
+      "profitFactor": 1.543404472852826,
+      "maxDrawdownPct": 22.144327166994348,
+      "sharpeRatio": 1.0914221384691498
+    },
+    {
+      "symbol": "DOGE",
+      "totalPnl": 40601.70840844147,
+      "winRate": 53.61842105263158,
+      "profitFactor": 1.5432754236636854,
+      "maxDrawdownPct": 27.5897920473515,
+      "sharpeRatio": 1.0402645163422495
+    },
+    {
+      "symbol": "LINK",
+      "totalPnl": 32154.572499308397,
+      "winRate": 54.34439178515008,
+      "profitFactor": 1.439359180068409,
+      "maxDrawdownPct": 18.445676278709385,
+      "sharpeRatio": 0.8824380967426354
+    },
+    {
+      "symbol": "ADA",
+      "totalPnl": 30354.965934609056,
+      "winRate": 52.64797507788161,
+      "profitFactor": 1.4112930828142585,
+      "maxDrawdownPct": 15.874434042887358,
+      "sharpeRatio": 0.7357508881078542
+    },
+    {
+      "symbol": "POL",
+      "totalPnl": 32981.43671932127,
+      "winRate": 54.36573311367381,
+      "profitFactor": 1.4660727813780325,
+      "maxDrawdownPct": 26.70793223700893,
+      "sharpeRatio": 0.9412944080906641
+    },
+    {
+      "symbol": "ATOM",
+      "totalPnl": 28041.78608369416,
+      "winRate": 52.36641221374045,
+      "profitFactor": 1.3844657634528532,
+      "maxDrawdownPct": 17.07038354767139,
+      "sharpeRatio": 0.9515199704064197
+    },
+    {
+      "symbol": "DOT",
+      "totalPnl": 26252.930428273303,
+      "winRate": 51.223241590214066,
+      "profitFactor": 1.355136366362643,
+      "maxDrawdownPct": 20.433566914494694,
+      "sharpeRatio": 0.7515351938791384
+    },
+    {
+      "symbol": "UNI",
+      "totalPnl": 27695.1281799998,
+      "winRate": 50.39370078740157,
+      "profitFactor": 1.321712343978304,
+      "maxDrawdownPct": 22.16194010838973,
+      "sharpeRatio": 0.8393384212567754
+    },
+    {
+      "symbol": "ETH",
+      "totalPnl": 19295.981631350092,
+      "winRate": 49.609984399375975,
+      "profitFactor": 1.326381711238992,
+      "maxDrawdownPct": 17.779301795276734,
+      "sharpeRatio": 1.0126809451503864
+    },
+    {
+      "symbol": "SOL",
+      "totalPnl": 22817.402856671943,
+      "winRate": 52.76923076923077,
+      "profitFactor": 1.3081513204974402,
+      "maxDrawdownPct": 31.345263140541775,
+      "sharpeRatio": 1.022979373822843
+    }
+  ],
+  "allCoins": [
+    {
+      "coinId": "avalanche-2",
+      "symbol": "AVAX",
+      "name": "Avalanche",
+      "totalTrades": 601,
+      "wins": 332,
+      "losses": 269,
+      "winRate": 55.24126455906821,
+      "totalPnl": 37778.44661731064,
+      "returnPct": 377.7844661731064,
+      "profitFactor": 1.543404472852826,
+      "maxDrawdownPct": 22.144327166994348,
+      "avgDrawdownPct": 9.72699906244708,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 107300.22736191322,
+      "grossLoss": 69521.78074460266,
+      "strategyBreakdown": {
+        "Mean Reversion": {
+          "trades": 117,
+          "pnl": 7285.802556168481,
+          "wins": 64
+        },
+        "Breakout": {
+          "trades": 144,
+          "pnl": 10114.404486000058,
+          "wins": 79
+        },
+        "Swing": {
+          "trades": 58,
+          "pnl": 4648.809685151978,
+          "wins": 34
+        },
+        "Momentum": {
+          "trades": 132,
+          "pnl": 10439.744327102559,
+          "wins": 78
+        },
+        "Trend Following": {
+          "trades": 113,
+          "pnl": 3112.6948335702714,
+          "wins": 58
+        },
+        "Position": {
+          "trades": 37,
+          "pnl": 2176.9907293172796,
+          "wins": 19
+        }
+      },
+      "sharpeRatio": 1.0914221384691498,
+      "score": 24.08499507449834
+    },
+    {
+      "coinId": "dogecoin",
+      "symbol": "DOGE",
+      "name": "Dogecoin",
+      "totalTrades": 608,
+      "wins": 326,
+      "losses": 282,
+      "winRate": 53.61842105263158,
+      "totalPnl": 40601.70840844147,
+      "returnPct": 406.01708408441465,
+      "profitFactor": 1.5432754236636854,
+      "maxDrawdownPct": 27.5897920473515,
+      "avgDrawdownPct": 10.269178845639635,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 115336.74452444284,
+      "grossLoss": 74735.03611600137,
+      "strategyBreakdown": {
+        "Mean Reversion": {
+          "trades": 100,
+          "pnl": 8689.860308112471,
+          "wins": 62
+        },
+        "Breakout": {
+          "trades": 140,
+          "pnl": 5696.3743239369705,
+          "wins": 75
+        },
+        "Swing": {
+          "trades": 58,
+          "pnl": 9725.58508515648,
+          "wins": 38
+        },
+        "Trend Following": {
+          "trades": 125,
+          "pnl": 2553.1715055075247,
+          "wins": 54
+        },
+        "Position": {
+          "trades": 55,
+          "pnl": 5363.362965013853,
+          "wins": 27
+        },
+        "Momentum": {
+          "trades": 130,
+          "pnl": 8573.35422071415,
+          "wins": 70
+        }
+      },
+      "sharpeRatio": 1.0402645163422495,
+      "score": 23.396979614118006
+    },
+    {
+      "coinId": "chainlink",
+      "symbol": "LINK",
+      "name": "Chainlink",
+      "totalTrades": 633,
+      "wins": 344,
+      "losses": 289,
+      "winRate": 54.34439178515008,
+      "totalPnl": 32154.572499308397,
+      "returnPct": 321.545724993084,
+      "profitFactor": 1.439359180068409,
+      "maxDrawdownPct": 18.445676278709385,
+      "avgDrawdownPct": 9.933038075976146,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 105339.73388435529,
+      "grossLoss": 73185.1613850469,
+      "strategyBreakdown": {
+        "Breakout": {
+          "trades": 162,
+          "pnl": 3305.043300960281,
+          "wins": 83
+        },
+        "Momentum": {
+          "trades": 154,
+          "pnl": 13368.90948716941,
+          "wins": 87
+        },
+        "Trend Following": {
+          "trades": 104,
+          "pnl": 5951.180888327496,
+          "wins": 56
+        },
+        "Mean Reversion": {
+          "trades": 102,
+          "pnl": 1287.5002761063001,
+          "wins": 49
+        },
+        "Swing": {
+          "trades": 69,
+          "pnl": 7878.508382489832,
+          "wins": 47
+        },
+        "Position": {
+          "trades": 42,
+          "pnl": 363.4301642550813,
+          "wins": 22
+        }
+      },
+      "sharpeRatio": 0.8824380967426354,
+      "score": 22.5698102233189
+    },
+    {
+      "coinId": "cardano",
+      "symbol": "ADA",
+      "name": "Cardano",
+      "totalTrades": 642,
+      "wins": 338,
+      "losses": 304,
+      "winRate": 52.64797507788161,
+      "totalPnl": 30354.965934609056,
+      "returnPct": 303.54965934609055,
+      "profitFactor": 1.4112930828142585,
+      "maxDrawdownPct": 15.874434042887358,
+      "avgDrawdownPct": 9.496089209055482,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 104158.7015260423,
+      "grossLoss": 73803.7355914333,
+      "strategyBreakdown": {
+        "Mean Reversion": {
+          "trades": 98,
+          "pnl": 3137.6001342185887,
+          "wins": 54
+        },
+        "Breakout": {
+          "trades": 144,
+          "pnl": 8335.029117942544,
+          "wins": 79
+        },
+        "Momentum": {
+          "trades": 136,
+          "pnl": 10995.352698074204,
+          "wins": 72
+        },
+        "Trend Following": {
+          "trades": 131,
+          "pnl": 3007.452675957407,
+          "wins": 65
+        },
+        "Position": {
+          "trades": 54,
+          "pnl": 1203.4609516619123,
+          "wins": 27
+        },
+        "Swing": {
+          "trades": 79,
+          "pnl": 3676.0703567543887,
+          "wins": 41
+        }
+      },
+      "sharpeRatio": 0.7357508881078542,
+      "score": 22.273834714275086
+    },
+    {
+      "coinId": "polygon",
+      "symbol": "POL",
+      "name": "Polygon",
+      "totalTrades": 607,
+      "wins": 330,
+      "losses": 277,
+      "winRate": 54.36573311367381,
+      "totalPnl": 32981.43671932127,
+      "returnPct": 329.81436719321266,
+      "profitFactor": 1.4660727813780325,
+      "maxDrawdownPct": 26.70793223700893,
+      "avgDrawdownPct": 9.625721692924474,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 103745.99975989503,
+      "grossLoss": 70764.56304057372,
+      "strategyBreakdown": {
+        "Breakout": {
+          "trades": 177,
+          "pnl": 7174.102946123433,
+          "wins": 93
+        },
+        "Mean Reversion": {
+          "trades": 92,
+          "pnl": 7096.308001603279,
+          "wins": 52
+        },
+        "Momentum": {
+          "trades": 105,
+          "pnl": 3898.838534532564,
+          "wins": 57
+        },
+        "Swing": {
+          "trades": 71,
+          "pnl": 1990.5006495438322,
+          "wins": 37
+        },
+        "Trend Following": {
+          "trades": 105,
+          "pnl": 8100.21740342911,
+          "wins": 61
+        },
+        "Position": {
+          "trades": 57,
+          "pnl": 4721.4691840890855,
+          "wins": 30
+        }
+      },
+      "sharpeRatio": 0.9412944080906641,
+      "score": 21.352002021610176
+    },
+    {
+      "coinId": "cosmos",
+      "symbol": "ATOM",
+      "name": "Cosmos",
+      "totalTrades": 655,
+      "wins": 343,
+      "losses": 312,
+      "winRate": 52.36641221374045,
+      "totalPnl": 28041.78608369416,
+      "returnPct": 280.4178608369416,
+      "profitFactor": 1.3844657634528532,
+      "maxDrawdownPct": 17.07038354767139,
+      "avgDrawdownPct": 10.01456919431468,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 100978.80349677506,
+      "grossLoss": 72937.01741308087,
+      "strategyBreakdown": {
+        "Breakout": {
+          "trades": 163,
+          "pnl": 4676.217772978458,
+          "wins": 80
+        },
+        "Trend Following": {
+          "trades": 123,
+          "pnl": 6222.439166359943,
+          "wins": 60
+        },
+        "Momentum": {
+          "trades": 129,
+          "pnl": 5618.776600088462,
+          "wins": 67
+        },
+        "Mean Reversion": {
+          "trades": 113,
+          "pnl": 4943.156648355437,
+          "wins": 65
+        },
+        "Position": {
+          "trades": 53,
+          "pnl": 1971.0725426564202,
+          "wins": 29
+        },
+        "Swing": {
+          "trades": 74,
+          "pnl": 4610.123353255457,
+          "wins": 42
+        }
+      },
+      "sharpeRatio": 0.9515199704064197,
+      "score": 21.275579363107134
+    },
+    {
+      "coinId": "polkadot",
+      "symbol": "DOT",
+      "name": "Polkadot",
+      "totalTrades": 654,
+      "wins": 335,
+      "losses": 319,
+      "winRate": 51.223241590214066,
+      "totalPnl": 26252.930428273303,
+      "returnPct": 262.52930428273305,
+      "profitFactor": 1.355136366362643,
+      "maxDrawdownPct": 20.433566914494694,
+      "avgDrawdownPct": 10.724233864238634,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 100176.45084145851,
+      "grossLoss": 73923.52041318524,
+      "strategyBreakdown": {
+        "Mean Reversion": {
+          "trades": 108,
+          "pnl": 6397.668784544751,
+          "wins": 60
+        },
+        "Breakout": {
+          "trades": 151,
+          "pnl": 9997.024976467173,
+          "wins": 83
+        },
+        "Momentum": {
+          "trades": 144,
+          "pnl": 1616.684835363267,
+          "wins": 68
+        },
+        "Position": {
+          "trades": 53,
+          "pnl": 3524.3760254774734,
+          "wins": 30
+        },
+        "Trend Following": {
+          "trades": 127,
+          "pnl": 1902.2628167780067,
+          "wins": 61
+        },
+        "Swing": {
+          "trades": 71,
+          "pnl": 2814.912989642655,
+          "wins": 33
+        }
+      },
+      "sharpeRatio": 0.7515351938791384,
+      "score": 19.83756052540356
+    },
+    {
+      "coinId": "uniswap",
+      "symbol": "UNI",
+      "name": "Uniswap",
+      "totalTrades": 635,
+      "wins": 320,
+      "losses": 315,
+      "winRate": 50.39370078740157,
+      "totalPnl": 27695.1281799998,
+      "returnPct": 276.951281799998,
+      "profitFactor": 1.321712343978304,
+      "maxDrawdownPct": 22.16194010838973,
+      "avgDrawdownPct": 12.792088103601213,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 113781.74779030468,
+      "grossLoss": 86086.61961030487,
+      "strategyBreakdown": {
+        "Swing": {
+          "trades": 75,
+          "pnl": 7184.857561470629,
+          "wins": 38
+        },
+        "Mean Reversion": {
+          "trades": 98,
+          "pnl": 4582.74731570028,
+          "wins": 52
+        },
+        "Breakout": {
+          "trades": 165,
+          "pnl": 2486.19163255337,
+          "wins": 78
+        },
+        "Momentum": {
+          "trades": 133,
+          "pnl": 12617.421143723215,
+          "wins": 74
+        },
+        "Trend Following": {
+          "trades": 104,
+          "pnl": 161.58544410045965,
+          "wins": 51
+        },
+        "Position": {
+          "trades": 60,
+          "pnl": 662.3250824518352,
+          "wins": 27
+        }
+      },
+      "sharpeRatio": 0.8393384212567754,
+      "score": 19.36313113284521
+    },
+    {
+      "coinId": "ethereum",
+      "symbol": "ETH",
+      "name": "Ethereum",
+      "totalTrades": 641,
+      "wins": 318,
+      "losses": 323,
+      "winRate": 49.609984399375975,
+      "totalPnl": 19295.981631350092,
+      "returnPct": 192.9598163135009,
+      "profitFactor": 1.326381711238992,
+      "maxDrawdownPct": 17.779301795276734,
+      "avgDrawdownPct": 9.716834951561486,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 78416.88506095602,
+      "grossLoss": 59120.90342960602,
+      "strategyBreakdown": {
+        "Mean Reversion": {
+          "trades": 76,
+          "pnl": 3174.0906508179005,
+          "wins": 38
+        },
+        "Swing": {
+          "trades": 71,
+          "pnl": 2418.3990234823846,
+          "wins": 38
+        },
+        "Breakout": {
+          "trades": 155,
+          "pnl": 4877.535608852366,
+          "wins": 73
+        },
+        "Momentum": {
+          "trades": 163,
+          "pnl": 2709.2816084159376,
+          "wins": 77
+        },
+        "Trend Following": {
+          "trades": 111,
+          "pnl": 1323.733182200218,
+          "wins": 54
+        },
+        "Position": {
+          "trades": 65,
+          "pnl": 4792.941557581276,
+          "wins": 38
+        }
+      },
+      "sharpeRatio": 1.0126809451503864,
+      "score": 18.528151519542188
+    },
+    {
+      "coinId": "solana",
+      "symbol": "SOL",
+      "name": "Solana",
+      "totalTrades": 650,
+      "wins": 343,
+      "losses": 307,
+      "winRate": 52.76923076923077,
+      "totalPnl": 22817.402856671943,
+      "returnPct": 228.17402856671944,
+      "profitFactor": 1.3081513204974402,
+      "maxDrawdownPct": 31.345263140541775,
+      "avgDrawdownPct": 11.13398494044379,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 96863.5007927069,
+      "grossLoss": 74046.09793603494,
+      "strategyBreakdown": {
+        "Breakout": {
+          "trades": 157,
+          "pnl": 3575.8966007737276,
+          "wins": 78
+        },
+        "Mean Reversion": {
+          "trades": 120,
+          "pnl": 5496.298914276213,
+          "wins": 67
+        },
+        "Momentum": {
+          "trades": 146,
+          "pnl": 7118.834534463684,
+          "wins": 79
+        },
+        "Trend Following": {
+          "trades": 110,
+          "pnl": 4876.087464147838,
+          "wins": 60
+        },
+        "Swing": {
+          "trades": 83,
+          "pnl": 3707.4704495184196,
+          "wins": 47
+        },
+        "Position": {
+          "trades": 34,
+          "pnl": -1957.185106507933,
+          "wins": 12
+        }
+      },
+      "sharpeRatio": 1.022979373822843,
+      "score": 16.652864225123512
+    },
+    {
+      "coinId": "ripple",
+      "symbol": "XRP",
+      "name": "Ripple",
+      "totalTrades": 594,
+      "wins": 298,
+      "losses": 296,
+      "winRate": 50.16835016835017,
+      "totalPnl": 17449.400984227876,
+      "returnPct": 174.49400984227876,
+      "profitFactor": 1.2681498157000568,
+      "maxDrawdownPct": 27.421367412774657,
+      "avgDrawdownPct": 11.503652097171866,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 82522.72926033678,
+      "grossLoss": 65073.32827610889,
+      "strategyBreakdown": {
+        "Breakout": {
+          "trades": 145,
+          "pnl": 7148.935197893482,
+          "wins": 73
+        },
+        "Mean Reversion": {
+          "trades": 82,
+          "pnl": 2580.208291572367,
+          "wins": 41
+        },
+        "Swing": {
+          "trades": 88,
+          "pnl": -121.09303669838795,
+          "wins": 38
+        },
+        "Momentum": {
+          "trades": 133,
+          "pnl": 3865.713503059777,
+          "wins": 69
+        },
+        "Trend Following": {
+          "trades": 98,
+          "pnl": 4813.957418036787,
+          "wins": 56
+        },
+        "Position": {
+          "trades": 48,
+          "pnl": -838.3203896361396,
+          "wins": 21
+        }
+      },
+      "sharpeRatio": 0.698493802805627,
+      "score": 15.70393988812623
+    },
+    {
+      "coinId": "bitcoin",
+      "symbol": "BTC",
+      "name": "Bitcoin",
+      "totalTrades": 633,
+      "wins": 310,
+      "losses": 323,
+      "winRate": 48.973143759873615,
+      "totalPnl": 6370.321995883792,
+      "returnPct": 63.70321995883792,
+      "profitFactor": 1.145206400496262,
+      "maxDrawdownPct": 14.340157408766535,
+      "avgDrawdownPct": 7.4224705312373995,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 50241.129164936705,
+      "grossLoss": 43870.80716905292,
+      "strategyBreakdown": {
+        "Mean Reversion": {
+          "trades": 107,
+          "pnl": 978.8207952707096,
+          "wins": 57
+        },
+        "Breakout": {
+          "trades": 151,
+          "pnl": -2653.572736119262,
+          "wins": 63
+        },
+        "Momentum": {
+          "trades": 132,
+          "pnl": 2074.2333930193877,
+          "wins": 67
+        },
+        "Trend Following": {
+          "trades": 120,
+          "pnl": 1672.322454305259,
+          "wins": 58
+        },
+        "Position": {
+          "trades": 51,
+          "pnl": 3173.126077789291,
+          "wins": 30
+        },
+        "Swing": {
+          "trades": 72,
+          "pnl": 1125.3920116183979,
+          "wins": 35
+        }
+      },
+      "sharpeRatio": 1.0128952301998344,
+      "score": 14.755411298373435
+    },
+    {
+      "coinId": "binancecoin",
+      "symbol": "BNB",
+      "name": "BNB",
+      "totalTrades": 673,
+      "wins": 322,
+      "losses": 351,
+      "winRate": 47.84546805349183,
+      "totalPnl": 4427.798411736998,
+      "returnPct": 44.277984117369975,
+      "profitFactor": 1.07851649894774,
+      "maxDrawdownPct": 21.763520761887207,
+      "avgDrawdownPct": 9.751681183241189,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 60821.02112387212,
+      "grossLoss": 56393.222712135095,
+      "strategyBreakdown": {
+        "Mean Reversion": {
+          "trades": 99,
+          "pnl": 440.1268130897119,
+          "wins": 45
+        },
+        "Breakout": {
+          "trades": 165,
+          "pnl": 388.1361676004368,
+          "wins": 74
+        },
+        "Swing": {
+          "trades": 78,
+          "pnl": 306.97645477018943,
+          "wins": 39
+        },
+        "Momentum": {
+          "trades": 123,
+          "pnl": 1058.8272939101257,
+          "wins": 63
+        },
+        "Trend Following": {
+          "trades": 128,
+          "pnl": 3505.334146761895,
+          "wins": 66
+        },
+        "Position": {
+          "trades": 80,
+          "pnl": -1271.6024643953565,
+          "wins": 35
+        }
+      },
+      "sharpeRatio": 0.9625259530238335,
+      "score": 12.102567324796542
+    },
+    {
+      "coinId": "litecoin",
+      "symbol": "LTC",
+      "name": "Litecoin",
+      "totalTrades": 621,
+      "wins": 286,
+      "losses": 335,
+      "winRate": 46.05475040257649,
+      "totalPnl": 6910.56493235126,
+      "returnPct": 69.1056493235126,
+      "profitFactor": 1.098356396957447,
+      "maxDrawdownPct": 30.63802613514709,
+      "avgDrawdownPct": 11.75819374878302,
+      "monthsWithData": 25,
+      "monthsWithTrades": 25,
+      "grossProfit": 77171.0171868313,
+      "grossLoss": 70260.45225447993,
+      "strategyBreakdown": {
+        "Breakout": {
+          "trades": 160,
+          "pnl": 4854.584296118342,
+          "wins": 77
+        },
+        "Momentum": {
+          "trades": 134,
+          "pnl": 6748.494776261989,
+          "wins": 65
+        },
+        "Mean Reversion": {
+          "trades": 97,
+          "pnl": 437.8641097843162,
+          "wins": 48
+        },
+        "Trend Following": {
+          "trades": 101,
+          "pnl": -2680.9406115514284,
+          "wins": 39
+        },
+        "Position": {
+          "trades": 53,
+          "pnl": 1401.388918764089,
+          "wins": 27
+        },
+        "Swing": {
+          "trades": 76,
+          "pnl": -3850.8265570260323,
+          "wins": 30
+        }
+      },
+      "sharpeRatio": 0.9465934273968646,
+      "score": 10.843546769272953
+    }
+  ],
+  "monthRanges": 25
+}

@@ -1,0 +1,138 @@
+{
+  "timestamp": "2026-02-15T17:09:17.299Z",
+  "config": {
+    "features": {
+      "btcFilter": false,
+      "slCap": true,
+      "cooldown": true,
+      "btcCorrelation": false
+    },
+    "useBybitOnly": true,
+    "useCache": true
+  },
+  "top10": [
+    {
+      "symbol": "ETH",
+      "totalPnl": 2762.8029335078104,
+      "winRate": 54.90196078431373,
+      "profitFactor": 1.762656062725624,
+      "maxDrawdownPct": 7.969752446631846,
+      "sharpeRatio": 1.1146328393684024
+    },
+    {
+      "symbol": "BTC",
+      "totalPnl": -75.25084809791977,
+      "winRate": 39.6551724137931,
+      "profitFactor": 0.981338486681889,
+      "maxDrawdownPct": 13.604497176468813,
+      "sharpeRatio": 1.6387683894329497
+    }
+  ],
+  "allCoins": [
+    {
+      "coinId": "ethereum",
+      "symbol": "ETH",
+      "name": "Ethereum",
+      "totalTrades": 51,
+      "wins": 28,
+      "losses": 23,
+      "winRate": 54.90196078431373,
+      "totalPnl": 2762.8029335078104,
+      "returnPct": 27.628029335078104,
+      "profitFactor": 1.762656062725624,
+      "maxDrawdownPct": 7.969752446631846,
+      "avgDrawdownPct": 5.768426318886543,
+      "monthsWithData": 3,
+      "monthsWithTrades": 3,
+      "grossProfit": 6385.409595328536,
+      "grossLoss": 3622.6066618207255,
+      "strategyBreakdown": {
+        "Mean Reversion": {
+          "trades": 4,
+          "pnl": -67.30523265029393,
+          "wins": 1
+        },
+        "Momentum": {
+          "trades": 20,
+          "pnl": 488.59173558803866,
+          "wins": 10
+        },
+        "Position": {
+          "trades": 8,
+          "pnl": 28.170852222873748,
+          "wins": 4
+        },
+        "Breakout": {
+          "trades": 11,
+          "pnl": 1544.507042062291,
+          "wins": 7
+        },
+        "Trend Following": {
+          "trades": 7,
+          "pnl": 429.4348068095241,
+          "wins": 5
+        },
+        "Swing": {
+          "trades": 1,
+          "pnl": 339.4037294753771,
+          "wins": 1
+        }
+      },
+      "sharpeRatio": 1.1146328393684024,
+      "score": 22.075366803062806
+    },
+    {
+      "coinId": "bitcoin",
+      "symbol": "BTC",
+      "name": "Bitcoin",
+      "totalTrades": 58,
+      "wins": 23,
+      "losses": 35,
+      "winRate": 39.6551724137931,
+      "totalPnl": -75.25084809791977,
+      "returnPct": -0.7525084809791976,
+      "profitFactor": 0.981338486681889,
+      "maxDrawdownPct": 13.604497176468813,
+      "avgDrawdownPct": 9.13856602231145,
+      "monthsWithData": 3,
+      "monthsWithTrades": 3,
+      "grossProfit": 3957.157821829751,
+      "grossLoss": 4032.4086699276722,
+      "strategyBreakdown": {
+        "Breakout": {
+          "trades": 14,
+          "pnl": -577.2891906978243,
+          "wins": 3
+        },
+        "Momentum": {
+          "trades": 13,
+          "pnl": 662.2310307950252,
+          "wins": 6
+        },
+        "Mean Reversion": {
+          "trades": 9,
+          "pnl": -1201.9253386182736,
+          "wins": 2
+        },
+        "Swing": {
+          "trades": 6,
+          "pnl": 721.2943540757101,
+          "wins": 5
+        },
+        "Position": {
+          "trades": 7,
+          "pnl": 440.4036618291226,
+          "wins": 4
+        },
+        "Trend Following": {
+          "trades": 9,
+          "pnl": -119.96536548168005,
+          "wins": 3
+        }
+      },
+      "sharpeRatio": 1.6387683894329497,
+      "score": 11.042952503284852
+    }
+  ],
+  "monthRanges": 3
+}
