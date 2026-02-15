@@ -7,12 +7,43 @@
     </div>
   </footer>
 
+  <!-- Real-time WebSocket prices (all pages: ticker, cards, trades, nav PnL) -->
+  <script src="/js/ws-prices.js"></script>
+
   <% if (typeof user !== 'undefined' && user) { %>
   <script>
-  // Live PNL for all open trades — updates nav bar every 5s
+  // Live PNL — real-time via WebSocket + fallback poll every 5s
   (function() {
     var pnlEl = document.getElementById('nav-live-pnl');
     if (!pnlEl) return;
+
+    var lastTrades = null;
+    var lastPriceMap = {};
+
+    function computeAndShowPnl(priceMap) {
+      if (!lastTrades || !priceMap) return;
+      var totalPnl = 0, tradeCount = 0;
+      for (var tid in lastTrades) {
+        var t = lastTrades[tid];
+        var currentPrice = priceMap[t.coinId];
+        if (currentPrice == null || isNaN(currentPrice) || currentPrice <= 0) continue;
+        if (!t.entryPrice || !t.positionSize) continue;
+        var unrealized = t.direction === 'LONG'
+          ? ((currentPrice - t.entryPrice) / t.entryPrice) * t.positionSize
+          : ((t.entryPrice - currentPrice) / t.entryPrice) * t.positionSize;
+        totalPnl += (t.partialPnl || 0) + unrealized;
+        tradeCount++;
+      }
+      if (tradeCount === 0) {
+        pnlEl.style.display = 'none';
+        pnlEl.className = 'nav-pnl';
+        return;
+      }
+      var sign = totalPnl >= 0 ? '+' : '';
+      pnlEl.textContent = sign + '$' + totalPnl.toFixed(2) + ' PNL';
+      pnlEl.style.display = 'inline';
+      pnlEl.className = totalPnl > 0.01 ? 'nav-pnl pnl-positive' : totalPnl < -0.01 ? 'nav-pnl pnl-negative' : 'nav-pnl pnl-zero';
+    }
 
     function updateNavPnl() {
       Promise.all([
@@ -24,46 +55,32 @@
         if (!tradesData || !tradesData.success || !tradesData.trades) return;
         if (!pricesData || !pricesData.success || !pricesData.data) return;
 
+        lastTrades = tradesData.trades;
         var priceMap = {};
         for (var i = 0; i < pricesData.data.length; i++) {
           var p = pricesData.data[i];
           if (p && p.id != null) priceMap[p.id] = Number(p.price);
         }
-
-        var totalPnl = 0;
-        var tradeCount = 0;
-        var trades = tradesData.trades;
-        for (var tid in trades) {
-          var t = trades[tid];
-          var currentPrice = priceMap[t.coinId];
-          if (currentPrice == null || isNaN(currentPrice) || currentPrice <= 0) continue;
-          if (!t.entryPrice || !t.positionSize) continue;
-          var unrealized = t.direction === 'LONG'
-            ? ((currentPrice - t.entryPrice) / t.entryPrice) * t.positionSize
-            : ((t.entryPrice - currentPrice) / t.entryPrice) * t.positionSize;
-          totalPnl += (t.partialPnl || 0) + unrealized;
-          tradeCount++;
+        if (window.__wsPrices) {
+          for (var cid in window.__wsPrices) {
+            if (window.__wsPrices[cid] && window.__wsPrices[cid].price != null) {
+              priceMap[cid] = window.__wsPrices[cid].price;
+            }
+          }
         }
-
-        if (tradeCount === 0) {
-          pnlEl.style.display = 'none';
-          pnlEl.className = 'nav-pnl';
-          return;
-        }
-
-        var sign = totalPnl >= 0 ? '+' : '';
-        pnlEl.textContent = sign + '$' + totalPnl.toFixed(2) + ' PNL';
-        if (totalPnl > 0.01) {
-          pnlEl.className = 'nav-pnl pnl-positive';
-        } else if (totalPnl < -0.01) {
-          pnlEl.className = 'nav-pnl pnl-negative';
-        } else {
-          pnlEl.className = 'nav-pnl pnl-zero';
-        }
+        lastPriceMap = priceMap;
+        computeAndShowPnl(priceMap);
       }).catch(function() {});
     }
 
-    // Initial + poll
+    window.addEventListener('ws-price-update', function(ev) {
+      if (!lastTrades) return;
+      if (ev.detail && ev.detail.coinId != null && ev.detail.price != null) {
+        lastPriceMap[ev.detail.coinId] = ev.detail.price;
+      }
+      computeAndShowPnl(lastPriceMap);
+    });
+
     setTimeout(updateNavPnl, 1500);
     setInterval(updateNavPnl, 5000);
   })();

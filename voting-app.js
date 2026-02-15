@@ -1370,11 +1370,18 @@ app.post('/api/backtest', async (req, res) => {
     const { coinId, startDate, endDate, coins, minScore, leverage } = req.body || {};
     const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 30 * 24 * 60 * 60 * 1000;
     const endMs = endDate ? new Date(endDate).getTime() : Date.now();
+    if (isNaN(startMs) || isNaN(endMs)) {
+      return res.status(400).json({ error: 'Invalid date range. Please select valid start and end dates.' });
+    }
     if (startMs >= endMs) {
       return res.status(400).json({ error: 'Start date must be before end date' });
     }
+    let coinsToRun = coins && Array.isArray(coins) ? coins : (coinId ? [coinId] : undefined);
+    if (!coinsToRun && TRACKED_COINS) {
+      coinsToRun = TRACKED_COINS.slice(0, 6);
+    }
     const options = {
-      coins: coins && Array.isArray(coins) ? coins : (coinId ? [coinId] : undefined),
+      coins: coinsToRun,
       minScore: minScore != null ? Number(minScore) : undefined,
       leverage: leverage != null ? Number(leverage) : undefined,
       delay: 350

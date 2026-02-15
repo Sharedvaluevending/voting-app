@@ -11,9 +11,9 @@
     <h1 style="font-size:28px;color:#fff;"><%= sig.coin.name %></h1>
     <span style="color:#6b7280;font-size:14px;"><%= sig.coin.symbol %> | Market Cap: $<%= formatBigNumber(sig.coin.marketCap) %></span>
   </div>
-  <div style="text-align:right;">
-    <div style="font-size:32px;font-weight:700;color:#fff;">$<%= formatPrice(sig.coin.price) %></div>
-    <div class="<%= sig.coin.change24h >= 0 ? 'up' : 'down' %>" style="font-size:16px;font-weight:600;">
+  <div style="text-align:right;" data-coin-id="<%= sig.coin.id %>" class="coin-detail-price-block">
+    <div class="coin-detail-price" style="font-size:32px;font-weight:700;color:#fff;">$<%= formatPrice(sig.coin.price) %></div>
+    <div class="coin-detail-change <%= sig.coin.change24h >= 0 ? 'up' : 'down' %>" style="font-size:16px;font-weight:600;">
       <%= sig.coin.change24h >= 0 ? '+' : '' %><%= sig.coin.change24h.toFixed(2) %>% (24h)
     </div>
   </div>

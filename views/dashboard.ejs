@@ -257,51 +257,6 @@
 })();
 </script>
 <% } %>
-
-<!-- WebSocket real-time price updates (free, no polling) -->
-<script>
-(function() {
-  var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  var wsUrl = protocol + '//' + location.host + '/ws/prices';
-  var ws = null;
-  var reconnectDelay = 3000;
-
-  function connect() {
-    try {
-      ws = new WebSocket(wsUrl);
-      ws.onmessage = function(ev) {
-        try {
-          var msg = JSON.parse(ev.data);
-          if (msg.type === 'price' && msg.coinId && msg.price != null) {
-            var priceEl = document.querySelector('.ticker[data-coin-id="' + msg.coinId + '"] [data-price]');
-            if (priceEl) {
-              var p = Number(msg.price);
-              priceEl.textContent = '$' + (p >= 1000 ? p.toLocaleString(undefined, {min:2,max:2}) : p >= 1 ? p.toFixed(2) : p >= 0.01 ? p.toFixed(4) : p.toFixed(8));
-            }
-            var changeEl = document.querySelector('.ticker[data-coin-id="' + msg.coinId + '"] [data-change]');
-            if (changeEl && msg.change24h != null) {
-              changeEl.textContent = (msg.change24h >= 0 ? '+' : '') + Number(msg.change24h).toFixed(2) + '%';
-              changeEl.className = 'ticker-change ' + (msg.change24h >= 0 ? 'up' : 'down');
-            }
-            var cardPrice = document.querySelector('.signal-card[data-coin-id="' + msg.coinId + '"] .card-price');
-            if (cardPrice) {
-              var p = Number(msg.price);
-              cardPrice.textContent = '$' + (p >= 1000 ? p.toLocaleString(undefined, {min:2,max:2}) : p >= 1 ? p.toFixed(2) : p >= 0.01 ? p.toFixed(4) : p.toFixed(8));
-            }
-            var cardChange = document.querySelector('.signal-card[data-coin-id="' + msg.coinId + '"] .card-change');
-            if (cardChange && msg.change24h != null) {
-              cardChange.textContent = (msg.change24h >= 0 ? '+' : '') + Number(msg.change24h).toFixed(2) + '%';
-              cardChange.className = 'change card-change ' + (msg.change24h >= 0 ? 'up' : 'down');
-            }
-          }
-        } catch (e) {}
-      };
-      ws.onclose = function() { setTimeout(connect, reconnectDelay); };
-      ws.onerror = function() {};
-    } catch (e) {}
-  }
-  connect();
-})();
-</script>
+<!-- WebSocket prices via ws-prices.js (footer) - real-time ticker, cards, trades, nav PnL -->
 
 <%- include('partials/footer') %>

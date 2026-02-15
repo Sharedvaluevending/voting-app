@@ -241,26 +241,32 @@ async function runBacktest(startMs, endMs, options) {
   options = options || {};
   const coins = options.coins || TRACKED_COINS;
   const results = [];
+  const failed = [];
 
   for (const coinId of coins) {
     try {
       const result = await runBacktestForCoin(coinId, startMs, endMs, options);
-      if (!result.error) results.push(result);
+      results.push(result);
+      if (result.error) failed.push({ coinId, error: result.error });
       if (options.delay) await new Promise(r => setTimeout(r, options.delay));
     } catch (err) {
       results.push({ coinId, error: err.message, trades: [] });
+      failed.push({ coinId, error: err.message });
     }
   }
 
-  const allTrades = results.flatMap(r => (r.trades || []).map(t => ({ ...t, coinId: r.coinId, symbol: r.symbol })));
+  const successResults = results.filter(r => !r.error);
+  const allTrades = successResults.flatMap(r => (r.trades || []).map(t => ({ ...t, coinId: r.coinId, symbol: r.symbol })));
   const totalWins = allTrades.filter(t => t.pnl > 0).length;
   const totalLosses = allTrades.filter(t => t.pnl <= 0).length;
   const totalPnl = allTrades.reduce((s, t) => s + t.pnl, 0);
   const grossProfit = allTrades.filter(t => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
   const grossLoss = Math.abs(allTrades.filter(t => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
 
+  const totalBars = successResults.reduce((s, r) => s + (r.bars || 0), 0);
   return {
     results,
+    failed,
     summary: {
       totalTrades: allTrades.length,
       wins: totalWins,
@@ -268,7 +274,10 @@ async function runBacktest(startMs, endMs, options) {
       winRate: allTrades.length > 0 ? (totalWins / allTrades.length) * 100 : 0,
       totalPnl,
       profitFactor: grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999 : 0),
-      returnPct: ((totalPnl / INITIAL_BALANCE) * 100)
+      returnPct: ((totalPnl / INITIAL_BALANCE) * 100),
+      coinsProcessed: successResults.length,
+      coinsFailed: failed.length,
+      totalBars
     },
     startMs,
     endMs

@@ -12,7 +12,7 @@
     <div>
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Coin</label>
       <select name="coinId" id="coinId" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
-        <option value="">All coins</option>
+        <option value="">All coins (first 6, ~30s)</option>
         <% if (typeof TRACKED_COINS !== 'undefined' && TRACKED_COINS) { %>
           <% TRACKED_COINS.forEach(function(cid) { %>
             <option value="<%= cid %>"><%= cid %></option>
@@ -54,6 +54,10 @@
 
 <!-- Results -->
 <div id="backtest-results" style="display:none;">
+  <!-- Diagnostic message when empty -->
+  <div id="backtest-diagnostic" class="section" style="display:none;margin-bottom:24px;padding:16px;background:rgba(234,179,8,0.1);border:1px solid rgba(234,179,8,0.3);border-radius:8px;">
+    <p id="backtest-diagnostic-msg" style="color:#eab308;margin:0;font-size:14px;"></p>
+  </div>
   <!-- Summary -->
   <div class="section" style="margin-bottom:24px;">
     <h3 style="color:#e5e7eb;margin-bottom:12px;">Summary</h3>
@@ -158,18 +162,34 @@
     if (coinId) body.coinId = coinId;
 
     try {
+      var controller = new AbortController();
+      var timeoutId = setTimeout(function() { controller.abort(); }, 120000);
       var res = await fetch('/api/backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Backtest failed');
 
       loading.style.display = 'none';
       results.style.display = 'block';
 
+      var diag = document.getElementById('backtest-diagnostic');
+      var diagMsg = document.getElementById('backtest-diagnostic-msg');
+      diag.style.display = 'none';
       var s = data.summary || {};
+      var successResults = (data.results || []).filter(function(r) { return !r.error; });
+      if ((s.coinsFailed || 0) > 0 && successResults.length === 0) {
+        diag.style.display = 'block';
+        diagMsg.textContent = 'Could not fetch candles for any coin (' + (s.coinsFailed || 0) + ' failed). The request may have timed out. Try a single coin and shorter date range (e.g. 7 days).';
+      } else if (successResults.length > 0 && s.totalTrades === 0) {
+        diag.style.display = 'block';
+        diagMsg.textContent = 'No trades met the criteria across ' + (s.coinsProcessed || successResults.length) + ' coins (' + (s.totalBars || 0) + ' bars). Try lowering Min Score to 48 or a different date range.';
+      }
+
       document.getElementById('bt-trades').textContent = s.totalTrades || 0;
       document.getElementById('bt-winrate').textContent = (s.winRate || 0).toFixed(1) + '%';
       var pnl = s.totalPnl || 0;
@@ -182,14 +202,13 @@
       retEl.className = 'perf-value ' + (ret >= 0 ? 'up' : 'down');
       document.getElementById('bt-pf').textContent = (s.profitFactor || 0).toFixed(2);
       var maxDd = 0;
-      (data.results || []).forEach(function(r) { if (r.maxDrawdownPct > maxDd) maxDd = r.maxDrawdownPct; });
+      successResults.forEach(function(r) { if (r.maxDrawdownPct > maxDd) maxDd = r.maxDrawdownPct; });
       document.getElementById('bt-dd').textContent = maxDd.toFixed(1) + '%';
 
-      // Per-coin table
+      // Per-coin table (only successful runs)
       var tbody = document.getElementById('bt-coins-body');
       tbody.innerHTML = '';
-      (data.results || []).forEach(function(r) {
-        if (r.error) return;
+      successResults.forEach(function(r) {
         var tr = document.createElement('tr');
         var wr = r.winRate || 0;
         var pnl = r.totalPnl || 0;
@@ -205,9 +224,9 @@
         tbody.appendChild(tr);
       });
 
-      // Trade list (aggregate from all results)
+      // Trade list (aggregate from successful results)
       var allTrades = [];
-      (data.results || []).forEach(function(r) {
+      successResults.forEach(function(r) {
         (r.trades || []).forEach(function(t) {
           allTrades.push({ coinId: r.coinId, symbol: r.symbol, direction: t.direction, entry: t.entry, exit: t.exit, reason: t.reason, pnl: t.pnl });
         });
