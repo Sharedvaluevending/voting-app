@@ -9,6 +9,7 @@
 <div class="section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Backtest Parameters</h3>
   <form id="backtest-form" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;align-items:end;">
+    <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <div>
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Coin</label>
       <select name="coinId" id="coinId" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
@@ -158,6 +159,14 @@
         <div class="perf-value down" id="bt-dd">0%</div>
       </div>
     </div>
+    <% if (typeof user !== 'undefined' && user) { %>
+    <div style="margin-top:12px;">
+      <button type="button" id="bt-save-btn" class="btn btn-sm" onclick="saveBacktestToResults()" style="background:#10b981;color:#fff;border:none;padding:6px 14px;font-size:12px;border-radius:6px;cursor:pointer;" title="Save these results to the Results page. They will persist through platform resets.">
+        Save to Results
+      </button>
+      <span id="bt-save-status" style="margin-left:8px;font-size:12px;color:#6b7280;"></span>
+    </div>
+    <% } %>
   </div>
 
   <!-- Action Badges & Exit Reasons -->
@@ -258,6 +267,35 @@ function saveAsLivePreset() {
   alert('Toggle preset saved! Go to Performance page and click "Load from Backtest" to apply.');
 }
 
+async function saveBacktestToResults() {
+  var result = window.__lastBacktestResult;
+  if (!result || !result.results) {
+    alert('Run a backtest first, then click Save to Results.');
+    return;
+  }
+  var btn = document.getElementById('bt-save-btn');
+  var status = document.getElementById('bt-save-status');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Saving...';
+  try {
+    var csrf = document.querySelector('input[name="_csrf"]')?.value || '';
+    var res = await fetch('/api/backtest-results/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify({ result: result }),
+      credentials: 'same-origin'
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Save failed');
+    if (status) status.textContent = 'Saved! Results persist through resets.';
+    if (status) status.style.color = '#10b981';
+  } catch (e) {
+    if (status) status.textContent = 'Error: ' + (e.message || 'Failed');
+    if (status) status.style.color = '#ef4444';
+  }
+  if (btn) btn.disabled = false;
+}
+
 // Badge rendering
 var ACTION_BADGE_MAP = {
   BE: { label: 'BE', color: '#3b82f6', desc: 'Breakeven' },
@@ -332,6 +370,7 @@ function renderActionBadgesForTrade(actions) {
       var data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Backtest failed');
 
+      window.__lastBacktestResult = data;
       loading.style.display = 'none';
       results.style.display = 'block';
 
