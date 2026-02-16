@@ -724,8 +724,9 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       const confidenceMult = Math.min(1.2, 0.5 + score / 100);
       size *= confidenceMult;
     }
-    // Cap at 95% of equity
-    const actualSize = Math.min(size, equity * 0.95);
+    // Cap at 95% of equity as margin; max notional = margin * leverage
+    const maxNotional = equity * 0.95 * leverage;
+    const actualSize = Math.min(size, maxNotional);
 
     // Entry fees (mirrors live maker fee)
     const entryFees = F_FEES ? actualSize * TAKER_FEE : 0;

@@ -82,102 +82,144 @@
   </div>
   <% } %>
 
-  <h3 style="color:#e5e7eb;margin-bottom:12px;">Trading settings</h3>
-  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Limit how much of your balance each trade can use. Lower values = safer position sizing.</p>
-  <form action="/account/settings" method="POST" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;align-items:end;max-width:700px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Trading Settings</h3>
+  <form action="/account/settings" method="POST">
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-    <div>
-      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Max balance per trade (%)</label>
-      <input type="number" name="maxBalancePercentPerTrade" min="5" max="100" value="<%= (user.settings && user.settings.maxBalancePercentPerTrade) != null ? user.settings.maxBalancePercentPerTrade : 25 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+
+    <!-- 1. Position Sizing -->
+    <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #1e2a3a;">
+      <h4 style="color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px 0;">Position Sizing</h4>
+      <p style="font-size:12px;color:#6b7280;margin:0 0 12px 0;">How much of your balance each trade can use. Lower = safer.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;align-items:end;">
+        <div>
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Risk per trade (%)</label>
+          <input type="number" name="riskPerTrade" min="0.5" max="10" step="0.5" value="<%= (user.settings && user.settings.riskPerTrade) != null ? user.settings.riskPerTrade : 2 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Max balance per trade (%)</label>
+          <input type="number" name="maxBalancePercentPerTrade" min="5" max="100" value="<%= (user.settings && user.settings.maxBalancePercentPerTrade) != null ? user.settings.maxBalancePercentPerTrade : 25 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Max open trades</label>
+          <input type="number" name="maxOpenTrades" min="1" max="10" value="<%= (user.settings && user.settings.maxOpenTrades) || 3 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+        </div>
+      </div>
     </div>
-    <div>
-      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Risk per trade (%)</label>
-      <input type="number" name="riskPerTrade" min="0.5" max="10" step="0.5" value="<%= (user.settings && user.settings.riskPerTrade) != null ? user.settings.riskPerTrade : 2 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+
+    <!-- 2. Leverage -->
+    <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #1e2a3a;">
+      <h4 style="color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px 0;">Leverage</h4>
+      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="Force 1x on all trades (no leverage)">
+          <input type="hidden" name="disableLeverage" value="false">
+          <input type="checkbox" name="disableLeverage" id="disableLeverage" value="true" <%= (user.settings && user.settings.disableLeverage) ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Disable leverage (1x only)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="Use fixed leverage instead of signal-suggested">
+          <input type="hidden" name="useFixedLeverage" value="false">
+          <input type="checkbox" name="useFixedLeverage" id="useFixedLeverage" value="true" <%= (user.settings && user.settings.useFixedLeverage) ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Use fixed leverage</span>
+        </label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:12px;color:#9ca3af;">Fixed leverage:</label>
+          <input type="number" name="defaultLeverage" min="1" max="20" value="<%= (user.settings && user.settings.defaultLeverage) != null ? user.settings.defaultLeverage : 2 %>" title="Paper trades. Set Live Leverage on Exchange page for Bitget." style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+        </div>
+      </div>
     </div>
-    <div>
-      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Max open trades</label>
-      <input type="number" name="maxOpenTrades" min="1" max="10" value="<%= (user.settings && user.settings.maxOpenTrades) || 3 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+
+    <!-- 3. Auto-Trade -->
+    <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #1e2a3a;">
+      <h4 style="color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px 0;">Auto-Trade</h4>
+      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:end;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="hidden" name="autoTrade" value="false">
+          <input type="checkbox" name="autoTrade" id="autoTrade" value="true" <%= (user.settings && user.settings.autoTrade) ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Auto-open trades from signals</span>
+        </label>
+        <div>
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Min score</label>
+          <input type="number" name="autoTradeMinScore" min="30" max="95" value="<%= (user.settings && user.settings.autoTradeMinScore) != null ? user.settings.autoTradeMinScore : 70 %>" title="Only auto-open when score >= this" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Cooldown (hours)</label>
+          <input type="number" name="cooldownHours" min="0" max="168" title="Wait before re-opening same coin/direction" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 4 %>" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+        </div>
+      </div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;" title="When ON: use fixed leverage below for all trades (paper + Bitget). When OFF: use signal-suggested leverage based on score and regime.">
-      <input type="hidden" name="useFixedLeverage" value="false">
-      <input type="checkbox" name="useFixedLeverage" id="useFixedLeverage" value="true" <%= (user.settings && user.settings.useFixedLeverage) ? 'checked' : '' %>>
-      <label for="useFixedLeverage" style="font-size:12px;color:#9ca3af;">Use fixed leverage (otherwise signal-suggested)</label>
+
+    <!-- 4. Position Management (in-trade) -->
+    <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #1e2a3a;">
+      <h4 style="color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px 0;">Position Management</h4>
+      <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0;">Automatic stop adjustments while a trade is open.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="hidden" name="autoMoveBreakeven" value="false">
+          <input type="checkbox" name="autoMoveBreakeven" id="autoMoveBreakeven" value="true" <%= (user.settings && user.settings.autoMoveBreakeven) !== false ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Breakeven at 1R</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="hidden" name="autoTrailingStop" value="false">
+          <input type="checkbox" name="autoTrailingStop" id="autoTrailingStop" value="true" <%= (user.settings && user.settings.autoTrailingStop) !== false ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Trailing stop (1.5R)</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="Auto-execute score check suggestions (reduce, exit, etc.)">
+          <input type="hidden" name="autoExecuteActions" value="false">
+          <input type="checkbox" name="autoExecuteActions" id="autoExecuteActions" value="true" <%= (user.settings && user.settings.autoExecuteActions) ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Auto-execute score actions</span>
+        </label>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div>
+            <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:2px;">Score grace (min)</label>
+            <input type="number" name="scoreCheckGraceMinutes" min="0" max="60" value="<%= (user.settings && user.settings.scoreCheckGraceMinutes) != null ? user.settings.scoreCheckGraceMinutes : 10 %>" style="width:60px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:2px;">Stop grace (min)</label>
+            <input type="number" name="stopCheckGraceMinutes" min="0" max="30" value="<%= (user.settings && user.settings.stopCheckGraceMinutes) != null ? user.settings.stopCheckGraceMinutes : 2 %>" style="width:60px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+          </div>
+        </div>
+      </div>
     </div>
-    <div>
-      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Fixed leverage (when above is ON)</label>
-      <input type="number" name="defaultLeverage" min="1" max="20" value="<%= (user.settings && user.settings.defaultLeverage) != null ? user.settings.defaultLeverage : 2 %>" title="Used for paper when fixed. Set Live Leverage on Exchange page for Bitget." style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+
+    <!-- 5. Sync & Fees -->
+    <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #1e2a3a;">
+      <h4 style="color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px 0;">Sync & Fees</h4>
+      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:end;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="Mirror paper trades to Bitget when connected">
+          <input type="hidden" name="paperLiveSync" value="false">
+          <input type="checkbox" name="paperLiveSync" id="paperLiveSync" value="true" <%= (user.settings && user.settings.paperLiveSync) !== false ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Paper/Live sync</span>
+        </label>
+        <div>
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Maker fee (%)</label>
+          <input type="number" name="makerFeePercent" min="0" max="1" step="0.01" value="<%= (user.settings && user.settings.makerFeePercent) != null ? user.settings.makerFeePercent : 0.1 %>" style="width:80px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Taker fee (%)</label>
+          <input type="number" name="takerFeePercent" min="0" max="1" step="0.01" value="<%= (user.settings && user.settings.takerFeePercent) != null ? user.settings.takerFeePercent : 0.1 %>" style="width:80px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+        </div>
+      </div>
     </div>
-    <div>
-      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Cooldown (hours)</label>
-      <input type="number" name="cooldownHours" min="0" max="168" title="Hours to wait before re-opening same direction on same coin" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 4 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+
+    <!-- 6. Notifications -->
+    <div style="margin-bottom:16px;">
+      <h4 style="color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px 0;">Notifications</h4>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="hidden" name="notifyTradeOpen" value="false">
+          <input type="checkbox" name="notifyTradeOpen" id="notifyTradeOpen" value="true" <%= (user.settings && user.settings.notifyTradeOpen) !== false ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">On trade open</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="hidden" name="notifyTradeClose" value="false">
+          <input type="checkbox" name="notifyTradeClose" id="notifyTradeClose" value="true" <%= (user.settings && user.settings.notifyTradeClose) !== false ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">On trade close</span>
+        </label>
+        <button type="button" id="enable-push-btn" class="btn btn-outline btn-sm">Enable Push</button>
+        <span id="push-status" style="font-size:11px;color:#6b7280;"></span>
+      </div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;" title="Let the app automatically open trades based on signals. Uses best strategy score for each coin.">
-      <input type="hidden" name="autoTrade" value="false">
-      <input type="checkbox" name="autoTrade" id="autoTrade" value="true" <%= (user.settings && user.settings.autoTrade) ? 'checked' : '' %>>
-      <label for="autoTrade" style="font-size:12px;color:#9ca3af;">Auto trade (app opens trades from signals)</label>
-    </div>
-    <div>
-      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Auto trade min score</label>
-      <input type="number" name="autoTradeMinScore" min="30" max="95" value="<%= (user.settings && user.settings.autoTradeMinScore) != null ? user.settings.autoTradeMinScore : 70 %>" title="Only auto-open trades when best strategy score >= this value" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;" title="Force all trades to 1x leverage (no leverage). Overrides default leverage setting.">
-      <input type="hidden" name="disableLeverage" value="false">
-      <input type="checkbox" name="disableLeverage" id="disableLeverage" value="true" <%= (user.settings && user.settings.disableLeverage) ? 'checked' : '' %>>
-      <label for="disableLeverage" style="font-size:12px;color:#9ca3af;">Disable leverage (force 1x on all trades)</label>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;" title="When score check suggests Tighten stop, Reduce position, Take partial, or Consider exit — execute it automatically">
-      <input type="hidden" name="autoExecuteActions" value="false">
-      <input type="checkbox" name="autoExecuteActions" id="autoExecuteActions" value="true" <%= (user.settings && user.settings.autoExecuteActions) ? 'checked' : '' %>>
-      <label for="autoExecuteActions" style="font-size:12px;color:#9ca3af;">Auto-execute score check actions</label>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;" title="Move stop to breakeven when price reaches 1R in profit">
-      <input type="hidden" name="autoMoveBreakeven" value="false">
-      <input type="checkbox" name="autoMoveBreakeven" id="autoMoveBreakeven" value="true" <%= (user.settings && user.settings.autoMoveBreakeven) !== false ? 'checked' : '' %>>
-      <label for="autoMoveBreakeven" style="font-size:12px;color:#9ca3af;">Auto move to breakeven</label>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;" title="Trail stop at 1.5R when price reaches 1R in profit">
-      <input type="hidden" name="autoTrailingStop" value="false">
-      <input type="checkbox" name="autoTrailingStop" id="autoTrailingStop" value="true" <%= (user.settings && user.settings.autoTrailingStop) !== false ? 'checked' : '' %>>
-      <label for="autoTrailingStop" style="font-size:12px;color:#9ca3af;">Auto trailing stop</label>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;" title="When Bitget connected, mirror paper trades to live">
-      <input type="hidden" name="paperLiveSync" value="false">
-      <input type="checkbox" name="paperLiveSync" id="paperLiveSync" value="true" <%= (user.settings && user.settings.paperLiveSync) !== false ? 'checked' : '' %>>
-      <label for="paperLiveSync" style="font-size:12px;color:#9ca3af;">Paper/Live sync (mirror paper trades to Bitget)</label>
-    </div>
-    <div>
-      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Score check grace (min)</label>
-      <input type="number" name="scoreCheckGraceMinutes" min="0" max="60" value="<%= (user.settings && user.settings.scoreCheckGraceMinutes) != null ? user.settings.scoreCheckGraceMinutes : 10 %>" title="No auto-execute on trades younger than this" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
-    </div>
-    <div>
-      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Stop check grace (min)</label>
-      <input type="number" name="stopCheckGraceMinutes" min="0" max="30" value="<%= (user.settings && user.settings.stopCheckGraceMinutes) != null ? user.settings.stopCheckGraceMinutes : 2 %>" title="No BE/TS/lock-in on trades younger than this" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
-    </div>
-    <div>
-      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Maker fee (%)</label>
-      <input type="number" name="makerFeePercent" min="0" max="1" step="0.01" value="<%= (user.settings && user.settings.makerFeePercent) != null ? user.settings.makerFeePercent : 0.1 %>" title="Entry fee for paper simulation. Bitget VIP0: ~0.02%. Enter 0.02 for 0.02%." style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
-    </div>
-    <div>
-      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Taker fee (%)</label>
-      <input type="number" name="takerFeePercent" min="0" max="1" step="0.01" value="<%= (user.settings && user.settings.takerFeePercent) != null ? user.settings.takerFeePercent : 0.1 %>" title="Exit fee for paper simulation. Bitget VIP0: ~0.06%. Enter 0.06 for 0.06%." style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;" title="Push notification when a trade opens">
-      <input type="hidden" name="notifyTradeOpen" value="false">
-      <input type="checkbox" name="notifyTradeOpen" id="notifyTradeOpen" value="true" <%= (user.settings && user.settings.notifyTradeOpen) !== false ? 'checked' : '' %>>
-      <label for="notifyTradeOpen" style="font-size:12px;color:#9ca3af;">Notify on trade open</label>
-    </div>
-    <div style="display:flex;align-items:center;gap:8px;" title="Push notification when a trade closes">
-      <input type="hidden" name="notifyTradeClose" value="false">
-      <input type="checkbox" name="notifyTradeClose" id="notifyTradeClose" value="true" <%= (user.settings && user.settings.notifyTradeClose) !== false ? 'checked' : '' %>>
-      <label for="notifyTradeClose" style="font-size:12px;color:#9ca3af;">Notify on trade close</label>
-    </div>
-    <div>
-      <button type="button" id="enable-push-btn" class="btn btn-outline btn-sm" title="Allow browser to send push notifications to your device">Enable Push Notifications</button>
-      <span id="push-status" style="font-size:11px;color:#6b7280;margin-left:8px;"></span>
-    </div>
-    <div>
-      <button type="submit" class="btn btn-outline btn-sm">Save</button>
-    </div>
+
+    <button type="submit" class="btn btn-outline btn-sm">Save Settings</button>
   </form>
 </div>
 
