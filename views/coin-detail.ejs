@@ -19,15 +19,19 @@
   </div>
 </div>
 
-<div class="signal-badge badge-<%= sig.signal %>" style="font-size:18px;padding:12px 24px;margin-bottom:16px;display:inline-block;">
-  <%= sig.signal.replace('_', ' ') %>
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:16px;">
+  <span class="signal-badge badge-<%= sig.signal %>" style="font-size:18px;padding:12px 24px;"><%= sig.signal.replace('_', ' ') %></span>
+  <span class="score-tier-badge tier-<%= (sig.score||0) >= 75 ? 'high' : (sig.score||0) >= 55 ? 'moderate' : 'caution' %>" style="font-size:13px;padding:6px 14px;"><%= (sig.score||0) >= 75 ? 'High conviction' : (sig.score||0) >= 55 ? 'Moderate' : 'Caution' %></span>
+  <span class="confluence-badge" style="font-size:13px;padding:6px 14px;" title="Timeframes agreeing on direction"><%= sig.confluenceLevel || 0 %>/3 TF</span>
+  <span class="rr-badge" style="font-size:13px;padding:6px 14px;"><%= sig.riskReward || 0 %>x R:R</span>
+  <% if (sig.strategyName) { %><span class="strategy-badge" style="font-size:13px;padding:6px 14px;"><%= sig.strategyName %></span><% } %>
+  <% if (sig.regime && sig.regime !== 'unknown') { %>
+    <span class="regime-badge regime-<%= sig.regime %>" style="font-size:13px;padding:6px 14px;"><%= sig.regime %></span>
+  <% } %>
+  <% if (sig.suggestedLeverage > 1) { %>
+    <span class="lev-badge" style="font-size:13px;padding:6px 14px;">Suggested: <%= sig.suggestedLeverage %>x Leverage</span>
+  <% } %>
 </div>
-<% if (sig.regime && sig.regime !== 'unknown') { %>
-  <span class="regime-badge regime-<%= sig.regime %>" style="font-size:13px;padding:6px 14px;"><%= sig.regime %></span>
-<% } %>
-<% if (sig.suggestedLeverage > 1) { %>
-  <span class="lev-badge" style="font-size:13px;padding:6px 14px;">Suggested: <%= sig.suggestedLeverage %>x Leverage</span>
-<% } %>
 
 <div class="score-bar" style="margin:16px 0;">
   <div class="score-bar-outer" style="height:10px;">

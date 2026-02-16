@@ -25,7 +25,13 @@ const SYMBOL_MAP = {
   binancecoin:   { spot: 'BNBUSDT',  futures: 'BNBUSDT',  marginCoin: 'USDT' },
   litecoin:      { spot: 'LTCUSDT',  futures: 'LTCUSDT',  marginCoin: 'USDT' },
   uniswap:       { spot: 'UNIUSDT',  futures: 'UNIUSDT',  marginCoin: 'USDT' },
-  cosmos:        { spot: 'ATOMUSDT', futures: 'ATOMUSDT', marginCoin: 'USDT' }
+  cosmos:        { spot: 'ATOMUSDT', futures: 'ATOMUSDT', marginCoin: 'USDT' },
+  near:          { spot: 'NEARUSDT', futures: 'NEARUSDT', marginCoin: 'USDT' },
+  arbitrum:      { spot: 'ARBUSDT',  futures: 'ARBUSDT',  marginCoin: 'USDT' },
+  optimism:      { spot: 'OPUSDT',   futures: 'OPUSDT',   marginCoin: 'USDT' },
+  sui:           { spot: 'SUIUSDT',  futures: 'SUIUSDT',  marginCoin: 'USDT' },
+  'injective-protocol': { spot: 'INJUSDT', futures: 'INJUSDT', marginCoin: 'USDT' },
+  pepe:          { spot: 'PEPEUSDT', futures: 'PEPEUSDT', marginCoin: 'USDT' }
 };
 
 // Create a REST client for a user's API keys

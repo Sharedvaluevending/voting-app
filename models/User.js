@@ -43,7 +43,10 @@ const userSchema = new mongoose.Schema({
     // Quality filters: require price-action confluence, skip extreme vol, require volume
     featurePriceActionConfluence: { type: Boolean, default: false },
     featureVolatilityFilter: { type: Boolean, default: false },
-    featureVolumeConfirmation: { type: Boolean, default: false }
+    featureVolumeConfirmation: { type: Boolean, default: false },
+    // Min R:R filter (default off) - hide/block signals below this R:R
+    minRiskRewardEnabled: { type: Boolean, default: false },
+    minRiskReward: { type: Number, default: 1.2, min: 1.0, max: 5.0 }
   },
   excludedCoins: [{ type: String }], // Coins excluded from auto-trade (e.g. ['dogecoin', 'cardano']),
   // Coin weights from backtest (1.0 = normal, 1.2 = 20% more allocation, 0.8 = 20% less)

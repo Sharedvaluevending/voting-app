@@ -52,7 +52,8 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 .signal-card.strong-sell { border-left: 3px solid #ef4444; }
 
 .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
-.coin-info h3 { font-size: 16px; color: #fff; font-weight: 700; }
+.coin-info { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.coin-info h3 { font-size: 16px; color: #fff; font-weight: 700; margin: 0; flex: 1 1 auto; min-width: 0; }
 .coin-info .symbol { font-size: 11px; color: #6b7280; }
 .coin-price { text-align: right; }
 .coin-price .price { font-size: 16px; font-weight: 700; color: #fff; }
@@ -183,6 +184,18 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 
 /* LEVERAGE BADGE */
 .lev-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #3b3510; color: #eab308; font-weight: 700; }
+
+/* SCORE TIER, CONFLUENCE, R:R, STRATEGY BADGES */
+.score-tier-badge, .confluence-badge, .rr-badge, .strategy-badge {
+  font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 600;
+  background: rgba(15,23,42,0.6); border: 1px solid #1e2a3a;
+}
+.score-tier-badge.tier-high { background: rgba(16,185,129,0.2); color: #10b981; border-color: rgba(16,185,129,0.4); }
+.score-tier-badge.tier-moderate { background: rgba(59,130,246,0.2); color: #3b82f6; border-color: rgba(59,130,246,0.4); }
+.score-tier-badge.tier-caution { background: rgba(234,179,8,0.2); color: #eab308; border-color: rgba(234,179,8,0.4); }
+.confluence-badge { background: rgba(139,92,246,0.2); color: #a78bfa; border-color: rgba(139,92,246,0.4); }
+.rr-badge { background: rgba(59,130,246,0.2); color: #60a5fa; border-color: rgba(59,130,246,0.4); }
+.strategy-badge { background: rgba(30,58,95,0.6); color: #93c5fd; border-color: rgba(59,130,246,0.3); }
 
 /* REGIME BADGE */
 .regime-badge { font-size: 10px; padding: 2px 8px; border-radius: 4px; font-weight: 600; }

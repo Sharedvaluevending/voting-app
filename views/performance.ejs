@@ -267,6 +267,13 @@
         <label class="ft-toggle" title="Apply session penalty (-5 score) outside 12-22 UTC peak hours">
           <input type="checkbox" name="featureSessionFilter" value="true" <%= (user.settings && user.settings.featureSessionFilter) !== false ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Session Filter (12-22 UTC)
         </label>
+        <label class="ft-toggle" title="Hide signals with R:R below threshold. Dashboard and auto-trade only show signals meeting min R:R.">
+          <input type="checkbox" name="minRiskRewardEnabled" value="true" id="minRrEnabled" <%= (user.settings && user.settings.minRiskRewardEnabled) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Min R:R Filter
+        </label>
+        <div id="minRrValueWrap" style="display:<%= (user.settings && user.settings.minRiskRewardEnabled) === true ? 'flex' : 'none' %>;align-items:center;gap:8px;">
+          <label style="font-size:12px;color:#9ca3af;">Min R:R</label>
+          <input type="number" name="minRiskReward" id="minRiskRewardInput" min="1" max="5" step="0.1" value="<%= (user.settings && user.settings.minRiskReward) != null ? user.settings.minRiskReward : 1.2 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+        </div>
 
         <!-- Position Management -->
         <label class="ft-toggle" title="TP1 closes 40%, TP2 closes 30%, TP3 closes remaining 30%. OFF = close 100% at TP1">
@@ -763,7 +770,16 @@
 // Feature toggle helpers (global scope for onclick handlers)
 function setLiveToggles(val) {
     document.querySelectorAll('#live-feature-toggles input[type=checkbox]').forEach(function(cb) { cb.checked = val; });
+    var wrap = document.getElementById('minRrValueWrap');
+    if (wrap) wrap.style.display = val ? 'flex' : 'none';
   }
+  document.addEventListener('DOMContentLoaded', function() {
+    var cb = document.getElementById('minRrEnabled');
+    var wrap = document.getElementById('minRrValueWrap');
+    if (cb && wrap) {
+      cb.addEventListener('change', function() { wrap.style.display = cb.checked ? 'flex' : 'none'; });
+    }
+  });
 
   // Save current toggle state to localStorage for backtest → live transfer
   function saveLiveTogglesToLocal() {

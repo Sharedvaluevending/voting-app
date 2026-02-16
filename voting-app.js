@@ -472,9 +472,14 @@ app.get('/', async (req, res) => {
     }
 
     // For logged-in users: only show non-excluded coins on dashboard (monitoredSignals)
-    const monitoredSignals = dashUser
+    let monitoredSignals = dashUser
       ? signals.filter(s => !excludedCoins.includes(s.coin?.id))
       : signals;
+    // Min R:R filter: hide signals below threshold when enabled
+    if (dashUser?.settings?.minRiskRewardEnabled && dashUser.settings.minRiskReward != null) {
+      const minRr = Number(dashUser.settings.minRiskReward) || 1.2;
+      monitoredSignals = monitoredSignals.filter(s => (s.riskReward || 0) >= minRr);
+    }
 
     // Top 5 coins from latest backtest (for "Top performer" badge)
     let topPerformerCoins = [];
@@ -1015,6 +1020,9 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
     s.featurePriceActionConfluence = req.body.featurePriceActionConfluence ? parseBool(req.body.featurePriceActionConfluence) : false;
     s.featureVolatilityFilter = req.body.featureVolatilityFilter ? parseBool(req.body.featureVolatilityFilter) : false;
     s.featureVolumeConfirmation = req.body.featureVolumeConfirmation ? parseBool(req.body.featureVolumeConfirmation) : false;
+    s.minRiskRewardEnabled = req.body.minRiskRewardEnabled ? parseBool(req.body.minRiskRewardEnabled) : false;
+    const minRr = parseFloat(req.body.minRiskReward);
+    s.minRiskReward = !isNaN(minRr) && minRr >= 1 && minRr <= 5 ? minRr : 1.2;
 
     // BE and TS are shared with existing settings
     if (req.body.autoMoveBreakeven !== undefined) {
@@ -1447,7 +1455,24 @@ app.get('/api/exchange/positions', requireLogin, async (req, res) => {
 // ====================================================
 app.get('/journal', requireLogin, async (req, res) => {
   try {
-    const entries = await Journal.find({ userId: req.session.userId })
+    const startDate = req.query.startDate || null;
+    const endDate = req.query.endDate || null;
+
+    const baseQuery = { userId: req.session.userId };
+    const dateFilter = {};
+    if (startDate) {
+      const d = new Date(startDate);
+      if (!isNaN(d.getTime())) dateFilter.$gte = d;
+    }
+    if (endDate) {
+      const d = new Date(endDate + 'T23:59:59.999Z');
+      if (!isNaN(d.getTime())) dateFilter.$lte = d;
+    }
+    if (Object.keys(dateFilter).length > 0) {
+      baseQuery.createdAt = dateFilter;
+    }
+
+    const entries = await Journal.find(baseQuery)
       .sort({ createdAt: -1 })
       .limit(50)
       .lean();
@@ -1459,8 +1484,8 @@ app.get('/journal', requireLogin, async (req, res) => {
       linkedTrade = await Trade.findOne({ _id: tradeId, userId: req.session.userId }).lean();
     }
 
-    // Discipline stats
-    const allEntries = await Journal.find({ userId: req.session.userId }).lean();
+    // Discipline stats (same date range)
+    const allEntries = await Journal.find(baseQuery).lean();
     const withRules = allEntries.filter(e => e.followedRules !== undefined);
     const ruleStats = {
       total: withRules.length,
@@ -1470,8 +1495,8 @@ app.get('/journal', requireLogin, async (req, res) => {
         : '0'
     };
 
-    // Analytics: win rate by emotion, win rate by rules followed (from trade-linked entries)
-    const entriesWithTrade = await Journal.find({ userId: req.session.userId, tradeId: { $exists: true, $ne: null } }).lean();
+    // Analytics: win rate by emotion, win rate by rules followed (from trade-linked entries, same date range)
+    const entriesWithTrade = await Journal.find({ ...baseQuery, tradeId: { $exists: true, $ne: null } }).lean();
     const tradeIds = [...new Set(entriesWithTrade.map(e => e.tradeId && e.tradeId.toString()).filter(Boolean))];
     const trades = tradeIds.length > 0 ? await Trade.find({ _id: { $in: tradeIds }, userId: req.session.userId }).lean() : [];
     const tradeMap = Object.fromEntries(trades.map(t => [t._id.toString(), t]));
@@ -1501,6 +1526,8 @@ app.get('/journal', requireLogin, async (req, res) => {
       ruleStats,
       linkedTrade,
       analytics: { byEmotion, byRules },
+      startDate: startDate || '',
+      endDate: endDate || '',
       error: req.query.error || null,
       success: req.query.success || null
     });
@@ -2144,12 +2171,17 @@ async function runAutoTrade() {
           if (!coinWeightEnabled || baseW == null) return 1;
           return 1 + (baseW - 1) * strengthMult;
         };
+        const minRr = user.settings?.minRiskRewardEnabled ? (Number(user.settings.minRiskReward) || 1.2) : 0;
         const candidates = signalsWithBestStrategy.filter(sig => {
           if (sig._overallScore < minScore) return false;
           if (!sig._direction) return false; // HOLD signals ignored
           if (openCoinIds.includes(sig._coinId)) return false;
           if (cooldownSet.has(`${sig._coinId}_${sig._direction}`)) return false;
           if (userExcluded.includes(sig._coinId)) return false; // Skip excluded coins
+          if (minRr > 0) {
+            const effectiveRr = sig._bestStrat?.riskReward ?? sig.riskReward ?? 0;
+            if (effectiveRr < minRr) return false;
+          }
           return true;
         }).sort((a, b) => {
           const baseA = coinWeights[a._coinId] ?? 1;

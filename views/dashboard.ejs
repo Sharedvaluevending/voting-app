@@ -114,6 +114,10 @@
             <% } %>
           </h3>
           <span class="signal-badge badge-<%= sig.signal %>"><%= sig.signal.replace('_', ' ') %></span>
+          <span class="score-tier-badge tier-<%= (sig.score||0) >= 75 ? 'high' : (sig.score||0) >= 55 ? 'moderate' : 'caution' %>"><%= (sig.score||0) >= 75 ? 'High conviction' : (sig.score||0) >= 55 ? 'Moderate' : 'Caution' %></span>
+          <span class="confluence-badge" title="Timeframes agreeing on direction"><%= sig.confluenceLevel || 0 %>/3 TF</span>
+          <span class="rr-badge"><%= sig.riskReward || 0 %>x R:R</span>
+          <% if (sig.strategyName) { %><span class="strategy-badge"><%= sig.strategyName %></span><% } %>
           <% if (typeof topPerformerCoins !== 'undefined' && topPerformerCoins.indexOf(sig.coin.symbol) !== -1) { %>
             <span class="regime-badge" style="background:rgba(16,185,129,0.3);color:#10b981;border:1px solid rgba(16,185,129,0.5);" title="Top 5 backtest performer">Top performer</span>
           <% } %>

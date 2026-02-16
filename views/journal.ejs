@@ -122,6 +122,21 @@
 </div>
 <% } %>
 
+<div class="section">
+  <h3>Filter by Date</h3>
+  <form action="/journal" method="GET" style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:16px;">
+    <% if (typeof linkedTrade !== 'undefined' && linkedTrade) { %>
+    <input type="hidden" name="tradeId" value="<%= linkedTrade._id %>">
+    <% } %>
+    <label style="font-size:12px;color:#9ca3af;">From</label>
+    <input type="date" name="startDate" value="<%= typeof startDate === 'string' ? startDate : '' %>" style="padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    <label style="font-size:12px;color:#9ca3af;">To</label>
+    <input type="date" name="endDate" value="<%= typeof endDate === 'string' ? endDate : '' %>" style="padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+    <button type="submit" class="btn btn-outline btn-sm">Apply</button>
+    <a href="/journal<%= typeof linkedTrade !== 'undefined' && linkedTrade ? '?tradeId=' + linkedTrade._id : '' %>" class="btn btn-outline btn-sm" style="font-size:12px;">Clear</a>
+  </form>
+</div>
+
 <% if (entries.length > 0) { %>
 <div class="section">
   <h3>Recent Entries</h3>
