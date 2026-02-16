@@ -62,6 +62,10 @@
         <button class="tf-btn" data-tf="1d">1D</button>
         <button class="tf-btn" data-tf="1w">1W</button>
       </div>
+      <button type="button" class="tool-btn chart-fit-btn" id="chart-fit-btn" title="Reset zoom / Fit content">
+        <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="8" y="8" width="6" height="6" rx="1"/></svg>
+        <span class="chart-fit-text">Fit</span>
+      </button>
       <button type="button" class="draw-tools-toggle" id="draw-tools-toggle" aria-label="Drawing tools">
         <svg width="20" height="20" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 5v14M5 12h14"/></svg>
         <span class="draw-tools-toggle-text">Tools</span>
@@ -125,6 +129,15 @@
   <!-- Lightweight Charts (primary – with trade level lines) -->
   <div class="chart-container" id="lw-chart-container" style="display:none;">
     <div id="lw-chart" style="width:100%;height:100%;"></div>
+    <div class="chart-symbol-overlay" id="chart-symbol-overlay" style="position:absolute;top:8px;left:12px;z-index:6;pointer-events:none;padding:6px 10px;background:rgba(15,23,42,0.85);border:1px solid #334155;border-radius:6px;">
+      <div class="chart-symbol-name" style="font-size:12px;font-weight:700;color:#e5e7eb;"><%= symbol %></div>
+      <div class="chart-symbol-price" id="chart-symbol-price" style="font-size:14px;font-weight:700;color:#22c55e;font-variant-numeric:tabular-nums;">—</div>
+      <div class="chart-symbol-change" id="chart-symbol-change" style="font-size:11px;color:#6b7280;">—</div>
+    </div>
+    <div class="chart-crosshair-info" id="chart-crosshair-info" style="display:none;position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:7;pointer-events:none;padding:6px 10px;background:rgba(15,23,42,0.85);border:1px solid #334155;border-radius:6px;font-size:11px;font-variant-numeric:tabular-nums;">
+      <div style="color:#6b7280;margin-bottom:2px;"><span id="crosshair-time">—</span></div>
+      <div style="display:flex;gap:12px;"><span>O <span id="crosshair-o">—</span></span><span>H <span id="crosshair-h">—</span></span><span>L <span id="crosshair-l">—</span></span><span>C <span id="crosshair-c">—</span></span></div>
+    </div>
     <div class="candle-countdown-wrap" style="position:absolute;top:8px;right:12px;z-index:6;text-align:right;pointer-events:none;padding:6px 10px;background:rgba(15,23,42,0.85);border:1px solid #334155;border-radius:6px;">
       <div class="candle-countdown-label" style="font-size:10px;color:#6b7280;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.5px;">Candle closes in</div>
       <div id="candle-countdown" style="font-size:14px;font-weight:700;color:#e5e7eb;font-variant-numeric:tabular-nums;"></div>
@@ -204,6 +217,8 @@
 .tf-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
 .tf-btn:hover { background: rgba(51,65,85,0.8); color: #e5e7eb; }
 .tf-btn.tf-active { background: rgba(59,130,246,0.25); border-color: #3b82f6; color: #93c5fd; }
+.chart-fit-btn { display: flex; align-items: center; gap: 4px; padding: 6px 10px; }
+.chart-fit-text { font-size: 12px; font-weight: 600; }
 .draw-tools-toggle { display: none; background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 8px 12px; border-radius: 6px; cursor: pointer; align-items: center; gap: 6px; font-size: 13px; }
 .draw-tools { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .tool-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; min-width: 38px; min-height: 38px; }
@@ -257,7 +272,7 @@
   var tradeId = <%- JSON.stringify(typeof tradeId !== 'undefined' ? tradeId : null) %>;
   var tradeDirection = <%- JSON.stringify(typeof direction !== 'undefined' ? direction : null) %>;
   var initialActions = <%- JSON.stringify(typeof tradeActions !== 'undefined' ? tradeActions : []) %>;
-  var chartRef = { chart: null, series: null, volumeSeries: null, slLine: null, origSlLine: null, priceLines: [], fibLines: [], srLines: [], pocLines: [], candleTimes: [] };
+  var chartRef = { chart: null, series: null, volumeSeries: null, slLine: null, origSlLine: null, priceLines: [], fibLines: [], srLines: [], pocLines: [], candleTimes: [], candleData: [] };
   var currentTF = '1h';
   var showFib = true;
   var showBadges = true;
@@ -434,7 +449,10 @@
         .then(function(result) {
           if (!result || !result.success || !result.data) return;
           var p = result.data.find(function(x) { return x.id === coinId; });
-          if (p && p.price != null) updateLastCandleWithPrice(Number(p.price));
+          if (p && p.price != null) {
+            updateLastCandleWithPrice(Number(p.price));
+            updateSymbolOverlay(Number(p.price), p.change24h);
+          }
         })
         .catch(function() {});
     }, 6000);
@@ -442,6 +460,63 @@
 
   function stopCandleAnimation() {
     if (candleAnimationIntervalId) { clearInterval(candleAnimationIntervalId); candleAnimationIntervalId = null; }
+  }
+
+  function updateSymbolOverlay(price, change24h) {
+    var priceEl = document.getElementById('chart-symbol-price');
+    var changeEl = document.getElementById('chart-symbol-change');
+    if (!priceEl) return;
+    if (price != null && Number.isFinite(price)) {
+      priceEl.textContent = '$' + (price >= 1 ? price.toFixed(2) : price.toFixed(6));
+      priceEl.style.color = (change24h != null && change24h >= 0) ? '#22c55e' : '#ef4444';
+    }
+    if (changeEl && change24h != null && Number.isFinite(change24h)) {
+      var sign = change24h >= 0 ? '+' : '';
+      changeEl.textContent = sign + change24h.toFixed(2) + '%';
+      changeEl.style.color = change24h >= 0 ? '#22c55e' : '#ef4444';
+    }
+  }
+
+  function setupCrosshairInfo(chart) {
+    var infoEl = document.getElementById('chart-crosshair-info');
+    var timeEl = document.getElementById('crosshair-time');
+    var oEl = document.getElementById('crosshair-o');
+    var hEl = document.getElementById('crosshair-h');
+    var lEl = document.getElementById('crosshair-l');
+    var cEl = document.getElementById('crosshair-c');
+    if (!infoEl || !chart) return;
+    function fmt(p) { return p >= 1 ? p.toFixed(2) : p.toFixed(6); }
+    function findCandle(time) {
+      if (!chartRef.candleData || chartRef.candleData.length === 0) return null;
+      var best = chartRef.candleData[0];
+      var bestDiff = Math.abs(time - best.time);
+      for (var i = 1; i < chartRef.candleData.length; i++) {
+        var d = Math.abs(time - chartRef.candleData[i].time);
+        if (d < bestDiff) { best = chartRef.candleData[i]; bestDiff = d; }
+      }
+      return best;
+    }
+    chart.subscribeCrosshairMove(function(param) {
+      if (!param.time || !param.point) {
+        infoEl.style.display = 'none';
+        return;
+      }
+      var candle = findCandle(param.time);
+      if (candle) {
+        if (timeEl) timeEl.textContent = new Date(candle.time * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+        if (oEl) oEl.textContent = fmt(candle.open);
+        if (hEl) hEl.textContent = fmt(candle.high);
+        if (lEl) lEl.textContent = fmt(candle.low);
+        if (cEl) cEl.textContent = fmt(candle.close);
+        infoEl.style.display = '';
+      } else {
+        infoEl.style.display = 'none';
+      }
+    });
+    var chartEl = document.getElementById('lw-chart');
+    if (chartEl) {
+      chartEl.addEventListener('mouseleave', function() { infoEl.style.display = 'none'; });
+    }
   }
 
   // ---- Fallback: show TradingView widget ----
@@ -829,6 +904,7 @@
               chartRef.chart = chart;
               chartRef.series = series;
               chartRef.candleTimes = data.candles.map(function(c) { return c.time; });
+              chartRef.candleData = data.candles;
               var lastC = data.candles[data.candles.length - 1];
               lastCandleData = lastC ? { time: lastC.time, open: lastC.open, high: lastC.high, low: lastC.low, close: lastC.close } : null;
 
@@ -840,6 +916,17 @@
               chart.timeScale().fitContent();
               startCandleCountdown();
               startCandleAnimation();
+              setupCrosshairInfo(chart);
+              updateSymbolOverlay(lastC ? lastC.close : null);
+              fetch('/api/prices', { credentials: 'same-origin' })
+                .then(function(r) { return r.ok ? r.json() : null; })
+                .then(function(result) {
+                  if (result && result.success && result.data) {
+                    var p = result.data.find(function(x) { return x.id === coinId; });
+                    if (p && p.price != null) updateSymbolOverlay(Number(p.price), p.change24h);
+                  }
+                })
+                .catch(function() {});
               // Set up drawing overlay after chart is ready
               setTimeout(function() { resizeDrawCanvas(); hookChartRedraw(); }, 100);
             } catch (chartErr) {
@@ -857,6 +944,7 @@
           try {
             chartRef.series.setData(data.candles);
             chartRef.candleTimes = data.candles.map(function(c) { return c.time; });
+            chartRef.candleData = data.candles;
             var lastC = data.candles[data.candles.length - 1];
             lastCandleData = lastC ? { time: lastC.time, open: lastC.open, high: lastC.high, low: lastC.low, close: lastC.close } : null;
             if (chartRef.volumeSeries && data.volume && data.volume.length > 0) {
@@ -867,6 +955,7 @@
             try { renderChartPatterns(); } catch(e) { console.warn('renderChartPatterns error:', e); }
             if (!preserveView) chartRef.chart.timeScale().fitContent();
             startCandleCountdown();
+            updateSymbolOverlay(lastC ? lastC.close : null);
             setTimeout(function() { renderDrawings(); }, 100);
           } catch (updateErr) {
             console.error('Chart update error:', updateErr);
@@ -878,6 +967,16 @@
         console.error('Chart load error:', err);
         if (!chartRef.chart) showTradingViewFallback();
       });
+  }
+
+  // Fit content / reset zoom button
+  var fitBtn = document.getElementById('chart-fit-btn');
+  if (fitBtn) {
+    fitBtn.addEventListener('click', function() {
+      if (chartRef.chart) {
+        try { chartRef.chart.timeScale().fitContent(); } catch(e) {}
+      }
+    });
   }
 
   // Timeframe button clicks
