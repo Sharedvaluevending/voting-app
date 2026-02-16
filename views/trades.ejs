@@ -3,7 +3,7 @@
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Active Trades</h2>
   <span style="color:#6b7280;font-size:13px;">Max <%= (user.settings && user.settings.maxOpenTrades) || 3 %> open trades | 1 per pair</span>
-  <span style="color:#6b7280;font-size:12px;margin-left:10px;">Time every 1s, price every 10s. Close uses live price.</span>
+  <span style="color:#6b7280;font-size:12px;margin-left:10px;">Time every 1s · Price & PnL real-time (WebSocket) + 5s fallback. Close uses live price.</span>
 </div>
 <% if (trades.length > 0 && (user.settings && (user.settings.featureScoreRecheck === false || user.settings.autoMoveBreakeven === false || user.settings.autoTrailingStop === false))) { %>
 <div style="margin-bottom:12px;padding:10px 14px;background:rgba(234,179,8,0.1);border:1px solid rgba(234,179,8,0.3);border-radius:8px;font-size:12px;color:#eab308;">
@@ -36,7 +36,8 @@
       }
       var partialPnl = trade.partialPnl || 0;
       var pnl = partialPnl + unrealizedPnl;
-      var originalMargin = (trade.originalPositionSize || trade.positionSize) / trade.leverage;
+      var lev = trade.leverage || 1;
+      var originalMargin = (trade.originalPositionSize || trade.positionSize) / lev;
       var pnlPct = originalMargin > 0 ? (pnl / originalMargin) * 100 : 0;
       var entryTs = trade.entryTime ? new Date(trade.entryTime).getTime() : Date.now();
       var heldMs = Date.now() - entryTs;
@@ -61,7 +62,7 @@
            data-position-size="<%= trade.positionSize %>"
            data-margin="<%= trade.margin %>"
            data-partial-pnl="<%= trade.partialPnl || 0 %>"
-           data-original-margin="<%= (trade.originalPositionSize || trade.positionSize) / trade.leverage %>"
+           data-original-margin="<%= (trade.originalPositionSize || trade.positionSize) / (trade.leverage || 1) %>"
            data-entry-time="<%= trade.entryTime ? new Date(trade.entryTime).toISOString() : new Date().toISOString() %>"
            data-is-live="<%= trade.isLive ? 'true' : 'false' %>"
            data-execution-status="<%= trade.executionStatus || 'paper' %>">
@@ -85,7 +86,7 @@
         <div class="signal-meta">
           <span>Entry: <strong>$<%= formatPrice(trade.entryPrice) %></strong></span>
           <span>Size: <strong>$<%= trade.positionSize.toFixed(2) %></strong><% if (trade.originalPositionSize && trade.originalPositionSize > trade.positionSize) { %> <span style="font-size:11px;color:#6b7280;">(of $<%= trade.originalPositionSize.toFixed(2) %>)</span><% } %></span>
-          <span>Margin: <strong>$<%= ((trade.originalPositionSize || trade.positionSize) / trade.leverage).toFixed(2) %></strong><% if (trade.originalPositionSize && trade.originalPositionSize > trade.positionSize * 1.01) { %> <span style="font-size:11px;color:#6b7280;">(rem: $<%= trade.margin.toFixed(2) %>)</span><% } %></span>
+          <span>Margin: <strong>$<%= ((trade.originalPositionSize || trade.positionSize) / (trade.leverage || 1)).toFixed(2) %></strong><% if (trade.originalPositionSize && trade.originalPositionSize > trade.positionSize * 1.01) { %> <span style="font-size:11px;color:#6b7280;">(rem: $<%= trade.margin.toFixed(2) %>)</span><% } %></span>
           <span>Time: <strong class="trade-time"><%= timeStr %></strong></span>
           <span>Score: <strong><%= trade.score || '-' %></strong></span>
           <% if (trade.strategyType) { %><span>Strategy: <strong><%= trade.strategyType.replace(/_/g, ' ') %></strong></span><% } %>

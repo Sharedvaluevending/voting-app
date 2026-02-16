@@ -54,9 +54,10 @@
       var entryPrice = parseFloat(card.getAttribute('data-entry-price'));
       var positionSize = parseFloat(card.getAttribute('data-position-size'));
       var partialPnl = parseFloat(card.getAttribute('data-partial-pnl')) || 0;
-      var originalMargin = parseFloat(card.getAttribute('data-original-margin'));
+      var margin = parseFloat(card.getAttribute('data-margin'));
+      var originalMargin = parseFloat(card.getAttribute('data-original-margin')) || margin;
       var direction = card.getAttribute('data-direction') || 'LONG';
-      if (!originalMargin || originalMargin <= 0) continue;
+      if (!originalMargin || originalMargin <= 0 || !Number.isFinite(originalMargin)) continue;
 
       var unrealizedPnl = direction === 'LONG'
         ? ((price - entryPrice) / entryPrice) * positionSize
