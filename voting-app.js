@@ -86,12 +86,15 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Session secret: use env var if set, otherwise generate a random one.
-// A random secret means sessions reset on server restart, but the app won't crash.
+// Session secret: required in production for secure persistent sessions.
 let sessionSecret = process.env.SESSION_SECRET;
 if (!sessionSecret) {
+  if (process.env.NODE_ENV === 'production') {
+    console.error('FATAL: SESSION_SECRET environment variable is required in production. Set it and restart.');
+    process.exit(1);
+  }
   sessionSecret = crypto.randomBytes(32).toString('hex');
-  console.warn('[SECURITY] SESSION_SECRET not set — using random secret. Sessions will reset on restart. Set SESSION_SECRET env var for persistent sessions.');
+  console.warn('[SECURITY] SESSION_SECRET not set — using random secret. Sessions will reset on restart.');
 }
 
 // Session store: use MongoStore only when MONGODB_URI is explicitly set (production).

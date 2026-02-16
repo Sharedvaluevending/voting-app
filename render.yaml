@@ -9,5 +9,8 @@ services:
       # to avoid DNS ENOTFOUND on Render. In Atlas: Connect → your app → copy standard URI.
       - key: MONGODB_URI
         sync: false
+      # Required in production: run `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` to generate
+      - key: SESSION_SECRET
+        sync: false
       - key: NODE_ENV
         value: production
