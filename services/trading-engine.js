@@ -1609,7 +1609,9 @@ function detectRegime(tf1d, tf4h) {
   const adx = Math.max(adx1d, adx4h);
   const bbSqueeze = tf4h.bbSqueeze;
   const trend = tf1d.trend;
-  const vol = tf1d.volatilityState;
+  // Use 4H volatilityState: 1D only has ~30 candles → <20 ATR history → fallback to fixed thresholds
+  // that classify most crypto as "high/extreme" → always "volatile". 4H has 100 candles → adaptive.
+  const vol = tf4h.volatilityState || tf1d.volatilityState;
 
   // Check compression and volatile first (more specific conditions)
   if (bbSqueeze) return 'compression';
