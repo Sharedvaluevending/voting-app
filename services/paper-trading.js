@@ -671,11 +671,12 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc) {
       const ageMs = Date.now() - new Date(openedAt).getTime();
       const pastStopGrace = ageMs >= stopGrace * 60 * 1000;
 
-      // Breakeven at 1R (if autoMoveBreakeven) — only if trailing hasn't started yet
+      // Breakeven at 0.75R (if autoMoveBreakeven) — only if trailing hasn't started yet
+      // Lowered from 1R to 0.75R so BE fires sooner, protecting positions earlier
       // Uses entry + 0.3% buffer so "breakeven" actually breaks even after round-trip fees + slippage
       if (pastStopGrace && autoBE && !trade.trailingActivated && trade.stopLoss !== trade.entryPrice) {
-        const at1R = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk : currentPrice <= trade.entryPrice - risk;
-        if (at1R) {
+        const atBE = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * 0.75 : currentPrice <= trade.entryPrice - risk * 0.75;
+        if (atBE) {
           const oldSl = trade.stopLoss;
           const BE_BUFFER = 0.003; // 0.3% covers round-trip fees + slippage
           trade.stopLoss = trade.direction === 'LONG'
@@ -693,7 +694,8 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc) {
         }
       }
 
-      // Trailing stop at 1.5R+ (if autoTrailingStop) - trail at 1R behind max favorable price
+      // Trailing stop at 1.5R+ (if autoTrailingStop) - trail at 1.5R behind max favorable price
+      // Widened from 1R to 1.5R trail distance to survive normal crypto retracements
       // Activates if: stop already at BE, trailing already running, OR stop has been locked past entry
       const stopPastEntry = trade.direction === 'LONG' ? trade.stopLoss >= trade.entryPrice : trade.stopLoss <= trade.entryPrice;
       if (pastStopGrace && autoTrail && (stopPastEntry || trade.trailingActivated)) {
@@ -701,8 +703,8 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc) {
         if (at1_5R) {
           trade.trailingActivated = true;
           const trailSL = trade.direction === 'LONG'
-            ? trade.maxPrice - risk
-            : trade.minPrice + risk;
+            ? trade.maxPrice - risk * 1.5
+            : trade.minPrice + risk * 1.5;
           const r2 = (v) => Math.round(v * 1000000) / 1000000;
           const newStop = r2(trailSL);
           const isLong = trade.direction === 'LONG';
@@ -1068,7 +1070,7 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
   const highLev = lev >= 5;  // Raised from 3 to 5
   const exitThreshold = highLev ? -40 : -45;       // Tightened: require larger score drop
   const hardExitThreshold = highLev ? -50 : -55;   // Tightened: avoid premature exits on noise
-  const reduceThreshold = highLev ? -20 : -25;     // Was -10/-15
+  const reduceThreshold = highLev ? -30 : -35;     // Was -20/-25 — widened to let trades reach BE/TS before RP fires
 
   // ---- P&L-first overrides: only for truly catastrophic losses ----
   // When P&L says you're down 25%+ AND score is against you = consider exit
@@ -1247,12 +1249,12 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
     }
     if (actionId === 'reduce_position') {
       const orig = trade.originalPositionSize || trade.positionSize;
-      const portion = Math.round((orig * 0.5) * 100) / 100;
+      const portion = Math.round((orig * 0.3) * 100) / 100;  // 30% cut (was 50%) — less destructive per trigger
       if (portion <= 0 || portion >= trade.positionSize) return { executed: false };
       const sizeBefore = trade.positionSize;
       await closeTradePartial(trade, exitPrice, portion, 'SCORE_CHECK_REDUCE');
       trade.lastExecutedActionId = actionId;
-      const details = `Reduced 50%: $${fp(sizeBefore)} → $${fp(trade.positionSize)} at $${fp(exitPrice)}`;
+      const details = `Reduced 30%: $${fp(sizeBefore)} → $${fp(trade.positionSize)} at $${fp(exitPrice)}`;
       trade.scoreCheck = trade.scoreCheck || {};
       trade.scoreCheck.lastActionDetails = details;
       await trade.save();
@@ -1283,14 +1285,14 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
         const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
         if (tp) risk = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
       }
-      // Only move to breakeven if trade is actually in profit by at least 1R
-      const inProfit1R = risk > 0 && (
-        trade.direction === 'LONG' ? price >= trade.entryPrice + risk : price <= trade.entryPrice - risk
+      // Only move to breakeven if trade is actually in profit by at least 0.75R
+      const inProfit075R = risk > 0 && (
+        trade.direction === 'LONG' ? price >= trade.entryPrice + risk * 0.75 : price <= trade.entryPrice - risk * 0.75
       );
-      if (risk > 0 && trade.stopLoss !== trade.entryPrice && !inProfit1R) {
-        console.log(`[ScoreCheck] BLOCKED tighten_stop→BE on ${trade.symbol}: not yet in profit by 1R (price $${fp(price)} vs entry $${fp(trade.entryPrice)} ± 1R)`);
+      if (risk > 0 && trade.stopLoss !== trade.entryPrice && !inProfit075R) {
+        console.log(`[ScoreCheck] BLOCKED tighten_stop→BE on ${trade.symbol}: not yet in profit by 0.75R (price $${fp(price)} vs entry $${fp(trade.entryPrice)} ± 0.75R)`);
       }
-      if (risk > 0 && trade.stopLoss !== trade.entryPrice && inProfit1R) {
+      if (risk > 0 && trade.stopLoss !== trade.entryPrice && inProfit075R) {
         const oldStop = trade.stopLoss;
         trade.stopLoss = trade.entryPrice;
         trade.lastExecutedActionId = actionId;
@@ -1472,7 +1474,7 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
     }
   }
 
-  // 7. Consider BE stop (1R+ in profit, stop not yet at breakeven)
+  // 7. Consider BE stop (0.75R+ in profit, stop not yet at breakeven)
   const sl = trade.stopLoss;
   const origSlForLock = trade.originalStopLoss || sl;
   let riskForLock = origSlForLock != null ? (isLong ? trade.entryPrice - origSlForLock : origSlForLock - trade.entryPrice) : 0;
@@ -1481,11 +1483,11 @@ function generateScoreCheckMessages(trade, signal, currentPrice) {
     if (tp && tp !== trade.entryPrice) riskForLock = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
   }
   if (sl != null && riskForLock > 0) {
-    const inProfit1R = isLong
-      ? currentPrice >= trade.entryPrice + riskForLock
-      : currentPrice <= trade.entryPrice - riskForLock;
+    const inProfit075R = isLong
+      ? currentPrice >= trade.entryPrice + riskForLock * 0.75
+      : currentPrice <= trade.entryPrice - riskForLock * 0.75;
     const stopNotBE = isLong ? sl < trade.entryPrice : sl > trade.entryPrice;
-    if (inProfit1R && stopNotBE) {
+    if (inProfit075R && stopNotBE) {
       messages.push({ type: 'info', text: 'Consider BE stop' });
     }
   }
@@ -1615,10 +1617,32 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
         continue;
       }
 
+      // Signal flip cooldown: crypto signals flip constantly in ranging markets.
+      // Don't count a signal flip until it persists for at least 10 minutes.
+      // If the flip is too recent, treat signal as HOLD (neutral) instead.
+      const SIGNAL_FLIP_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+      const isLong = trade.direction === 'LONG';
+      const rawSignalFlipped = isLong
+        ? (signal.signal === 'SELL' || signal.signal === 'STRONG_SELL')
+        : (signal.signal === 'BUY' || signal.signal === 'STRONG_BUY');
+      const prevFlipSince = trade.scoreCheck?.signalFlipSince;
+      let signalFlipSince = null;
+      let effectiveSignal = signal.signal;
+      if (rawSignalFlipped) {
+        signalFlipSince = prevFlipSince ? new Date(prevFlipSince) : new Date();
+        const flipAge = Date.now() - signalFlipSince.getTime();
+        if (flipAge < SIGNAL_FLIP_COOLDOWN_MS) {
+          // Flip too recent — downgrade to HOLD so the -15 penalty doesn't apply
+          effectiveSignal = 'HOLD';
+          console.log(`[ScoreCheck] ${trade.symbol}: Signal flip cooldown (${Math.round(flipAge / 60000)}min < 10min) — treating ${signal.signal} as HOLD`);
+        }
+      }
+      // If signal is no longer flipped, reset the timer
+      if (!rawSignalFlipped) signalFlipSince = null;
+
       const messages = generateScoreCheckMessages(trade, signal, currentPrice);
       const scoreDiff = (signal.score || 0) - (trade.score || 0);
       let changeReasons = determineChangeReasons(trade, signal);
-      const isLong = trade.direction === 'LONG';
       const lev = trade.leverage || 1;
       const pnlPct = trade.entryPrice > 0
         ? ((isLong ? (currentPrice - trade.entryPrice) : (trade.entryPrice - currentPrice)) / trade.entryPrice * 100) * lev
@@ -1637,8 +1661,9 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
           changeReasons = [{ type: 'warning', text: `Price moving against ${dirLabel} — score may lag` }];
         }
       }
-      const heat = determineHeat(scoreDiff, messages, isLong, pnlPct, signal.signal);
-      const suggestedAction = determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, currentPrice, signal.signal);
+      // Use effectiveSignal (with flip cooldown) for heat/action decisions
+      const heat = determineHeat(scoreDiff, messages, isLong, pnlPct, effectiveSignal);
+      const suggestedAction = determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, currentPrice, effectiveSignal);
       // Win prob: score measures setup QUALITY for both directions.
       // High score = strong setup = high probability regardless of LONG/SHORT.
       // Direction is handled by penalizing when signal disagrees with trade.
@@ -1688,7 +1713,8 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
         changeReasons,
         suggestedAction,
         heat,
-        checkedAt: new Date()
+        checkedAt: new Date(),
+        signalFlipSince: signalFlipSince || null
       };
 
       // Append to score history for timeline (cap at 100 entries)

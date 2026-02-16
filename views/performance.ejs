@@ -272,11 +272,11 @@
         <label class="ft-toggle" title="TP1 closes 40%, TP2 closes 30%, TP3 closes remaining 30%. OFF = close 100% at TP1">
           <input type="checkbox" name="featurePartialTP" value="true" <%= (user.settings && user.settings.featurePartialTP) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">TP</span> Partial Take Profits (40/30/30)
         </label>
-        <label class="ft-toggle" title="Move stop to entry (+0.3% buffer) when trade reaches 1R profit">
-          <input type="checkbox" name="autoMoveBreakeven" value="true" <%= (user.settings && user.settings.autoMoveBreakeven) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">BE</span> Breakeven at 1R
+        <label class="ft-toggle" title="Move stop to entry (+0.3% buffer) when trade reaches 0.75R profit">
+          <input type="checkbox" name="autoMoveBreakeven" value="true" <%= (user.settings && user.settings.autoMoveBreakeven) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">BE</span> Breakeven at 0.75R
         </label>
-        <label class="ft-toggle" title="Trail stop 1R behind best price after 1.5R profit">
-          <input type="checkbox" name="autoTrailingStop" value="true" <%= (user.settings && user.settings.autoTrailingStop) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">TS</span> Trailing Stop (1.5R)
+        <label class="ft-toggle" title="Trail stop 1.5R behind best price after 1.5R profit">
+          <input type="checkbox" name="autoTrailingStop" value="true" <%= (user.settings && user.settings.autoTrailingStop) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">TS</span> Trailing Stop (1.5R trail)
         </label>
         <label class="ft-toggle" title="Lock stop at 0.5R/0.75R/1R as trade progresses 50%/75%/90% toward TP2">
           <input type="checkbox" name="featureLockIn" value="true" <%= (user.settings && user.settings.featureLockIn) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">LOCK</span> Stepped Lock-In

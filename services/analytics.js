@@ -157,10 +157,10 @@ function computeDrawdownAnalysis(equityCurve) {
   }
 
   const avgRecoveryHours = recoveryTimes.length > 0
-    ? Math.round(recoveryTimes.reduce((a, b) => a + b, 0) / recoveryTimes.length * 10) / 10
+    ? Math.round((recoveryTimes.reduce((a, b) => a + b, 0) / recoveryTimes.length) * 10) / 10
     : null;
   const longestUnderwaterHours = underwaterPeriods.length > 0
-    ? Math.round(Math.max(...underwaterPeriods.map(p => (p.end - p.start) / (1000 * 60 * 60)) * 10) / 10)
+    ? Math.round(Math.max(...underwaterPeriods.map(p => (p.end - p.start) / (1000 * 60 * 60))) * 10) / 10
     : null;
 
   return {

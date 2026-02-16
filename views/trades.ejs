@@ -7,7 +7,7 @@
 </div>
 <% if (trades.length > 0 && (user.settings && (user.settings.featureScoreRecheck === false || user.settings.autoMoveBreakeven === false || user.settings.autoTrailingStop === false))) { %>
 <div style="margin-bottom:12px;padding:10px 14px;background:rgba(234,179,8,0.1);border:1px solid rgba(234,179,8,0.3);border-radius:8px;font-size:12px;color:#eab308;">
-  <strong>Tip:</strong> Score check and action badges (BE, TS, LOCK) require settings in <a href="/performance#feature-toggles" style="color:#fbbf24;">Performance → Feature Toggles</a>: enable <strong>Score Re-check</strong>, <strong>Breakeven at 1R</strong>, and <strong>Trailing Stop</strong>.
+  <strong>Tip:</strong> Score check and action badges (BE, TS, LOCK) require settings in <a href="/performance#feature-toggles" style="color:#fbbf24;">Performance → Feature Toggles</a>: enable <strong>Score Re-check</strong>, <strong>Breakeven at 0.75R</strong>, and <strong>Trailing Stop</strong>.
 </div>
 <% } %>
 
@@ -141,9 +141,9 @@
             <% } else if (trade.trailingActivated) { %>
               <span style="color:#3b82f6;">&#10003; Trailing active</span> · <%= profitR.toFixed(2) %>R profit
             <% } else { %>
-              BE at 1R: <strong><%= Math.min(100, Math.max(0, profitR * 100)).toFixed(0) %>%</strong>
+              BE at 0.75R: <strong><%= Math.min(100, Math.max(0, (profitR / 0.75) * 100)).toFixed(0) %>%</strong>
               <% if (profitR < 0) { %><span style="color:#ef4444;"> (underwater)</span><% } %>
-              <% if (profitR >= 0.5 && profitR < 1) { %><span style="color:#eab308;"> (getting close)</span><% } %>
+              <% if (profitR >= 0.4 && profitR < 0.75) { %><span style="color:#eab308;"> (getting close)</span><% } %>
             <% } %>
           </div>
           <% } %>
