@@ -90,10 +90,24 @@
     <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #1e2a3a;">
       <h4 style="color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px 0;">Position Sizing</h4>
       <p style="font-size:12px;color:#6b7280;margin:0 0 12px 0;">How much of your balance each trade can use. Lower = safer.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:12px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="radio" name="riskMode" value="percent" <%= (user.settings && user.settings.riskMode) !== 'dollar' ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Risk % of balance</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="radio" name="riskMode" value="dollar" <%= (user.settings && user.settings.riskMode) === 'dollar' ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Fixed $ per trade</span>
+        </label>
+      </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;align-items:end;">
-        <div>
+        <div id="risk-percent-wrap" style="<%= (user.settings && user.settings.riskMode) === 'dollar' ? 'display:none;' : '' %>">
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Risk per trade (%)</label>
           <input type="number" name="riskPerTrade" min="0.5" max="10" step="0.5" value="<%= (user.settings && user.settings.riskPerTrade) != null ? user.settings.riskPerTrade : 2 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+        </div>
+        <div id="risk-dollar-wrap" style="<%= (user.settings && user.settings.riskMode) !== 'dollar' ? 'display:none;' : '' %>">
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Risk per trade ($)</label>
+          <input type="number" name="riskDollarsPerTrade" min="10" max="10000" step="10" value="<%= (user.settings && user.settings.riskDollarsPerTrade) != null ? user.settings.riskDollarsPerTrade : 200 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
         </div>
         <div>
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Max balance per trade (%)</label>
@@ -104,6 +118,25 @@
           <input type="number" name="maxOpenTrades" min="1" max="10" value="<%= (user.settings && user.settings.maxOpenTrades) || 3 %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
         </div>
       </div>
+      <script>
+        (function() {
+          var radios = document.querySelectorAll('input[name="riskMode"]');
+          var pctWrap = document.getElementById('risk-percent-wrap');
+          var dolWrap = document.getElementById('risk-dollar-wrap');
+          radios.forEach(function(r) {
+            r.addEventListener('change', function() {
+              if (this.value === 'percent') { pctWrap.style.display = ''; dolWrap.style.display = 'none'; dolWrap.querySelector('input').disabled = true; pctWrap.querySelector('input').disabled = false; }
+              else { pctWrap.style.display = 'none'; dolWrap.style.display = ''; pctWrap.querySelector('input').disabled = true; dolWrap.querySelector('input').disabled = false; }
+            });
+          });
+          if (document.querySelector('input[name="riskMode"]:checked')?.value === 'dollar') {
+            pctWrap.querySelector('input').disabled = true;
+            dolWrap.querySelector('input').disabled = false;
+          } else {
+            dolWrap.querySelector('input').disabled = true;
+          }
+        })();
+      </script>
     </div>
 
     <!-- 2. Leverage -->

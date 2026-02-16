@@ -913,6 +913,13 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       const v = Math.min(10, Math.max(0.5, parseFloat(req.body.riskPerTrade) || 2));
       s.riskPerTrade = v;
     }
+    if (req.body.riskMode === 'percent' || req.body.riskMode === 'dollar') {
+      s.riskMode = req.body.riskMode;
+    }
+    if (req.body.riskDollarsPerTrade != null) {
+      const v = Math.min(10000, Math.max(10, parseInt(req.body.riskDollarsPerTrade, 10) || 200));
+      s.riskDollarsPerTrade = v;
+    }
     if (req.body.maxOpenTrades != null) {
       const v = Math.min(10, Math.max(1, parseInt(req.body.maxOpenTrades, 10) || 3));
       s.maxOpenTrades = v;
@@ -1761,6 +1768,10 @@ app.post('/api/backtest', async (req, res) => {
       coins: coinsToRun,
       minScore: minScore != null ? Number(minScore) : undefined,
       leverage: leverage != null ? Number(leverage) : undefined,
+      initialBalance: req.body.initialBalance != null ? Number(req.body.initialBalance) : undefined,
+      riskMode: req.body.riskMode === 'dollar' ? 'dollar' : 'percent',
+      riskPerTrade: req.body.riskPerTrade != null ? Number(req.body.riskPerTrade) : undefined,
+      riskDollarsPerTrade: req.body.riskDollarsPerTrade != null ? Number(req.body.riskDollarsPerTrade) : undefined,
       features: features || {} // Feature toggle flags from UI
     };
     const result = await runBacktest(startMs, endMs, options);

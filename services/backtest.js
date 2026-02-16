@@ -188,6 +188,10 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   options = options || {};
   const minScore = options.minScore ?? MIN_SCORE;
   const leverage = options.leverage ?? DEFAULT_LEVERAGE;
+  const initialBalance = options.initialBalance ?? INITIAL_BALANCE;
+  const riskMode = options.riskMode || 'percent';
+  const riskPerTrade = options.riskPerTrade ?? (RISK_PER_TRADE * 100); // 2% -> 2
+  const riskDollarsPerTrade = options.riskDollarsPerTrade ?? 200;
 
   // === FEATURE FLAGS: all default to true (full parity with live) ===
   const ft = options.features || {};
@@ -228,7 +232,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 
   const c1h = candles['1h'];
   const trades = [];
-  let equity = INITIAL_BALANCE;
+  let equity = initialBalance;
   let position = null;  // { direction, entry, entryBar, stopLoss, takeProfit1, size }
 
   // Find the first bar at or after the user's requested start date.
@@ -716,7 +720,9 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 
     // === POSITION SIZING: risk-based + confidence-weighted (mirrors live) ===
     // BUG FIX: Added * leverage — live system uses (riskAmount / stopDistance) * leverage
-    const riskAmount = equity * RISK_PER_TRADE;
+    const riskAmount = riskMode === 'dollar' && Number.isFinite(riskDollarsPerTrade) && riskDollarsPerTrade > 0
+      ? riskDollarsPerTrade
+      : equity * (riskPerTrade / 100);
     let size = ((riskAmount * entry) / slDist) * leverage;
     // Confidence multiplier: higher score = slightly larger size (mirrors live)
     if (F_CONFIDENCE_SIZING) {
@@ -799,8 +805,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   }
 
   // Build equity curve
-  const equityCurve = [{ t: 0, equity: INITIAL_BALANCE, date: c1h[0]?.openTime }];
-  let runningEquity = INITIAL_BALANCE;
+  const equityCurve = [{ t: 0, equity: initialBalance, date: c1h[0]?.openTime }];
+  let runningEquity = initialBalance;
   trades.forEach((tr, i) => {
     runningEquity += tr.pnl;
     equityCurve.push({ t: tr.exitBar, equity: runningEquity, date: c1h[tr.exitBar]?.openTime, trade: i + 1 });
@@ -839,7 +845,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   });
 
   // Sharpe ratio (annualized, using per-trade returns as % of initial balance)
-  const tradeReturns = trades.map(t => (t.pnl / INITIAL_BALANCE) * 100);
+  const tradeReturns = trades.map(t => (t.pnl / initialBalance) * 100);
   const meanRet = tradeReturns.length > 0 ? tradeReturns.reduce((a, b) => a + b, 0) / tradeReturns.length : 0;
   const variance = tradeReturns.length > 1
     ? tradeReturns.reduce((s, r) => s + Math.pow(r - meanRet, 2), 0) / (tradeReturns.length - 1)
@@ -860,8 +866,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     winRate: trades.length > 0 ? (wins / trades.length) * 100 : 0,
     totalPnl,
     profitFactor,
-    finalEquity: INITIAL_BALANCE + totalPnl,
-    returnPct: ((totalPnl / INITIAL_BALANCE) * 100),
+    finalEquity: initialBalance + totalPnl,
+    returnPct: ((totalPnl / initialBalance) * 100),
     equityCurve,
     maxDrawdown: computeMaxDrawdown(equityCurve),
     maxDrawdownPct: computeMaxDrawdownPct(equityCurve),
@@ -873,7 +879,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 }
 
 function computeMaxDrawdown(equityCurve) {
-  let peak = equityCurve[0]?.equity || INITIAL_BALANCE;
+  let peak = equityCurve[0]?.equity || 0;
   let maxDd = 0;
   equityCurve.forEach(p => {
     if (p.equity > peak) peak = p.equity;
@@ -884,7 +890,7 @@ function computeMaxDrawdown(equityCurve) {
 }
 
 function computeMaxDrawdownPct(equityCurve) {
-  let peak = equityCurve[0]?.equity || INITIAL_BALANCE;
+  let peak = equityCurve[0]?.equity || 0;
   let maxDdPct = 0;
   equityCurve.forEach(p => {
     if (p.equity > peak) peak = p.equity;
@@ -974,6 +980,7 @@ async function runBacktest(startMs, endMs, options) {
   const totalPnl = allTrades.reduce((s, t) => s + t.pnl, 0);
   const grossProfit = allTrades.filter(t => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
   const grossLoss = Math.abs(allTrades.filter(t => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
+  const usedInitialBalance = options.initialBalance ?? INITIAL_BALANCE;
 
   const totalBars = successResults.reduce((s, r) => s + (r.bars || 0), 0);
   return {
@@ -986,7 +993,7 @@ async function runBacktest(startMs, endMs, options) {
       winRate: allTrades.length > 0 ? (totalWins / allTrades.length) * 100 : 0,
       totalPnl,
       profitFactor: grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999 : 0),
-      returnPct: ((totalPnl / INITIAL_BALANCE) * 100),
+      returnPct: ((totalPnl / usedInitialBalance) * 100),
       coinsProcessed: successResults.length,
       coinsFailed: failed.length,
       totalBars

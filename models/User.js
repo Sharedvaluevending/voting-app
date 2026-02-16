@@ -12,6 +12,8 @@ const userSchema = new mongoose.Schema({
     defaultLeverage: { type: Number, default: 2, min: 1, max: 20 },
     useFixedLeverage: { type: Boolean, default: false },
     riskPerTrade: { type: Number, default: 2, min: 0.5, max: 10 },
+    riskMode: { type: String, enum: ['percent', 'dollar'], default: 'percent' },
+    riskDollarsPerTrade: { type: Number, default: 200, min: 10, max: 10000 },
     maxOpenTrades: { type: Number, default: 3, min: 1, max: 10 },
     maxBalancePercentPerTrade: { type: Number, default: 25, min: 5, max: 100 },
     cooldownHours: { type: Number, default: 4, min: 0, max: 168 },

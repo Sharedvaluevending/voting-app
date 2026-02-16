@@ -107,9 +107,13 @@ function suggestLeverage(score, regime, volatilityState) {
   return maxLev;
 }
 
-function calculatePositionSize(balance, riskPercent, entryPrice, stopLoss, leverage) {
+function calculatePositionSize(balance, riskPercent, entryPrice, stopLoss, leverage, opts) {
+  opts = opts || {};
   if (!entryPrice || entryPrice <= 0) return balance * 0.05 * leverage;
-  const riskAmount = balance * (riskPercent / 100);
+  const riskMode = opts.riskMode || 'percent';
+  const riskAmount = riskMode === 'dollar' && Number.isFinite(opts.riskDollarsPerTrade) && opts.riskDollarsPerTrade > 0
+    ? opts.riskDollarsPerTrade
+    : balance * (riskPercent / 100);
   let stopDistance = typeof stopLoss === 'number' && stopLoss > 0
     ? Math.abs(entryPrice - stopLoss) / entryPrice
     : 0.02;
@@ -152,6 +156,8 @@ async function openTrade(userId, signalData) {
   // If user has disabled leverage, force 1x regardless of signal/default
   const leverage = user.settings?.disableLeverage ? 1 : (signalData.leverage || user.settings?.defaultLeverage || 1);
   const riskPercent = user.settings?.riskPerTrade || 2;
+  const riskMode = user.settings?.riskMode || 'percent';
+  const riskDollarsPerTrade = user.settings?.riskDollarsPerTrade ?? 200;
   const maxBalancePct = user.settings?.maxBalancePercentPerTrade ?? 25;
   // Slippage: worse entry (LONG pay more, SHORT receive less)
   const slippage = 1 + (SLIPPAGE_BPS / 10000);
@@ -199,7 +205,8 @@ async function openTrade(userId, signalData) {
   }
 
   let positionSize = calculatePositionSize(
-    user.paperBalance, riskPercent, entryPrice, stopLoss, leverage
+    user.paperBalance, riskPercent, entryPrice, stopLoss, leverage,
+    { riskMode, riskDollarsPerTrade }
   );
   // Confidence-weighted size: scale by score (0.5 + score/100), cap 1.2
   if (ff.confidenceSizing) {

@@ -41,6 +41,25 @@
       <input type="number" name="leverage" id="leverage" value="2" min="1" max="10" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
     </div>
     <div>
+      <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Initial Balance ($)</label>
+      <input type="number" name="initialBalance" id="initialBalance" value="10000" min="100" max="1000000" step="1000" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+    </div>
+    <div>
+      <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Risk Mode</label>
+      <select name="riskMode" id="riskMode" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+        <option value="percent">% of balance</option>
+        <option value="dollar">Fixed $ per trade</option>
+      </select>
+    </div>
+    <div id="bt-risk-pct-wrap">
+      <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Risk per trade (%)</label>
+      <input type="number" name="riskPerTrade" id="riskPerTrade" value="2" min="0.5" max="10" step="0.5" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+    </div>
+    <div id="bt-risk-dollar-wrap" style="display:none;">
+      <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Risk per trade ($)</label>
+      <input type="number" name="riskDollarsPerTrade" id="riskDollarsPerTrade" value="200" min="10" max="10000" step="10" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+    </div>
+    <div>
       <button type="submit" class="btn btn-primary" id="run-btn">Run Backtest</button>
     </div>
   </form>
@@ -317,6 +336,13 @@ function renderActionBadgesForTrade(actions) {
   document.getElementById('endDate').value = end.toISOString().slice(0, 10);
   document.getElementById('startDate').value = start.toISOString().slice(0, 10);
 
+  // Risk mode toggle: show % or $ input
+  document.getElementById('riskMode').addEventListener('change', function() {
+    var isDollar = this.value === 'dollar';
+    document.getElementById('bt-risk-pct-wrap').style.display = isDollar ? 'none' : '';
+    document.getElementById('bt-risk-dollar-wrap').style.display = isDollar ? '' : 'none';
+  });
+
   form.addEventListener('submit', async function(e) {
     e.preventDefault();
     runBtn.disabled = true;
@@ -324,11 +350,16 @@ function renderActionBadgesForTrade(actions) {
     results.style.display = 'none';
 
     var coinId = document.getElementById('coinId').value;
+    var riskMode = document.getElementById('riskMode').value;
     var body = {
       startDate: document.getElementById('startDate').value,
       endDate: document.getElementById('endDate').value,
       minScore: parseInt(document.getElementById('minScore').value, 10) || 52,
       leverage: parseInt(document.getElementById('leverage').value, 10) || 2,
+      initialBalance: parseInt(document.getElementById('initialBalance').value, 10) || 10000,
+      riskMode: riskMode,
+      riskPerTrade: parseFloat(document.getElementById('riskPerTrade').value) || 2,
+      riskDollarsPerTrade: parseInt(document.getElementById('riskDollarsPerTrade').value, 10) || 200,
       features: getFeatureFlags()
     };
     if (coinId) body.coinId = coinId;
