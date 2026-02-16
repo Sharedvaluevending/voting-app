@@ -2,7 +2,13 @@
 
 <main class="chart-page">
   <div class="chart-header">
+    <% if (typeof prevCoinId !== 'undefined' && prevCoinId) { %>
+    <a href="/chart/<%= prevCoinId %>" class="btn btn-outline btn-sm chart-nav-btn" title="Previous coin">&#x2190; Prev</a>
+    <% } %>
     <h1><%= coinName %> (<%= symbol %>) – Chart</h1>
+    <% if (typeof nextCoinId !== 'undefined' && nextCoinId) { %>
+    <a href="/chart/<%= nextCoinId %>" class="btn btn-outline btn-sm chart-nav-btn" title="Next coin">Next &#x2192;</a>
+    <% } %>
     <a href="/trades" class="btn btn-outline btn-sm">Active Trades</a>
     <a href="/coin/<%= coinId %>" class="btn btn-outline btn-sm">Back to <%= coinName %></a>
   </div>
@@ -108,6 +114,7 @@
         <label class="toggle-label"><input type="checkbox" id="toggle-patterns" checked> <span class="toggle-text">Patterns</span></label>
         <label class="toggle-label"><input type="checkbox" id="toggle-chart-patterns" checked> <span class="toggle-text">Chart Pat.</span></label>
         <label class="toggle-label"><input type="checkbox" id="toggle-sr" checked> <span class="toggle-text">S/R</span></label>
+        <label class="toggle-label"><input type="checkbox" id="toggle-poc" checked> <span class="toggle-text">POC</span></label>
         <% if (typeof tradeId !== 'undefined' && tradeId) { %>
         <label class="toggle-label"><input type="checkbox" id="toggle-trade" checked> <span class="toggle-text">Trade</span></label>
         <% } %>
@@ -118,6 +125,7 @@
   <!-- Lightweight Charts (primary – with trade level lines) -->
   <div class="chart-container" id="lw-chart-container" style="display:none;">
     <div id="lw-chart" style="width:100%;height:100%;"></div>
+    <div id="candle-countdown" style="position:absolute;bottom:8px;left:12px;font-size:11px;color:#6b7280;z-index:6;font-weight:600;"></div>
     <canvas id="draw-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;"></canvas>
   </div>
 
@@ -246,15 +254,17 @@
   var tradeId = <%- JSON.stringify(typeof tradeId !== 'undefined' ? tradeId : null) %>;
   var tradeDirection = <%- JSON.stringify(typeof direction !== 'undefined' ? direction : null) %>;
   var initialActions = <%- JSON.stringify(typeof tradeActions !== 'undefined' ? tradeActions : []) %>;
-  var chartRef = { chart: null, series: null, volumeSeries: null, slLine: null, origSlLine: null, priceLines: [], fibLines: [], srLines: [], candleTimes: [] };
+  var chartRef = { chart: null, series: null, volumeSeries: null, slLine: null, origSlLine: null, priceLines: [], fibLines: [], srLines: [], pocLines: [], candleTimes: [] };
   var currentTF = '1h';
   var showFib = true;
   var showBadges = true;
   var showPatterns = true;
   var showChartPatterns = true;
   var showSR = true;
+  var showPOC = true;
   var showTradeLevels = true;
   var srLevels = { support: null, resistance: null };
+  var pocLevel = null;
   var lastPatterns = [];
   var lastChartPatterns = [];
   var chartPatternSeries = [];  // line series for chart pattern trendlines
@@ -355,12 +365,84 @@
 
   // TradingView interval map for timeframe selector
   var tvIntervalMap = { '15m': '15', '1h': '60', '4h': '240', '1d': 'D', '1w': 'W' };
+  var tfIntervalSec = { '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400, '1w': 604800 };
+  var tfLabel = { '15m': '15m', '1h': '1H', '4h': '4H', '1d': '1D', '1w': '1W' };
+  var countdownIntervalId = null;
+
+  function updateCandleCountdown() {
+    var el = document.getElementById('candle-countdown');
+    if (!el || !chartRef.candleTimes || chartRef.candleTimes.length === 0) return;
+    var lastTime = chartRef.candleTimes[chartRef.candleTimes.length - 1];
+    var intervalSec = tfIntervalSec[currentTF] || 3600;
+    var nextCandleSec = lastTime + intervalSec;
+    var nowSec = Math.floor(Date.now() / 1000);
+    var remaining = nextCandleSec - nowSec;
+    if (remaining <= 0) {
+      el.textContent = tfLabel[currentTF] + ' 00:00';
+      return;
+    }
+    var m = Math.floor(remaining / 60);
+    var s = remaining % 60;
+    el.textContent = (tfLabel[currentTF] || currentTF) + ' ' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function startCandleCountdown() {
+    if (countdownIntervalId) clearInterval(countdownIntervalId);
+    updateCandleCountdown();
+    countdownIntervalId = setInterval(updateCandleCountdown, 1000);
+  }
+
+  function stopCandleCountdown() {
+    if (countdownIntervalId) { clearInterval(countdownIntervalId); countdownIntervalId = null; }
+    var el = document.getElementById('candle-countdown');
+    if (el) el.textContent = '';
+  }
+
+  var lastCandleData = null;
+  var candleAnimationIntervalId = null;
+
+  function updateLastCandleWithPrice(price) {
+    if (!chartRef.series || !lastCandleData || !chartRef.chart) return;
+    var nowSec = Math.floor(Date.now() / 1000);
+    var intervalSec = tfIntervalSec[currentTF] || 3600;
+    var nextCandleSec = lastCandleData.time + intervalSec;
+    if (nowSec >= nextCandleSec) {
+      loadCandles(currentTF);
+      return;
+    }
+    var high = Math.max(lastCandleData.high, price);
+    var low = Math.min(lastCandleData.low, price);
+    var bar = { time: lastCandleData.time, open: lastCandleData.open, high: high, low: low, close: price };
+    lastCandleData = bar;
+    try { chartRef.series.update(bar); } catch(e) {}
+  }
+
+  function startCandleAnimation() {
+    if (candleAnimationIntervalId) clearInterval(candleAnimationIntervalId);
+    candleAnimationIntervalId = setInterval(function() {
+      if (!chartRef.chart || !chartRef.series || tvFallbackAttempted) return;
+      fetch('/api/prices', { credentials: 'same-origin' })
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(result) {
+          if (!result || !result.success || !result.data) return;
+          var p = result.data.find(function(x) { return x.id === coinId; });
+          if (p && p.price != null) updateLastCandleWithPrice(Number(p.price));
+        })
+        .catch(function() {});
+    }, 6000);
+  }
+
+  function stopCandleAnimation() {
+    if (candleAnimationIntervalId) { clearInterval(candleAnimationIntervalId); candleAnimationIntervalId = null; }
+  }
 
   // ---- Fallback: show TradingView widget ----
   var tvFallbackAttempted = false;
   function showTradingViewFallback() {
     if (tvFallbackAttempted) return; // prevent double-loading
     tvFallbackAttempted = true;
+    stopCandleCountdown();
+    stopCandleAnimation();
     lwContainer.style.display = 'none';
     tvContainer.style.display = '';
     if (tfSelector) tfSelector.style.display = 'none';
@@ -425,6 +507,10 @@
       try { chartRef.series.removePriceLine(pl); } catch(e) {}
     });
     chartRef.srLines = [];
+    chartRef.pocLines.forEach(function(pl) {
+      try { chartRef.series.removePriceLine(pl); } catch(e) {}
+    });
+    chartRef.pocLines = [];
 
     var lineOpts = { lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true };
     if (showTradeLevels) {
@@ -466,6 +552,11 @@
       chartRef.srLines.push(chartRef.series.createPriceLine(Object.assign({}, srOpts, { price: srLevels.support, color: '#22c55e', title: 'Support' })));
       chartRef.srLines.push(chartRef.series.createPriceLine(Object.assign({}, srOpts, { price: srLevels.resistance, color: '#ef4444', title: 'Resistance' })));
     }
+    // POC (Point of Control) - volume profile
+    if (showPOC && pocLevel != null) {
+      var pocOpts = Object.assign({}, lineOpts, { lineWidth: 1.5, lineStyle: LightweightCharts.LineStyle.Dotted });
+      chartRef.pocLines.push(chartRef.series.createPriceLine(Object.assign({}, pocOpts, { price: pocLevel, color: '#a78bfa', title: 'POC' })));
+    }
   }
 
   function toggleSRLines(visible) {
@@ -476,6 +567,19 @@
         try { chartRef.series.removePriceLine(pl); } catch(e) {}
       });
       chartRef.srLines = [];
+    } else {
+      addPriceLines();
+    }
+  }
+
+  function togglePOCLines(visible) {
+    showPOC = visible;
+    if (!chartRef.series) return;
+    if (!visible) {
+      chartRef.pocLines.forEach(function(pl) {
+        try { chartRef.series.removePriceLine(pl); } catch(e) {}
+      });
+      chartRef.pocLines = [];
     } else {
       addPriceLines();
     }
@@ -664,11 +768,12 @@
           return;
         }
 
-        // Capture pattern data, chart patterns, and S/R from API (S/R redraws per timeframe)
+        // Capture pattern data, chart patterns, S/R and POC from API (redraw per timeframe)
         lastPatterns = data.patterns || [];
         lastChartPatterns = data.chartPatterns || [];
         srLevels.support = data.support;
         srLevels.resistance = data.resistance;
+        pocLevel = data.poc != null ? data.poc : null;
 
         if (!chartRef.chart) {
           // First load — create the chart (defer so container has layout/dimensions)
@@ -714,6 +819,8 @@
               chartRef.chart = chart;
               chartRef.series = series;
               chartRef.candleTimes = data.candles.map(function(c) { return c.time; });
+              var lastC = data.candles[data.candles.length - 1];
+              lastCandleData = lastC ? { time: lastC.time, open: lastC.open, high: lastC.high, low: lastC.low, close: lastC.close } : null;
 
               // Price lines and markers (non-critical — errors won't break chart)
               try { addPriceLines(); } catch(e) { console.warn('addPriceLines error:', e); }
@@ -721,6 +828,8 @@
               try { renderChartPatterns(); } catch(e) { console.warn('renderChartPatterns error:', e); }
 
               chart.timeScale().fitContent();
+              startCandleCountdown();
+              startCandleAnimation();
               // Set up drawing overlay after chart is ready
               setTimeout(function() { resizeDrawCanvas(); hookChartRedraw(); }, 100);
             } catch (chartErr) {
@@ -738,6 +847,8 @@
           try {
             chartRef.series.setData(data.candles);
             chartRef.candleTimes = data.candles.map(function(c) { return c.time; });
+            var lastC = data.candles[data.candles.length - 1];
+            lastCandleData = lastC ? { time: lastC.time, open: lastC.open, high: lastC.high, low: lastC.low, close: lastC.close } : null;
             if (chartRef.volumeSeries && data.volume && data.volume.length > 0) {
               chartRef.volumeSeries.setData(data.volume);
             }
@@ -745,6 +856,7 @@
             try { applyActionMarkers(initialActions || []); } catch(e) { console.warn('applyActionMarkers error:', e); }
             try { renderChartPatterns(); } catch(e) { console.warn('renderChartPatterns error:', e); }
             chartRef.chart.timeScale().fitContent();
+            startCandleCountdown();
             setTimeout(function() { renderDrawings(); }, 100);
           } catch (updateErr) {
             console.error('Chart update error:', updateErr);
@@ -859,6 +971,8 @@
   });
   var toggleSrEl = document.getElementById('toggle-sr');
   if (toggleSrEl) toggleSrEl.addEventListener('change', function() { toggleSRLines(this.checked); });
+  var togglePocEl = document.getElementById('toggle-poc');
+  if (togglePocEl) togglePocEl.addEventListener('change', function() { togglePOCLines(this.checked); });
   var toggleTradeEl = document.getElementById('toggle-trade');
   if (toggleTradeEl) toggleTradeEl.addEventListener('change', function() { toggleTradeLevels(this.checked); });
   var drawToolsToggle = document.getElementById('draw-tools-toggle');

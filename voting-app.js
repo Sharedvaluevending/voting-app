@@ -610,6 +610,10 @@ app.get('/chart/:coinId', async (req, res) => {
     }
   }
 
+  const currentCoinIndex = TRACKED_COINS.indexOf(coinId);
+  const prevCoinId = currentCoinIndex > 0 ? TRACKED_COINS[currentCoinIndex - 1] : TRACKED_COINS[TRACKED_COINS.length - 1];
+  const nextCoinId = currentCoinIndex < TRACKED_COINS.length - 1 && currentCoinIndex >= 0 ? TRACKED_COINS[currentCoinIndex + 1] : TRACKED_COINS[0];
+
   res.render('chart', {
     activePage: 'dashboard',
     pageTitle: meta.name + ' Chart',
@@ -626,7 +630,9 @@ app.get('/chart/:coinId', async (req, res) => {
     tp1,
     tp2,
     tp3,
-    fibLevels
+    fibLevels,
+    prevCoinId,
+    nextCoinId
   });
 });
 
@@ -1832,8 +1838,9 @@ app.get('/api/candles/:coinId', async (req, res) => {
     // Support/Resistance from engine (swing-based)
     let support = null;
     let resistance = null;
+    let poc = null;
     try {
-      const { findSR } = require('./services/trading-engine');
+      const { findSR, calculatePOC } = require('./services/trading-engine');
       const highs = raw.map(c => c.high);
       const lows = raw.map(c => c.low);
       const closes = raw.map(c => c.close);
@@ -1842,6 +1849,8 @@ app.get('/api/candles/:coinId', async (req, res) => {
         support = sr.support;
         resistance = sr.resistance;
       }
+      const pocVal = calculatePOC(raw);
+      if (pocVal > 0) poc = Math.round(pocVal * 1000000) / 1000000;
     } catch (srErr) {
       console.warn('S/R calc error:', srErr.message);
     }
@@ -1908,7 +1917,7 @@ app.get('/api/candles/:coinId', async (req, res) => {
       console.warn('Chart pattern detection error:', cpErr.message);
     }
 
-    res.json({ success: true, candles, volume, support, resistance, patterns, chartPatterns });
+    res.json({ success: true, candles, volume, support, resistance, poc, patterns, chartPatterns });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
