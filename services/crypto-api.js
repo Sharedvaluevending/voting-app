@@ -29,7 +29,8 @@ const RATE_LIMIT_WAIT_BASE = 20000;
 const TRACKED_COINS = [
   'bitcoin', 'ethereum', 'solana', 'dogecoin', 'ripple', 'cardano',
   'polkadot', 'avalanche-2', 'chainlink', 'polygon',
-  'binancecoin', 'litecoin', 'uniswap', 'cosmos'
+  'binancecoin', 'litecoin', 'uniswap', 'cosmos',
+  'near', 'arbitrum', 'optimism', 'sui', 'injective-protocol', 'pepe'
 ];
 
 const COIN_META = {
@@ -46,7 +47,13 @@ const COIN_META = {
   binancecoin:   { symbol: 'BNB',   name: 'BNB',        bybit: 'BNBUSDT' },
   litecoin:      { symbol: 'LTC',   name: 'Litecoin',   bybit: 'LTCUSDT' },
   uniswap:       { symbol: 'UNI',   name: 'Uniswap',    bybit: 'UNIUSDT' },
-  cosmos:        { symbol: 'ATOM',  name: 'Cosmos',     bybit: 'ATOMUSDT' }
+  cosmos:        { symbol: 'ATOM',  name: 'Cosmos',     bybit: 'ATOMUSDT' },
+  near:          { symbol: 'NEAR',  name: 'NEAR',       bybit: 'NEARUSDT' },
+  arbitrum:      { symbol: 'ARB',   name: 'Arbitrum',   bybit: 'ARBUSDT' },
+  optimism:      { symbol: 'OP',    name: 'Optimism',  bybit: 'OPUSDT' },
+  sui:           { symbol: 'SUI',   name: 'Sui',       bybit: 'SUIUSDT' },
+  'injective-protocol': { symbol: 'INJ', name: 'Injective', bybit: 'INJUSDT' },
+  pepe:          { symbol: 'PEPE',   name: 'Pepe',       bybit: 'PEPEUSDT' }
 };
 
 // CoinCap.io uses different asset ids
@@ -54,7 +61,9 @@ const COINCAP_IDS = {
   'bitcoin': 'bitcoin', 'ethereum': 'ethereum', 'solana': 'solana', 'dogecoin': 'dogecoin',
   'ripple': 'xrp', 'cardano': 'cardano', 'polkadot': 'polkadot', 'avalanche-2': 'avalanche',
   'chainlink': 'chainlink', 'polygon': 'matic-network',
-  'binancecoin': 'binance-coin', 'litecoin': 'litecoin', 'uniswap': 'uniswap', 'cosmos': 'cosmos'
+  'binancecoin': 'binance-coin', 'litecoin': 'litecoin', 'uniswap': 'uniswap', 'cosmos': 'cosmos',
+  'near': 'near-protocol', 'arbitrum': 'arbitrum', 'optimism': 'optimism', 'sui': 'sui',
+  'injective-protocol': 'injective-protocol', 'pepe': 'pepe'
 };
 
 let priceSourceRotation = 0;
@@ -221,7 +230,9 @@ const KRAKEN_PAIRS = {
   'bitcoin': 'XXBTZUSD', 'ethereum': 'XETHZUSD', 'solana': 'SOLUSD', 'dogecoin': 'XDGUSD',
   'ripple': 'XXRPZUSD', 'cardano': 'ADAUSD', 'polkadot': 'DOTUSD', 'avalanche-2': 'AVAXUSD',
   'chainlink': 'LINKUSD', 'polygon': 'POLUSD',
-  'binancecoin': 'BNBUSD', 'litecoin': 'XLTCZUSD', 'uniswap': 'UNIUSD', 'cosmos': 'ATOMUSD'
+  'binancecoin': 'BNBUSD', 'litecoin': 'XLTCZUSD', 'uniswap': 'UNIUSD', 'cosmos': 'ATOMUSD',
+  'near': 'NEARUSD', 'arbitrum': 'ARBUSD', 'optimism': 'OPUSD', 'sui': 'SUIUSD',
+  'injective-protocol': 'INJUSD', 'pepe': 'PEPEUSD'
 };
 
 // ====================================================

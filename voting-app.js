@@ -471,6 +471,11 @@ app.get('/', async (req, res) => {
       excludedCoins = dashUser.excludedCoins || [];
     }
 
+    // For logged-in users: only show non-excluded coins on dashboard (monitoredSignals)
+    const monitoredSignals = dashUser
+      ? signals.filter(s => !excludedCoins.includes(s.coin?.id))
+      : signals;
+
     // Top 5 coins from latest backtest (for "Top performer" badge)
     let topPerformerCoins = [];
     try {
@@ -485,13 +490,24 @@ app.get('/', async (req, res) => {
       }
     } catch (e) { /* ignore */ }
 
+    const excludedSignals = dashUser ? signals.filter(s => excludedCoins.includes(s.coin?.id)) : [];
+    const excludedCoinsFull = dashUser ? excludedCoins.map(id => {
+      const sig = signals.find(s => s.coin?.id === id);
+      const meta = COIN_META[id];
+      return { id, symbol: sig?.coin?.symbol || meta?.symbol || id, name: sig?.coin?.name || meta?.name || id };
+    }) : [];
+
     res.render('dashboard', {
       activePage: 'dashboard',
       prices: pricesMerged,
-      signals,
+      signals: monitoredSignals,
+      allSignals: signals,
       deleted: req.query.deleted === '1',
       excludedCoins,
-      topPerformerCoins
+      excludedSignals,
+      excludedCoinsFull,
+      topPerformerCoins,
+      COIN_META
     });
   } catch (err) {
     console.error('[Dashboard] Error:', err);

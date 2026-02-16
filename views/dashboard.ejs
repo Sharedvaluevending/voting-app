@@ -41,8 +41,47 @@
   </div>
 </div>
 
+<!-- MANAGE COINS (logged-in users only) -->
+<% if (typeof user !== 'undefined' && user && typeof COIN_META !== 'undefined' && COIN_META) { %>
+<div class="manage-coins-section" style="margin-bottom:20px;">
+  <div class="manage-coins-header" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:10px 14px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;" onclick="var el=document.getElementById('manage-coins-panel');el.style.display=el.style.display==='none'?'block':'none';this.querySelector('.manage-arrow').textContent=el.style.display==='none'?'\u25B6':'\u25BC';">
+    <h4 style="color:#9ca3af;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0;">Manage coins</h4>
+    <span class="manage-arrow" style="color:#6b7280;font-size:12px;">&#x25BC;</span>
+  </div>
+  <div id="manage-coins-panel" style="display:block;padding:14px;background:rgba(15,23,42,0.4);border:1px solid #1e2a3a;border-top:none;border-radius:0 0 8px 8px;">
+    <p style="font-size:12px;color:#6b7280;margin:0 0 12px 0;">Add or remove coins from your dashboard. Excluded coins are hidden from the grid above.</p>
+    <div style="margin-bottom:12px;">
+      <div style="font-size:11px;color:#6b7280;margin-bottom:6px;text-transform:uppercase;">On dashboard (<%= signals.length %>)</div>
+      <div id="monitored-coins" style="display:flex;flex-wrap:wrap;gap:6px;">
+        <% signals.forEach(function(sig) { %>
+        <span class="coin-chip monitored" data-coin-id="<%= sig.coin.id %>">
+          <a href="/coin/<%= sig.coin.id %>" style="color:inherit;text-decoration:none;"><%= sig.coin.symbol %></a>
+          <button type="button" class="coin-chip-remove" onclick="toggleCoinFromPanel('<%= sig.coin.id %>', true)" title="Remove from dashboard">−</button>
+        </span>
+        <% }); %>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:11px;color:#6b7280;margin-bottom:6px;text-transform:uppercase;">Add to dashboard</div>
+      <div id="excluded-coins" style="display:flex;flex-wrap:wrap;gap:6px;">
+        <% if (typeof excludedCoinsFull !== 'undefined' && excludedCoinsFull.length > 0) { %>
+          <% excludedCoinsFull.forEach(function(c) { %>
+          <span class="coin-chip excluded" data-coin-id="<%= c.id %>">
+            <a href="/coin/<%= c.id %>" style="color:inherit;text-decoration:none;"><%= c.symbol %></a>
+            <button type="button" class="coin-chip-add" onclick="toggleCoinFromPanel('<%= c.id %>', false)" title="Add to dashboard">+</button>
+          </span>
+          <% }); %>
+        <% } else { %>
+          <span class="all-coins-hint" style="font-size:12px;color:#6b7280;">All coins are on your dashboard.</span>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</div>
+<% } %>
+
 <!-- SIGNAL CARDS -->
-<% if (signals.length === 0) { %>
+<% if (signals.length === 0 && (typeof allSignals === 'undefined' || allSignals.length === 0)) { %>
   <div class="loading-note" style="text-align:center;padding:40px 20px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;margin:20px 0;">
     <div style="font-size:32px;margin-bottom:16px;animation:pulse 2s infinite;">&#x23F3;</div>
     <h3 style="color:#e5e7eb;margin:0 0 8px 0;">Loading Market Data</h3>
@@ -57,21 +96,21 @@
     @keyframes loadbar { 0%{width:0%} 100%{width:100%} }
   </style>
   <script>setTimeout(function(){ location.reload(); }, 25000);</script>
+<% } else if (signals.length === 0 && typeof allSignals !== 'undefined' && allSignals.length > 0) { %>
+  <div style="text-align:center;padding:40px 20px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;margin:20px 0;">
+    <p style="color:#9ca3af;font-size:14px;margin:0;">All coins are excluded. Add coins from the <strong>Manage coins</strong> panel above.</p>
+  </div>
 <% } %>
 
 <div class="signals-grid">
   <% signals.forEach(function(sig) { %>
-    <% var isExcluded = typeof excludedCoins !== 'undefined' && excludedCoins.indexOf(sig.coin.id) !== -1; %>
-    <div class="signal-card <%= sig.signal.toLowerCase().replace('_', '-') %> <%= isExcluded ? 'coin-excluded' : '' %>" data-coin-id="<%= sig.coin.id %>">
+    <div class="signal-card <%= sig.signal.toLowerCase().replace('_', '-') %>" data-coin-id="<%= sig.coin.id %>">
       <div class="card-header">
         <div class="coin-info">
           <h3>
             <a href="/coin/<%= sig.coin.id %>" style="color:#fff;text-decoration:none;"><%= sig.coin.name %></a> <span class="symbol"><%= sig.coin.symbol %></span>
             <% if (typeof user !== 'undefined' && user) { %>
-              <button class="coin-toggle-btn <%= isExcluded ? 'excluded' : '' %>" data-coin="<%= sig.coin.id %>" onclick="toggleCoin(this, '<%= sig.coin.id %>')" title="<%= isExcluded ? 'Click to enable auto-trade for this coin' : 'Click to exclude from auto-trade' %>">
-                <%= isExcluded ? 'OFF' : 'ON' %>
-              </button>
-              <span class="coin-excluded-label">EXCLUDED</span>
+              <button class="coin-toggle-btn" data-coin="<%= sig.coin.id %>" onclick="toggleCoin(this, '<%= sig.coin.id %>')" title="Remove from dashboard (exclude from auto-trade)">−</button>
             <% } %>
           </h3>
           <span class="signal-badge badge-<%= sig.signal %>"><%= sig.signal.replace('_', ' ') %></span>
@@ -269,95 +308,104 @@
 })();
 </script>
 <% } %>
-<!-- Coin toggle styles -->
+<!-- Coin toggle & Manage coins styles -->
 <style>
 .coin-toggle-btn {
   display: inline-block;
   margin-left: 8px;
-  padding: 2px 10px;
-  font-size: 10px;
+  padding: 2px 8px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.5px;
+  line-height: 1;
   border-radius: 4px;
-  border: 1px solid #10b981;
-  background: rgba(16,185,129,0.15);
-  color: #10b981;
+  border: 1px solid #6b7280;
+  background: rgba(107,114,128,0.2);
+  color: #9ca3af;
   cursor: pointer;
   vertical-align: middle;
   transition: all 0.2s ease;
 }
 .coin-toggle-btn:hover {
-  background: rgba(16,185,129,0.3);
-}
-.coin-toggle-btn.excluded {
   border-color: #ef4444;
-  background: rgba(239,68,68,0.15);
+  background: rgba(239,68,68,0.2);
   color: #ef4444;
 }
-.coin-toggle-btn.excluded:hover {
-  background: rgba(239,68,68,0.3);
+.coin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: rgba(30,42,59,0.8);
+  border: 1px solid #334155;
+  color: #e5e7eb;
 }
-.signal-card.coin-excluded {
-  opacity: 0.5;
-  border-color: #ef4444 !important;
+.coin-chip.monitored { border-color: rgba(16,185,129,0.4); color: #10b981; }
+.coin-chip.excluded { border-color: rgba(107,114,128,0.5); color: #9ca3af; }
+.coin-chip-remove, .coin-chip-add {
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.8;
+  border-radius: 2px;
 }
-.coin-excluded-label {
-  display: none;
-  background: rgba(239,68,68,0.85);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 3px;
-  letter-spacing: 0.5px;
-  margin-left: 6px;
-  vertical-align: middle;
-}
-.signal-card.coin-excluded .coin-excluded-label {
-  display: inline-block;
-}
+.coin-chip-remove:hover { color: #ef4444; opacity: 1; }
+.coin-chip-add:hover { color: #10b981; opacity: 1; }
 </style>
 
 <!-- Coin toggle script -->
 <script>
-function toggleCoin(btn, coinId) {
-  var isCurrentlyExcluded = btn.classList.contains('excluded');
-  var newExcluded = !isCurrentlyExcluded;
-  btn.disabled = true;
-  btn.textContent = '...';
-
-  fetch('/api/toggle-coin', {
+function doToggleCoin(coinId, excluded) {
+  return fetch('/api/toggle-coin', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'same-origin',
-    body: JSON.stringify({ coinId: coinId, excluded: newExcluded })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
+    body: JSON.stringify({ coinId: coinId, excluded: excluded })
+  }).then(function(r) { return r.json(); });
+}
+
+function toggleCoin(btn, coinId) {
+  btn.disabled = true;
+  btn.textContent = '...';
+  var card = btn.closest('.signal-card');
+  var symEl = card && card.querySelector('.symbol');
+  var symbol = symEl ? symEl.textContent.trim() : coinId.toUpperCase();
+  doToggleCoin(coinId, true).then(function(data) {
     if (data.success) {
-      var card = btn.closest('.signal-card');
-      var label = btn.parentElement.querySelector('.coin-excluded-label');
-      if (newExcluded) {
-        btn.classList.add('excluded');
-        btn.textContent = 'OFF';
-        btn.title = 'Click to enable auto-trade for this coin';
-        if (card) card.classList.add('coin-excluded');
-      } else {
-        btn.classList.remove('excluded');
-        btn.textContent = 'ON';
-        btn.title = 'Click to exclude from auto-trade';
-        if (card) card.classList.remove('coin-excluded');
+      if (card) card.remove();
+      var excludedEl = document.getElementById('excluded-coins');
+      if (excludedEl) {
+        var hint = excludedEl.querySelector('.all-coins-hint');
+        if (hint) hint.remove();
+        var chip = document.createElement('span');
+        chip.className = 'coin-chip excluded';
+        chip.setAttribute('data-coin-id', coinId);
+        chip.innerHTML = '<a href="/coin/' + coinId + '" style="color:inherit;text-decoration:none;">' + symbol + '</a><button type="button" class="coin-chip-add" onclick="toggleCoinFromPanel(\'' + coinId + '\', false)" title="Add to dashboard">+</button>';
+        excludedEl.appendChild(chip);
       }
     } else {
-      alert('Failed to update: ' + (data.error || 'Unknown error'));
+      alert('Failed: ' + (data.error || 'Unknown error'));
     }
     btn.disabled = false;
-  })
-  .catch(function(err) {
+    btn.textContent = '−';
+  }).catch(function(err) {
     alert('Error: ' + err.message);
     btn.disabled = false;
-    btn.textContent = isCurrentlyExcluded ? 'OFF' : 'ON';
+    btn.textContent = '−';
   });
+}
+
+function toggleCoinFromPanel(coinId, exclude) {
+  doToggleCoin(coinId, exclude).then(function(data) {
+    if (data.success) location.reload();
+    else alert('Failed: ' + (data.error || 'Unknown error'));
+  }).catch(function(err) { alert('Error: ' + err.message); });
 }
 </script>
 

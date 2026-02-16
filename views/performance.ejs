@@ -150,18 +150,8 @@
     <!-- 4. Position Management (in-trade) -->
     <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #1e2a3a;">
       <h4 style="color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px 0;">Position Management</h4>
-      <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0;">Automatic stop adjustments while a trade is open.</p>
+      <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0;">Automatic stop adjustments while a trade is open. Breakeven and trailing stop are in Feature Toggles below.</p>
       <div style="display:flex;flex-wrap:wrap;gap:12px;">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-          <input type="hidden" name="autoMoveBreakeven" value="false">
-          <input type="checkbox" name="autoMoveBreakeven" id="autoMoveBreakeven" value="true" <%= (user.settings && user.settings.autoMoveBreakeven) !== false ? 'checked' : '' %>>
-          <span style="font-size:12px;color:#9ca3af;">Breakeven at 1R</span>
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-          <input type="hidden" name="autoTrailingStop" value="false">
-          <input type="checkbox" name="autoTrailingStop" id="autoTrailingStop" value="true" <%= (user.settings && user.settings.autoTrailingStop) !== false ? 'checked' : '' %>>
-          <span style="font-size:12px;color:#9ca3af;">Trailing stop (1.5R)</span>
-        </label>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="Auto-execute score check suggestions (reduce, exit, etc.)">
           <input type="hidden" name="autoExecuteActions" value="false">
           <input type="checkbox" name="autoExecuteActions" id="autoExecuteActions" value="true" <%= (user.settings && user.settings.autoExecuteActions) ? 'checked' : '' %>>
