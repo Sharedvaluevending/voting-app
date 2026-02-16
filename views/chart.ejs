@@ -125,7 +125,10 @@
   <!-- Lightweight Charts (primary – with trade level lines) -->
   <div class="chart-container" id="lw-chart-container" style="display:none;">
     <div id="lw-chart" style="width:100%;height:100%;"></div>
-    <div id="candle-countdown" style="position:absolute;bottom:8px;left:12px;font-size:11px;color:#6b7280;z-index:6;font-weight:600;"></div>
+    <div class="candle-countdown-wrap" style="position:absolute;top:8px;right:12px;z-index:6;text-align:right;pointer-events:none;padding:6px 10px;background:rgba(15,23,42,0.85);border:1px solid #334155;border-radius:6px;">
+      <div class="candle-countdown-label" style="font-size:10px;color:#6b7280;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.5px;">Candle closes in</div>
+      <div id="candle-countdown" style="font-size:14px;font-weight:700;color:#e5e7eb;font-variant-numeric:tabular-nums;"></div>
+    </div>
     <canvas id="draw-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;"></canvas>
   </div>
 
@@ -371,6 +374,7 @@
 
   function updateCandleCountdown() {
     var el = document.getElementById('candle-countdown');
+    var labelEl = document.querySelector('.candle-countdown-label');
     if (!el || !chartRef.candleTimes || chartRef.candleTimes.length === 0) return;
     var lastTime = chartRef.candleTimes[chartRef.candleTimes.length - 1];
     var intervalSec = tfIntervalSec[currentTF] || 3600;
@@ -378,12 +382,14 @@
     var nowSec = Math.floor(Date.now() / 1000);
     var remaining = nextCandleSec - nowSec;
     if (remaining <= 0) {
-      el.textContent = tfLabel[currentTF] + ' 00:00';
+      el.textContent = '00:00';
+      if (labelEl) labelEl.textContent = 'Next ' + (tfLabel[currentTF] || currentTF) + ' candle';
       return;
     }
     var m = Math.floor(remaining / 60);
     var s = remaining % 60;
-    el.textContent = (tfLabel[currentTF] || currentTF) + ' ' + (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    el.textContent = (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    if (labelEl) labelEl.textContent = 'Candle closes in';
   }
 
   function startCandleCountdown() {
@@ -395,7 +401,9 @@
   function stopCandleCountdown() {
     if (countdownIntervalId) { clearInterval(countdownIntervalId); countdownIntervalId = null; }
     var el = document.getElementById('candle-countdown');
+    var labelEl = document.querySelector('.candle-countdown-label');
     if (el) el.textContent = '';
+    if (labelEl) labelEl.textContent = '';
   }
 
   var lastCandleData = null;
@@ -407,7 +415,7 @@
     var intervalSec = tfIntervalSec[currentTF] || 3600;
     var nextCandleSec = lastCandleData.time + intervalSec;
     if (nowSec >= nextCandleSec) {
-      loadCandles(currentTF);
+      loadCandles(currentTF, { preserveView: true });
       return;
     }
     var high = Math.max(lastCandleData.high, price);
@@ -746,7 +754,9 @@
     }
   }
 
-  function loadCandles(tf) {
+  function loadCandles(tf, opts) {
+    opts = opts || {};
+    var preserveView = opts.preserveView === true;
     currentTF = tf;
     var tvLoading = document.getElementById('tv-loading');
     var fetchTimeout = setTimeout(function() {
@@ -843,7 +853,7 @@
             setTimeout(initChart, 0);
           }
         } else {
-          // Timeframe switch — just update data
+          // Timeframe switch or new-candle refresh — update data
           try {
             chartRef.series.setData(data.candles);
             chartRef.candleTimes = data.candles.map(function(c) { return c.time; });
@@ -855,7 +865,7 @@
             try { addPriceLines(); } catch(e) { console.warn('addPriceLines error:', e); }
             try { applyActionMarkers(initialActions || []); } catch(e) { console.warn('applyActionMarkers error:', e); }
             try { renderChartPatterns(); } catch(e) { console.warn('renderChartPatterns error:', e); }
-            chartRef.chart.timeScale().fitContent();
+            if (!preserveView) chartRef.chart.timeScale().fitContent();
             startCandleCountdown();
             setTimeout(function() { renderDrawings(); }, 100);
           } catch (updateErr) {
