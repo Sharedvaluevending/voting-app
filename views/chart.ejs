@@ -1123,6 +1123,7 @@
   var drawings = [];       // saved drawings: { type, points (in price/time coords), color }
   var activeTool = 'cursor';
   var drawState = null;    // in-progress drawing { type, startTime, startPrice, ... }
+  var lastValidCoord = null;  // cache last valid t2,p2 so drawing doesn't disappear over price/time scale areas
   var selectedIndex = null;
   var dragState = null;    // { index, startPx, startPy, startT1, startP1, startT2, startP2 } for move
 
@@ -1366,6 +1367,7 @@
         if (!confirm('Clear all ' + drawings.length + ' drawing(s)?')) return;
         drawings = [];
         drawState = null;
+        lastValidCoord = null;
         selectedIndex = null;
         dragState = null;
         if (drawCanvas) drawCanvas.style.pointerEvents = 'none';
@@ -1386,6 +1388,7 @@
       }
       activeTool = tool;
       drawState = null;
+      lastValidCoord = null;
       dragState = null;
       if (tool === 'cursor') selectedIndex = null;
       for (var tj = 0; tj < toolBtns.length; tj++) toolBtns[tj].classList.remove('tool-active');
@@ -1473,6 +1476,7 @@
       }
 
       drawState = { type: activeTool, t1: coord.time, p1: coord.price };
+      lastValidCoord = { time: coord.time, price: coord.price };
   }
   if (drawCanvas) {
   drawCanvas.addEventListener('mousedown', handlePointerDown);
@@ -1520,9 +1524,15 @@
 
       if (drawState) {
         var coord = fromPixelClamped(x, y, w, h);
-        if (!coord) { renderDrawings(); return; }
-        var temp = Object.assign({}, drawState, { t2: coord.time, p2: coord.price, color: drawColor, lineWidth: 1.5 });
-        renderDrawings(temp);
+        if (coord) lastValidCoord = { time: coord.time, price: coord.price };
+        var t2 = coord ? coord.time : (lastValidCoord ? lastValidCoord.time : null);
+        var p2 = coord ? coord.price : (lastValidCoord ? lastValidCoord.price : null);
+        if (t2 != null && p2 != null) {
+          var temp = Object.assign({}, drawState, { t2: t2, p2: p2, color: drawColor, lineWidth: 1.5 });
+          renderDrawings(temp);
+        } else {
+          renderDrawings();
+        }
       }
     }
     drawCanvas.addEventListener('mousemove', handlePointerMove);
@@ -1544,11 +1554,21 @@
       }
       if (!drawState) return;
       var coord = fromPixelClamped(x, y, w, h);
-      if (!coord) { drawState = null; renderDrawings(); return; }
+      if (!coord) {
+        if (lastValidCoord) {
+          coord = lastValidCoord;
+        } else {
+          drawState = null;
+          lastValidCoord = null;
+          renderDrawings();
+          return;
+        }
+      }
 
       var d = Object.assign({}, drawState, { t2: coord.time, p2: coord.price, color: drawColor, lineWidth: 1.5 });
       drawings.push(d);
       drawState = null;
+      lastValidCoord = null;
 
       // Auto-switch back to cursor mode after placing a drawing (like TradingView)
       activeTool = 'cursor';
@@ -1572,6 +1592,7 @@
     drawCanvas.addEventListener('touchcancel', function(e) {
       if (dragState || drawState) e.preventDefault();
       drawState = null;
+      lastValidCoord = null;
       dragState = null;
       renderDrawings();
     }, { passive: false });
@@ -1594,6 +1615,7 @@
     }
     if (e.key === 'Escape') {
       drawState = null;
+      lastValidCoord = null;
       dragState = null;
       selectedIndex = null;
       renderDrawings();
