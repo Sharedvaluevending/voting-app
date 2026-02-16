@@ -1971,12 +1971,19 @@ setTimeout(runStopTPCheck, 15 * 1000);
 async function runScoreRecheck() {
   if (!dbConnected) return; // Skip if no database
   try {
-    const [prices, allCandles, allHistory] = await Promise.all([
-      fetchAllPrices(),
+    let prices = await fetchAllPrices();
+    // On cold start (e.g. Render wake), prices may be empty. Wait for first load.
+    if (!prices || prices.length === 0) {
+      try {
+        await Promise.race([pricesReadyPromise, new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 45000))]);
+        prices = await fetchAllPrices();
+      } catch (e) { /* fall through */ }
+      if (!prices || prices.length === 0) return;
+    }
+    const [allCandles, allHistory] = await Promise.all([
       Promise.resolve(fetchAllCandles()),
       fetchAllHistory()
     ]);
-    if (!prices || prices.length === 0) return; // prices not loaded yet
     const options = await buildEngineOptions(prices, allCandles, allHistory);
 
     const signalCache = {};
@@ -1998,6 +2005,23 @@ async function runScoreRecheck() {
 setInterval(runScoreRecheck, SCORE_RECHECK_MINUTES * 60 * 1000);
 // Run first score check 30s after startup so trades get data quickly
 setTimeout(runScoreRecheck, 30 * 1000);
+
+// On-demand trigger: when user visits trades page with open trades (helps cold start)
+let _lastScoreCheckTrigger = 0;
+const SCORE_CHECK_TRIGGER_DEBOUNCE_MS = 60000; // max 1 manual trigger per minute
+app.post('/api/trigger-score-check', requireLogin, async (req, res) => {
+  try {
+    const now = Date.now();
+    if (now - _lastScoreCheckTrigger < SCORE_CHECK_TRIGGER_DEBOUNCE_MS) {
+      return res.json({ success: true, message: 'Check already run recently. Wait ~1 min.' });
+    }
+    _lastScoreCheckTrigger = now;
+    runScoreRecheck().catch(err => console.error('[ScoreCheck] Trigger error:', err.message));
+    res.json({ success: true, message: 'Score check triggered. Refresh in 10–15 seconds.' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // ====================================================
 // AUTO-TRADE: Periodically scan signals for users with autoTrade enabled

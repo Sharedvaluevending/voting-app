@@ -5,6 +5,11 @@
   <span style="color:#6b7280;font-size:13px;">Max <%= (user.settings && user.settings.maxOpenTrades) || 3 %> open trades | 1 per pair</span>
   <span style="color:#6b7280;font-size:12px;margin-left:10px;">Time every 1s, price every 10s. Close uses live price.</span>
 </div>
+<% if (trades.length > 0 && (user.settings && (user.settings.featureScoreRecheck === false || user.settings.autoMoveBreakeven === false || user.settings.autoTrailingStop === false))) { %>
+<div style="margin-bottom:12px;padding:10px 14px;background:rgba(234,179,8,0.1);border:1px solid rgba(234,179,8,0.3);border-radius:8px;font-size:12px;color:#eab308;">
+  <strong>Tip:</strong> Score check and action badges (BE, TS, LOCK) require settings in <a href="/performance#feature-toggles" style="color:#fbbf24;">Performance → Feature Toggles</a>: enable <strong>Score Re-check</strong>, <strong>Breakeven at 1R</strong>, and <strong>Trailing Stop</strong>.
+</div>
+<% } %>
 
 <% if (typeof error !== 'undefined' && error) { %>
   <div class="alert alert-error"><%= error %></div>
@@ -246,13 +251,20 @@
           </div>
           <% } %>
         </div>
-        <% } else { %>
+        <% } else {
+          var scoreRecheckEnabled = (typeof user !== 'undefined' && user && user.settings && user.settings.featureScoreRecheck !== false);
+        %>
         <div class="score-check score-check-pending" data-trade-id="<%= trade._id %>">
           <div class="score-check-header">
             <h4>Score Check</h4>
           </div>
           <div class="score-check-messages">
-            <span class="score-msg score-msg-neutral">Awaiting first re-check...</span>
+            <% if (!scoreRecheckEnabled) { %>
+              <span class="score-msg score-msg-neutral">Score check is disabled. Enable in <a href="/performance#feature-toggles" style="color:#3b82f6;">Performance → Feature Toggles</a> → Score Re-check.</span>
+            <% } else { %>
+              <span class="score-msg score-msg-neutral">Awaiting first re-check (runs every 5 min)...</span>
+              <button type="button" class="btn-trigger-score-check btn btn-outline btn-sm" style="margin-top:8px;font-size:11px;padding:4px 10px;">Run now</button>
+            <% } %>
           </div>
         </div>
         <% } %>
@@ -274,11 +286,42 @@
 <script>
   window.__scoreHistories = {};
   window.__autoExecuteActions = <%= (typeof user !== 'undefined' && user && user.settings && user.settings.autoExecuteActions) ? 'true' : 'false' %>;
+  window.__scoreRecheckEnabled = <%= (typeof user !== 'undefined' && user && user.settings && user.settings.featureScoreRecheck !== false) ? 'true' : 'false' %>;
+  window.__hasPendingScoreChecks = <%= trades.some(function(t) { return !t.scoreCheck || !t.scoreCheck.messages || t.scoreCheck.messages.length === 0; }) ? 'true' : 'false' %>;
   <% trades.forEach(function(trade) { %>
     <% if (trade.scoreHistory && trade.scoreHistory.length > 0) { %>
       window.__scoreHistories['<%= trade._id %>'] = <%- JSON.stringify(trade.scoreHistory) %>;
     <% } %>
   <% }); %>
+</script>
+<script>
+  (function() {
+    // Trigger score check on load if trades are awaiting (helps cold start on Render)
+    if (window.__hasPendingScoreChecks && window.__scoreRecheckEnabled) {
+      setTimeout(function() {
+        fetch('/api/trigger-score-check', { method: 'POST', credentials: 'same-origin' }).catch(function() {});
+      }, 2000);
+    }
+    // Run now button
+    document.querySelectorAll('.btn-trigger-score-check').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        btn.disabled = true;
+        btn.textContent = 'Running...';
+        fetch('/api/trigger-score-check', { method: 'POST', credentials: 'same-origin' })
+          .then(function(r) { return r.json(); })
+          .then(function(data) {
+            if (data.success) {
+              btn.textContent = 'Refresh in 10s';
+              setTimeout(function() { location.reload(); }, 12000);
+            }
+          })
+          .catch(function() {
+            btn.disabled = false;
+            btn.textContent = 'Run now';
+          });
+      });
+    });
+  })();
 </script>
 <script src="/js/trades-live.js?v=6" defer></script>
 <% } %>
