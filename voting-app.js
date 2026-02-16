@@ -1749,6 +1749,7 @@ app.get('/api/connectivity-test', async (req, res) => {
 app.get('/api/bybit-test', (req, res) => res.redirect('/api/connectivity-test'));
 
 // Backtest API (historical simulation)
+// When user is logged in: uses strategy weights, excluded coins (live parity)
 app.post('/api/backtest', async (req, res) => {
   try {
     const { coinId, startDate, endDate, coins, minScore, leverage, features } = req.body || {};
@@ -1764,6 +1765,44 @@ app.post('/api/backtest', async (req, res) => {
     if (!coinsToRun && TRACKED_COINS) {
       coinsToRun = TRACKED_COINS.slice(0, 6);
     }
+
+    // Fetch user settings when logged in (strategy weights, excluded coins, coin weights, maxOpenTrades)
+    let strategyWeights = [];
+    let strategyStats = {};
+    let excludedCoins = [];
+    let coinWeights = {};
+    let maxOpenTrades = 3;
+    let coinWeightStrength = 'moderate';
+    if (req.session?.userId) {
+      try {
+        const user = await User.findById(req.session.userId).select('excludedCoins coinWeights coinWeightEnabled coinWeightStrength settings').lean();
+        if (user) {
+          excludedCoins = user.excludedCoins || [];
+          coinWeights = user.coinWeights || {};
+          maxOpenTrades = user.settings?.maxOpenTrades ?? 3;
+          coinWeightStrength = user.coinWeightStrength || 'moderate';
+        }
+      } catch (e) { /* non-fatal */ }
+    }
+    try {
+      const StrategyWeight = require('./models/StrategyWeight');
+      const sw = await StrategyWeight.find({ active: true }).lean();
+      strategyWeights = sw || [];
+      strategyStats = {};
+      strategyWeights.forEach(s => {
+        strategyStats[s.strategyId] = { totalTrades: s.performance?.totalTrades || 0 };
+      });
+    } catch (e) { /* DB may be unavailable */ }
+
+    // Filter out excluded coins (matches live/paper)
+    if (excludedCoins.length > 0) {
+      const excludeSet = new Set(excludedCoins);
+      coinsToRun = coinsToRun.filter(c => !excludeSet.has(c));
+    }
+    if (coinsToRun.length === 0) {
+      return res.status(400).json({ error: 'All selected coins are excluded. Add coins in Performance settings.' });
+    }
+
     const options = {
       coins: coinsToRun,
       minScore: minScore != null ? Number(minScore) : undefined,
@@ -1772,7 +1811,12 @@ app.post('/api/backtest', async (req, res) => {
       riskMode: req.body.riskMode === 'dollar' ? 'dollar' : 'percent',
       riskPerTrade: req.body.riskPerTrade != null ? Number(req.body.riskPerTrade) : undefined,
       riskDollarsPerTrade: req.body.riskDollarsPerTrade != null ? Number(req.body.riskDollarsPerTrade) : undefined,
-      features: features || {} // Feature toggle flags from UI
+      features: features || {},
+      strategyWeights,
+      strategyStats,
+      coinWeights,
+      maxOpenTrades,
+      coinWeightStrength
     };
     const result = await runBacktest(startMs, endMs, options);
     res.json({ success: true, ...result });

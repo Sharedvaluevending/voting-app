@@ -290,6 +290,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 
     const options_bt = {
       strategyWeights: options.strategyWeights || [],
+      strategyStats: options.strategyStats || {},
       btcSignal: F_BTC_FILTER ? cachedBtcSignal : null,
       btcDirection: F_BTC_CORRELATION ? cachedBtcDirection : null,
       btcCandles: F_BTC_CORRELATION && cachedBtcSlice ? cachedBtcSlice['1h'] : null,
