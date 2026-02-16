@@ -1027,6 +1027,9 @@ async function runBacktest(startMs, endMs, options) {
   const grossProfit = allTrades.filter(t => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
   const grossLoss = Math.abs(allTrades.filter(t => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
   const usedInitialBalance = options.initialBalance ?? INITIAL_BALANCE;
+  // Capital aggregation: each coin runs with its own balance, so total capital = coins × balance
+  const totalCapital = Math.max(1, successResults.length) * usedInitialBalance;
+  const returnPct = totalCapital > 0 ? (totalPnl / totalCapital) * 100 : 0;
 
   const totalBars = successResults.reduce((s, r) => s + (r.bars || 0), 0);
   return {
@@ -1039,7 +1042,7 @@ async function runBacktest(startMs, endMs, options) {
       winRate: allTrades.length > 0 ? (totalWins / allTrades.length) * 100 : 0,
       totalPnl,
       profitFactor: grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999 : 0),
-      returnPct: ((totalPnl / usedInitialBalance) * 100),
+      returnPct,
       coinsProcessed: successResults.length,
       coinsFailed: failed.length,
       totalBars

@@ -19,7 +19,7 @@ const userSchema = new mongoose.Schema({
     cooldownHours: { type: Number, default: 4, min: 0, max: 168 },
     autoExecuteActions: { type: Boolean, default: false },
     autoTrade: { type: Boolean, default: false },
-    autoTradeMinScore: { type: Number, default: 70, min: 30, max: 95 },
+    autoTradeMinScore: { type: Number, default: 52, min: 30, max: 95 },
     disableLeverage: { type: Boolean, default: false },
     autoMoveBreakeven: { type: Boolean, default: true },
     autoTrailingStop: { type: Boolean, default: true },
@@ -67,7 +67,7 @@ const userSchema = new mongoose.Schema({
     liveLeverage: { type: Number, default: 2, min: 1, max: 50 },
     maxLiveTradesOpen: { type: Number, default: 3, min: 1, max: 10 },
     riskPerLiveTrade: { type: Number, default: 1, min: 0.5, max: 5 },
-    autoOpenMinScore: { type: Number, default: 75, min: 50, max: 95 }
+    autoOpenMinScore: { type: Number, default: 52, min: 50, max: 95 }
   },
   stats: {
     totalTrades: { type: Number, default: 0 },

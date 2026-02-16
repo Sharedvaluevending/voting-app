@@ -560,7 +560,7 @@ function shouldAutoOpenLive(user, score) {
   return (
     isLiveTradingActive(user) &&
     user.liveTrading?.mode === 'auto' &&
-    score >= (user.liveTrading?.autoOpenMinScore || 75)
+    score >= (user.liveTrading?.autoOpenMinScore || 52)
   );
 }
 

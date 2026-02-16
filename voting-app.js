@@ -937,7 +937,7 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       s.autoTrade = val === 'true' || (Array.isArray(val) && val.includes('true'));
     }
     if (req.body.autoTradeMinScore != null) {
-      const v = Math.min(95, Math.max(30, parseInt(req.body.autoTradeMinScore, 10) || 70));
+      const v = Math.min(95, Math.max(30, parseInt(req.body.autoTradeMinScore, 10) || 52));
       s.autoTradeMinScore = v;
     }
     if (req.body.useFixedLeverage !== undefined) {
@@ -1341,7 +1341,7 @@ app.post('/exchange/disconnect', requireLogin, async (req, res) => {
       liveLeverage: 1,
       maxLiveTradesOpen: 3,
       riskPerLiveTrade: 1,
-      autoOpenMinScore: 75
+      autoOpenMinScore: 52
     };
     await user.save();
     res.redirect('/exchange?success=' + encodeURIComponent('Disconnected from Bitget. Live trading disabled.'));
@@ -1385,7 +1385,7 @@ app.post('/exchange/settings', requireLogin, async (req, res) => {
       user.liveTrading.riskPerLiveTrade = Math.min(5, Math.max(0.5, parseFloat(req.body.riskPerLiveTrade) || 1));
     }
     if (req.body.autoOpenMinScore != null) {
-      user.liveTrading.autoOpenMinScore = Math.min(95, Math.max(50, parseInt(req.body.autoOpenMinScore, 10) || 75));
+      user.liveTrading.autoOpenMinScore = Math.min(95, Math.max(50, parseInt(req.body.autoOpenMinScore, 10) || 52));
     }
     await user.save();
     res.redirect('/exchange?success=' + encodeURIComponent('Live trading settings saved'));
@@ -2119,7 +2119,7 @@ async function runAutoTrade() {
           return { ...sig, _overallScore: overallScore, _bestStrat: bestStrat, _direction: direction, _coinId: coinId };
         });
         // Use paper trading min score from settings, fallback to exchange setting, then default 70
-        const minScore = user.settings?.autoTradeMinScore ?? user.liveTrading?.autoOpenMinScore ?? 70;
+        const minScore = user.settings?.autoTradeMinScore ?? user.liveTrading?.autoOpenMinScore ?? 52;
         const maxOpen = user.settings?.maxOpenTrades || 3;
         const openTrades = await Trade.find({ userId: user._id, status: 'OPEN' }).lean();
         if (openTrades.length >= maxOpen) continue;
