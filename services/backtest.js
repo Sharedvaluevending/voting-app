@@ -692,9 +692,24 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     }
 
     if (!canLong && !canShort) continue;
-    if (signal.score < minScore || !signal.stopLoss || !signal.takeProfit1) continue;
+    if (signal.score < minScore) continue;
 
     const direction = canLong ? 'LONG' : 'SHORT';
+
+    // Use best strategy levels (SL, TP) for this direction — matches auto-trade logic
+    let bestStrat = null;
+    if (signal.topStrategies && Array.isArray(signal.topStrategies)) {
+      const wantBuy = direction === 'LONG';
+      for (const strat of signal.topStrategies) {
+        const s = strat.signal || '';
+        const isBuy = s === 'STRONG_BUY' || s === 'BUY';
+        if (isBuy === wantBuy && strat.stopLoss && strat.takeProfit1) {
+          if (!bestStrat || (strat.score || 0) > (bestStrat.score || 0)) bestStrat = strat;
+        }
+      }
+    }
+    const levels = bestStrat || signal;
+    if (!levels.stopLoss || !levels.takeProfit1) continue;
 
     // === COOLDOWN: no same-direction re-entry within N bars (mirrors live) ===
     const cooldownBars = options.cooldownBars ?? COOLDOWN_BARS;
@@ -711,7 +726,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 
     // === SL DISTANCE CAP: max N% from entry (mirrors live MAX_SL_DISTANCE_PCT) ===
     const maxSlPct = options.maxSlDistancePct ?? MAX_SL_DISTANCE_PCT;
-    let stopLoss = signal.stopLoss;
+    let stopLoss = levels.stopLoss;
     if (F_SL_CAP && entry > 0) {
       const slDistance = Math.abs(entry - stopLoss) / entry;
       if (slDistance > maxSlPct) {
@@ -768,9 +783,9 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     if (entryFees + (actualSize / leverage) > equity) continue; // Can't afford
 
     // Validate TPs: for LONG, TPs must be above entry; for SHORT, below (mirrors live)
-    let tp1 = signal.takeProfit1 || null;
-    let tp2 = signal.takeProfit2 || null;
-    let tp3 = signal.takeProfit3 || null;
+    let tp1 = levels.takeProfit1 || null;
+    let tp2 = levels.takeProfit2 || null;
+    let tp3 = levels.takeProfit3 || null;
     if (direction === 'LONG') {
       if (tp1 && tp1 < entry) tp1 = null;
       if (tp2 && tp2 < entry) tp2 = null;
@@ -790,7 +805,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       entry,
       entryBar: t + 1,
       entryScore: signal.score,
-      entryStrategy: signal.strategyName || 'Unknown',
+      entryStrategy: (bestStrat && (bestStrat.name || bestStrat.id)) || signal.strategyName || 'Unknown',
       stopLoss,
       originalSL: stopLoss,
       takeProfit1: tp1,

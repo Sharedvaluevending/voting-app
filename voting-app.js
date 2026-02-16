@@ -2042,9 +2042,8 @@ async function runAutoTrade() {
     ]);
     if (!prices || prices.length === 0) return;
 
-    // For each signal, find the best strategy and its score/direction
-    // The overall coin score (e.g. 57) can be lower than individual strategies (e.g. Position at 72)
-    // Auto-trade should use the BEST strategy score since that's what the trader would pick
+    // Filter by overall score (multi-TF confluence), rank by overall score, execute with best strategy levels
+    // Overall score = quality gate; best strategy = how to trade (direction, SL, TP)
     for (const user of autoTradeUsers) {
       try {
         const options = await buildEngineOptions(prices, allCandles, allHistory, user);
@@ -2053,19 +2052,18 @@ async function runAutoTrade() {
 
         const signalsWithBestStrategy = signals.map(sig => {
           const coinId = sig.coin?.id || sig.id;
-          let bestScore = sig.score || 0;
+          const overallScore = sig.score || 0;
           let bestStrat = null;
           let direction = null;
 
           if (sig.topStrategies && Array.isArray(sig.topStrategies)) {
             for (const strat of sig.topStrategies) {
-              const stratScore = strat.score || 0;
               const stratSignal = strat.signal || '';
               if (stratSignal === 'STRONG_BUY' || stratSignal === 'BUY' || stratSignal === 'STRONG_SELL' || stratSignal === 'SELL') {
-                if (stratScore > bestScore || !bestStrat) {
-                  bestScore = stratScore;
+                const stratDir = (stratSignal === 'STRONG_BUY' || stratSignal === 'BUY') ? 'LONG' : 'SHORT';
+                if (!bestStrat || (strat.score || 0) > (bestStrat.score || 0)) {
                   bestStrat = strat;
-                  direction = (stratSignal === 'STRONG_BUY' || stratSignal === 'BUY') ? 'LONG' : 'SHORT';
+                  direction = stratDir;
                 }
               }
             }
@@ -2074,7 +2072,7 @@ async function runAutoTrade() {
             if (sig.signal === 'STRONG_BUY' || sig.signal === 'BUY') direction = 'LONG';
             else if (sig.signal === 'STRONG_SELL' || sig.signal === 'SELL') direction = 'SHORT';
           }
-          return { ...sig, _bestScore: bestScore, _bestStrat: bestStrat, _direction: direction, _coinId: coinId };
+          return { ...sig, _overallScore: overallScore, _bestStrat: bestStrat, _direction: direction, _coinId: coinId };
         });
         // Use paper trading min score from settings, fallback to exchange setting, then default 70
         const minScore = user.settings?.autoTradeMinScore ?? user.liveTrading?.autoOpenMinScore ?? 70;
@@ -2092,7 +2090,7 @@ async function runAutoTrade() {
         }).select('coinId direction').lean();
         const cooldownSet = new Set(recentTrades.map(t => `${t.coinId}_${t.direction}`));
 
-        // Filter signals: best strategy score >= threshold, has direction, not open, not in cooldown, not excluded
+        // Filter by overall score >= threshold, rank by overall score (weighted), use best strategy for levels
         const userExcluded = user.excludedCoins || [];
         const coinWeights = user.coinWeights || {};
         const coinWeightEnabled = user.coinWeightEnabled === true;
@@ -2103,7 +2101,7 @@ async function runAutoTrade() {
           return 1 + (baseW - 1) * strengthMult;
         };
         const candidates = signalsWithBestStrategy.filter(sig => {
-          if (sig._bestScore < minScore) return false;
+          if (sig._overallScore < minScore) return false;
           if (!sig._direction) return false; // HOLD signals ignored
           if (openCoinIds.includes(sig._coinId)) return false;
           if (cooldownSet.has(`${sig._coinId}_${sig._direction}`)) return false;
@@ -2114,7 +2112,7 @@ async function runAutoTrade() {
           const baseB = coinWeights[b._coinId] ?? 1;
           const weightA = effectiveWeight(a._coinId, baseA);
           const weightB = effectiveWeight(b._coinId, baseB);
-          return (b._bestScore * weightB) - (a._bestScore * weightA);
+          return (b._overallScore * weightB) - (a._overallScore * weightA);
         });
 
         const slotsAvailable = maxOpen - openTrades.length;
@@ -2190,7 +2188,7 @@ async function runAutoTrade() {
               takeProfit2: useTP2,
               takeProfit3: useTP3,
               leverage: lev,
-              score: sig._bestScore,
+              score: sig._overallScore,
               strategyType: useStratType,
               regime: sig.regime || 'unknown',
               reasoning: sig.reasoning || [],
@@ -2204,7 +2202,7 @@ async function runAutoTrade() {
             };
 
             await openTrade(user._id, tradeData);
-            console.log(`[AutoTrade] Opened ${sig._direction} on ${tradeData.symbol} (best strat: ${useStratType} score ${sig._bestScore}) for user ${user.username}`);
+            console.log(`[AutoTrade] Opened ${sig._direction} on ${tradeData.symbol} (overall ${sig._overallScore}, strat: ${useStratType}) for user ${user.username}`);
           } catch (tradeErr) {
             console.error(`[AutoTrade] Failed to open ${sig._coinId} for ${user.username}:`, tradeErr.message);
           }
