@@ -29,6 +29,7 @@ const MIN_SL_ATR_MULT = 1.0; // Minimum SL distance = 1.0 * ATR (prevents noise-
 const BE_BUFFER_PCT = 0.003; // 0.3% buffer on breakeven stop to cover round-trip costs
 const COOLDOWN_BARS = 4; // 4h cooldown: no same-direction re-entry (matches live DEFAULT_COOLDOWN_HOURS=4)
 const SCORE_RECHECK_INTERVAL = 4; // Re-analyze signal every 4 bars while in a trade (matches live 5-min check scaled to 1h bars)
+const STOP_GRACE_BARS = 1;       // Skip BE/TS/LOCK for first bar after entry (mirrors live stopCheckGraceMinutes ~2min with 1h bars)
 
 // Stepped profit lock-in levels (mirrors live LOCK_IN_LEVELS)
 const LOCK_IN_LEVELS = [
@@ -319,10 +320,14 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       if (high > (position.maxPrice || 0)) position.maxPrice = high;
       if (low < (position.minPrice || Infinity)) position.minPrice = low;
 
+      // Grace period: skip BE/TS/LOCK for first bar(s) after entry (mirrors live stopCheckGraceMinutes)
+      const barsSinceEntry = t - position.entryBar;
+      const pastStopGrace = barsSinceEntry >= STOP_GRACE_BARS;
+
       // --- Breakeven at 1R (mirrors live autoBE) ---
       // BUG FIX: Move SL to entry + buffer (0.3%) instead of exact entry.
       // At exact entry, round-trip fees + slippage make "breakeven" a net loss (~0.3%).
-      if (F_BREAKEVEN && origRisk > 0 && !position.breakevenHit && !position.trailingActivated) {
+      if (pastStopGrace && F_BREAKEVEN && origRisk > 0 && !position.breakevenHit && !position.trailingActivated) {
         const at1R = isLong
           ? currentPrice >= position.entry + origRisk
           : currentPrice <= position.entry - origRisk;
@@ -332,12 +337,12 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             : position.entry * (1 - BE_BUFFER_PCT);
           position.stopLoss = beStop;
           position.breakevenHit = true;
-          position.actions.push({ type: 'BE', bar: t + 1 });
+          position.actions.push({ type: 'BE', bar: t + 1, newValue: beStop, marketPrice: currentPrice });
         }
       }
 
       // --- Trailing stop at 1.5R+ (mirrors live autoTrail) ---
-      if (F_TRAILING && origRisk > 0) {
+      if (pastStopGrace && F_TRAILING && origRisk > 0) {
         const stopPastEntry = isLong ? position.stopLoss >= position.entry : position.stopLoss <= position.entry;
         if (stopPastEntry || position.trailingActivated) {
           const at1_5R = isLong
@@ -354,7 +359,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             if (validMove) {
               position.stopLoss = trailSL;
               if (!position.actions.some(a => a.type === 'TS')) {
-                position.actions.push({ type: 'TS', bar: t + 1 });
+                position.actions.push({ type: 'TS', bar: t + 1, newValue: trailSL, marketPrice: currentPrice });
               }
             }
           }
@@ -362,7 +367,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       }
 
       // --- Stepped profit lock-in (mirrors live LOCK_IN_LEVELS) ---
-      if (F_LOCK_IN && origRisk > 0 && position.stopLoss != null) {
+      if (pastStopGrace && F_LOCK_IN && origRisk > 0 && position.stopLoss != null) {
         const tp2 = position.takeProfit2 || position.takeProfit1;
         let progress = 0;
         if (tp2 && tp2 !== position.entry) {
@@ -388,7 +393,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
               : newStop < position.stopLoss && newStop > currentPrice;
             if (validMove) {
               position.stopLoss = newStop;
-              position.actions.push({ type: 'LOCK', bar: t + 1, lockR: level.lockR });
+              position.actions.push({ type: 'LOCK', bar: t + 1, lockR: level.lockR, newValue: newStop, marketPrice: currentPrice });
             }
             break;
           }
@@ -425,7 +430,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             : ((position.entry - exitPrice) / position.entry) * position.size;
           pnl -= exitFees;
           equity = Math.max(0, equity + pnl);
-          position.actions.push({ type: 'EXIT', bar: t + 1 });
+          position.actions.push({ type: 'EXIT', bar: t + 1, marketPrice: exitPrice });
           trades.push({
             direction: position.direction, entry: position.entry, exit: exitPrice,
             entryBar: position.entryBar, exitBar: t + 1, reason: 'SCORE_EXIT',
@@ -452,7 +457,31 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             position.partialPnl = (position.partialPnl || 0) + pnl;
             position.size -= portion;
             position.reducedByScore = true;
-            position.actions.push({ type: 'RP', bar: t + 1 });
+            position.actions.push({ type: 'RP', bar: t + 1, marketPrice: exitPrice });
+          }
+        }
+
+        // Take partial 1/3 (mirrors live SCORE_CHECK_PARTIAL / take_partial)
+        // When near TP1, score weakening, in loss — softer de-risk than full reduce
+        const wouldTakePartial = effectiveDiff < 0 && effectiveDiff > -25 && pnlPct < 0 && !position.takenPartialByScore;
+        const tp1 = position.takeProfit1;
+        const nearTP1 = tp1 && (isLong
+          ? currentPrice >= tp1 * 0.98
+          : currentPrice <= tp1 * 1.02);
+        if (wouldTakePartial && nearTP1) {
+          const portion = Math.round((position.originalSize / 3) * 100) / 100;
+          if (portion > 1 && portion < position.size) {
+            const exitPrice = F_SLIPPAGE ? (isLong ? currentPrice / slipMul : currentPrice * slipMul) : currentPrice;
+            const exitFees = F_FEES ? portion * TAKER_FEE : 0;
+            let pnl = isLong
+              ? ((exitPrice - position.entry) / position.entry) * portion
+              : ((position.entry - exitPrice) / position.entry) * portion;
+            pnl -= exitFees;
+            equity = Math.max(0, equity + pnl);
+            position.partialPnl = (position.partialPnl || 0) + pnl;
+            position.size -= portion;
+            position.takenPartialByScore = true;
+            position.actions.push({ type: 'PP', bar: t + 1, label: 'Score', marketPrice: exitPrice });
           }
         }
       }
@@ -565,7 +594,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
                 ? ((exitPrice - position.entry) / position.entry) * position.size
                 : ((position.entry - exitPrice) / position.entry) * position.size) - totalFees;
               equity += totalPnl;
-              position.actions.push({ type: 'PP', bar: t + 1, label: 'TP1' });
+              position.actions.push({ type: 'PP', bar: t + 1, label: 'TP1', marketPrice: exitPrice });
               trades.push({
                 direction: position.direction, entry: position.entry, exit: exitPrice,
                 entryBar: position.entryBar, exitBar: t + 1, reason: 'TP1',
@@ -581,7 +610,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             position.partialPnl = (position.partialPnl || 0) + pnl;
             position.size -= portion;
             position.tp1Hit = true;
-            position.actions.push({ type: 'PP', bar: t + 1, label: 'TP1' });
+            position.actions.push({ type: 'PP', bar: t + 1, label: 'TP1', marketPrice: exitPrice });
           }
         }
 
@@ -603,7 +632,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
                 ? ((exitPrice - position.entry) / position.entry) * position.size
                 : ((position.entry - exitPrice) / position.entry) * position.size) - remainFees;
               equity += remainPnl;
-              position.actions.push({ type: 'PP', bar: t + 1, label: 'TP2' });
+              position.actions.push({ type: 'PP', bar: t + 1, label: 'TP2', marketPrice: exitPrice });
               trades.push({
                 direction: position.direction, entry: position.entry, exit: exitPrice,
                 entryBar: position.entryBar, exitBar: t + 1, reason: 'TP2',
@@ -619,7 +648,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             position.partialPnl = (position.partialPnl || 0) + pnl;
             position.size -= portion;
             position.tp2Hit = true;
-            position.actions.push({ type: 'PP', bar: t + 1, label: 'TP2' });
+            position.actions.push({ type: 'PP', bar: t + 1, label: 'TP2', marketPrice: exitPrice });
           }
         }
 
@@ -633,7 +662,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
               ? ((exitPrice - position.entry) / position.entry) * position.size
               : ((position.entry - exitPrice) / position.entry) * position.size) - exitFees;
             equity = Math.max(0, equity + pnl);
-            position.actions.push({ type: 'PP', bar: t + 1, label: 'TP3' });
+            position.actions.push({ type: 'PP', bar: t + 1, label: 'TP3', marketPrice: exitPrice });
             trades.push({
               direction: position.direction, entry: position.entry, exit: exitPrice,
               entryBar: position.entryBar, exitBar: t + 1, reason: 'TP3',
@@ -774,6 +803,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       breakevenHit: false,
       trailingActivated: false,
       reducedByScore: false,
+      takenPartialByScore: false,
       bestPrice: null,
       maxPrice: entry,
       minPrice: entry,
