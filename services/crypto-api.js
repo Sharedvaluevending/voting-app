@@ -1,8 +1,8 @@
 // services/crypto-api.js
 // ====================================================
-// CRYPTO MARKET DATA - CoinGecko + Bybit + Kraken
+// CRYPTO MARKET DATA - CoinGecko + Bitget + Kraken
 // CoinGecko: prices, market caps (1 call)
-// Bybit: OHLCV candles, funding rates (no API key, public)
+// Bitget: OHLCV candles, funding rates, prices (no API key, public)
 // Kraken: OHLCV fallback, prices fallback
 // Uses BACKGROUND REFRESH pattern.
 // ====================================================
@@ -22,7 +22,7 @@ const cache = {
 
 const REFRESH_INTERVAL = 60 * 1000;
 const COINGECKO_DELAY = 6000;
-const BYBIT_DELAY = 350;       // Bybit: 120 req/s for public, be conservative
+const BITGET_DELAY = 350;      // Bitget: rate limit friendly
 const RETRY_DELAY = 10000;
 const RATE_LIMIT_WAIT_BASE = 20000;
 
@@ -141,27 +141,26 @@ async function fetchCoinGeckoPricesOnce() {
 }
 
 // ====================================================
-// BYBIT - Prices (v5 public ticker, no API key)
+// BITGET - Prices (v2 public ticker, no API key)
 // ====================================================
-async function fetchPricesFromBybit() {
+async function fetchPricesFromBitget() {
   try {
-    const url = 'https://api.bybit.com/v5/market/tickers?category=spot';
+    const url = 'https://api.bitget.com/api/v2/mix/market/tickers?productType=USDT-FUTURES';
     const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
     if (!res.ok) return null;
     const json = await res.json();
-    if (json.retCode !== 0 || !json.result || !json.result.list) return null;
+    if (json.code !== '00000' || !json.data) return null;
     const bySymbol = {};
-    json.result.list.forEach(t => { bySymbol[t.symbol] = t; });
+    (json.data || []).forEach(t => { bySymbol[t.symbol] = t; });
     const results = [];
     TRACKED_COINS.forEach(coinId => {
       const meta = COIN_META[coinId];
       if (!meta || !meta.bybit) return;
       const t = bySymbol[meta.bybit];
       if (!t) return;
-      const price = parseFloat(t.lastPrice);
+      const price = parseFloat(t.lastPr || t.lastPrice);
       if (isNaN(price) || price <= 0) return;
-      const prevPrice = parseFloat(t.prevPrice24h) || price;
-      const change24h = prevPrice > 0 ? ((price - prevPrice) / prevPrice) * 100 : 0;
+      const change24h = parseFloat(t.change24h) ? parseFloat(t.change24h) * 100 : 0;
       results.push({
         id: coinId,
         symbol: meta.symbol,
@@ -169,14 +168,14 @@ async function fetchPricesFromBybit() {
         bybitSymbol: meta.bybit,
         price,
         change24h: isNaN(change24h) ? 0 : change24h,
-        volume24h: parseFloat(t.turnover24h) || 0,
+        volume24h: parseFloat(t.usdtVolume || t.quoteVolume) || 0,
         marketCap: 0,
         lastUpdated: new Date()
       });
     });
     return results.length > 0 ? results : null;
   } catch (err) {
-    console.error('[Bybit] Price fetch failed:', err.message);
+    console.error('[Bitget] Price fetch failed:', err.message);
     return null;
   }
 }
@@ -279,31 +278,31 @@ async function fetchPricesFromKraken() {
 }
 
 // ====================================================
-// BYBIT - OHLCV Candles (v5 public, no API key)
-// Intervals: 1,3,5,15,30,60,120,240,360,720,D,W,M
+// BITGET - OHLCV Candles (v2 public, no API key)
+// Intervals: 1m,5m,15m,30m,1H,4H,12H,1D,1W
 // ====================================================
-const BYBIT_INTERVAL_MAP = { '15m': '15', '1h': '60', '4h': '240', '1d': 'D', '1w': 'W' };
+const BITGET_INTERVAL_MAP = { '15m': '15m', '1h': '1H', '4h': '4H', '1d': '1D', '1w': '1W' };
 
-async function fetchBybitCandles(symbol, interval, limit, startMs, endMs) {
-  const bybitInterval = BYBIT_INTERVAL_MAP[interval];
-  if (!bybitInterval || !symbol) return [];
+async function fetchBitgetCandles(symbol, interval, limit, startMs, endMs) {
+  const bitgetInterval = BITGET_INTERVAL_MAP[interval];
+  if (!bitgetInterval || !symbol) return [];
   try {
-    let url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${symbol}&interval=${bybitInterval}&limit=${Math.min(limit, 1000)}`;
-    if (startMs) url += `&start=${startMs}`;
-    if (endMs) url += `&end=${endMs}`;
+    let url = `https://api.bitget.com/api/v2/mix/market/candles?symbol=${symbol}&productType=USDT-FUTURES&granularity=${bitgetInterval}&limit=${Math.min(limit, 200)}`;
+    if (startMs) url += `&startTime=${startMs}`;
+    if (endMs) url += `&endTime=${endMs}`;
     const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
     if (!res.ok) {
-      console.warn(`[Bybit] OHLC ${symbol} ${interval}: HTTP ${res.status} ${res.statusText}`);
+      console.warn(`[Bitget] OHLC ${symbol} ${interval}: HTTP ${res.status} ${res.statusText}`);
       return [];
     }
     const json = await res.json();
-    if (json.retCode !== 0 || !json.result || !json.result.list) {
-      console.warn(`[Bybit] OHLC ${symbol} ${interval}: retCode=${json.retCode}, msg=${json.retMsg}, listLen=${json.result?.list?.length || 0}`);
+    if (json.code !== '00000' || !json.data) {
+      console.warn(`[Bitget] OHLC ${symbol} ${interval}: code=${json.code}, msg=${json.msg}`);
       return [];
     }
-    // Bybit returns newest first, reverse to chronological order
-    // Each entry: [startTime, open, high, low, close, volume, turnover]
-    const raw = json.result.list.reverse();
+    // Bitget returns [ts, open, high, low, close, volume, quoteVol] - newest first
+    const raw = (json.data || []).reverse();
+    const msPerCandle = { '15m': 900000, '1h': 3600000, '4h': 14400000, '1d': 86400000, '1w': 604800000 }[interval] || 3600000;
     return raw.map(c => ({
       openTime: parseInt(c[0]),
       open: parseFloat(c[1]),
@@ -311,7 +310,7 @@ async function fetchBybitCandles(symbol, interval, limit, startMs, endMs) {
       low: parseFloat(c[3]),
       close: parseFloat(c[4]),
       volume: parseFloat(c[5]),
-      closeTime: parseInt(c[0]) + (interval === '1h' ? 3600000 : interval === '4h' ? 14400000 : interval === '15m' ? 900000 : interval === '1d' ? 86400000 : 604800000),
+      closeTime: parseInt(c[0]) + msPerCandle,
       quoteVolume: parseFloat(c[6]) || 0,
       trades: 0,
       takerBuyVolume: 0,
@@ -325,7 +324,7 @@ async function fetchBybitCandles(symbol, interval, limit, startMs, endMs) {
       c.high >= c.low
     );
   } catch (err) {
-    console.error(`[Bybit] OHLC ${symbol} ${interval} failed:`, err.message);
+    console.error(`[Bitget] OHLC ${symbol} ${interval} failed:`, err.message);
     return [];
   }
 }
@@ -465,20 +464,20 @@ async function fetchAllKrakenCandlesForCoin(coinId) {
 }
 
 // ====================================================
-// FETCH CANDLES: Bybit primary, Kraken fallback
+// FETCH CANDLES: Bitget primary, Kraken fallback
 // ====================================================
 async function fetchAllCandlesForCoin(coinId, retriesLeft = 1) {
   const meta = COIN_META[coinId];
 
-  // Try Bybit first (primary OHLCV source)
+  // Try Bitget first (primary OHLCV source)
   if (meta?.bybit) {
     try {
       const [candles15m, candles1h, candles4h, candles1d, candles1w] = await Promise.all([
-        fetchBybitCandles(meta.bybit, '15m', 96),
-        fetchBybitCandles(meta.bybit, '1h', 168),
-        fetchBybitCandles(meta.bybit, '4h', 100),
-        fetchBybitCandles(meta.bybit, '1d', 30),
-        fetchBybitCandles(meta.bybit, '1w', 26)
+        fetchBitgetCandles(meta.bybit, '15m', 96),
+        fetchBitgetCandles(meta.bybit, '1h', 168),
+        fetchBitgetCandles(meta.bybit, '4h', 100),
+        fetchBitgetCandles(meta.bybit, '1d', 30),
+        fetchBitgetCandles(meta.bybit, '1w', 26)
       ]);
       if (candles1h && candles1h.length >= 20) {
         return {
@@ -487,14 +486,14 @@ async function fetchAllCandlesForCoin(coinId, retriesLeft = 1) {
           '4h': candles4h.length >= 5 ? candles4h : null,
           '1d': candles1d.length >= 5 ? candles1d : null,
           '1w': candles1w.length >= 3 ? candles1w : null,
-          _source: 'bybit',
+          _source: 'bitget',
           _fetchedAt: Date.now()
         };
       }
     } catch (err) {
-      console.error(`[Bybit] Candles failed for ${coinId}: ${err.message}`);
+      console.error(`[Bitget] Candles failed for ${coinId}: ${err.message}`);
       if (retriesLeft > 0) {
-        console.log(`[Bybit] Retrying ${meta.symbol} in 3s...`);
+        console.log(`[Bitget] Retrying ${meta.symbol} in 3s...`);
         await sleep(3000);
         return fetchAllCandlesForCoin(coinId, retriesLeft - 1);
       }
@@ -516,25 +515,24 @@ async function fetchAllCandlesForCoin(coinId, retriesLeft = 1) {
 
 // ====================================================
 // HISTORICAL CANDLES (for backtesting)
-// Paginates to support longer ranges (Bybit returns max 1000 per request)
+// Paginates to support longer ranges (Bitget returns max 200 per request)
 // ====================================================
 const MS_PER_CANDLE = { '15m': 15 * 60 * 1000, '1h': 3600000, '4h': 14400000, '1d': 86400000, '1w': 604800000 };
 
 async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
   const meta = COIN_META[coinId];
   if (!meta?.bybit) return [];
-  const bybitInterval = BYBIT_INTERVAL_MAP[interval];
-  if (!bybitInterval) return [];
-  const limit = 1000;
+  const bitgetInterval = BITGET_INTERVAL_MAP[interval];
+  if (!bitgetInterval) return [];
+  const limit = 200;
   const msPerCandle = MS_PER_CANDLE[interval] || 3600000;
   const all = [];
   let cursor = startMs;
   let retries = 0;
   const MAX_RETRIES = 2;
   while (cursor < endMs) {
-    const chunk = await fetchBybitCandles(meta.bybit, interval, limit, cursor, endMs);
+    const chunk = await fetchBitgetCandles(meta.bybit, interval, limit, cursor, endMs);
     if (!chunk || chunk.length === 0) {
-      // Retry once on empty response (could be transient rate limit)
       if (retries < MAX_RETRIES && all.length === 0) {
         retries++;
         console.warn(`[Historical] ${coinId} ${interval}: empty response, retry ${retries}/${MAX_RETRIES} in 2s...`);
@@ -543,12 +541,12 @@ async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
       }
       break;
     }
-    retries = 0; // reset on success
+    retries = 0;
     all.push(...chunk);
     const lastTs = chunk[chunk.length - 1].openTime;
     if (lastTs >= endMs || chunk.length < limit) break;
     cursor = lastTs + msPerCandle;
-    await new Promise(r => setTimeout(r, 350)); // rate limit
+    await new Promise(r => setTimeout(r, BITGET_DELAY));
   }
   // Deduplicate by timestamp and sort chronologically
   const seen = new Set();
@@ -668,10 +666,10 @@ async function refreshAllData() {
     // Step 1: Prices – rotate sources to spread rate limits
     priceSourceRotation = (priceSourceRotation + 1) % 3;
     const tryOrder = priceSourceRotation === 0
-      ? ['coingecko', 'coincap', 'bybit', 'kraken']
+      ? ['coingecko', 'coincap', 'bitget', 'kraken']
       : priceSourceRotation === 1
-      ? ['coincap', 'bybit', 'coingecko', 'kraken']
-      : ['bybit', 'coingecko', 'coincap', 'kraken'];
+      ? ['coincap', 'bitget', 'coingecko', 'kraken']
+      : ['bitget', 'coingecko', 'coincap', 'kraken'];
     let prices = [];
     for (const source of tryOrder) {
       if (prices && prices.length > 0) break;
@@ -679,7 +677,7 @@ async function refreshAllData() {
         let result = null;
         if (source === 'coingecko') result = await fetchCoinGeckoPricesOnce();
         else if (source === 'coincap') result = await fetchPricesFromCoinCap();
-        else if (source === 'bybit') result = await fetchPricesFromBybit();
+        else if (source === 'bitget') result = await fetchPricesFromBitget();
         else if (source === 'kraken') result = await fetchPricesFromKraken();
         if (result && Array.isArray(result) && result.length > 0) {
           prices = result;
@@ -706,10 +704,10 @@ async function refreshAllData() {
       pricesReadyResolve = null;
     }
 
-    // Step 2: OHLCV candles – Bybit primary, Kraken fallback
+    // Step 2: OHLCV candles – Bitget primary, Kraken fallback
     for (const coinId of TRACKED_COINS) {
       try {
-        await sleep(BYBIT_DELAY);
+        await sleep(BITGET_DELAY);
         const candles = await fetchAllCandlesForCoin(coinId);
         if (candles) {
           cache.candles[coinId] = candles;
@@ -746,7 +744,7 @@ async function refreshAllData() {
       }
     }
 
-    // Step 4: Funding rates from Bybit (linear perpetuals)
+    // Step 4: Funding rates from Bitget (USDT perpetuals)
     await fetchFundingRates();
 
     cache.lastRefresh = Date.now();
@@ -799,9 +797,8 @@ function getCurrentPrice(coinId) {
   return prices.find(p => p.id === coinId) || null;
 }
 
-/** Fetch live price for one coin. Tries WebSocket -> Bybit -> Kraken -> cache. */
+/** Fetch live price for one coin. Tries WebSocket -> Bitget -> Kraken -> cache. */
 async function fetchLivePrice(coinId) {
-  // WebSocket (real-time, free) - try first when available
   try {
     const ws = require('./websocket-prices');
     const p = ws.getWebSocketPrice(coinId);
@@ -810,15 +807,15 @@ async function fetchLivePrice(coinId) {
 
   const meta = COIN_META[coinId];
 
-  // Try Bybit REST
+  // Try Bitget REST
   if (meta && meta.bybit) {
     try {
-      const url = `https://api.bybit.com/v5/market/tickers?category=spot&symbol=${meta.bybit}`;
+      const url = `https://api.bitget.com/api/v2/mix/market/ticker?symbol=${meta.bybit}&productType=USDT-FUTURES`;
       const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 8000 });
       if (res.ok) {
         const json = await res.json();
-        if (json.retCode === 0 && json.result && json.result.list && json.result.list[0]) {
-          const price = parseFloat(json.result.list[0].lastPrice);
+        if (json.code === '00000' && json.data) {
+          const price = parseFloat(json.data.lastPr || json.data.lastPrice);
           if (Number.isFinite(price) && price > 0) return price;
         }
       }
@@ -849,7 +846,7 @@ async function fetchLivePrice(coinId) {
 }
 
 // ====================================================
-// FUNDING RATES (Bybit Linear Perpetuals - free, no key)
+// FUNDING RATES (Bitget USDT Perpetuals - free, no key)
 // ====================================================
 async function fetchFundingRates() {
   try {
@@ -857,24 +854,24 @@ async function fetchFundingRates() {
       const meta = COIN_META[coinId];
       if (!meta || !meta.bybit) continue;
       try {
-        const url = `https://api.bybit.com/v5/market/funding/history?category=linear&symbol=${meta.bybit}&limit=1`;
+        const url = `https://api.bitget.com/api/v2/mix/market/current-fund-rate?symbol=${meta.bybit}&productType=USDT-FUTURES`;
         const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 8000 });
         if (!res.ok) continue;
         const json = await res.json();
-        if (json.retCode !== 0 || !json.result || !json.result.list || json.result.list.length === 0) continue;
-        const item = json.result.list[0];
-        if (item.fundingRate != null) {
+        if (json.code !== '00000' || !json.data) continue;
+        const item = Array.isArray(json.data) ? json.data[0] : json.data;
+        if (item && item.fundingRate != null) {
           cache.fundingRates[coinId] = {
             rate: parseFloat(item.fundingRate),
             time: Date.now()
           };
         }
-        await sleep(100); // Small delay between calls
+        await sleep(100);
       } catch (err) {
         // Skip individual coin failures
       }
     }
-    console.log(`[Refresh] Funding rates updated for ${Object.keys(cache.fundingRates).length} coins (Bybit)`);
+    console.log(`[Refresh] Funding rates updated for ${Object.keys(cache.fundingRates).length} coins (Bitget)`);
   } catch (err) {
     console.error('[Refresh] Funding rates failed:', err.message);
   }
@@ -900,7 +897,7 @@ function triggerRefreshIfNeeded() {
 }
 
 // Start initial refresh
-console.log('[CryptoAPI] Starting initial data fetch (Bybit + Kraken + CoinGecko)...');
+console.log('[CryptoAPI] Starting initial data fetch (Bitget + Kraken + CoinGecko)...');
 refreshAllData().catch(err => console.error('[CryptoAPI] Initial error:', err.message));
 
 module.exports = {
@@ -911,5 +908,6 @@ module.exports = {
   recordScoreHistory, getScoreHistory,
   recordRegimeSnapshot, getRegimeTimeline,
   pricesReadyPromise,
-  TRACKED_COINS, COIN_META
+  TRACKED_COINS, COIN_META,
+  KRAKEN_PAIRS
 };

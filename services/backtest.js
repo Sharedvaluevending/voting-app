@@ -53,11 +53,11 @@ async function fetchWithTimeout(promise, timeoutMs, label) {
 
 async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
   options = options || {};
-  const useBybitOnly = options.useBybitOnly === true;
+  const useBitgetOnly = options.useBitgetOnly === true;
   const useCache = options.useCache !== false;  // default ON for scripts
 
   const meta = COIN_META[coinId];
-  if (!meta?.bybit) return { error: `No Bybit symbol for ${coinId}` };
+  if (!meta?.bybit) return { error: `No Bitget symbol for ${coinId}` };
 
   // Extend start backward to get warmup bars for indicator calculation.
   const warmupMs = WARMUP_BARS * 3600000;
@@ -75,10 +75,10 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
   let candles1h, candles4h, candles1d;
   let source = 'kraken';
   let krakenError = null;
-  let bybitError = null;
+  let bitgetError = null;
 
-  // useBybitOnly: skip Kraken entirely to avoid rate limits
-  if (!useBybitOnly) {
+  // useBitgetOnly: skip Kraken entirely to avoid rate limits
+  if (!useBitgetOnly) {
     try {
       [candles1h, candles4h, candles1d] = await fetchWithTimeout(
         Promise.all([
@@ -96,10 +96,10 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
     }
   }
 
-  if (useBybitOnly || !candles1h || candles1h.length < 50) {
+  if (useBitgetOnly || !candles1h || candles1h.length < 50) {
     try {
-      if (!useBybitOnly) console.log(`[Backtest] ${coinId}: trying Bybit...`);
-      source = 'bybit';
+      if (!useBitgetOnly) console.log(`[Backtest] ${coinId}: trying Bitget...`);
+      source = 'bitget';
       [candles1h, candles4h, candles1d] = await fetchWithTimeout(
         Promise.all([
           fetchHistoricalCandlesForCoin(coinId, '1h', fetchStartMs, endMs),
@@ -109,9 +109,9 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
         PER_COIN_FETCH_TIMEOUT,
         coinId
       );
-      if (!candles1h || candles1h.length === 0) bybitError = 'Bybit returned 0 candles';
+      if (!candles1h || candles1h.length === 0) bitgetError = 'Bitget returned 0 candles';
     } catch (err) {
-      bybitError = `Bybit error: ${err.message}`;
+      bitgetError = `Bitget error: ${err.message}`;
       console.warn(`[Backtest] ${coinId}: ${bybitError}`);
     }
   }
@@ -122,7 +122,7 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
   console.log(`[Backtest] ${coinId}: fetched 1h=${c1h}, 4h=${c4h}, 1d=${c1d} candles [${source}] (${WARMUP_BARS} warmup)`);
 
   if (!candles1h || c1h < 50) {
-    const details = [bybitError, krakenError].filter(Boolean).join('; ');
+    const details = [bitgetError, krakenError].filter(Boolean).join('; ');
     const reason = c1h === 0
       ? `No candles from either API. ${details}`
       : `Only ${c1h} candles from ${source} (need 50+). ${details}`;
@@ -219,7 +219,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const F_MIN_SL = ft.minSlDistance !== false;
 
   const fetchOpts = {
-    useBybitOnly: options.useBybitOnly === true,
+    useBitgetOnly: options.useBitgetOnly === true,
     useCache: options.useCache === true  // Only when explicitly enabled (e.g. massive script)
   };
   const candles = await fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, fetchOpts);
@@ -952,7 +952,7 @@ function computeMaxDrawdownPct(equityCurve) {
  * while keeping total time well under Render's 30s request timeout.
  */
 const PER_COIN_BACKTEST_TIMEOUT = 20000; // 20s max per coin simulation
-const PARALLEL_BATCH_SIZE = 3; // process 3 coins at a time (avoids Bybit rate limits)
+const PARALLEL_BATCH_SIZE = 3; // process 3 coins at a time (avoids Bitget rate limits)
 
 async function runBacktest(startMs, endMs, options) {
   options = options || {};

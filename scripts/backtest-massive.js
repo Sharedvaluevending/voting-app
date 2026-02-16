@@ -8,7 +8,7 @@
 // Usage: node scripts/backtest-massive.js [--quick] [--no-cache]
 //   --quick = 2 coins × 3 months (for testing)
 //   --no-cache = fetch fresh data (slower, more API calls). Default: use cache.
-// Full run: 14 coins × 24 months. Uses Bybit-only + cache to avoid rate limits.
+// Full run: 14 coins × 24 months. Uses Bitget-only + cache to avoid rate limits.
 
 const fs = require('fs');
 const path = require('path');
@@ -123,7 +123,7 @@ async function main() {
 
   const options = {
     features,
-    useBybitOnly: true,   // Skip Kraken to avoid rate limits
+    useBitgetOnly: true,  // Skip Kraken to avoid rate limits
     useCache: !NO_CACHE,  // Cache candles (huge speedup, avoids re-fetching)
     delay: 600
   };
@@ -143,7 +143,7 @@ async function main() {
   console.log('  MASSIVE 2-YEAR BACKTEST');
   console.log('========================================');
   console.log('Config: SL cap ON | 4h cooldown ON | BTC filter OFF');
-  console.log(`Mode: Bybit-only, Cache ${NO_CACHE ? 'OFF' : 'ON'}, Delay ${DELAY_BETWEEN_RUNS}ms`);
+  console.log(`Mode: Bitget-only, Cache ${NO_CACHE ? 'OFF' : 'ON'}, Delay ${DELAY_BETWEEN_RUNS}ms`);
   console.log(`Coins: ${coinsToRun.length} | Months: ${monthRanges.length} | Total runs: ${totalRuns}`);
   console.log(`Range: ${new Date(monthRanges[0].startMs).toISOString().slice(0, 10)} to ${new Date(monthRanges[monthRanges.length - 1].endMs).toISOString().slice(0, 10)}`);
   console.log('========================================\n');
@@ -273,7 +273,7 @@ async function main() {
   }
 
   console.log('7. DATA & EXECUTION');
-  console.log('   - Bybit-only + cache: avoids Kraken rate limits, reuses candle data');
+  console.log('   - Bitget-only + cache: avoids Kraken rate limits, reuses candle data');
   console.log('   - Run with --no-cache to force fresh fetches (slower)');
   console.log('');
 
@@ -283,7 +283,7 @@ async function main() {
   const resultsPath = path.join(resultsDir, `massive-${Date.now()}.json`);
   fs.writeFileSync(resultsPath, JSON.stringify({
     timestamp: new Date().toISOString(),
-    config: { features, useBybitOnly: true, useCache: !NO_CACHE },
+    config: { features, useBitgetOnly: true, useCache: !NO_CACHE },
     top10: top10.map(r => ({ symbol: r.symbol, totalPnl: r.totalPnl, winRate: r.winRate, profitFactor: r.profitFactor, maxDrawdownPct: r.maxDrawdownPct, sharpeRatio: r.sharpeRatio })),
     allCoins: aggregated,
     monthRanges: monthRanges.length

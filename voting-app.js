@@ -3,7 +3,7 @@
 // CRYPTO SIGNALS PRO v3.0
 // Professional crypto trading signals platform with:
 //   - Multi-strategy 0-100 scoring engine
-//   - Binance OHLCV candles + CoinGecko prices
+//   - Bitget OHLCV candles + CoinGecko prices
 //   - User accounts with paper trading ($10k start)
 //   - 1 trade per pair, suggested leverage
 //   - Trade tracking, performance analytics
@@ -567,15 +567,15 @@ app.get('/chart/:coinId', async (req, res) => {
   if (!meta || !meta.bybit) {
     return res.status(404).send('Chart not available for this coin. <a href="/">Back to Dashboard</a>');
   }
-  // Use Bybit for TradingView symbol with Kraken fallback
+  // Use Bitget for TradingView symbol with Kraken fallback
   const TV_PAIRS = {
-    'BTCUSDT': 'BYBIT:BTCUSDT', 'ETHUSDT': 'BYBIT:ETHUSDT', 'SOLUSDT': 'BYBIT:SOLUSDT',
-    'DOGEUSDT': 'BYBIT:DOGEUSDT', 'XRPUSDT': 'BYBIT:XRPUSDT', 'ADAUSDT': 'BYBIT:ADAUSDT',
-    'DOTUSDT': 'BYBIT:DOTUSDT', 'AVAXUSDT': 'BYBIT:AVAXUSDT', 'LINKUSDT': 'BYBIT:LINKUSDT',
-    'POLUSDT': 'BYBIT:POLUSDT', 'BNBUSDT': 'BYBIT:BNBUSDT', 'LTCUSDT': 'BYBIT:LTCUSDT',
-    'UNIUSDT': 'BYBIT:UNIUSDT', 'ATOMUSDT': 'BYBIT:ATOMUSDT'
+    'BTCUSDT': 'BITGET:BTCUSDT', 'ETHUSDT': 'BITGET:ETHUSDT', 'SOLUSDT': 'BITGET:SOLUSDT',
+    'DOGEUSDT': 'BITGET:DOGEUSDT', 'XRPUSDT': 'BITGET:XRPUSDT', 'ADAUSDT': 'BITGET:ADAUSDT',
+    'DOTUSDT': 'BITGET:DOTUSDT', 'AVAXUSDT': 'BITGET:AVAXUSDT', 'LINKUSDT': 'BITGET:LINKUSDT',
+    'POLUSDT': 'BITGET:POLUSDT', 'BNBUSDT': 'BITGET:BNBUSDT', 'LTCUSDT': 'BITGET:LTCUSDT',
+    'UNIUSDT': 'BITGET:UNIUSDT', 'ATOMUSDT': 'BITGET:ATOMUSDT'
   };
-  const tvSymbol = TV_PAIRS[meta.bybit] || ('BYBIT:' + meta.bybit);
+  const tvSymbol = TV_PAIRS[meta.bybit] || ('BITGET:' + meta.bybit);
   let entry = req.query.entry ? Number(req.query.entry) : null;
   let sl = req.query.sl ? Number(req.query.sl) : null;
   const tp1 = req.query.tp1 ? Number(req.query.tp1) : null;
@@ -1301,7 +1301,6 @@ app.post('/exchange/connect', requireLogin, async (req, res) => {
     if (!apiKey || !secretKey || !passphrase) {
       return res.redirect('/exchange?error=' + encodeURIComponent('All three fields are required: API Key, Secret Key, and Passphrase'));
     }
-    // Don't save masked values
     if (apiKey.startsWith('••')) {
       return res.redirect('/exchange?error=' + encodeURIComponent('Please enter your full API key, not the masked value'));
     }
@@ -1309,7 +1308,6 @@ app.post('/exchange/connect', requireLogin, async (req, res) => {
     const user = await User.findById(req.session.userId);
     if (!user) return res.redirect('/login');
 
-    // Save keys temporarily for test
     user.bitget = {
       apiKey,
       secretKey,
@@ -1318,7 +1316,6 @@ app.post('/exchange/connect', requireLogin, async (req, res) => {
       lastVerified: null
     };
 
-    // Test connection before confirming
     const testResult = await bitget.testConnection(user);
     if (testResult.success) {
       user.bitget.connected = true;
@@ -1326,7 +1323,6 @@ app.post('/exchange/connect', requireLogin, async (req, res) => {
       await user.save();
       res.redirect('/exchange?success=' + encodeURIComponent('Connected to Bitget successfully!'));
     } else {
-      // Don't save bad keys
       user.bitget = { apiKey: '', secretKey: '', passphrase: '', connected: false };
       await user.save();
       res.redirect('/exchange?error=' + encodeURIComponent('Connection failed: ' + testResult.message));
@@ -1722,20 +1718,20 @@ app.get('/api/connectivity-test', async (req, res) => {
   const fetch = require('node-fetch');
   const results = { nodeVersion: process.version, env: process.env.NODE_ENV || 'development', timestamp: new Date().toISOString() };
 
-  // Test Bybit HTTP API
+  // Test Bitget HTTP API
   try {
     const t = Date.now();
-    const r = await fetch('https://api.bybit.com/v5/market/kline?category=spot&symbol=BTCUSDT&interval=60&limit=3', {
+    const r = await fetch('https://api.bitget.com/api/v2/mix/market/candles?symbol=BTCUSDT&productType=USDT-FUTURES&granularity=1H&limit=3', {
       headers: { 'Accept': 'application/json' }, timeout: 10000
     });
     const body = await r.text();
-    results.bybit = {
+    results.bitget = {
       ok: r.ok, status: r.status, latencyMs: Date.now() - t,
       bodyLength: body.length, bodyPreview: body.substring(0, 200)
     };
-    try { const j = JSON.parse(body); results.bybit.retCode = j.retCode; results.bybit.candles = j.result?.list?.length || 0; } catch(e) {}
+    try { const j = JSON.parse(body); results.bitget.code = j.code; results.bitget.candles = j.data?.length || 0; } catch(e) {}
   } catch (err) {
-    results.bybit = { ok: false, error: err.message, code: err.code, type: err.type };
+    results.bitget = { ok: false, error: err.message, code: err.code, type: err.type };
   }
 
   // Test Kraken HTTP API
@@ -1757,8 +1753,8 @@ app.get('/api/connectivity-test', async (req, res) => {
   // Test DNS resolution
   const dns = require('dns');
   await new Promise(resolve => {
-    dns.resolve4('api.bybit.com', (err, addresses) => {
-      results.dns_bybit = err ? { error: err.message, code: err.code } : { resolved: addresses };
+    dns.resolve4('api.bitget.com', (err, addresses) => {
+      results.dns_bitget = err ? { error: err.message, code: err.code } : { resolved: addresses };
       resolve();
     });
   });
@@ -1773,7 +1769,7 @@ app.get('/api/connectivity-test', async (req, res) => {
   res.json(results);
 });
 // Keep old route as alias
-app.get('/api/bybit-test', (req, res) => res.redirect('/api/connectivity-test'));
+app.get('/api/bitget-test', (req, res) => res.redirect('/api/connectivity-test'));
 
 // Backtest API (historical simulation)
 // When user is logged in: uses strategy weights, excluded coins (live parity)
@@ -2014,7 +2010,7 @@ async function runStopTPCheck() {
   try {
     const openTrades = await Trade.find({ status: 'OPEN' }).select('coinId').lean();
     if (openTrades.length === 0) return;
-    // Fetch live prices from Bybit/Kraken for all coins with open trades
+    // Fetch live prices from Bitget/Kraken for all coins with open trades
     const coinIds = [...new Set(openTrades.map(t => t.coinId))];
     const livePrices = await Promise.all(coinIds.map(id => fetchLivePrice(id)));
     const priceMap = {};

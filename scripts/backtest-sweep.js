@@ -44,7 +44,7 @@ async function runSweepForCoin(coinId, monthRanges, params) {
       minScore: params.minScore,
       cooldownBars: params.cooldownHours,
       maxSlDistancePct: params.slCapPct,
-      useBybitOnly: true,
+      useBitgetOnly: true,
       useCache: true
     };
     const r = await runBacktestForCoin(coinId, startMs, endMs, opts);

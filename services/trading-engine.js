@@ -2,7 +2,7 @@
 // ====================================================
 // ADVANCED MULTI-STRATEGY TRADING ENGINE v5.0
 //
-// Uses Bybit/Kraken OHLCV candles across 15m, 1H, 4H, 1D, 1W.
+// Uses Bitget/Kraken OHLCV candles across 15m, 1H, 4H, 1D, 1W.
 // Scores signals 0-100 using 6 categories (learned weights optional).
 // Min score/confluence gate, regime-strategy gating, BTC filter,
 // MTF divergence, dynamic stops, multi-TF S/R, VWAP bands,
@@ -30,7 +30,7 @@ function analyzeCoin(coinData, candles, history, options) {
   options = options || {};
   const currentPrice = coinData.price;
 
-  // Try Binance candles first, fall back to CoinGecko history
+  // Try Bitget candles first, fall back to CoinGecko history
   if (candles && candles['1h'] && candles['1h'].length >= 20) {
     return analyzeWithCandles(coinData, candles, options);
   }

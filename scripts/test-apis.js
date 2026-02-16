@@ -10,16 +10,16 @@ const TRACKED_COINS = [
 ];
 
 const COIN_META = {
-  bitcoin:       { symbol: 'BTC',   binance: 'BTCUSDT' },
-  ethereum:      { symbol: 'ETH',   binance: 'ETHUSDT' },
-  solana:        { symbol: 'SOL',   binance: 'SOLUSDT' },
-  dogecoin:      { symbol: 'DOGE',  binance: 'DOGEUSDT' },
-  ripple:        { symbol: 'XRP',   binance: 'XRPUSDT' },
-  cardano:       { symbol: 'ADA',   binance: 'ADAUSDT' },
-  polkadot:      { symbol: 'DOT',   binance: 'DOTUSDT' },
-  'avalanche-2': { symbol: 'AVAX',  binance: 'AVAXUSDT' },
-  chainlink:     { symbol: 'LINK',  binance: 'LINKUSDT' },
-  polygon:       { symbol: 'MATIC', binance: 'MATICUSDT' }
+  bitcoin:       { symbol: 'BTC',   bybit: 'BTCUSDT' },
+  ethereum:      { symbol: 'ETH',   bybit: 'ETHUSDT' },
+  solana:        { symbol: 'SOL',   bybit: 'SOLUSDT' },
+  dogecoin:      { symbol: 'DOGE',  bybit: 'DOGEUSDT' },
+  ripple:        { symbol: 'XRP',   bybit: 'XRPUSDT' },
+  cardano:       { symbol: 'ADA',   bybit: 'ADAUSDT' },
+  polkadot:      { symbol: 'DOT',   bybit: 'DOTUSDT' },
+  'avalanche-2': { symbol: 'AVAX',  bybit: 'AVAXUSDT' },
+  chainlink:     { symbol: 'LINK',  bybit: 'LINKUSDT' },
+  polygon:       { symbol: 'POL',   bybit: 'POLUSDT' }
 };
 
 const KRAKEN_PAIRS = {
@@ -74,7 +74,7 @@ async function main() {
   });
   if (r2.ok) passed++; else failed++;
 
-  // --- CoinCap ---
+  // --- CoinCap (optional: DNS/network may block; app falls back to Bitget/Kraken) ---
   const r3 = await test('CoinCap assets (limit=200)', async () => {
     const res = await fetch('https://api.coincap.io/v2/assets?limit=200', { headers: { 'Accept': 'application/json' }, timeout: 15000 });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -83,7 +83,8 @@ async function main() {
     if (!Array.isArray(list)) throw new Error('No data array');
     return `${list.length} assets`;
   });
-  if (r3.ok) passed++; else failed++;
+  if (r3.ok) passed++;
+  // CoinCap optional: DNS/network may block (ENOTFOUND); app falls back to Bitget/Kraken/CoinGecko
 
   // --- Kraken ---
   const r4 = await test('Kraken Ticker (all pairs)', async () => {
@@ -99,24 +100,27 @@ async function main() {
   });
   if (r4.ok) passed++; else failed++;
 
-  // --- Binance: 24hr ticker (one symbol) ---
-  const r5 = await test('Binance 24hr ticker (BTCUSDT)', async () => {
-    const res = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT', { headers: { 'Accept': 'application/json' }, timeout: 10000 });
-    if (res.status === 451) throw new Error('451 Unavailable in region');
+  // --- Bitget: Ticker (one symbol) ---
+  const r5 = await test('Bitget ticker (BTCUSDT)', async () => {
+    const res = await fetch('https://api.bitget.com/api/v2/mix/market/ticker?symbol=BTCUSDT&productType=USDT-FUTURES', { headers: { 'Accept': 'application/json' }, timeout: 10000 });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const price = parseFloat(data.lastPrice);
-    if (isNaN(price)) throw new Error('Invalid lastPrice');
+    const json = await res.json();
+    if (json.code !== '00000' || !json.data) throw new Error('Invalid response');
+    const item = Array.isArray(json.data) ? json.data[0] : json.data;
+    if (!item) throw new Error('No ticker data');
+    const price = parseFloat(item.lastPr || item.lastPrice);
+    if (isNaN(price)) throw new Error('Invalid lastPr');
     return `$${price.toLocaleString()}`;
   });
   if (r5.ok) passed++; else failed++;
 
-  // --- Binance: Klines (candles) ---
-  const r6 = await test('Binance klines (BTCUSDT 1h, limit=5)', async () => {
-    const res = await fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=5', { headers: { 'Accept': 'application/json' }, timeout: 15000 });
-    if (res.status === 451) throw new Error('451 Unavailable in region');
+  // --- Bitget: Candles ---
+  const r6 = await test('Bitget candles (BTCUSDT 1H, limit=5)', async () => {
+    const res = await fetch('https://api.bitget.com/api/v2/mix/market/candles?symbol=BTCUSDT&productType=USDT-FUTURES&granularity=1H&limit=5', { headers: { 'Accept': 'application/json' }, timeout: 15000 });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    const json = await res.json();
+    if (json.code !== '00000' || !json.data) throw new Error('Invalid response');
+    const data = json.data;
     if (!Array.isArray(data) || data.length === 0) throw new Error('No candles');
     const first = data[0];
     if (first.length < 5) throw new Error('Invalid candle format');
@@ -124,17 +128,18 @@ async function main() {
   });
   if (r6.ok) passed++; else failed++;
 
-  // --- Binance: 15m and 1w (same as app) ---
-  const r7 = await test('Binance klines 15m + 1w (BTCUSDT)', async () => {
+  // --- Bitget: 15m and 1w (same as app) ---
+  const r7 = await test('Bitget candles 15m + 1w (BTCUSDT)', async () => {
     const [r15, r1w] = await Promise.all([
-      fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=15m&limit=10', { headers: { 'Accept': 'application/json' }, timeout: 10000 }),
-      fetch('https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1w&limit=5', { headers: { 'Accept': 'application/json' }, timeout: 10000 })
+      fetch('https://api.bitget.com/api/v2/mix/market/candles?symbol=BTCUSDT&productType=USDT-FUTURES&granularity=15m&limit=10', { headers: { 'Accept': 'application/json' }, timeout: 10000 }),
+      fetch('https://api.bitget.com/api/v2/mix/market/candles?symbol=BTCUSDT&productType=USDT-FUTURES&granularity=1W&limit=5', { headers: { 'Accept': 'application/json' }, timeout: 10000 })
     ]);
-    if (r15.status === 451 || r1w.status === 451) throw new Error('451 Unavailable in region');
     if (!r15.ok) throw new Error('15m HTTP ' + r15.status);
     if (!r1w.ok) throw new Error('1w HTTP ' + r1w.status);
-    const d15 = await r15.json();
-    const d1w = await r1w.json();
+    const j15 = await r15.json();
+    const j1w = await r1w.json();
+    const d15 = j15.data || [];
+    const d1w = j1w.data || [];
     if (!Array.isArray(d15) || d15.length === 0) throw new Error('No 15m candles');
     if (!Array.isArray(d1w) || d1w.length === 0) throw new Error('No 1w candles');
     return '15m + 1w OK';
@@ -145,9 +150,8 @@ async function main() {
   console.log(`  Passed: ${passed}  Failed: ${failed}`);
   if (failed > 0) {
     console.log('\nNotes:');
-    console.log('  - CoinGecko 429 = rate limit; app falls back to CoinCap/Kraken/Binance.');
-    console.log('  - CoinCap ENOTFOUND = DNS/network (e.g. Render, some VPNs); app uses Kraken/Binance.');
-    console.log('  - Binance 451 = region restricted; app uses CoinGecko history + other price APIs.');
+    console.log('  - CoinGecko 429 = rate limit; app falls back to CoinCap/Kraken/Bitget.');
+    console.log('  - CoinCap ENOTFOUND = DNS/network (e.g. Render, some VPNs); app uses Kraken/Bitget.');
     process.exit(1);
   }
   console.log('\nAll APIs responded correctly.\n');

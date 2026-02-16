@@ -587,11 +587,9 @@
       .then(function(data) {
         if (!data.success || !data.balances) { bitgetEl.textContent = 'Error'; return; }
         var b = data.balances;
-        var tradingType = '<%= (user.liveTrading && user.liveTrading.tradingType) || "futures" %>';
         var amt = 0;
-        if (tradingType === 'spot' && b.spot) amt = b.spot.available || 0;
+        if (b.spot) amt = b.spot.available || 0;
         else if (b.futures) amt = b.futures.available ?? b.futures.equity ?? 0;
-        else if (b.spot) amt = b.spot.available || 0;
         bitgetEl.textContent = '$' + amt.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
       })
       .catch(function() { bitgetEl.textContent = 'Error'; });
