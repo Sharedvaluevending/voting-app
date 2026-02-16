@@ -6,6 +6,7 @@
 
 const { analyzeCoin, ENGINE_CONFIG } = require('./trading-engine');
 const { fetchHistoricalCandlesForCoin, fetchHistoricalKrakenCandles, COIN_META, TRACKED_COINS } = require('./crypto-api');
+const { loadCachedCandles, saveCachedCandles, BYBIT_DELAY_MS } = require('./backtest-cache');
 const fetch = require('node-fetch');
 
 const MIN_SCORE = ENGINE_CONFIG.MIN_SIGNAL_SCORE || 52;
@@ -49,46 +50,54 @@ async function fetchWithTimeout(promise, timeoutMs, label) {
   ]);
 }
 
-async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
+async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
+  options = options || {};
+  const useBybitOnly = options.useBybitOnly === true;
+  const useCache = options.useCache !== false;  // default ON for scripts
+
   const meta = COIN_META[coinId];
   if (!meta?.bybit) return { error: `No Bybit symbol for ${coinId}` };
 
   // Extend start backward to get warmup bars for indicator calculation.
-  // Without warmup, short date ranges (e.g. 3 days) don't have enough candles
-  // for EMA/ATR/ADX to stabilize before the first trade.
-  const warmupMs = WARMUP_BARS * 3600000; // each 1h bar = 3.6M ms
+  const warmupMs = WARMUP_BARS * 3600000;
   const fetchStartMs = startMs - warmupMs;
 
-  // Kraken is primary for backtest (Bybit returns 403 from cloud servers like Render).
-  // Try Kraken first, fall back to Bybit (which works locally).
+  // Check cache first (avoids API calls entirely)
+  if (useCache) {
+    const cached = loadCachedCandles(coinId, fetchStartMs, endMs);
+    if (cached) {
+      console.log(`[Backtest] ${coinId}: loaded from cache (1h=${cached['1h']?.length || 0})`);
+      return cached;
+    }
+  }
+
   let candles1h, candles4h, candles1d;
   let source = 'kraken';
   let krakenError = null;
   let bybitError = null;
 
-  // Try Kraken first (works from cloud servers)
-  try {
-    [candles1h, candles4h, candles1d] = await fetchWithTimeout(
-      Promise.all([
-        fetchHistoricalKrakenCandles(coinId, '1h', fetchStartMs, endMs),
-        fetchHistoricalKrakenCandles(coinId, '4h', fetchStartMs, endMs),
-        fetchHistoricalKrakenCandles(coinId, '1d', fetchStartMs, endMs)
-      ]),
-      PER_COIN_FETCH_TIMEOUT,
-      `${coinId}-kraken`
-    );
-    if (!candles1h || candles1h.length === 0) {
-      krakenError = 'Kraken returned 0 candles';
+  // useBybitOnly: skip Kraken entirely to avoid rate limits
+  if (!useBybitOnly) {
+    try {
+      [candles1h, candles4h, candles1d] = await fetchWithTimeout(
+        Promise.all([
+          fetchHistoricalKrakenCandles(coinId, '1h', fetchStartMs, endMs),
+          fetchHistoricalKrakenCandles(coinId, '4h', fetchStartMs, endMs),
+          fetchHistoricalKrakenCandles(coinId, '1d', fetchStartMs, endMs)
+        ]),
+        PER_COIN_FETCH_TIMEOUT,
+        `${coinId}-kraken`
+      );
+      if (!candles1h || candles1h.length === 0) krakenError = 'Kraken returned 0 candles';
+    } catch (err) {
+      krakenError = `Kraken error: ${err.message}`;
+      console.warn(`[Backtest] ${coinId}: ${krakenError}`);
     }
-  } catch (err) {
-    krakenError = `Kraken error: ${err.message}`;
-    console.warn(`[Backtest] ${coinId}: ${krakenError}`);
   }
 
-  // Fallback to Bybit if Kraken failed (works locally)
-  if (!candles1h || candles1h.length < 50) {
+  if (useBybitOnly || !candles1h || candles1h.length < 50) {
     try {
-      console.log(`[Backtest] ${coinId}: Kraken got ${(candles1h||[]).length} candles, trying Bybit...`);
+      if (!useBybitOnly) console.log(`[Backtest] ${coinId}: trying Bybit...`);
       source = 'bybit';
       [candles1h, candles4h, candles1d] = await fetchWithTimeout(
         Promise.all([
@@ -99,9 +108,7 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
         PER_COIN_FETCH_TIMEOUT,
         coinId
       );
-      if (!candles1h || candles1h.length === 0) {
-        bybitError = 'Bybit returned 0 candles (HTTP 403 - blocked)';
-      }
+      if (!candles1h || candles1h.length === 0) bybitError = 'Bybit returned 0 candles';
     } catch (err) {
       bybitError = `Bybit error: ${err.message}`;
       console.warn(`[Backtest] ${coinId}: ${bybitError}`);
@@ -114,7 +121,6 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
   console.log(`[Backtest] ${coinId}: fetched 1h=${c1h}, 4h=${c4h}, 1d=${c1d} candles [${source}] (${WARMUP_BARS} warmup)`);
 
   if (!candles1h || c1h < 50) {
-    // Build a helpful error with details about what went wrong
     const details = [bybitError, krakenError].filter(Boolean).join('; ');
     const reason = c1h === 0
       ? `No candles from either API. ${details}`
@@ -123,13 +129,15 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs) {
     return { error: reason };
   }
 
-  return {
+  const result = {
     '1h': candles1h,
     '4h': candles4h && c4h >= 5 ? candles4h : null,
     '1d': candles1d && c1d >= 5 ? candles1d : null,
     '15m': null,
     '1w': null
   };
+  if (useCache) saveCachedCandles(coinId, fetchStartMs, endMs, result);
+  return result;
 }
 
 /**
@@ -196,13 +204,20 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const F_CONFIDENCE_SIZING = ft.confidenceSizing !== false;
   const F_FEES = ft.fees !== false;
   const F_SLIPPAGE = ft.slippage !== false;
+  const F_PRICE_ACTION_CONFLUENCE = ft.priceActionConfluence === true;
+  const F_VOLATILITY_FILTER = ft.volatilityFilter === true;
+  const F_VOLUME_CONFIRMATION = ft.volumeConfirmation === true;
   // Close-based stops: use bar close instead of wicks for SL check (matches live system behavior).
   // Live system polls prices (sees close/last), not intra-bar wicks. Default ON = realistic.
   const F_CLOSE_STOPS = ft.closeBasedStops !== false;
   // Minimum SL distance floor: widen stops that are tighter than 1.0 * ATR (prevents noise-level stops)
   const F_MIN_SL = ft.minSlDistance !== false;
 
-  const candles = await fetchHistoricalCandlesMultiTF(coinId, startMs, endMs);
+  const fetchOpts = {
+    useBybitOnly: options.useBybitOnly === true,
+    useCache: options.useCache === true  // Only when explicitly enabled (e.g. massive script)
+  };
+  const candles = await fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, fetchOpts);
   if (!candles || candles.error) return { error: candles?.error || 'Insufficient candles', trades: [], equityCurve: [] };
 
   // If not BTC, also fetch BTC candles for BTC signal + correlation (matches live system)
@@ -274,8 +289,10 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       btcDirection: F_BTC_CORRELATION ? cachedBtcDirection : null,
       btcCandles: F_BTC_CORRELATION && cachedBtcSlice ? cachedBtcSlice['1h'] : null,
       fundingRates: {},
-      // When session filter is OFF, pass a time inside peak hours (15 UTC) so no penalty is applied
-      barTime: F_SESSION_FILTER ? bar.openTime : new Date('2026-01-01T15:00:00Z').getTime()
+      barTime: F_SESSION_FILTER ? bar.openTime : new Date('2026-01-01T15:00:00Z').getTime(),
+      featurePriceActionConfluence: F_PRICE_ACTION_CONFLUENCE,
+      featureVolatilityFilter: F_VOLATILITY_FILTER,
+      featureVolumeConfirmation: F_VOLUME_CONFIRMATION
     };
 
     // === POSITION MANAGEMENT: mirrors live paper-trading.js 1:1 ===
@@ -409,7 +426,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             direction: position.direction, entry: position.entry, exit: exitPrice,
             entryBar: position.entryBar, exitBar: t + 1, reason: 'SCORE_EXIT',
             pnl: (position.partialPnl || 0) + pnl, size: position.originalSize,
-            partials: position.partialPnl || 0, actions: [...position.actions]
+            partials: position.partialPnl || 0, actions: [...position.actions],
+            strategy: position.entryStrategy || 'Unknown'
           });
           position = null;
           continue;
@@ -490,7 +508,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
           direction: position.direction, entry: position.entry, exit: exitPrice,
           entryBar: position.entryBar, exitBar: t + 1, reason: 'SL',
           pnl: (position.partialPnl || 0) + pnl, size: position.originalSize,
-          partials: position.partialPnl || 0, actions: [...position.actions]
+          partials: position.partialPnl || 0, actions: [...position.actions],
+          strategy: position.entryStrategy || 'Unknown'
         });
         position = null;
         continue;
@@ -515,7 +534,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
               direction: position.direction, entry: position.entry, exit: exitPrice,
               entryBar: position.entryBar, exitBar: t + 1, reason: 'TP1',
               pnl: (position.partialPnl || 0) + pnl, size: position.originalSize,
-              partials: position.partialPnl || 0, actions: [...position.actions]
+              partials: position.partialPnl || 0, actions: [...position.actions],
+              strategy: position.entryStrategy || 'Unknown'
             });
             position = null;
             continue;
@@ -546,7 +566,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
                 direction: position.direction, entry: position.entry, exit: exitPrice,
                 entryBar: position.entryBar, exitBar: t + 1, reason: 'TP1',
                 pnl: totalPnl, size: position.originalSize, partials: 0,
-                actions: [...position.actions]
+                actions: [...position.actions],
+                strategy: position.entryStrategy || 'Unknown'
               });
               position = null;
               continue;
@@ -583,7 +604,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
                 direction: position.direction, entry: position.entry, exit: exitPrice,
                 entryBar: position.entryBar, exitBar: t + 1, reason: 'TP2',
                 pnl: (position.partialPnl || 0) + remainPnl, size: position.originalSize,
-                partials: position.partialPnl || 0, actions: [...position.actions]
+                partials: position.partialPnl || 0, actions: [...position.actions],
+                strategy: position.entryStrategy || 'Unknown'
               });
               position = null;
               continue;
@@ -612,7 +634,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
               direction: position.direction, entry: position.entry, exit: exitPrice,
               entryBar: position.entryBar, exitBar: t + 1, reason: 'TP3',
               pnl: (position.partialPnl || 0) + pnl, size: position.originalSize,
-              partials: position.partialPnl || 0, actions: [...position.actions]
+              partials: position.partialPnl || 0, actions: [...position.actions],
+              strategy: position.entryStrategy || 'Unknown'
             });
             position = null;
             continue;
@@ -640,10 +663,11 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 
     const direction = canLong ? 'LONG' : 'SHORT';
 
-    // === COOLDOWN: no same-direction re-entry within COOLDOWN_BARS (mirrors live) ===
+    // === COOLDOWN: no same-direction re-entry within N bars (mirrors live) ===
+    const cooldownBars = options.cooldownBars ?? COOLDOWN_BARS;
     if (F_COOLDOWN && trades.length > 0) {
       const lastTrade = trades[trades.length - 1];
-      if (lastTrade.direction === direction && (t + 1 - lastTrade.exitBar) < COOLDOWN_BARS) {
+      if (lastTrade.direction === direction && (t + 1 - lastTrade.exitBar) < cooldownBars) {
         continue; // Still in cooldown
       }
     }
@@ -652,14 +676,15 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     const rawEntry = nextBar.open;
     const entry = F_SLIPPAGE ? (direction === 'LONG' ? rawEntry * slipMul : rawEntry / slipMul) : rawEntry;
 
-    // === SL DISTANCE CAP: max 15% from entry (mirrors live MAX_SL_DISTANCE_PCT) ===
+    // === SL DISTANCE CAP: max N% from entry (mirrors live MAX_SL_DISTANCE_PCT) ===
+    const maxSlPct = options.maxSlDistancePct ?? MAX_SL_DISTANCE_PCT;
     let stopLoss = signal.stopLoss;
     if (F_SL_CAP && entry > 0) {
       const slDistance = Math.abs(entry - stopLoss) / entry;
-      if (slDistance > MAX_SL_DISTANCE_PCT) {
+      if (slDistance > maxSlPct) {
         stopLoss = direction === 'LONG'
-          ? entry * (1 - MAX_SL_DISTANCE_PCT)
-          : entry * (1 + MAX_SL_DISTANCE_PCT);
+          ? entry * (1 - maxSlPct)
+          : entry * (1 + maxSlPct);
       }
     }
 
@@ -729,6 +754,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       entry,
       entryBar: t + 1,
       entryScore: signal.score,
+      entryStrategy: signal.strategyName || 'Unknown',
       stopLoss,
       originalSL: stopLoss,
       takeProfit1: tp1,
@@ -765,7 +791,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       direction: position.direction, entry: position.entry, exit: exitPrice,
       entryBar: position.entryBar, exitBar: c1h.length - 1, reason: 'END',
       pnl: (position.partialPnl || 0) + pnl, size: position.originalSize,
-      partials: position.partialPnl || 0, actions: [...(position.actions || [])]
+      partials: position.partialPnl || 0, actions: [...(position.actions || [])],
+      strategy: position.entryStrategy || 'Unknown'
     });
     position = null;
   }
@@ -800,6 +827,25 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const exitReasons = {};
   trades.forEach(t => { exitReasons[t.reason] = (exitReasons[t.reason] || 0) + 1; });
 
+  // Strategy breakdown (which strategy triggered each trade)
+  const strategyBreakdown = {};
+  trades.forEach(t => {
+    const s = t.strategy || 'Unknown';
+    if (!strategyBreakdown[s]) strategyBreakdown[s] = { trades: 0, pnl: 0, wins: 0 };
+    strategyBreakdown[s].trades++;
+    strategyBreakdown[s].pnl += t.pnl;
+    if (t.pnl > 0) strategyBreakdown[s].wins++;
+  });
+
+  // Sharpe ratio (annualized, using per-trade returns as % of initial balance)
+  const tradeReturns = trades.map(t => (t.pnl / INITIAL_BALANCE) * 100);
+  const meanRet = tradeReturns.length > 0 ? tradeReturns.reduce((a, b) => a + b, 0) / tradeReturns.length : 0;
+  const variance = tradeReturns.length > 1
+    ? tradeReturns.reduce((s, r) => s + Math.pow(r - meanRet, 2), 0) / (tradeReturns.length - 1)
+    : 0;
+  const stdRet = Math.sqrt(variance) || 0.0001;
+  const sharpeRatio = stdRet > 0 ? (meanRet / stdRet) * Math.sqrt(tradeReturns.length) : 0;
+
   return {
     coinId,
     symbol: COIN_META[coinId]?.symbol,
@@ -818,6 +864,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     equityCurve,
     maxDrawdown: computeMaxDrawdown(equityCurve),
     maxDrawdownPct: computeMaxDrawdownPct(equityCurve),
+    sharpeRatio,
+    strategyBreakdown,
     actionCounts,
     exitReasons
   };

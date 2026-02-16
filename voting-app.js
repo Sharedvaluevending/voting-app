@@ -390,7 +390,8 @@ app.post('/reset-password', guestOnly, async (req, res) => {
 });
 
 // Build engine options: strategy weights, BTC signal, strategy stats, funding rates, BTC candles
-async function buildEngineOptions(prices, allCandles, allHistory) {
+// Optional user: when provided, merges feature toggles (quality filters) for paper/live trades
+async function buildEngineOptions(prices, allCandles, allHistory, user) {
   const strategyWeights = await StrategyWeight.find({ active: true }).lean();
   const strategyStats = {};
   strategyWeights.forEach(s => {
@@ -411,7 +412,15 @@ async function buildEngineOptions(prices, allCandles, allHistory) {
   }
   // Funding rates for contrarian signal
   const fundingRates = getAllFundingRates();
-  return { strategyWeights, strategyStats, btcSignal, btcCandles, btcDirection, fundingRates };
+  const opts = { strategyWeights, strategyStats, btcSignal, btcCandles, btcDirection, fundingRates };
+  // User-specific quality filters (for paper/live)
+  if (user?.settings) {
+    const s = user.settings;
+    opts.featurePriceActionConfluence = s.featurePriceActionConfluence === true;
+    opts.featureVolatilityFilter = s.featureVolatilityFilter === true;
+    opts.featureVolumeConfirmation = s.featureVolumeConfirmation === true;
+  }
+  return opts;
 }
 
 // ====================================================
@@ -425,7 +434,13 @@ app.get('/', async (req, res) => {
       fetchAllHistory()
     ]);
     const pricesMerged = mergeWebSocketPrices(prices);
-    const options = await buildEngineOptions(pricesMerged, allCandles, allHistory);
+    let dashUser = null;
+    if (req.session?.userId) {
+      try {
+        dashUser = await User.findById(req.session.userId).select('excludedCoins settings').lean();
+      } catch (e) { /* ignore */ }
+    }
+    const options = await buildEngineOptions(pricesMerged, allCandles, allHistory, dashUser);
     const signals = analyzeAllCoins(pricesMerged, allCandles, allHistory, options);
 
     // Record score history for each coin (for score evolution tracking)
@@ -449,11 +464,8 @@ app.get('/', async (req, res) => {
 
     // Fetch user's excluded coins if logged in
     let excludedCoins = [];
-    if (req.session?.userId) {
-      try {
-        const dashUser = await User.findById(req.session.userId).select('excludedCoins').lean();
-        excludedCoins = dashUser?.excludedCoins || [];
-      } catch (e) { /* ignore */ }
+    if (dashUser) {
+      excludedCoins = dashUser.excludedCoins || [];
     }
 
     // Top 5 coins from latest backtest (for "Top performer" badge)
@@ -660,17 +672,16 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       return res.redirect('/trades?error=' + encodeURIComponent('Price data not available'));
     }
 
-    const [allCandles, allHistory, livePrice] = await Promise.all([
+    const [allCandles, allHistory, livePrice, user] = await Promise.all([
       Promise.resolve(fetchAllCandles()),
       fetchAllHistory(),
-      fetchLivePrice(coinId)
+      fetchLivePrice(coinId),
+      User.findById(req.session.userId).lean()
     ]);
-    const options = await buildEngineOptions(await fetchAllPrices(), allCandles, allHistory);
+    const options = await buildEngineOptions(await fetchAllPrices(), allCandles, allHistory, user);
     const candles = fetchCandles(coinId);
     const history = allHistory[coinId] || { prices: [], volumes: [] };
     const signal = analyzeCoin(coinData, candles, history, options);
-
-    const user = await User.findById(req.session.userId).lean();
     const useScore = parseInt(score, 10) || signal.score || 0;
     const signalLev = signal.suggestedLeverage || suggestLeverage(useScore, signal.regime || 'mixed', 'normal');
     const useFixed = user?.settings?.useFixedLeverage;
@@ -969,6 +980,9 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
     s.featureSlCap = req.body.featureSlCap ? parseBool(req.body.featureSlCap) : false;
     s.featureMinSlDistance = req.body.featureMinSlDistance ? parseBool(req.body.featureMinSlDistance) : false;
     s.featureConfidenceSizing = req.body.featureConfidenceSizing ? parseBool(req.body.featureConfidenceSizing) : false;
+    s.featurePriceActionConfluence = req.body.featurePriceActionConfluence ? parseBool(req.body.featurePriceActionConfluence) : false;
+    s.featureVolatilityFilter = req.body.featureVolatilityFilter ? parseBool(req.body.featureVolatilityFilter) : false;
+    s.featureVolumeConfirmation = req.body.featureVolumeConfirmation ? parseBool(req.body.featureVolumeConfirmation) : false;
 
     // BE and TS are shared with existing settings
     if (req.body.autoMoveBreakeven !== undefined) {
@@ -1964,46 +1978,41 @@ async function runAutoTrade() {
       fetchAllHistory()
     ]);
     if (!prices || prices.length === 0) return;
-    const options = await buildEngineOptions(prices, allCandles, allHistory);
-    const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
-    if (!signals || signals.length === 0) return;
 
     // For each signal, find the best strategy and its score/direction
     // The overall coin score (e.g. 57) can be lower than individual strategies (e.g. Position at 72)
     // Auto-trade should use the BEST strategy score since that's what the trader would pick
-    const signalsWithBestStrategy = signals.map(sig => {
-      const coinId = sig.coin?.id || sig.id;
-      let bestScore = sig.score || 0;
-      let bestStrat = null;
-      let direction = null;
-
-      // Check topStrategies for a higher-scoring strategy with a clear direction
-      if (sig.topStrategies && Array.isArray(sig.topStrategies)) {
-        for (const strat of sig.topStrategies) {
-          const stratScore = strat.score || 0;
-          const stratSignal = strat.signal || '';
-          // Only consider strategies with a directional signal
-          if (stratSignal === 'STRONG_BUY' || stratSignal === 'BUY' || stratSignal === 'STRONG_SELL' || stratSignal === 'SELL') {
-            if (stratScore > bestScore || !bestStrat) {
-              bestScore = stratScore;
-              bestStrat = strat;
-              direction = (stratSignal === 'STRONG_BUY' || stratSignal === 'BUY') ? 'LONG' : 'SHORT';
-            }
-          }
-        }
-      }
-
-      // Fallback to overall signal direction if no strategy qualified
-      if (!direction) {
-        if (sig.signal === 'STRONG_BUY' || sig.signal === 'BUY') direction = 'LONG';
-        else if (sig.signal === 'STRONG_SELL' || sig.signal === 'SELL') direction = 'SHORT';
-      }
-
-      return { ...sig, _bestScore: bestScore, _bestStrat: bestStrat, _direction: direction, _coinId: coinId };
-    });
-
     for (const user of autoTradeUsers) {
       try {
+        const options = await buildEngineOptions(prices, allCandles, allHistory, user);
+        const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
+        if (!signals || signals.length === 0) continue;
+
+        const signalsWithBestStrategy = signals.map(sig => {
+          const coinId = sig.coin?.id || sig.id;
+          let bestScore = sig.score || 0;
+          let bestStrat = null;
+          let direction = null;
+
+          if (sig.topStrategies && Array.isArray(sig.topStrategies)) {
+            for (const strat of sig.topStrategies) {
+              const stratScore = strat.score || 0;
+              const stratSignal = strat.signal || '';
+              if (stratSignal === 'STRONG_BUY' || stratSignal === 'BUY' || stratSignal === 'STRONG_SELL' || stratSignal === 'SELL') {
+                if (stratScore > bestScore || !bestStrat) {
+                  bestScore = stratScore;
+                  bestStrat = strat;
+                  direction = (stratSignal === 'STRONG_BUY' || stratSignal === 'BUY') ? 'LONG' : 'SHORT';
+                }
+              }
+            }
+          }
+          if (!direction) {
+            if (sig.signal === 'STRONG_BUY' || sig.signal === 'BUY') direction = 'LONG';
+            else if (sig.signal === 'STRONG_SELL' || sig.signal === 'SELL') direction = 'SHORT';
+          }
+          return { ...sig, _bestScore: bestScore, _bestStrat: bestStrat, _direction: direction, _coinId: coinId };
+        });
         // Use paper trading min score from settings, fallback to exchange setting, then default 70
         const minScore = user.settings?.autoTradeMinScore ?? user.liveTrading?.autoOpenMinScore ?? 70;
         const maxOpen = user.settings?.maxOpenTrades || 3;

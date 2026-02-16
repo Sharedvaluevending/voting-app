@@ -37,7 +37,11 @@ const userSchema = new mongoose.Schema({
     featureScoreRecheck: { type: Boolean, default: true },
     featureSlCap: { type: Boolean, default: true },
     featureMinSlDistance: { type: Boolean, default: true },
-    featureConfidenceSizing: { type: Boolean, default: true }
+    featureConfidenceSizing: { type: Boolean, default: true },
+    // Quality filters: require price-action confluence, skip extreme vol, require volume
+    featurePriceActionConfluence: { type: Boolean, default: false },
+    featureVolatilityFilter: { type: Boolean, default: false },
+    featureVolumeConfirmation: { type: Boolean, default: false }
   },
   excludedCoins: [{ type: String }], // Coins excluded from auto-trade (e.g. ['dogecoin', 'cardano']),
   // Coin weights from backtest (1.0 = normal, 1.2 = 20% more allocation, 0.8 = 20% less)

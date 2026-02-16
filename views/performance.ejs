@@ -232,6 +232,17 @@
         <label class="ft-toggle" title="Higher score = slightly larger position (0.5 + score/100, cap 1.2x)">
           <input type="checkbox" name="featureConfidenceSizing" value="true" <%= (user.settings && user.settings.featureConfidenceSizing) !== false ? 'checked' : '' %>> <span class="ft-badge ft-cost">SIZE</span> Confidence Sizing
         </label>
+
+        <!-- Quality Filters -->
+        <label class="ft-toggle" title="Require at least one of: order block, FVG, or liquidity cluster. Reduces trades without structure.">
+          <input type="checkbox" name="featurePriceActionConfluence" value="true" <%= (user.settings && user.settings.featurePriceActionConfluence) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Price-Action Confluence (OB/FVG/Liq)
+        </label>
+        <label class="ft-toggle" title="Skip entries when volatility is extreme. Reduces blow-ups in chaotic markets.">
+          <input type="checkbox" name="featureVolatilityFilter" value="true" <%= (user.settings && user.settings.featureVolatilityFilter) === true ? 'checked' : '' %>> <span class="ft-badge ft-risk">QUALITY</span> Volatility Filter (skip extreme)
+        </label>
+        <label class="ft-toggle" title="Require relative volume &gt; 1.0. Avoids entries on thin, low-conviction moves.">
+          <input type="checkbox" name="featureVolumeConfirmation" value="true" <%= (user.settings && user.settings.featureVolumeConfirmation) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Volume Confirmation
+        </label>
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <button type="button" class="btn btn-sm" onclick="setLiveToggles(true)" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:4px;cursor:pointer;">All ON</button>
@@ -719,7 +730,10 @@ function setLiveToggles(val) {
         minSlDistance: 'featureMinSlDistance',
         scoreRecheck: 'featureScoreRecheck',
         slCap: 'featureSlCap',
-        confidenceSizing: 'featureConfidenceSizing'
+        confidenceSizing: 'featureConfidenceSizing',
+        priceActionConfluence: 'featurePriceActionConfluence',
+        volatilityFilter: 'featureVolatilityFilter',
+        volumeConfirmation: 'featureVolumeConfirmation'
       };
       for (var key in mapping) {
         var input = document.querySelector('#feature-toggles-form input[name="' + mapping[key] + '"]');

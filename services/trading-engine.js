@@ -246,6 +246,26 @@ function analyzeWithCandles(coinData, candles, options) {
     }
   }
 
+  // Quality filters (optional, from options.feature*)
+  if (signal !== 'HOLD') {
+    const reqPriceAction = options.featurePriceActionConfluence === true;
+    const reqVolFilter = options.featureVolatilityFilter === true;
+    const reqVolume = options.featureVolumeConfirmation === true;
+    if (reqPriceAction) {
+      const hasOB = (tf1h.orderBlocks?.length || tf4h.orderBlocks?.length || 0) > 0;
+      const hasFVG = (tf1h.fvgs?.length || tf4h.fvgs?.length || 0) > 0;
+      const hasLiq = (tf1h.liquidityClusters && (tf1h.liquidityClusters.above != null || tf1h.liquidityClusters.below != null)) ||
+        (tf4h.liquidityClusters && (tf4h.liquidityClusters.above != null || tf4h.liquidityClusters.below != null));
+      if (!hasOB && !hasFVG && !hasLiq) { signal = 'HOLD'; strength = finalScore; }
+    }
+    if (reqVolFilter && (tf1h.volatilityState === 'extreme' || tf4h.volatilityState === 'extreme')) {
+      signal = 'HOLD'; strength = finalScore;
+    }
+    if (reqVolume && (tf1h.relativeVolume || 0) < 1.0) {
+      signal = 'HOLD'; strength = finalScore;
+    }
+  }
+
   // Strategy-specific direction: use the timeframes that strategy actually uses
   const stratDirMap = {
     scalping: scores15m ? [scores15m, scores1h] : [scores1h],

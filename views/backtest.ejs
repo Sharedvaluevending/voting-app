@@ -97,6 +97,17 @@
         <input type="checkbox" id="ft-cooldown" checked> <span class="ft-badge ft-risk">RISK</span> 4h Cooldown
       </label>
 
+      <!-- Quality Filters -->
+      <label class="ft-toggle" title="Require at least one of: order block, FVG, or liquidity cluster">
+        <input type="checkbox" id="ft-priceActionConfluence"> <span class="ft-badge ft-signal">QUALITY</span> Price-Action Confluence (OB/FVG/Liq)
+      </label>
+      <label class="ft-toggle" title="Skip entries when volatility is extreme">
+        <input type="checkbox" id="ft-volatilityFilter"> <span class="ft-badge ft-risk">QUALITY</span> Volatility Filter (skip extreme)
+      </label>
+      <label class="ft-toggle" title="Require relative volume &gt; 1.0">
+        <input type="checkbox" id="ft-volumeConfirmation"> <span class="ft-badge ft-signal">QUALITY</span> Volume Confirmation
+      </label>
+
       <!-- Sizing & Costs -->
       <label class="ft-toggle" title="Higher score = slightly larger position (0.5 + score/100, cap 1.2x)">
         <input type="checkbox" id="ft-confidenceSizing" checked> <span class="ft-badge ft-cost">SIZE</span> Confidence Sizing
@@ -244,6 +255,9 @@ function getFeatureFlags() {
     slCap: document.getElementById('ft-slCap').checked,
     cooldown: document.getElementById('ft-cooldown').checked,
     confidenceSizing: document.getElementById('ft-confidenceSizing').checked,
+    priceActionConfluence: document.getElementById('ft-priceActionConfluence').checked,
+    volatilityFilter: document.getElementById('ft-volatilityFilter').checked,
+    volumeConfirmation: document.getElementById('ft-volumeConfirmation').checked,
     fees: document.getElementById('ft-fees').checked,
     slippage: document.getElementById('ft-slippage').checked,
     closeBasedStops: document.getElementById('ft-closeBasedStops').checked,
