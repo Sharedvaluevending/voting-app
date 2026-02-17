@@ -2,11 +2,13 @@
 // ====================================================
 // ROBUST HISTORICAL BACKTEST
 // Fetches historical candles, walks bar-by-bar, simulates trades.
+// Uses realism-first engine (SignalEngine, RiskEngine, ManageEngine) when useNewEngine.
 // ====================================================
 
 const { analyzeCoin, ENGINE_CONFIG } = require('./trading-engine');
 const { fetchHistoricalCandlesForCoin, fetchHistoricalKrakenCandles, COIN_META, TRACKED_COINS } = require('./crypto-api');
 const { loadCachedCandles, saveCachedCandles, BYBIT_DELAY_MS } = require('./backtest-cache');
+const { runBacktestForCoin: runBacktestForCoinNew } = require('./backtest/run-backtest');
 const fetch = require('node-fetch');
 
 const MIN_SCORE = ENGINE_CONFIG.MIN_SIGNAL_SCORE || 52;
@@ -182,11 +184,24 @@ function buildCoinData(coinId, candles, t) {
 
 /**
  * Run backtest for one coin.
- * Mirrors the live system: analyzes BTC at each bar to get btcSignal/btcDirection,
- * passes BTC candles for correlation penalty, applies the same filters.
+ * Uses realism-first engine (SignalEngine, RiskEngine, ManageEngine) when useNewEngine !== false.
  */
 async function runBacktestForCoin(coinId, startMs, endMs, options) {
   options = options || {};
+  const useNewEngine = options.useNewEngine !== false;
+
+  const fetchOpts = {
+    useBitgetOnly: options.useBitgetOnly === true,
+    useCache: options.useCache === true
+  };
+  const candles = await fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, fetchOpts);
+  if (!candles || candles.error) return { error: candles?.error || 'Insufficient candles', trades: [], equityCurve: [] };
+
+  if (useNewEngine) {
+    return runBacktestForCoinNew(coinId, startMs, endMs, { ...options, candles, btcCandles: options.btcCandles });
+  }
+
+  // === LEGACY BACKTEST (useNewEngine: false) ===
   const minScore = options.minScore ?? MIN_SCORE;
   const leverage = options.leverage ?? DEFAULT_LEVERAGE;
   const initialBalance = options.initialBalance ?? INITIAL_BALANCE;
@@ -194,7 +209,6 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const riskPerTrade = options.riskPerTrade ?? (RISK_PER_TRADE * 100); // 2% -> 2
   const riskDollarsPerTrade = options.riskDollarsPerTrade ?? 200;
 
-  // === FEATURE FLAGS: all default to true (full parity with live) ===
   const ft = options.features || {};
   const F_BTC_FILTER = ft.btcFilter !== false;
   const F_BTC_CORRELATION = ft.btcCorrelation !== false;
@@ -212,31 +226,18 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const F_PRICE_ACTION_CONFLUENCE = ft.priceActionConfluence === true;
   const F_VOLATILITY_FILTER = ft.volatilityFilter === true;
   const F_VOLUME_CONFIRMATION = ft.volumeConfirmation === true;
-  // Close-based stops: use bar close instead of wicks for SL check (matches live system behavior).
-  // Live system polls prices (sees close/last), not intra-bar wicks. Default ON = realistic.
   const F_CLOSE_STOPS = ft.closeBasedStops !== false;
-  // Minimum SL distance floor: widen stops that are tighter than 1.0 * ATR (prevents noise-level stops)
   const F_MIN_SL = ft.minSlDistance !== false;
-  // Trailing TP mode: trail from entry instead of fixed TPs
   const F_TRAILING_TP = ft.trailingTp === true;
   const trailingTpDistMode = ft.trailingTpDistanceMode || 'atr';
   const trailingTpAtrMult = ft.trailingTpAtrMultiplier ?? 1.5;
   const trailingTpFixedPct = ft.trailingTpFixedPercent ?? 2;
-  // DCA: add to losing positions when signal re-confirms
   const F_DCA = ft.dca === true;
   const dcaMaxAdds = ft.dcaMaxAdds ?? 3;
   const dcaDipPct = ft.dcaDipPercent ?? 2;
   const dcaAddSizePct = ft.dcaAddSizePercent ?? 100;
   const dcaMinScore = ft.dcaMinScore ?? 52;
 
-  const fetchOpts = {
-    useBitgetOnly: options.useBitgetOnly === true,
-    useCache: options.useCache === true  // Only when explicitly enabled (e.g. massive script)
-  };
-  const candles = await fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, fetchOpts);
-  if (!candles || candles.error) return { error: candles?.error || 'Insufficient candles', trades: [], equityCurve: [] };
-
-  // If not BTC, also fetch BTC candles for BTC signal + correlation (matches live system)
   let btcCandles = null;
   if (coinId !== 'bitcoin' && options.btcCandles && (F_BTC_FILTER || F_BTC_CORRELATION)) {
     btcCandles = options.btcCandles;

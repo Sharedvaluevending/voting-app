@@ -6,6 +6,7 @@
     "start": "node voting-app.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "test:apis": "node scripts/test-apis.js",
+    "test:backtest": "node tests/backtest/time-alignment.test.js && node tests/backtest/fill-rules.test.js && node tests/backtest/determinism.test.js && node tests/backtest/trade-state.test.js",
     "generate-vapid": "node scripts/generate-vapid.js"
   },
   "keywords": [

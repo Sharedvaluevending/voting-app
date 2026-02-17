@@ -10,6 +10,7 @@ const Trade = require('../models/Trade');
 const User = require('../models/User');
 const { recordTradeOutcome, adjustWeights } = require('./learning-engine');
 const bitget = require('./bitget');
+const { plan: riskEnginePlan } = require('./engines/risk-engine');
 
 const DEFAULT_MAKER_FEE = 0.001;
 const DEFAULT_TAKER_FEE = 0.001;
@@ -153,130 +154,61 @@ async function openTrade(userId, signalData) {
     throw new Error(`Max open trades reached (${user.settings?.maxOpenTrades || 3}). Close a trade first.`);
   }
 
-  // If user has disabled leverage, force 1x regardless of signal/default
-  const leverage = user.settings?.disableLeverage ? 1 : (signalData.leverage || user.settings?.defaultLeverage || 1);
-  const riskPercent = user.settings?.riskPerTrade || 2;
-  const riskMode = user.settings?.riskMode || 'percent';
-  const riskDollarsPerTrade = user.settings?.riskDollarsPerTrade ?? 200;
-  const maxBalancePct = user.settings?.maxBalancePercentPerTrade ?? 25;
-  // Slippage: worse entry (LONG pay more, SHORT receive less)
-  const slippage = 1 + (SLIPPAGE_BPS / 10000);
-  const entryPrice = signalData.direction === 'LONG'
-    ? signalData.entry * slippage
-    : signalData.entry / slippage;
-  let stopLoss = signalData.stopLoss;
-
   const ff = getFeatureFlags(user);
 
-  // CAP STOP LOSS DISTANCE: prevent absurdly wide stops (max 15% from entry)
-  const MAX_SL_DISTANCE_PCT = 0.15;
-  if (ff.slCap && stopLoss != null && entryPrice > 0) {
-    const slDistance = Math.abs(entryPrice - stopLoss) / entryPrice;
-    if (slDistance > MAX_SL_DISTANCE_PCT) {
-      const cappedSL = signalData.direction === 'LONG'
-        ? entryPrice * (1 - MAX_SL_DISTANCE_PCT)
-        : entryPrice * (1 + MAX_SL_DISTANCE_PCT);
-      console.warn(`[OpenTrade] ${signalData.symbol}: SL too far (${(slDistance * 100).toFixed(1)}% from entry). Capping: $${stopLoss} → $${cappedSL.toFixed(6)}`);
-      stopLoss = parseFloat(cappedSL.toFixed(6));
+  // Use RiskEngine.plan for sizing/levels (single-engine: same logic as backtest)
+  const decision = {
+    side: signalData.direction,
+    coinId: signalData.coinId,
+    symbol: signalData.symbol,
+    entry: signalData.entry,
+    stopLoss: signalData.stopLoss,
+    takeProfit1: signalData.takeProfit1,
+    takeProfit2: signalData.takeProfit2,
+    takeProfit3: signalData.takeProfit3,
+    score: signalData.score,
+    strategy: signalData.strategyType,
+    indicators: signalData.indicators || {},
+    suggestedLeverage: signalData.leverage || suggestLeverage(signalData.score, signalData.regime, signalData.indicators?.volatilityState)
+  };
+  const context = {
+    balance: user.paperBalance,
+    openTrades: [],
+    streak: user.stats?.currentStreak || 0,
+    strategyStats: signalData.strategyStats || {},
+    featureFlags: ff,
+    userSettings: {
+      riskPerTrade: user.settings?.riskPerTrade || 2,
+      riskMode: user.settings?.riskMode || 'percent',
+      riskDollarsPerTrade: user.settings?.riskDollarsPerTrade ?? 200,
+      defaultLeverage: user.settings?.defaultLeverage || 1,
+      disableLeverage: user.settings?.disableLeverage,
+      maxBalancePercentPerTrade: user.settings?.maxBalancePercentPerTrade ?? 25,
+      makerFeePercent: user.settings?.makerFeePercent,
+      takerFeePercent: user.settings?.takerFeePercent,
+      tpMode: user.settings?.tpMode || 'fixed',
+      trailingTpDistanceMode: user.settings?.trailingTpDistanceMode || 'atr',
+      trailingTpAtrMultiplier: user.settings?.trailingTpAtrMultiplier ?? 1.5,
+      trailingTpFixedPercent: user.settings?.trailingTpFixedPercent ?? 2
     }
+  };
+  const orders = riskEnginePlan(decision, { coinData: { price: signalData.entry } }, context);
+  if (!orders) {
+    throw new Error('Insufficient balance. Your paper balance is zero. Reset your paper account from the Performance page.');
   }
 
-  // Validate SL is on the correct side of entry — wrong-side SL causes instant stop-out
-  if (stopLoss != null && entryPrice > 0) {
-    const wrongSide = (signalData.direction === 'LONG' && stopLoss >= entryPrice)
-                    || (signalData.direction === 'SHORT' && stopLoss <= entryPrice);
-    if (wrongSide) {
-      console.warn(`[OpenTrade] ${signalData.symbol}: SL $${stopLoss} on wrong side of entry $${entryPrice} for ${signalData.direction} — using default 2% distance`);
-      stopLoss = signalData.direction === 'LONG'
-        ? entryPrice * 0.98
-        : entryPrice * 1.02;
-    }
-  }
-
-  // MIN SL DISTANCE: prevent noise-level stops (1x ATR floor)
-  if (ff.minSlDistance && signalData.indicators?.atr > 0) {
-    const minSlDist = signalData.indicators.atr * 1.0;
-    const currentSlDist = Math.abs(entryPrice - stopLoss);
-    if (currentSlDist < minSlDist) {
-      stopLoss = signalData.direction === 'LONG'
-        ? entryPrice - minSlDist
-        : entryPrice + minSlDist;
-    }
-  }
-
-  let positionSize = calculatePositionSize(
-    user.paperBalance, riskPercent, entryPrice, stopLoss, leverage,
-    { riskMode, riskDollarsPerTrade }
-  );
-  // Confidence-weighted size: scale by score (0.5 + score/100), cap 1.2
-  if (ff.confidenceSizing) {
-    const score = Math.min(100, Math.max(0, signalData.score || 50));
-    const confidenceMult = Math.min(1.2, 0.5 + score / 100);
-    positionSize = positionSize * confidenceMult;
-  }
-
-  // Win/loss streak adjustment: reduce size after consecutive losses, slight boost after wins
-  const streak = user.stats?.currentStreak || 0;
-  if (streak <= -3) {
-    // 3+ consecutive losses: reduce position by 40%
-    positionSize *= 0.6;
-  } else if (streak <= -2) {
-    // 2 consecutive losses: reduce by 25%
-    positionSize *= 0.75;
-  } else if (streak >= 3) {
-    // 3+ wins: small boost (max 15%)
-    positionSize *= Math.min(1.15, 1 + streak * 0.03);
-  }
-
-  // Kelly criterion sizing: uses strategy win rate & avg R:R from learning engine
-  // Kelly% = W - (1-W)/R, where W=winRate, R=avgRR
-  // We use fractional Kelly (25%) to be conservative
-  if (signalData.strategyStats) {
-    const strat = signalData.strategyStats[signalData.strategyType];
-    if (strat && strat.totalTrades >= 15 && strat.winRate > 0 && strat.avgRR > 0) {
-      const w = strat.winRate / 100;
-      const r = strat.avgRR;
-      const kellyFull = w - ((1 - w) / r);
-      if (kellyFull > 0) {
-        const kellyFraction = Math.min(0.25, kellyFull * 0.25);  // 25% of Kelly, cap at 25%
-        const kellySize = user.paperBalance * kellyFraction * leverage;
-        // Use the smaller of risk-based and Kelly-based sizing
-        positionSize = Math.min(positionSize, kellySize);
-      } else if (kellyFull < -0.1) {
-        // Negative Kelly = strategy is losing money, reduce size by 50%
-        positionSize *= 0.5;
-      }
-    }
-  }
-
-  // Cap margin to max % of balance so we don't use all balance on one trade
-  const maxMarginByPct = user.paperBalance * (Math.min(100, Math.max(5, maxBalancePct)) / 100);
-  const maxPositionByMarginPct = maxMarginByPct * leverage;
-  positionSize = Math.min(positionSize, Math.max(0, maxPositionByMarginPct));
-
-  const makerFee = getMakerFee(user);
-  // Cap so margin + fees never exceed balance (leave $0.50 buffer for rounding)
-  const maxSpend = Math.max(0, user.paperBalance - 0.50);
-  const maxPositionFromBalance = maxSpend / (1 / leverage + makerFee);
-  positionSize = Math.min(positionSize, Math.max(0, maxPositionFromBalance));
-
-  // If still invalid or zero, use a small size that fits in balance
-  if (!Number.isFinite(positionSize) || positionSize <= 0) {
-    positionSize = Math.min(user.paperBalance * 0.02 * leverage, maxPositionFromBalance);
-  }
-
-  let margin = positionSize / leverage;
-  let fees = positionSize * makerFee;
-  let required = margin + fees;
-
-  // Final safety: if required still exceeds balance (e.g. rounding), shrink position until it fits
-  if (required > user.paperBalance && user.paperBalance > 0) {
-    const maxPosByBalance = (user.paperBalance - 0.01) / (1 / leverage + makerFee);
-    positionSize = Math.min(positionSize, Math.max(0, maxPosByBalance));
-    margin = positionSize / leverage;
-    fees = positionSize * makerFee;
-    required = margin + fees;
-  }
+  const leverage = orders.leverage;
+  const entryPrice = orders.entry;
+  const stopLoss = orders.stopLoss;
+  const positionSize = orders.size;
+  const margin = orders.margin;
+  const fees = orders.fees;
+  const required = margin + fees;
+  const tpMode = orders.tpMode || 'fixed';
+  let trailingTpDistance = orders.trailingTpDistance;
+  let safeTP1 = orders.takeProfit1;
+  let safeTP2 = orders.takeProfit2;
+  let safeTP3 = orders.takeProfit3;
 
   if (user.paperBalance <= 0) {
     throw new Error('Insufficient balance. Your paper balance is zero. Reset your paper account from the Performance page.');
@@ -285,30 +217,11 @@ async function openTrade(userId, signalData) {
     throw new Error(`Insufficient balance. Need $${required.toFixed(2)}, have $${user.paperBalance.toFixed(2)}. Try resetting paper account.`);
   }
 
-  // Determine TP mode: trailing = no fixed TPs, trail from entry
-  const tpMode = user.settings?.tpMode || 'fixed';
-  let trailingTpDistance = null;
-
-  // Sanity-check TPs: for LONG, TPs must be above entry; for SHORT, below.
-  // If a TP is on the wrong side (direction mismatch from strategy fallback), null it out.
-  let safeTP1 = signalData.takeProfit1 || null;
-  let safeTP2 = signalData.takeProfit2 || null;
-  let safeTP3 = signalData.takeProfit3 || null;
-
   if (tpMode === 'trailing') {
-    // Trailing TP mode: no fixed TPs — compute trail distance from ATR or fixed %
     safeTP1 = null;
     safeTP2 = null;
     safeTP3 = null;
-    const distMode = user.settings?.trailingTpDistanceMode || 'atr';
-    if (distMode === 'atr' && signalData.indicators?.atr > 0) {
-      const mult = user.settings?.trailingTpAtrMultiplier ?? 1.5;
-      trailingTpDistance = signalData.indicators.atr * mult;
-    } else {
-      const pct = user.settings?.trailingTpFixedPercent ?? 2;
-      trailingTpDistance = entryPrice * (pct / 100);
-    }
-    console.log(`[OpenTrade] ${signalData.symbol}: Trailing TP mode — distance $${trailingTpDistance.toFixed(6)} (${distMode})`);
+    console.log(`[OpenTrade] ${signalData.symbol}: Trailing TP mode — distance $${(trailingTpDistance || 0).toFixed(6)}`);
   } else {
     if (signalData.direction === 'LONG') {
       if (safeTP1 && safeTP1 < entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP1 $${safeTP1} < entry $${entryPrice} for LONG — removed`); safeTP1 = null; }
