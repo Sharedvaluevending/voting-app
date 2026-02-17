@@ -681,7 +681,7 @@ app.get('/trades', requireLogin, async (req, res) => {
 
 app.post('/trades/open', requireLogin, async (req, res) => {
   try {
-    const { coinId, direction, score, strategyType } = req.body;
+    const { coinId, direction, strategyType } = req.body;
     if (!coinId || !direction) {
       return res.redirect('/trades?error=' + encodeURIComponent('Missing trade data'));
     }
@@ -712,7 +712,46 @@ app.post('/trades/open', requireLogin, async (req, res) => {
     const candles = fetchCandles(coinId);
     const history = allHistory[coinId] || { prices: [], volumes: [] };
     const signal = analyzeCoin(coinData, candles, history, options);
-    const useScore = parseInt(score, 10) || signal.score || 0;
+    const signalDir = (signal.signal === 'BUY' || signal.signal === 'STRONG_BUY') ? 'LONG'
+      : (signal.signal === 'SELL' || signal.signal === 'STRONG_SELL') ? 'SHORT'
+      : null;
+    const bestDisplayStrat = (signal.topStrategies || []).find(s =>
+      (s.signal === 'BUY' || s.signal === 'STRONG_BUY' || s.signal === 'SELL' || s.signal === 'STRONG_SELL') &&
+      (s.score || 0) >= 55
+    ) || null;
+    const displaySignal = signal.signal === 'HOLD' && bestDisplayStrat ? bestDisplayStrat.signal : signal.signal;
+    const displayDir = (displaySignal === 'BUY' || displaySignal === 'STRONG_BUY') ? 'LONG'
+      : (displaySignal === 'SELL' || displaySignal === 'STRONG_SELL') ? 'SHORT'
+      : null;
+    const minConf = (signal.score || 0) >= 58 ? 1 : 2;
+    const overallCanTrade = (signal.score || 0) >= 55 && (signal.confluenceLevel || 0) >= minConf;
+
+    let selectedStrat = null;
+    if (strategyType && signal.topStrategies && Array.isArray(signal.topStrategies)) {
+      selectedStrat = signal.topStrategies.find(s => s.id === strategyType) || null;
+      if (!selectedStrat) {
+        return res.redirect('/trades?error=' + encodeURIComponent('Selected strategy not found'));
+      }
+      const stratDir = (selectedStrat.signal === 'BUY' || selectedStrat.signal === 'STRONG_BUY') ? 'LONG'
+        : (selectedStrat.signal === 'SELL' || selectedStrat.signal === 'STRONG_SELL') ? 'SHORT'
+        : null;
+      if (!stratDir || stratDir !== direction) {
+        return res.redirect('/trades?error=' + encodeURIComponent('Selected strategy does not match trade direction'));
+      }
+      if ((selectedStrat.score || 0) < 55) {
+        return res.redirect('/trades?error=' + encodeURIComponent('Selected strategy score must be at least 55'));
+      }
+    } else {
+      if (!overallCanTrade) {
+        return res.redirect('/trades?error=' + encodeURIComponent(`Main signal requires score >=55 and confluence >=${minConf}`));
+      }
+      if (!displayDir || displayDir !== direction) {
+        return res.redirect('/trades?error=' + encodeURIComponent('Trade direction does not match current signal'));
+      }
+    }
+
+    // Ignore client-provided score to prevent tampering.
+    const useScore = selectedStrat ? (selectedStrat.score || signal.score || 0) : (signal.score || 0);
     const signalLev = signal.suggestedLeverage || suggestLeverage(useScore, signal.regime || 'mixed', 'normal');
     const useFixed = user?.settings?.useFixedLeverage;
     const lev = user?.settings?.disableLeverage ? 1 : (useFixed ? (user?.settings?.defaultLeverage ?? 2) : signalLev);
@@ -729,16 +768,16 @@ app.post('/trades/open', requireLogin, async (req, res) => {
     let takeProfit3 = signal.takeProfit3;
     let usedStrategyType = signal.strategyType || 'manual';
 
-    if (strategyType && signal.topStrategies && Array.isArray(signal.topStrategies)) {
-      const strat = signal.topStrategies.find(s => s.id === strategyType);
-      if (strat && strat.entry != null && strat.stopLoss != null) {
-        // Entry always uses live price; strategy provides SL/TP levels
-        stopLoss = strat.stopLoss;
-        takeProfit1 = strat.takeProfit1;
-        takeProfit2 = strat.takeProfit2;
-        takeProfit3 = strat.takeProfit3;
-        usedStrategyType = strat.id;
-      }
+    const levelStrat = selectedStrat || ((!strategyType && signal.signal === 'HOLD' && bestDisplayStrat) ? bestDisplayStrat : null);
+    if (levelStrat && levelStrat.entry != null && levelStrat.stopLoss != null) {
+      // Entry always uses live price; strategy provides SL/TP levels
+      stopLoss = levelStrat.stopLoss;
+      takeProfit1 = levelStrat.takeProfit1;
+      takeProfit2 = levelStrat.takeProfit2;
+      takeProfit3 = levelStrat.takeProfit3;
+      usedStrategyType = levelStrat.id;
+    } else if (!strategyType && signal.signal !== 'HOLD' && signalDir && signalDir !== direction) {
+      return res.redirect('/trades?error=' + encodeURIComponent('Signal levels do not match requested direction'));
     }
 
     // Build strategy performance stats for Kelly criterion sizing

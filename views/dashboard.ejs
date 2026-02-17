@@ -1,4 +1,18 @@
 <%- include('partials/header') %>
+<%
+  var displayCounts = { STRONG_BUY: 0, BUY: 0, SELL: 0, STRONG_SELL: 0, HOLD: 0 };
+  (signals || []).forEach(function(sig) {
+    var s = sig.signal;
+    if (s === 'HOLD' && sig.topStrategies && sig.topStrategies.length > 0) {
+      var fallback = sig.topStrategies.find(function(ts) {
+        return (ts.signal === 'BUY' || ts.signal === 'STRONG_BUY' || ts.signal === 'SELL' || ts.signal === 'STRONG_SELL') && (ts.score || 0) >= 55;
+      });
+      if (fallback) s = fallback.signal;
+    }
+    if (!displayCounts[s]) displayCounts[s] = 0;
+    displayCounts[s] += 1;
+  });
+%>
 
 <% if (typeof deleted !== 'undefined' && deleted) { %>
 <div class="alert alert-success" style="margin-bottom:16px;">Your account has been deleted.</div>
@@ -21,19 +35,19 @@
 <div class="summary-bar">
   <div class="summary-stat">
     <div class="label">Strong Buys</div>
-    <div class="value up"><%= signals.filter(s => s.signal === 'STRONG_BUY').length %></div>
+    <div class="value up"><%= displayCounts.STRONG_BUY || 0 %></div>
   </div>
   <div class="summary-stat">
     <div class="label">Buys</div>
-    <div class="value" style="color:#3b82f6;"><%= signals.filter(s => s.signal === 'BUY').length %></div>
+    <div class="value" style="color:#3b82f6;"><%= displayCounts.BUY || 0 %></div>
   </div>
   <div class="summary-stat">
     <div class="label">Sells</div>
-    <div class="value down"><%= signals.filter(s => s.signal === 'SELL' || s.signal === 'STRONG_SELL').length %></div>
+    <div class="value down"><%= (displayCounts.SELL || 0) + (displayCounts.STRONG_SELL || 0) %></div>
   </div>
   <div class="summary-stat">
     <div class="label">Hold</div>
-    <div class="value" style="color:#eab308;"><%= signals.filter(s => s.signal === 'HOLD').length %></div>
+    <div class="value" style="color:#eab308;"><%= displayCounts.HOLD || 0 %></div>
   </div>
   <div class="summary-stat">
     <div class="label">Coins</div>
@@ -107,11 +121,15 @@
     <div class="signal-card <%= sig.signal.toLowerCase().replace('_', '-') %>" data-coin-id="<%= sig.coin.id %>">
       <%
         var displaySignal = sig.signal;
+        var displayStrategyType = sig.strategyType || '';
         if (sig.signal === 'HOLD' && sig.topStrategies && sig.topStrategies.length > 0) {
           var bestStrat = sig.topStrategies.find(function(s) {
             return (s.signal === 'BUY' || s.signal === 'STRONG_BUY' || s.signal === 'SELL' || s.signal === 'STRONG_SELL') && (s.score || 0) >= 55;
           });
-          if (bestStrat) displaySignal = bestStrat.signal;
+          if (bestStrat) {
+            displaySignal = bestStrat.signal;
+            displayStrategyType = bestStrat.id || displayStrategyType;
+          }
         }
       %>
       <div class="card-header">
@@ -145,7 +163,7 @@
       <!-- Score Bar -->
       <div class="score-bar">
         <div class="score-bar-outer">
-          <div class="score-bar-inner" style="width:<%= Math.min(100, sig.score || 0) %>%;background:<%= (sig.score||0) >= 70 ? '#10b981' : (sig.score||0) >= 50 ? '#3b82f6' : (sig.score||0) >= 30 ? '#eab308' : '#ef4444' %>;"></div>
+          <div class="score-bar-inner" style="width:<%= Math.min(100, sig.score || 0) %>%;background:<%= (sig.score||0) >= 75 ? '#10b981' : (sig.score||0) >= 55 ? '#3b82f6' : (sig.score||0) >= 40 ? '#eab308' : '#ef4444' %>;"></div>
         </div>
         <div class="score-label">
           <span>Score: <strong><%= sig.score || 0 %>/100</strong></span>
@@ -241,6 +259,7 @@
             <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
             <input type="hidden" name="direction" value="LONG">
             <input type="hidden" name="score" value="<%= sig.score %>">
+            <input type="hidden" name="strategyType" value="<%= displayStrategyType %>">
             <button type="submit" class="btn btn-buy btn-sm">Open Long</button>
           </form>
         <% } %>
@@ -250,6 +269,7 @@
             <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
             <input type="hidden" name="direction" value="SHORT">
             <input type="hidden" name="score" value="<%= sig.score %>">
+            <input type="hidden" name="strategyType" value="<%= displayStrategyType %>">
             <button type="submit" class="btn btn-sell btn-sm">Open Short</button>
           </form>
         <% } %>

@@ -683,33 +683,42 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     // === TRADE ENTRY: mirrors live openTrade 1:1 ===
     if (t < tradeStartBar) continue; // warmup period — skip trade entries
     const signal = analyzeCoin(coinData, slice, history, options_bt);
-    let canLong = signal.signal === 'BUY' || signal.signal === 'STRONG_BUY';
-    let canShort = signal.signal === 'SELL' || signal.signal === 'STRONG_SELL';
-
-    // === BTC FILTER: mirrors live system's analyzeAllCoins ===
-    if (F_BTC_FILTER && coinId !== 'bitcoin' && cachedBtcSignal) {
-      if (canLong && cachedBtcSignal === 'STRONG_SELL') canLong = false;
-      if (canShort && cachedBtcSignal === 'STRONG_BUY') canShort = false;
-    }
-
-    if (!canLong && !canShort) continue;
-    if (signal.score < minScore) continue;
-
-    const direction = canLong ? 'LONG' : 'SHORT';
-
-    // Use best strategy levels (SL, TP) for this direction — matches auto-trade logic
     let bestStrat = null;
+    let direction = null;
+
+    // Match live auto-trade: prefer best strategy direction, then fall back to blended signal.
     if (signal.topStrategies && Array.isArray(signal.topStrategies)) {
-      const wantBuy = direction === 'LONG';
       for (const strat of signal.topStrategies) {
         const s = strat.signal || '';
-        const isBuy = s === 'STRONG_BUY' || s === 'BUY';
-        if (isBuy === wantBuy && strat.stopLoss && strat.takeProfit1) {
-          if (!bestStrat || (strat.score || 0) > (bestStrat.score || 0)) bestStrat = strat;
+        if (s === 'STRONG_BUY' || s === 'BUY' || s === 'STRONG_SELL' || s === 'SELL') {
+          const stratDir = (s === 'STRONG_BUY' || s === 'BUY') ? 'LONG' : 'SHORT';
+          if (!bestStrat || (strat.score || 0) > (bestStrat.score || 0)) {
+            bestStrat = strat;
+            direction = stratDir;
+          }
         }
       }
     }
-    const levels = bestStrat || signal;
+    if (!direction) {
+      if (signal.signal === 'BUY' || signal.signal === 'STRONG_BUY') direction = 'LONG';
+      else if (signal.signal === 'SELL' || signal.signal === 'STRONG_SELL') direction = 'SHORT';
+    }
+
+    // === BTC FILTER: mirrors live system's analyzeAllCoins ===
+    if (F_BTC_FILTER && coinId !== 'bitcoin' && cachedBtcSignal) {
+      if (direction === 'LONG' && cachedBtcSignal === 'STRONG_SELL') direction = null;
+      if (direction === 'SHORT' && cachedBtcSignal === 'STRONG_BUY') direction = null;
+    }
+
+    if (!direction) continue;
+    if (signal.score < minScore) continue;
+
+    // Levels: use best strategy levels when present, otherwise only use blended levels if direction matches.
+    const sigDirMatchesTrade = (direction === 'LONG')
+      ? (signal.signal === 'STRONG_BUY' || signal.signal === 'BUY')
+      : (signal.signal === 'STRONG_SELL' || signal.signal === 'SELL');
+    const levels = bestStrat || (sigDirMatchesTrade ? signal : null);
+    if (!levels) continue;
     if (!levels.stopLoss || !levels.takeProfit1) continue;
 
     // === COOLDOWN: no same-direction re-entry within N bars (mirrors live) ===

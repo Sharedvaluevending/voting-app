@@ -43,7 +43,7 @@
 
 <div class="score-bar" style="margin:16px 0;">
   <div class="score-bar-outer" style="height:10px;">
-    <div class="score-bar-inner" style="width:<%= Math.min(100, sig.score || 0) %>%;background:<%= (sig.score||0) >= 70 ? '#10b981' : (sig.score||0) >= 50 ? '#3b82f6' : (sig.score||0) >= 30 ? '#eab308' : '#ef4444' %>;height:100%;"></div>
+    <div class="score-bar-inner" style="width:<%= Math.min(100, sig.score || 0) %>%;background:<%= (sig.score||0) >= 75 ? '#10b981' : (sig.score||0) >= 55 ? '#3b82f6' : (sig.score||0) >= 40 ? '#eab308' : '#ef4444' %>;height:100%;"></div>
   </div>
   <div class="score-label" style="font-size:14px;">
     <span>Score: <strong><%= sig.score || 0 %>/100</strong></span>

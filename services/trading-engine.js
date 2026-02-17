@@ -86,15 +86,21 @@ function analyzeAllCoins(allPrices, allCandles, allHistory, options) {
 // ====================================================
 // ANALYSIS WITH BINANCE OHLCV CANDLES (best path)
 // ====================================================
+function trendToHtfDir(trend) {
+  if (trend === 'UP' || trend === 'STRONG_UP') return 'UP';
+  if (trend === 'DOWN' || trend === 'STRONG_DOWN') return 'DOWN';
+  return null;
+}
+
 function analyzeWithCandles(coinData, candles, options) {
   options = options || {};
   const currentPrice = coinData.price;
   const strategyWeights = options.strategyWeights || [];
 
-  // Analyze each real timeframe
-  const tf1h = analyzeOHLCV(candles['1h'], currentPrice);
-  const tf4h = analyzeOHLCV(candles['4h'], currentPrice);
+  // Analyze each real timeframe (higher TF first so lower TF pattern scoring can use HTF trend context)
   const tf1d = analyzeOHLCV(candles['1d'], currentPrice);
+  const tf4h = analyzeOHLCV(candles['4h'], currentPrice, { htfTrend: trendToHtfDir(tf1d.trend) });
+  const tf1h = analyzeOHLCV(candles['1h'], currentPrice, { htfTrend: trendToHtfDir(tf4h.trend) });
 
   // Optional 15m and 1w for scalping / position strategies
   let scores15m = null;
@@ -102,11 +108,11 @@ function analyzeWithCandles(coinData, candles, options) {
   let tf15m = null;
   let tf1w = null;
   if (candles['15m'] && candles['15m'].length >= 20) {
-    tf15m = analyzeOHLCV(candles['15m'], currentPrice);
+    tf15m = analyzeOHLCV(candles['15m'], currentPrice, { htfTrend: trendToHtfDir(tf1h.trend) });
     scores15m = scoreCandles(tf15m, currentPrice, '15m');
   }
   if (candles['1w'] && candles['1w'].length >= 5) {
-    tf1w = analyzeOHLCV(candles['1w'], currentPrice);
+    tf1w = analyzeOHLCV(candles['1w'], currentPrice, { htfTrend: trendToHtfDir(tf1d.trend) });
     scores1w = scoreCandles(tf1w, currentPrice, '1w');
   }
 
@@ -421,7 +427,8 @@ function analyzeWithCandles(coinData, candles, options) {
 // ====================================================
 // OHLCV ANALYSIS - the real deal with proper candles
 // ====================================================
-function analyzeOHLCV(candles, currentPrice) {
+function analyzeOHLCV(candles, currentPrice, options) {
+  options = options || {};
   if (!candles || candles.length < 5) {
     return defaultAnalysis(currentPrice);
   }
@@ -556,8 +563,8 @@ function analyzeOHLCV(candles, currentPrice) {
     volumeConfirm: volumeAnalysis.relativeVolume > 1.5,
     bbSqueeze,
     nearBullOB,
-    nearBearOB
-    // htfTrend is set later by scoreCandles when we have multi-TF info
+    nearBearOB,
+    htfTrend: options.htfTrend || null
   };
 
   const patternScore = scorePatterns(candlestickPatterns, patternContext);
