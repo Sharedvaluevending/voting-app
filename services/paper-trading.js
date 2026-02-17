@@ -746,6 +746,20 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       await trade.save();
     }
 
+    // STOP LOSS CHECK: must run for ALL trades including trailing TP (trail exit = SL hit)
+    if (trade.stopLoss != null) {
+      const slHit = trade.direction === 'LONG'
+        ? currentPrice <= trade.stopLoss
+        : currentPrice >= trade.stopLoss;
+      if (slHit) {
+        const slReason = trade.tpMode === 'trailing' ? 'TRAILING_TP_EXIT' : 'STOPPED_OUT';
+        console.log(`[StopTP] ${trade.symbol}: STOP LOSS HIT (${trade.direction}) price=$${currentPrice} ${trade.direction === 'LONG' ? '<=' : '>='} SL=$${trade.stopLoss} → FULL CLOSE [${slReason}]`);
+        await closeTrade(trade.userId, trade._id, trade.stopLoss, slReason);
+        closedCount++;
+        continue;
+      }
+    }
+
     // Skip fixed TP checks when in trailing TP mode (no TPs, just trail until stopped)
     if (trade.tpMode === 'trailing') {
       continue;
@@ -764,15 +778,6 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
     // TP3 → 30% remaining (full close)
     const slippage = 1 + (SLIPPAGE_BPS / 10000);
     if (trade.direction === 'LONG') {
-      if (trade.stopLoss != null && currentPrice <= trade.stopLoss) {
-        // Use TRAILING_TP_EXIT when the trade was in trailing TP mode — distinguishes
-        // profitable trail exits from genuine loss stop-outs in trade history
-        const slReason = trade.tpMode === 'trailing' ? 'TRAILING_TP_EXIT' : 'STOPPED_OUT';
-        console.log(`[StopTP] ${trade.symbol}: STOP LOSS HIT (LONG) price=$${currentPrice} <= SL=$${trade.stopLoss} → FULL CLOSE [${slReason}]`);
-        await closeTrade(trade.userId, trade._id, trade.stopLoss, slReason);
-        closedCount++;
-        continue;
-      }
       const orig = trade.originalPositionSize || trade.positionSize;
 
       // TP1: take partial (or full if only TP or partialTP is off)
@@ -820,13 +825,6 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
         continue; // trade closed
       }
     } else {
-      if (trade.stopLoss != null && currentPrice >= trade.stopLoss) {
-        const slReason = trade.tpMode === 'trailing' ? 'TRAILING_TP_EXIT' : 'STOPPED_OUT';
-        console.log(`[StopTP] ${trade.symbol}: STOP LOSS HIT (SHORT) price=$${currentPrice} >= SL=$${trade.stopLoss} → FULL CLOSE [${slReason}]`);
-        await closeTrade(trade.userId, trade._id, trade.stopLoss, slReason);
-        closedCount++;
-        continue;
-      }
       const orig = trade.originalPositionSize || trade.positionSize;
 
       // TP1: take partial (or full if only TP or partialTP is off)
