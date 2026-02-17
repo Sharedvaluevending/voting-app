@@ -42,7 +42,7 @@
     </div>
     <div>
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Initial Balance ($)</label>
-      <input type="number" name="initialBalance" id="initialBalance" value="10000" min="100" max="1000000" step="1000" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+      <input type="number" name="initialBalance" id="initialBalance" value="10000" min="100" max="1000000" step="1" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
     </div>
     <div>
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Risk Mode</label>
@@ -53,11 +53,11 @@
     </div>
     <div id="bt-risk-pct-wrap">
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Risk per trade (%)</label>
-      <input type="number" name="riskPerTrade" id="riskPerTrade" value="2" min="0.5" max="10" step="0.5" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+      <input type="number" name="riskPerTrade" id="riskPerTrade" value="2" min="0.1" max="10" step="0.1" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
     </div>
     <div id="bt-risk-dollar-wrap" style="display:none;">
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Risk per trade ($)</label>
-      <input type="number" name="riskDollarsPerTrade" id="riskDollarsPerTrade" value="200" min="10" max="10000" step="10" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+      <input type="number" name="riskDollarsPerTrade" id="riskDollarsPerTrade" value="200" min="1" max="10000" step="1" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
     </div>
     <div>
       <button type="submit" class="btn btn-primary" id="run-btn">Run Backtest</button>
