@@ -44,10 +44,16 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const ft = options.features || {};
   const F_BTC_FILTER = ft.btcFilter !== false;
   const F_BTC_CORRELATION = ft.btcCorrelation !== false;
+  const F_SESSION_FILTER = ft.sessionFilter !== false;
   const F_PARTIAL_TP = ft.partialTP !== false;
   const F_FEES = ft.fees !== false;
   const F_SLIPPAGE = ft.slippage !== false;
   const F_CLOSE_STOPS = ft.closeBasedStops !== false;
+  const F_DCA = ft.dca === true;
+  const dcaMaxAdds = ft.dcaMaxAdds ?? 3;
+  const dcaDipPct = ft.dcaDipPercent ?? 2;
+  const dcaAddSizePct = ft.dcaAddSizePercent ?? 100;
+  const dcaMinScore = ft.dcaMinScore ?? 52;
 
   const c1h = candles['1h'];
   const history = { prices: [], volumes: [], marketCaps: [] };
@@ -98,7 +104,10 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       btcDirection: F_BTC_CORRELATION ? cachedBtcDirection : null,
       btcCandles: F_BTC_CORRELATION && cachedBtcSlice ? cachedBtcSlice['1h'] : null,
       fundingRates: {},
-      barTime: bar.openTime
+      barTime: F_SESSION_FILTER ? bar.openTime : new Date('2026-01-01T15:00:00Z').getTime(),
+      featurePriceActionConfluence: ft.priceActionConfluence === true,
+      featureVolatilityFilter: ft.volatilityFilter === true,
+      featureVolumeConfirmation: ft.volumeConfirmation === true
     };
 
     if (btcCandles && btcCandles['1h'] && (t - lastBtcAnalysisBar >= 4)) {
@@ -139,6 +148,9 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 
     if (position) {
       position = updatePriceRange(position, nextBar.high, nextBar.low);
+      position.entryPrice = position.entryPrice ?? position.entry;
+      position.positionSize = position.positionSize ?? position.size;
+      position.originalPositionSize = position.originalPositionSize ?? position.originalSize;
       snapshot.currentPrice = nextBar.close;
       snapshot.indicators = position.indicators;
 
@@ -246,6 +258,46 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       }
       if (closed) continue;
       position = updatedTrade;
+      position.size = position.positionSize ?? position.size;
+      position.entry = position.entryPrice ?? position.entry;
+
+      // DCA: add to losing positions when signal re-confirms (mirrors live)
+      if (F_DCA && position && (position.dcaCount || 0) < dcaMaxAdds) {
+        const avgEntry = position.avgEntryPrice || position.entry;
+        const currentPrice = nextBar.close;
+        const isLong = position.direction === 'LONG';
+        const dipPctNow = isLong
+          ? ((avgEntry - currentPrice) / avgEntry) * 100
+          : ((currentPrice - avgEntry) / avgEntry) * 100;
+        const dipLevel = dcaDipPct * ((position.dcaCount || 0) + 1);
+        if (dipPctNow >= dipLevel) {
+          const dcaDecision = evaluate({ coinData, candles: slice, history, options: options_bt });
+          const dcaDir = dcaDecision.side === 'LONG' ? 'LONG' : dcaDecision.side === 'SHORT' ? 'SHORT' : null;
+          if (dcaDir === position.direction && (dcaDecision.score || 0) >= dcaMinScore) {
+            const addSize = position.originalSize * (dcaAddSizePct / 100);
+            const addFees = F_FEES ? addSize * TAKER_FEE : 0;
+            const addMargin = addSize / leverage;
+            if (equity >= addMargin + addFees) {
+              const oldAvg = position.avgEntryPrice || position.entry;
+              const oldTotalCost = oldAvg * position.size;
+              const newTotalCost = oldTotalCost + (currentPrice * addSize);
+              const newTotalSize = position.size + addSize;
+              const newAvgEntry = newTotalCost / newTotalSize;
+
+              position.size = newTotalSize;
+              position.positionSize = newTotalSize;
+              position.avgEntryPrice = newAvgEntry;
+              position.entry = newAvgEntry;
+              position.entryPrice = newAvgEntry;
+              position.dcaCount = (position.dcaCount || 0) + 1;
+              if (!position.dcaEntries) position.dcaEntries = [];
+              position.dcaEntries.push({ price: currentPrice, size: addSize, bar: t + 1 });
+              equity -= (addMargin + addFees);
+              position.actions.push({ type: 'DCA', bar: t + 1, addSize, addPrice: currentPrice, avgEntry: newAvgEntry, dip: dipPctNow });
+            }
+          }
+        }
+      }
       continue;
     }
 
@@ -258,8 +310,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       if (decision.side === 'LONG' && cachedBtcSignal === 'STRONG_SELL') continue;
       if (decision.side === 'SHORT' && cachedBtcSignal === 'STRONG_BUY') continue;
     }
-    if (!decision.stopLoss || !decision.takeProfit1) continue;
-    if (ft.trailingTp && !decision.takeProfit1) continue;
+    if (!decision.stopLoss) continue;
+    if (!ft.trailingTp && !decision.takeProfit1) continue;
 
     if (ft.cooldown !== false && lastClosedDirection === decision.side && (t + 1 - lastClosedBar) < COOLDOWN_BARS) continue;
 
@@ -308,16 +360,20 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     position = {
       direction: orders.direction,
       entry: fillResult.fillPrice,
+      entryPrice: fillResult.fillPrice,
       entryBar: t + 1,
       entryScore: decision.score,
       entryStrategy: decision.strategy,
       stopLoss: orders.stopLoss,
+      originalStopLoss: orders.stopLoss,
       originalSL: orders.originalStopLoss,
       takeProfit1: orders.takeProfit1,
       takeProfit2: orders.takeProfit2,
       takeProfit3: orders.takeProfit3,
       size: orders.size,
+      positionSize: orders.size,
       originalSize: orders.size,
+      originalPositionSize: orders.size,
       tp1Hit: false,
       tp2Hit: false,
       breakevenHit: false,
@@ -332,7 +388,10 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       tpMode: orders.tpMode || 'fixed',
       trailingTpDistance: orders.trailingTpDistance,
       regime: orders.regime,
-      indicators: decision.indicators
+      indicators: decision.indicators,
+      leverage: orders.leverage || leverage,
+      dcaCount: 0,
+      dcaEntries: []
     };
   }
 

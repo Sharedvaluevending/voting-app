@@ -1899,6 +1899,7 @@ app.post('/api/backtest', async (req, res) => {
       riskPerTrade: req.body.riskPerTrade != null ? Number(req.body.riskPerTrade) : undefined,
       riskDollarsPerTrade: req.body.riskDollarsPerTrade != null ? Number(req.body.riskDollarsPerTrade) : undefined,
       features: features || {},
+      useNewEngine: req.body.useNewEngine !== false,
       strategyWeights,
       strategyStats,
       coinWeights,

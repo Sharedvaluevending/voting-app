@@ -74,6 +74,10 @@
   <div id="feature-toggles">
     <p style="color:#6b7280;font-size:12px;margin-bottom:12px;">Toggle individual features on/off to compare performance. All ON = matches live system exactly.</p>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
+      <!-- Engine -->
+      <label class="ft-toggle" title="New engine uses shared Signal/Risk/Manage engines (recommended). Uncheck to use legacy backtest for comparison.">
+        <input type="checkbox" id="ft-useNewEngine" checked> <span class="ft-badge ft-signal">ENGINE</span> New Engine (recommended)
+      </label>
       <!-- Signal Filters -->
       <label class="ft-toggle" title="Block altcoin LONGs when BTC is STRONG_SELL, block SHORTs when BTC is STRONG_BUY">
         <input type="checkbox" id="ft-btcFilter" checked> <span class="ft-badge ft-signal">SIGNAL</span> BTC Signal Filter
@@ -427,7 +431,8 @@ function renderActionBadgesForTrade(actions) {
       riskMode: riskMode,
       riskPerTrade: parseFloat(document.getElementById('riskPerTrade').value) || 2,
       riskDollarsPerTrade: parseInt(document.getElementById('riskDollarsPerTrade').value, 10) || 200,
-      features: getFeatureFlags()
+      features: getFeatureFlags(),
+      useNewEngine: document.getElementById('ft-useNewEngine').checked
     };
     if (coinId) body.coinId = coinId;
 
