@@ -105,6 +105,15 @@
 <div class="signals-grid">
   <% signals.forEach(function(sig) { %>
     <div class="signal-card <%= sig.signal.toLowerCase().replace('_', '-') %>" data-coin-id="<%= sig.coin.id %>">
+      <%
+        var displaySignal = sig.signal;
+        if (sig.signal === 'HOLD' && sig.topStrategies && sig.topStrategies.length > 0) {
+          var bestStrat = sig.topStrategies.find(function(s) {
+            return (s.signal === 'BUY' || s.signal === 'STRONG_BUY' || s.signal === 'SELL' || s.signal === 'STRONG_SELL') && (s.score || 0) >= 55;
+          });
+          if (bestStrat) displaySignal = bestStrat.signal;
+        }
+      %>
       <div class="card-header">
         <div class="coin-info">
           <h3>
@@ -113,7 +122,7 @@
               <button class="coin-toggle-btn" data-coin="<%= sig.coin.id %>" onclick="toggleCoin(this, '<%= sig.coin.id %>')" title="Remove from dashboard (exclude from auto-trade)">−</button>
             <% } %>
           </h3>
-          <span class="signal-badge badge-<%= sig.signal %>"><%= sig.signal.replace('_', ' ') %></span>
+          <span class="signal-badge badge-<%= displaySignal %>"><%= displaySignal.replace('_', ' ') %></span>
           <span class="score-tier-badge tier-<%= (sig.score||0) >= 75 ? 'high' : (sig.score||0) >= 55 ? 'moderate' : 'caution' %>"><%= (sig.score||0) >= 75 ? 'High conviction' : (sig.score||0) >= 55 ? 'Moderate' : 'Caution' %></span>
           <span class="confluence-badge" title="Timeframes agreeing on direction"><%= sig.confluenceLevel || 0 %>/3 TF</span>
           <span class="rr-badge"><%= sig.riskReward || 0 %>x R:R</span>
@@ -223,10 +232,10 @@
         <% }); %>
       </div>
 
-      <% var canTrade = typeof user !== 'undefined' && user && sig.signal !== 'HOLD' && (sig.score || 0) >= 55 && (sig.confluenceLevel || 0) >= 2; %>
+      <% var scr = sig.score || 0; var conf = sig.confluenceLevel || 0; var minConf = scr >= 58 ? 1 : 2; var canTrade = typeof user !== 'undefined' && user && displaySignal !== 'HOLD' && scr >= 55 && conf >= minConf; %>
       <% if (typeof user !== 'undefined' && user) { %>
       <div class="trade-actions">
-        <% if (canTrade && (sig.signal === 'BUY' || sig.signal === 'STRONG_BUY')) { %>
+        <% if (canTrade && (displaySignal === 'BUY' || displaySignal === 'STRONG_BUY')) { %>
           <form action="/trades/open" method="POST" style="display:inline;">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>">
             <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
@@ -235,7 +244,7 @@
             <button type="submit" class="btn btn-buy btn-sm">Open Long</button>
           </form>
         <% } %>
-        <% if (canTrade && (sig.signal === 'SELL' || sig.signal === 'STRONG_SELL')) { %>
+        <% if (canTrade && (displaySignal === 'SELL' || displaySignal === 'STRONG_SELL')) { %>
           <form action="/trades/open" method="POST" style="display:inline;">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>">
             <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
@@ -244,8 +253,8 @@
             <button type="submit" class="btn btn-sell btn-sm">Open Short</button>
           </form>
         <% } %>
-        <% if (!canTrade && sig.signal !== 'HOLD') { %>
-          <span style="font-size:11px;color:#6b7280;">Score ≥55 &amp; confluence ≥2 to open</span>
+        <% if (!canTrade && displaySignal !== 'HOLD') { %>
+          <span style="font-size:11px;color:#6b7280;">Score ≥55 &amp; confluence ≥<%= minConf %> to open</span>
         <% } %>
         <a href="/coin/<%= sig.coin.id %>" class="btn btn-outline btn-sm">Details</a>
         <a href="/chart/<%= sig.coin.id %>" class="btn btn-outline btn-sm" target="_blank" rel="noopener">View chart</a>

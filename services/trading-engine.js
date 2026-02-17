@@ -133,6 +133,7 @@ function analyzeWithCandles(coinData, candles, options) {
     // Tie: defer to daily direction first, then score
     if (scores1d.direction === 'BULL' && finalScore >= 52) dominantDir = 'BULL';
     else if (scores1d.direction === 'BEAR' && finalScore <= 48) dominantDir = 'BEAR';
+    else if (finalScore >= 58 && (scores1d.direction === 'BULL' || scores1d.direction === 'BEAR')) dominantDir = scores1d.direction;
     else dominantDir = 'NEUTRAL';
   } else {
     dominantDir = bullCount > bearCount ? 'BULL' : bearCount > bullCount ? 'BEAR' : 'NEUTRAL';
@@ -239,7 +240,9 @@ function analyzeWithCandles(coinData, candles, options) {
 
   // Determine signal from score (with min score/confluence gate)
   let { signal, strength } = scoreToSignal(finalScore, confluenceLevel, dominantDir);
-  if (finalScore < ENGINE_CONFIG.MIN_SIGNAL_SCORE || confluenceLevel < ENGINE_CONFIG.MIN_CONFLUENCE_FOR_SIGNAL) {
+  // Relax confluence for high scores: 58+ needs only 1 TF; 52–57 needs 2 TF
+  const minConfluence = finalScore >= 58 ? 1 : ENGINE_CONFIG.MIN_CONFLUENCE_FOR_SIGNAL;
+  if (finalScore < ENGINE_CONFIG.MIN_SIGNAL_SCORE || confluenceLevel < minConfluence) {
     if (signal !== 'HOLD') {
       signal = 'HOLD';
       strength = finalScore;
@@ -1993,7 +1996,8 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
   else if (confluenceLevel === 2) reasons.push('2/3 timeframes agree - moderate confluence');
   else reasons.push('Mixed timeframes - weak confluence, trade with caution');
 
-  if (finalScore !== undefined && (finalScore < ENGINE_CONFIG.MIN_SIGNAL_SCORE || confluenceLevel < ENGINE_CONFIG.MIN_CONFLUENCE_FOR_SIGNAL))
+  const minConf = (finalScore || 0) >= 58 ? 1 : ENGINE_CONFIG.MIN_CONFLUENCE_FOR_SIGNAL;
+  if (finalScore !== undefined && (finalScore < ENGINE_CONFIG.MIN_SIGNAL_SCORE || confluenceLevel < minConf))
     reasons.push(`Quality gate: score ${finalScore} or confluence ${confluenceLevel} below minimum – held to HOLD`);
   if (inSession === false) reasons.push('Outside peak session (12–22 UTC) – reduced weight');
   reasons.push(`Strategy: ${strategy.name} (best fit for ${regime} regime)`);
