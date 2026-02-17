@@ -578,9 +578,9 @@ app.get('/chart/:coinId', async (req, res) => {
   const tvSymbol = TV_PAIRS[meta.bybit] || ('BITGET:' + meta.bybit);
   let entry = req.query.entry ? Number(req.query.entry) : null;
   let sl = req.query.sl ? Number(req.query.sl) : null;
-  const tp1 = req.query.tp1 ? Number(req.query.tp1) : null;
-  const tp2 = req.query.tp2 ? Number(req.query.tp2) : null;
-  const tp3 = req.query.tp3 ? Number(req.query.tp3) : null;
+  let tp1 = req.query.tp1 ? Number(req.query.tp1) : null;
+  let tp2 = req.query.tp2 ? Number(req.query.tp2) : null;
+  let tp3 = req.query.tp3 ? Number(req.query.tp3) : null;
   let originalSl = null;
   let tradeActions = [];
   let direction = null;
@@ -591,8 +591,14 @@ app.get('/chart/:coinId', async (req, res) => {
       originalSl = trade.originalStopLoss || trade.stopLoss;
       tradeActions = trade.actions || [];
       direction = trade.direction;
-      if (!sl && trade.stopLoss) sl = trade.stopLoss;
-      if (!entry && trade.entryPrice) entry = trade.entryPrice;
+      // Always prefer DB values over URL params for SL/entry — URL params can be stale
+      // (e.g. stop was trailed since the trades page was loaded)
+      if (trade.stopLoss) sl = trade.stopLoss;
+      if (trade.entryPrice) entry = trade.entryPrice;
+      // Load TPs from DB (URL params may be absent when navigating directly with only tradeId)
+      if (!tp1 && trade.takeProfit1) tp1 = trade.takeProfit1;
+      if (!tp2 && trade.takeProfit2) tp2 = trade.takeProfit2;
+      if (!tp3 && trade.takeProfit3) tp3 = trade.takeProfit3;
     }
   }
   // Calculate Fibonacci levels for chart overlay

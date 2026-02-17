@@ -515,6 +515,7 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
   trade.pnlPercent = Math.round(pnlPercent * 100) / 100;
   trade.fees += exitFees;
   trade.status = reason === 'STOPPED_OUT' ? 'STOPPED_OUT'
+    : reason === 'TRAILING_TP_EXIT' ? 'TRAILING_TP_EXIT'
     : reason === 'TP1' ? 'TP1_HIT'
     : reason === 'TP2' ? 'TP2_HIT'
     : reason === 'TP3' ? 'TP3_HIT'
@@ -851,8 +852,11 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
     const slippage = 1 + (SLIPPAGE_BPS / 10000);
     if (trade.direction === 'LONG') {
       if (trade.stopLoss != null && currentPrice <= trade.stopLoss) {
-        console.log(`[StopTP] ${trade.symbol}: STOP LOSS HIT (LONG) price=$${currentPrice} <= SL=$${trade.stopLoss} → FULL CLOSE`);
-        await closeTrade(trade.userId, trade._id, trade.stopLoss, 'STOPPED_OUT');
+        // Use TRAILING_TP_EXIT when the trade was in trailing TP mode — distinguishes
+        // profitable trail exits from genuine loss stop-outs in trade history
+        const slReason = trade.tpMode === 'trailing' ? 'TRAILING_TP_EXIT' : 'STOPPED_OUT';
+        console.log(`[StopTP] ${trade.symbol}: STOP LOSS HIT (LONG) price=$${currentPrice} <= SL=$${trade.stopLoss} → FULL CLOSE [${slReason}]`);
+        await closeTrade(trade.userId, trade._id, trade.stopLoss, slReason);
         closedCount++;
         continue;
       }
@@ -904,8 +908,9 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       }
     } else {
       if (trade.stopLoss != null && currentPrice >= trade.stopLoss) {
-        console.log(`[StopTP] ${trade.symbol}: STOP LOSS HIT (SHORT) price=$${currentPrice} >= SL=$${trade.stopLoss} → FULL CLOSE`);
-        await closeTrade(trade.userId, trade._id, trade.stopLoss, 'STOPPED_OUT');
+        const slReason = trade.tpMode === 'trailing' ? 'TRAILING_TP_EXIT' : 'STOPPED_OUT';
+        console.log(`[StopTP] ${trade.symbol}: STOP LOSS HIT (SHORT) price=$${currentPrice} >= SL=$${trade.stopLoss} → FULL CLOSE [${slReason}]`);
+        await closeTrade(trade.userId, trade._id, trade.stopLoss, slReason);
         closedCount++;
         continue;
       }

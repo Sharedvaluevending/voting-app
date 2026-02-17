@@ -21,7 +21,7 @@ const TP2_PCT = 0.3;   // 30% at TP2
 const TP3_PCT = 0.3;   // 30% at TP3 (remaining)
 const SLIPPAGE_BPS = 5; // 0.05% slippage on entry/exit
 const TAKER_FEE = 0.001; // 0.1% taker fee on entry and exit (matches live DEFAULT_TAKER_FEE)
-const BREAKEVEN_R = 1;  // Move stop to breakeven at 1R profit
+const BREAKEVEN_R = 0.75;  // Move stop to breakeven at 0.75R profit (matches live paper-trading.js)
 const TRAILING_START_R = 1.5; // Start trailing at 1.5R
 const TRAILING_DIST_R = 1;   // Trail 1R behind best price
 const MAX_SL_DISTANCE_PCT = 0.15; // Cap SL at 15% from entry (matches live)
@@ -112,7 +112,7 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
       if (!candles1h || candles1h.length === 0) bitgetError = 'Bitget returned 0 candles';
     } catch (err) {
       bitgetError = `Bitget error: ${err.message}`;
-      console.warn(`[Backtest] ${coinId}: ${bybitError}`);
+      console.warn(`[Backtest] ${coinId}: ${bitgetError}`);
     }
   }
 
@@ -336,13 +336,13 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       const barsSinceEntry = t - position.entryBar;
       const pastStopGrace = barsSinceEntry >= STOP_GRACE_BARS;
 
-      // --- Breakeven at 1R (mirrors live autoBE) ---
+      // --- Breakeven at 0.75R (mirrors live autoBE at 0.75R) ---
       // BUG FIX: Move SL to entry + buffer (0.3%) instead of exact entry.
       // At exact entry, round-trip fees + slippage make "breakeven" a net loss (~0.3%).
       if (pastStopGrace && F_BREAKEVEN && origRisk > 0 && !position.breakevenHit && !position.trailingActivated) {
         const at1R = isLong
-          ? currentPrice >= position.entry + origRisk
-          : currentPrice <= position.entry - origRisk;
+          ? currentPrice >= position.entry + origRisk * BREAKEVEN_R
+          : currentPrice <= position.entry - origRisk * BREAKEVEN_R;
         if (at1R) {
           const beStop = isLong
             ? position.entry * (1 + BE_BUFFER_PCT)
@@ -363,9 +363,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
           : trailSL < position.stopLoss && trailSL > currentPrice;
         if (validMove) {
           position.stopLoss = trailSL;
-          if (!position.actions.some(a => a.type === 'TS')) {
-            position.actions.push({ type: 'TS', bar: t + 1, newValue: trailSL, marketPrice: currentPrice });
-          }
+          // Log every trail move (chart deduplication shows the latest TS, matching live behavior)
+          position.actions.push({ type: 'TS', bar: t + 1, newValue: trailSL, marketPrice: currentPrice });
         }
       } else if (position.tpMode !== 'trailing') {
         // --- Standard trailing stop at 1.5R+ (mirrors live autoTrail) ---
@@ -385,9 +384,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
                 : trailSL < position.stopLoss && trailSL > currentPrice;
               if (validMove) {
                 position.stopLoss = trailSL;
-                if (!position.actions.some(a => a.type === 'TS')) {
-                  position.actions.push({ type: 'TS', bar: t + 1, newValue: trailSL, marketPrice: currentPrice });
-                }
+                // Log every trail move (chart deduplication shows the latest TS, matching live behavior)
+                position.actions.push({ type: 'TS', bar: t + 1, newValue: trailSL, marketPrice: currentPrice });
               }
             }
           }
