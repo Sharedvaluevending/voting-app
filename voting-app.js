@@ -1893,22 +1893,26 @@ app.get('/api/candles/:coinId', async (req, res) => {
     let allCandles = fetchCandles(coinId);
     if (!allCandles) {
       allCandles = await fetchAllCandlesForCoin(coinId);
+      if (!allCandles && !isDataReady()) {
+        await new Promise(r => setTimeout(r, 2000));
+        allCandles = await fetchAllCandlesForCoin(coinId);
+      }
     }
     if (!allCandles || !allCandles[interval]) {
-      return res.json({ success: true, candles: [], patterns: [] });
+      return res.json({ success: true, candles: [], volume: [], patterns: [], chartPatterns: [] });
     }
-    const raw = allCandles[interval];
+    const raw = allCandles[interval].filter(c =>
+      c.openTime > 0 && Number.isFinite(c.open) && Number.isFinite(c.high) && Number.isFinite(c.low) && Number.isFinite(c.close) && c.high >= c.low
+    ).sort((a, b) => a.openTime - b.openTime); // ascending for Lightweight Charts
     const candles = raw.map(c => ({
-      time: Math.floor((c.openTime || 0) / 1000),
+      time: Math.floor(c.openTime / 1000),
       open: c.open,
       high: c.high,
       low: c.low,
       close: c.close
     }));
-
-    // Volume for histogram (Lightweight Charts: { time, value, color })
     const volume = raw.map(c => {
-      const t = Math.floor((c.openTime || 0) / 1000);
+      const t = Math.floor(c.openTime / 1000);
       const isUp = c.close >= c.open;
       return { time: t, value: c.volume || 0, color: isUp ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)' };
     });

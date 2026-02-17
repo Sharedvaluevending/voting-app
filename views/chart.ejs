@@ -912,8 +912,14 @@
               var chartEl = document.getElementById('lw-chart');
               if (!chartEl) { showTradingViewFallback(); return; }
 
-              // Ensure container has real dimensions before creating chart
+              // Ensure container has real dimensions before creating chart (retry if 0x0)
               var containerRect = chartEl.getBoundingClientRect();
+              if (containerRect.width <= 0 || containerRect.height <= 0) {
+                requestAnimationFrame(function() {
+                  requestAnimationFrame(initChart);
+                });
+                return;
+              }
               var chartOpts = {
                 layout: { background: { type: 'solid', color: '#0f172a' }, textColor: '#9ca3af' },
                 grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
