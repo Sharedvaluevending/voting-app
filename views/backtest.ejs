@@ -137,7 +137,55 @@
       <label class="ft-toggle" title="0.05% slippage simulation on entry and exit">
         <input type="checkbox" id="ft-slippage" checked> <span class="ft-badge ft-cost">COST</span> Slippage (0.05%)
       </label>
+
+      <!-- DCA & Trailing TP -->
+      <label class="ft-toggle" title="Trailing TP: no fixed TPs, trail stop from entry using ATR or fixed % distance">
+        <input type="checkbox" id="ft-trailingTp" onchange="document.getElementById('bt-trailing-tp-opts').style.display=this.checked?'flex':'none'"> <span class="ft-badge ft-pos">TRAIL</span> Trailing Take-Profit
+      </label>
+      <label class="ft-toggle" title="DCA: add to losing positions when signal re-confirms (dip + score check)">
+        <input type="checkbox" id="ft-dca" onchange="document.getElementById('bt-dca-opts').style.display=this.checked?'flex':'none'"> <span class="ft-badge ft-pos">DCA</span> Dollar Cost Average
+      </label>
     </div>
+
+    <!-- Trailing TP Options -->
+    <div id="bt-trailing-tp-opts" style="display:none;flex-wrap:wrap;gap:8px;margin-top:8px;padding:10px;background:rgba(30,42,58,0.4);border:1px solid #334155;border-radius:6px;">
+      <div>
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Distance Mode</label>
+        <select id="bt-trailingTpDistMode" onchange="document.getElementById('bt-trail-atr').style.display=this.value==='atr'?'block':'none';document.getElementById('bt-trail-fixed').style.display=this.value==='fixed'?'block':'none';" style="padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
+          <option value="atr">ATR-based</option>
+          <option value="fixed">Fixed %</option>
+        </select>
+      </div>
+      <div id="bt-trail-atr">
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">ATR Multiplier</label>
+        <input type="number" id="bt-trailingTpAtrMult" value="1.5" min="0.5" max="5" step="0.1" style="width:70px;padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
+      </div>
+      <div id="bt-trail-fixed" style="display:none;">
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Fixed Trail %</label>
+        <input type="number" id="bt-trailingTpFixedPct" value="2" min="0.5" max="10" step="0.1" style="width:70px;padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
+      </div>
+    </div>
+
+    <!-- DCA Options -->
+    <div id="bt-dca-opts" style="display:none;flex-wrap:wrap;gap:8px;margin-top:8px;padding:10px;background:rgba(30,42,58,0.4);border:1px solid #334155;border-radius:6px;">
+      <div>
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Max Adds</label>
+        <input type="number" id="bt-dcaMaxAdds" value="3" min="1" max="10" step="1" style="width:60px;padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
+      </div>
+      <div>
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Dip % per Level</label>
+        <input type="number" id="bt-dcaDipPct" value="2" min="0.5" max="20" step="0.5" style="width:60px;padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
+      </div>
+      <div>
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Add Size %</label>
+        <input type="number" id="bt-dcaAddSizePct" value="100" min="25" max="200" step="25" style="width:70px;padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
+      </div>
+      <div>
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Min Score</label>
+        <input type="number" id="bt-dcaMinScore" value="52" min="30" max="95" step="1" style="width:60px;padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
+      </div>
+    </div>
+
     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
       <button type="button" class="btn btn-sm" onclick="setAllToggles(true)" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:4px;cursor:pointer;">All ON</button>
       <button type="button" class="btn btn-sm" onclick="setAllToggles(false)" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:4px;cursor:pointer;">All OFF</button>
@@ -253,6 +301,10 @@
 // Feature toggle helpers
 function setAllToggles(val) {
   document.querySelectorAll('#feature-toggles input[type=checkbox]').forEach(function(cb) { cb.checked = val; });
+  var trailOpts = document.getElementById('bt-trailing-tp-opts');
+  var dcaOpts = document.getElementById('bt-dca-opts');
+  if (trailOpts) trailOpts.style.display = val ? 'flex' : 'none';
+  if (dcaOpts) dcaOpts.style.display = val ? 'flex' : 'none';
 }
 function setPresetsMinimal() {
   setAllToggles(false);
@@ -262,7 +314,7 @@ function setPresetsMinimal() {
   document.getElementById('ft-minSlDistance').checked = true;
 }
 function getFeatureFlags() {
-  return {
+  var flags = {
     btcFilter: document.getElementById('ft-btcFilter').checked,
     btcCorrelation: document.getElementById('ft-btcCorrelation').checked,
     sessionFilter: document.getElementById('ft-sessionFilter').checked,
@@ -280,8 +332,22 @@ function getFeatureFlags() {
     fees: document.getElementById('ft-fees').checked,
     slippage: document.getElementById('ft-slippage').checked,
     closeBasedStops: document.getElementById('ft-closeBasedStops').checked,
-    minSlDistance: document.getElementById('ft-minSlDistance').checked
+    minSlDistance: document.getElementById('ft-minSlDistance').checked,
+    trailingTp: document.getElementById('ft-trailingTp').checked,
+    dca: document.getElementById('ft-dca').checked
   };
+  if (flags.trailingTp) {
+    flags.trailingTpDistanceMode = document.getElementById('bt-trailingTpDistMode').value;
+    flags.trailingTpAtrMultiplier = parseFloat(document.getElementById('bt-trailingTpAtrMult').value) || 1.5;
+    flags.trailingTpFixedPercent = parseFloat(document.getElementById('bt-trailingTpFixedPct').value) || 2;
+  }
+  if (flags.dca) {
+    flags.dcaMaxAdds = parseInt(document.getElementById('bt-dcaMaxAdds').value, 10) || 3;
+    flags.dcaDipPercent = parseFloat(document.getElementById('bt-dcaDipPct').value) || 2;
+    flags.dcaAddSizePercent = parseFloat(document.getElementById('bt-dcaAddSizePct').value) || 100;
+    flags.dcaMinScore = parseInt(document.getElementById('bt-dcaMinScore').value, 10) || 52;
+  }
+  return flags;
 }
 
 // Save current toggle config to localStorage for transfer to Performance page
@@ -297,6 +363,7 @@ var ACTION_BADGE_MAP = {
   TS: { label: 'TS', color: '#8b5cf6', desc: 'Trailing Stop' },
   PP: { label: 'PP', color: '#10b981', desc: 'Partial Profit' },
   RP: { label: 'RP', color: '#f59e0b', desc: 'Reduce Position' },
+  DCA: { label: 'DCA', color: '#06b6d4', desc: 'Dollar Cost Average' },
   EXIT: { label: 'EXIT', color: '#ef4444', desc: 'Score Exit' },
   LOCK: { label: 'LOCK', color: '#06b6d4', desc: 'Profit Lock-In' }
 };

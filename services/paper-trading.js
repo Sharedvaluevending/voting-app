@@ -285,19 +285,40 @@ async function openTrade(userId, signalData) {
     throw new Error(`Insufficient balance. Need $${required.toFixed(2)}, have $${user.paperBalance.toFixed(2)}. Try resetting paper account.`);
   }
 
+  // Determine TP mode: trailing = no fixed TPs, trail from entry
+  const tpMode = user.settings?.tpMode || 'fixed';
+  let trailingTpDistance = null;
+
   // Sanity-check TPs: for LONG, TPs must be above entry; for SHORT, below.
   // If a TP is on the wrong side (direction mismatch from strategy fallback), null it out.
   let safeTP1 = signalData.takeProfit1 || null;
   let safeTP2 = signalData.takeProfit2 || null;
   let safeTP3 = signalData.takeProfit3 || null;
-  if (signalData.direction === 'LONG') {
-    if (safeTP1 && safeTP1 < entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP1 $${safeTP1} < entry $${entryPrice} for LONG — removed`); safeTP1 = null; }
-    if (safeTP2 && safeTP2 < entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP2 $${safeTP2} < entry $${entryPrice} for LONG — removed`); safeTP2 = null; }
-    if (safeTP3 && safeTP3 < entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP3 $${safeTP3} < entry $${entryPrice} for LONG — removed`); safeTP3 = null; }
+
+  if (tpMode === 'trailing') {
+    // Trailing TP mode: no fixed TPs — compute trail distance from ATR or fixed %
+    safeTP1 = null;
+    safeTP2 = null;
+    safeTP3 = null;
+    const distMode = user.settings?.trailingTpDistanceMode || 'atr';
+    if (distMode === 'atr' && signalData.indicators?.atr > 0) {
+      const mult = user.settings?.trailingTpAtrMultiplier ?? 1.5;
+      trailingTpDistance = signalData.indicators.atr * mult;
+    } else {
+      const pct = user.settings?.trailingTpFixedPercent ?? 2;
+      trailingTpDistance = entryPrice * (pct / 100);
+    }
+    console.log(`[OpenTrade] ${signalData.symbol}: Trailing TP mode — distance $${trailingTpDistance.toFixed(6)} (${distMode})`);
   } else {
-    if (safeTP1 && safeTP1 > entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP1 $${safeTP1} > entry $${entryPrice} for SHORT — removed`); safeTP1 = null; }
-    if (safeTP2 && safeTP2 > entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP2 $${safeTP2} > entry $${entryPrice} for SHORT — removed`); safeTP2 = null; }
-    if (safeTP3 && safeTP3 > entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP3 $${safeTP3} > entry $${entryPrice} for SHORT — removed`); safeTP3 = null; }
+    if (signalData.direction === 'LONG') {
+      if (safeTP1 && safeTP1 < entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP1 $${safeTP1} < entry $${entryPrice} for LONG — removed`); safeTP1 = null; }
+      if (safeTP2 && safeTP2 < entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP2 $${safeTP2} < entry $${entryPrice} for LONG — removed`); safeTP2 = null; }
+      if (safeTP3 && safeTP3 < entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP3 $${safeTP3} < entry $${entryPrice} for LONG — removed`); safeTP3 = null; }
+    } else {
+      if (safeTP1 && safeTP1 > entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP1 $${safeTP1} > entry $${entryPrice} for SHORT — removed`); safeTP1 = null; }
+      if (safeTP2 && safeTP2 > entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP2 $${safeTP2} > entry $${entryPrice} for SHORT — removed`); safeTP2 = null; }
+      if (safeTP3 && safeTP3 > entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP3 $${safeTP3} > entry $${entryPrice} for SHORT — removed`); safeTP3 = null; }
+    }
   }
 
   const trade = new Trade({
@@ -327,7 +348,10 @@ async function openTrade(userId, signalData) {
     indicatorsAtEntry: signalData.indicators || {},
     scoreBreakdownAtEntry: signalData.scoreBreakdown || {},
     maxPrice: entryPrice,
-    minPrice: entryPrice
+    minPrice: entryPrice,
+    tpMode,
+    trailingTpDistance,
+    avgEntryPrice: entryPrice
   });
 
   await trade.save();
@@ -561,14 +585,14 @@ function logTradeAction(trade, type, description, oldValue, newValue, marketPric
 }
 
 let _stopsCheckRunning = false;
-async function checkStopsAndTPs(getCurrentPriceFunc) {
+async function checkStopsAndTPs(getCurrentPriceFunc, getSignalForCoinFunc) {
   // Prevent concurrent execution — avoids double partial closes and stale reads
   if (_stopsCheckRunning) return 0;
   _stopsCheckRunning = true;
-  try { return await _checkStopsAndTPsInner(getCurrentPriceFunc); }
+  try { return await _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc); }
   finally { _stopsCheckRunning = false; }
 }
-async function _checkStopsAndTPsInner(getCurrentPriceFunc) {
+async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc) {
   const openTrades = await Trade.find({ status: 'OPEN' });
   let closedCount = 0;
 
@@ -694,32 +718,56 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc) {
         }
       }
 
-      // Trailing stop at 1.5R+ (if autoTrailingStop) - trail at 1.5R behind max favorable price
-      // Widened from 1R to 1.5R trail distance to survive normal crypto retracements
-      // Activates if: stop already at BE, trailing already running, OR stop has been locked past entry
-      const stopPastEntry = trade.direction === 'LONG' ? trade.stopLoss >= trade.entryPrice : trade.stopLoss <= trade.entryPrice;
-      if (pastStopGrace && autoTrail && (stopPastEntry || trade.trailingActivated)) {
-        const at1_5R = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * 1.5 : currentPrice <= trade.entryPrice - risk * 1.5;
-        if (at1_5R) {
-          trade.trailingActivated = true;
-          const trailSL = trade.direction === 'LONG'
-            ? trade.maxPrice - risk * 1.5
-            : trade.minPrice + risk * 1.5;
-          const r2 = (v) => Math.round(v * 1000000) / 1000000;
-          const newStop = r2(trailSL);
-          const isLong = trade.direction === 'LONG';
-          const validMove = isLong ? newStop > trade.stopLoss && newStop < currentPrice : newStop < trade.stopLoss && newStop > currentPrice;
-          if (validMove) {
-            const oldSl = trade.stopLoss;
-            trade.stopLoss = newStop;
-            logTradeAction(trade, 'TS', `Stop trailed to $${newStop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, newStop, currentPrice);
-            await trade.save();
-            // Bitget: update trailing SL on exchange
-            if (trade.isLive) {
-              try {
-                const liveUser = await User.findById(trade.userId);
-                if (liveUser) await bitget.executeLiveStopUpdate(liveUser, trade, newStop);
-              } catch (e) { console.error(`[Bitget] TS SL update error: ${e.message}`); }
+      // === TRAILING TP MODE: trail from entry using trailingTpDistance (immediate, no 1.5R gate) ===
+      if (trade.tpMode === 'trailing' && trade.trailingTpDistance > 0) {
+        trade.trailingActivated = true;
+        const trailDist = trade.trailingTpDistance;
+        const trailSL = trade.direction === 'LONG'
+          ? trade.maxPrice - trailDist
+          : trade.minPrice + trailDist;
+        const r2 = (v) => Math.round(v * 1000000) / 1000000;
+        const newStop = r2(trailSL);
+        const isLong = trade.direction === 'LONG';
+        const validMove = isLong ? newStop > trade.stopLoss && newStop < currentPrice : newStop < trade.stopLoss && newStop > currentPrice;
+        if (validMove) {
+          const oldSl = trade.stopLoss;
+          trade.stopLoss = newStop;
+          logTradeAction(trade, 'TS', `Trailing TP stop to $${newStop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, newStop, currentPrice);
+          await trade.save();
+          if (trade.isLive) {
+            try {
+              const liveUser = await User.findById(trade.userId);
+              if (liveUser) await bitget.executeLiveStopUpdate(liveUser, trade, newStop);
+            } catch (e) { console.error(`[Bitget] Trailing TP SL update error: ${e.message}`); }
+          }
+        }
+      } else if (trade.tpMode !== 'trailing') {
+        // === STANDARD trailing stop at 1.5R+ (if autoTrailingStop) ===
+        // Trail at 1.5R behind max favorable price
+        // Activates if: stop already at BE, trailing already running, OR stop has been locked past entry
+        const stopPastEntry = trade.direction === 'LONG' ? trade.stopLoss >= trade.entryPrice : trade.stopLoss <= trade.entryPrice;
+        if (pastStopGrace && autoTrail && (stopPastEntry || trade.trailingActivated)) {
+          const at1_5R = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * 1.5 : currentPrice <= trade.entryPrice - risk * 1.5;
+          if (at1_5R) {
+            trade.trailingActivated = true;
+            const trailSL = trade.direction === 'LONG'
+              ? trade.maxPrice - risk * 1.5
+              : trade.minPrice + risk * 1.5;
+            const r2 = (v) => Math.round(v * 1000000) / 1000000;
+            const newStop = r2(trailSL);
+            const isLong = trade.direction === 'LONG';
+            const validMove = isLong ? newStop > trade.stopLoss && newStop < currentPrice : newStop < trade.stopLoss && newStop > currentPrice;
+            if (validMove) {
+              const oldSl = trade.stopLoss;
+              trade.stopLoss = newStop;
+              logTradeAction(trade, 'TS', `Stop trailed to $${newStop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, newStop, currentPrice);
+              await trade.save();
+              if (trade.isLive) {
+                try {
+                  const liveUser = await User.findById(trade.userId);
+                  if (liveUser) await bitget.executeLiveStopUpdate(liveUser, trade, newStop);
+                } catch (e) { console.error(`[Bitget] TS SL update error: ${e.message}`); }
+              }
             }
           }
         }
@@ -782,6 +830,11 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc) {
     if (tpFixed) {
       console.warn(`[StopTP] ${trade.symbol}: Fixed wrong-side TPs (${trade.direction} entry=$${trade.entryPrice}, TP1=$${trade.takeProfit1}, TP2=$${trade.takeProfit2}, TP3=$${trade.takeProfit3})`);
       await trade.save();
+    }
+
+    // Skip fixed TP checks when in trailing TP mode (no TPs, just trail until stopped)
+    if (trade.tpMode === 'trailing') {
+      continue;
     }
 
     const hitTP1Long = trade.direction === 'LONG' && trade.takeProfit1 && currentPrice >= trade.takeProfit1;
@@ -903,6 +956,75 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc) {
         continue;
       }
     }
+
+    // === DCA: Add to losing positions when signal re-confirms ===
+    if (getSignalForCoinFunc) {
+      const dcaUser = await User.findById(trade.userId);
+      const dcaSettings = dcaUser?.settings || {};
+      const dcaEnabled = dcaSettings.dcaEnabled === true;
+      const dcaMaxAdds = dcaSettings.dcaMaxAdds ?? 3;
+      const dcaDipPct = dcaSettings.dcaDipPercent ?? 2;
+      const dcaAddSizePct = dcaSettings.dcaAddSizePercent ?? 100;
+      const dcaMinScore = dcaSettings.dcaMinScore ?? 52;
+
+      if (dcaEnabled && (trade.dcaCount || 0) < dcaMaxAdds) {
+        const avgEntry = trade.avgEntryPrice || trade.entryPrice;
+        const dipLevel = dcaDipPct * ((trade.dcaCount || 0) + 1);
+        const dipPct = trade.direction === 'LONG'
+          ? ((avgEntry - currentPrice) / avgEntry) * 100
+          : ((currentPrice - avgEntry) / avgEntry) * 100;
+
+        if (dipPct >= dipLevel) {
+          try {
+            const signal = await getSignalForCoinFunc(trade.coinId);
+            if (signal) {
+              const sigDir = (signal.signal === 'BUY' || signal.signal === 'STRONG_BUY') ? 'LONG'
+                : (signal.signal === 'SELL' || signal.signal === 'STRONG_SELL') ? 'SHORT'
+                : null;
+              const dirMatch = sigDir === trade.direction;
+              const scoreOk = (signal.score || 0) >= dcaMinScore;
+
+              if (dirMatch && scoreOk) {
+                const origSize = trade.originalPositionSize || trade.positionSize;
+                const addSize = origSize * (dcaAddSizePct / 100);
+                const lev = trade.leverage || 1;
+                const addMargin = addSize / lev;
+                const addFees = addSize * getTakerFee(dcaUser);
+                const addRequired = addMargin + addFees;
+
+                if (dcaUser.paperBalance >= addRequired) {
+                  const oldAvg = trade.avgEntryPrice || trade.entryPrice;
+                  const oldTotalCost = oldAvg * trade.positionSize;
+                  const newTotalCost = oldTotalCost + (currentPrice * addSize);
+                  const newTotalSize = trade.positionSize + addSize;
+                  const newAvgEntry = newTotalCost / newTotalSize;
+
+                  trade.positionSize = newTotalSize;
+                  trade.avgEntryPrice = newAvgEntry;
+                  trade.dcaCount = (trade.dcaCount || 0) + 1;
+                  if (!Array.isArray(trade.dcaEntries)) trade.dcaEntries = [];
+                  trade.dcaEntries.push({ price: currentPrice, size: addSize, time: new Date() });
+                  trade.fees = (trade.fees || 0) + addFees;
+                  trade.margin = (trade.margin || 0) + addMargin;
+
+                  dcaUser.paperBalance -= addRequired;
+                  await dcaUser.save();
+
+                  logTradeAction(trade, 'DCA', `DCA #${trade.dcaCount}: Added $${addSize.toFixed(2)} at $${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (avg entry now $${newAvgEntry.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}, dip ${dipPct.toFixed(1)}%)`, oldAvg, newAvgEntry, currentPrice);
+                  await trade.save();
+                  console.log(`[DCA] ${trade.symbol}: DCA #${trade.dcaCount} +$${addSize.toFixed(2)} at $${currentPrice} | avg $${newAvgEntry.toFixed(6)} | dip ${dipPct.toFixed(1)}% | score ${signal.score}`);
+                } else {
+                  console.log(`[DCA] ${trade.symbol}: DCA skipped — insufficient balance ($${dcaUser.paperBalance.toFixed(2)} < $${addRequired.toFixed(2)})`);
+                }
+              }
+            }
+          } catch (dcaErr) {
+            console.error(`[DCA] Error on ${trade.symbol}:`, dcaErr.message);
+          }
+        }
+      }
+    }
+
    } catch (tradeErr) {
     console.error(`[StopTP] Error processing ${trade.symbol} (${trade._id}):`, tradeErr.message);
    }

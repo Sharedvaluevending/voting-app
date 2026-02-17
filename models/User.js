@@ -46,7 +46,18 @@ const userSchema = new mongoose.Schema({
     featureVolumeConfirmation: { type: Boolean, default: false },
     // Min R:R filter (default off) - hide/block signals below this R:R
     minRiskRewardEnabled: { type: Boolean, default: false },
-    minRiskReward: { type: Number, default: 1.2, min: 1.0, max: 5.0 }
+    minRiskReward: { type: Number, default: 1.2, min: 1.0, max: 5.0 },
+    // Take-Profit mode: 'fixed' = TP1/TP2/TP3, 'trailing' = trail from entry
+    tpMode: { type: String, enum: ['fixed', 'trailing'], default: 'fixed' },
+    trailingTpDistanceMode: { type: String, enum: ['atr', 'fixed'], default: 'atr' },
+    trailingTpAtrMultiplier: { type: Number, default: 1.5, min: 0.5, max: 5.0 },
+    trailingTpFixedPercent: { type: Number, default: 2, min: 0.5, max: 10 },
+    // DCA: dollar-cost-average into losing positions when signal re-confirms
+    dcaEnabled: { type: Boolean, default: false },
+    dcaMaxAdds: { type: Number, default: 3, min: 1, max: 10 },
+    dcaDipPercent: { type: Number, default: 2, min: 0.5, max: 20 },
+    dcaAddSizePercent: { type: Number, default: 100, min: 25, max: 200 },
+    dcaMinScore: { type: Number, default: 52, min: 30, max: 95 }
   },
   excludedCoins: [{ type: String }], // Coins excluded from auto-trade (e.g. ['dogecoin', 'cardano']),
   // Coin weights from backtest (1.0 = normal, 1.2 = 20% more allocation, 0.8 = 20% less)

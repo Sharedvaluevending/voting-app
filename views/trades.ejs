@@ -85,12 +85,15 @@
 
         <div class="signal-meta">
           <span>Entry: <strong>$<%= formatPrice(trade.entryPrice) %></strong></span>
+          <% if (trade.avgEntryPrice && trade.dcaCount > 0) { %><span>Avg Entry: <strong>$<%= formatPrice(trade.avgEntryPrice) %></strong></span><% } %>
           <span>Size: <strong>$<%= trade.positionSize.toFixed(2) %></strong><% if (trade.originalPositionSize && trade.originalPositionSize > trade.positionSize) { %> <span style="font-size:11px;color:#6b7280;">(of $<%= trade.originalPositionSize.toFixed(2) %>)</span><% } %></span>
           <span>Margin: <strong>$<%= ((trade.originalPositionSize || trade.positionSize) / (trade.leverage || 1)).toFixed(2) %></strong><% if (trade.originalPositionSize && trade.originalPositionSize > trade.positionSize * 1.01) { %> <span style="font-size:11px;color:#6b7280;">(rem: $<%= trade.margin.toFixed(2) %>)</span><% } %></span>
           <span>Time: <strong class="trade-time"><%= timeStr %></strong></span>
           <span>Score: <strong><%= trade.score || '-' %></strong></span>
           <% if (trade.strategyType) { %><span>Strategy: <strong><%= trade.strategyType.replace(/_/g, ' ') %></strong></span><% } %>
-          <% if (trade.stopLabel || trade.tpLabel) { %><span style="color:#6b7280;">Stop: <%= trade.stopLabel || 'ATR+S/R' %> · TP: <%= trade.tpLabel || 'R mult' %></span><% } %>
+          <% if (trade.tpMode === 'trailing') { %><span style="color:#8b5cf6;font-weight:600;">Trailing TP</span><% } %>
+          <% if (trade.dcaCount > 0) { %><span style="color:#06b6d4;font-weight:600;">DCA x<%= trade.dcaCount %></span><% } %>
+          <% if (trade.stopLabel || trade.tpLabel) { %><span style="color:#6b7280;">Stop: <%= trade.stopLabel || 'ATR+S/R' %> · TP: <%= trade.tpMode === 'trailing' ? 'Trail' : (trade.tpLabel || 'R mult') %></span><% } %>
         </div>
 
         <%
@@ -136,7 +139,9 @@
           <% } %>
           <% if (riskForProgress > 0) { %>
           <div style="margin-top:4px;font-size:10px;color:#6b7280;">
-            <% if (stopAtBE) { %>
+            <% if (trade.tpMode === 'trailing') { %>
+              <span style="color:#8b5cf6;">&#10003; Trailing TP active</span> · <%= profitR.toFixed(2) %>R profit
+            <% } else if (stopAtBE) { %>
               <span style="color:#10b981;">&#10003; Stop at breakeven</span> · <%= profitR >= 1.5 ? '<span style="color:#3b82f6;">Trailing active</span>' : 'Trailing at 1.5R (' + Math.min(100, (profitR / 1.5 * 100)).toFixed(0) + '%)' %>
             <% } else if (trade.trailingActivated) { %>
               <span style="color:#3b82f6;">&#10003; Trailing active</span> · <%= profitR.toFixed(2) %>R profit
@@ -159,9 +164,13 @@
             <% } else { %>-<% } %>
           </div></div>
           <div class="level"><div class="level-label">Current</div><div class="level-value trade-current-level <%= pnl >= 0 ? 'tp' : 'sl' %>">$<%= formatPrice(currentPrice) %></div></div>
+          <% if (trade.tpMode === 'trailing') { %>
+          <div class="level"><div class="level-label">TP Mode</div><div class="level-value tp" style="color:#8b5cf6;">Trailing<% if (trade.trailingTpDistance) { %> ($<%= formatPrice(trade.trailingTpDistance) %> dist)<% } %></div></div>
+          <% } else { %>
           <div class="level"><div class="level-label">TP1</div><div class="level-value tp"><%= trade.takeProfit1 ? '$' + formatPrice(trade.takeProfit1) : '-' %></div></div>
           <div class="level"><div class="level-label">TP2</div><div class="level-value tp"><%= trade.takeProfit2 ? '$' + formatPrice(trade.takeProfit2) : '-' %></div></div>
           <div class="level"><div class="level-label">TP3</div><div class="level-value tp"><%= trade.takeProfit3 ? '$' + formatPrice(trade.takeProfit3) : '-' %></div></div>
+          <% } %>
         </div>
 
         <% if (trade.reasoning && trade.reasoning.length > 0) { %>

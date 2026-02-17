@@ -217,6 +217,17 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const F_CLOSE_STOPS = ft.closeBasedStops !== false;
   // Minimum SL distance floor: widen stops that are tighter than 1.0 * ATR (prevents noise-level stops)
   const F_MIN_SL = ft.minSlDistance !== false;
+  // Trailing TP mode: trail from entry instead of fixed TPs
+  const F_TRAILING_TP = ft.trailingTp === true;
+  const trailingTpDistMode = ft.trailingTpDistanceMode || 'atr';
+  const trailingTpAtrMult = ft.trailingTpAtrMultiplier ?? 1.5;
+  const trailingTpFixedPct = ft.trailingTpFixedPercent ?? 2;
+  // DCA: add to losing positions when signal re-confirms
+  const F_DCA = ft.dca === true;
+  const dcaMaxAdds = ft.dcaMaxAdds ?? 3;
+  const dcaDipPct = ft.dcaDipPercent ?? 2;
+  const dcaAddSizePct = ft.dcaAddSizePercent ?? 100;
+  const dcaMinScore = ft.dcaMinScore ?? 52;
 
   const fetchOpts = {
     useBitgetOnly: options.useBitgetOnly === true,
@@ -342,25 +353,41 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
         }
       }
 
-      // --- Trailing stop at 1.5R+ (mirrors live autoTrail) ---
-      if (pastStopGrace && F_TRAILING && origRisk > 0) {
-        const stopPastEntry = isLong ? position.stopLoss >= position.entry : position.stopLoss <= position.entry;
-        if (stopPastEntry || position.trailingActivated) {
-          const at1_5R = isLong
-            ? currentPrice >= position.entry + origRisk * TRAILING_START_R
-            : currentPrice <= position.entry - origRisk * TRAILING_START_R;
-          if (at1_5R) {
-            position.trailingActivated = true;
-            const bestP = isLong ? position.maxPrice : position.minPrice;
-            const trailSL = isLong
-              ? bestP - (TRAILING_DIST_R * origRisk)
-              : bestP + (TRAILING_DIST_R * origRisk);
-            const validMove = isLong ? trailSL > position.stopLoss && trailSL < currentPrice
-              : trailSL < position.stopLoss && trailSL > currentPrice;
-            if (validMove) {
-              position.stopLoss = trailSL;
-              if (!position.actions.some(a => a.type === 'TS')) {
-                position.actions.push({ type: 'TS', bar: t + 1, newValue: trailSL, marketPrice: currentPrice });
+      // --- Trailing TP mode: trail from entry using trailingTpDistance (immediate) ---
+      if (position.tpMode === 'trailing' && position.trailingTpDistance > 0) {
+        position.trailingActivated = true;
+        const trailDist = position.trailingTpDistance;
+        const bestP = isLong ? position.maxPrice : position.minPrice;
+        const trailSL = isLong ? bestP - trailDist : bestP + trailDist;
+        const validMove = isLong ? trailSL > position.stopLoss && trailSL < currentPrice
+          : trailSL < position.stopLoss && trailSL > currentPrice;
+        if (validMove) {
+          position.stopLoss = trailSL;
+          if (!position.actions.some(a => a.type === 'TS')) {
+            position.actions.push({ type: 'TS', bar: t + 1, newValue: trailSL, marketPrice: currentPrice });
+          }
+        }
+      } else if (position.tpMode !== 'trailing') {
+        // --- Standard trailing stop at 1.5R+ (mirrors live autoTrail) ---
+        if (pastStopGrace && F_TRAILING && origRisk > 0) {
+          const stopPastEntry = isLong ? position.stopLoss >= position.entry : position.stopLoss <= position.entry;
+          if (stopPastEntry || position.trailingActivated) {
+            const at1_5R = isLong
+              ? currentPrice >= position.entry + origRisk * TRAILING_START_R
+              : currentPrice <= position.entry - origRisk * TRAILING_START_R;
+            if (at1_5R) {
+              position.trailingActivated = true;
+              const bestP = isLong ? position.maxPrice : position.minPrice;
+              const trailSL = isLong
+                ? bestP - (TRAILING_DIST_R * origRisk)
+                : bestP + (TRAILING_DIST_R * origRisk);
+              const validMove = isLong ? trailSL > position.stopLoss && trailSL < currentPrice
+                : trailSL < position.stopLoss && trailSL > currentPrice;
+              if (validMove) {
+                position.stopLoss = trailSL;
+                if (!position.actions.some(a => a.type === 'TS')) {
+                  position.actions.push({ type: 'TS', bar: t + 1, newValue: trailSL, marketPrice: currentPrice });
+                }
               }
             }
           }
@@ -552,8 +579,10 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       // --- Take profit checks ---
       // When F_PARTIAL_TP is ON: TP1 → 40%, TP2 → 30%, TP3 → 30%
       // When F_PARTIAL_TP is OFF: close 100% at TP1
-
-      if (!F_PARTIAL_TP) {
+      // Skip entirely in trailing TP mode (no fixed TPs)
+      if (position.tpMode === 'trailing') {
+        // No fixed TPs — trailing stop handles exit. Continue to next bar.
+      } else if (!F_PARTIAL_TP) {
         // Simple mode: close 100% at TP1
         if (position.takeProfit1) {
           const hitTP = isLong ? high >= position.takeProfit1 : low <= position.takeProfit1;
@@ -677,6 +706,42 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
         }
       }
 
+      // --- DCA: add to losing positions when signal re-confirms (mirrors live) ---
+      if (F_DCA && position && position.dcaCount < dcaMaxAdds) {
+        const avgEntry = position.avgEntryPrice || position.entry;
+        const dipLevel = dcaDipPct * (position.dcaCount + 1);
+        const dipPctNow = isLong
+          ? ((avgEntry - currentPrice) / avgEntry) * 100
+          : ((currentPrice - avgEntry) / avgEntry) * 100;
+
+        if (dipPctNow >= dipLevel) {
+          const dcaSignal = analyzeCoin(coinData, slice, history, options_bt);
+          const dcaSigDir = (dcaSignal.signal === 'BUY' || dcaSignal.signal === 'STRONG_BUY') ? 'LONG'
+            : (dcaSignal.signal === 'SELL' || dcaSignal.signal === 'STRONG_SELL') ? 'SHORT'
+            : null;
+          if (dcaSigDir === position.direction && (dcaSignal.score || 0) >= dcaMinScore) {
+            const addSize = position.originalSize * (dcaAddSizePct / 100);
+            const addFees = F_FEES ? addSize * TAKER_FEE : 0;
+            const addMargin = addSize / leverage;
+            if (equity >= addMargin + addFees) {
+              const oldAvg = position.avgEntryPrice || position.entry;
+              const oldTotalCost = oldAvg * position.size;
+              const newTotalCost = oldTotalCost + (currentPrice * addSize);
+              const newTotalSize = position.size + addSize;
+              const newAvgEntry = newTotalCost / newTotalSize;
+
+              position.size = newTotalSize;
+              position.avgEntryPrice = newAvgEntry;
+              position.entry = newAvgEntry;
+              position.dcaCount++;
+              position.dcaEntries.push({ price: currentPrice, size: addSize, bar: t + 1 });
+              equity -= (addMargin + addFees);
+              position.actions.push({ type: 'DCA', bar: t + 1, addSize, addPrice: currentPrice, avgEntry: newAvgEntry, dip: dipPctNow });
+            }
+          }
+        }
+      }
+
       continue;
     }
 
@@ -796,16 +861,28 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     let tp1 = levels.takeProfit1 || null;
     let tp2 = levels.takeProfit2 || null;
     let tp3 = levels.takeProfit3 || null;
-    if (direction === 'LONG') {
-      if (tp1 && tp1 < entry) tp1 = null;
-      if (tp2 && tp2 < entry) tp2 = null;
-      if (tp3 && tp3 < entry) tp3 = null;
+
+    // Trailing TP mode: null out TPs, compute trail distance
+    let btTrailingTpDist = null;
+    if (F_TRAILING_TP) {
+      tp1 = null; tp2 = null; tp3 = null;
+      if (trailingTpDistMode === 'atr' && signal.indicators?.atr > 0) {
+        btTrailingTpDist = signal.indicators.atr * trailingTpAtrMult;
+      } else {
+        btTrailingTpDist = entry * (trailingTpFixedPct / 100);
+      }
     } else {
-      if (tp1 && tp1 > entry) tp1 = null;
-      if (tp2 && tp2 > entry) tp2 = null;
-      if (tp3 && tp3 > entry) tp3 = null;
+      if (direction === 'LONG') {
+        if (tp1 && tp1 < entry) tp1 = null;
+        if (tp2 && tp2 < entry) tp2 = null;
+        if (tp3 && tp3 < entry) tp3 = null;
+      } else {
+        if (tp1 && tp1 > entry) tp1 = null;
+        if (tp2 && tp2 > entry) tp2 = null;
+        if (tp3 && tp3 > entry) tp3 = null;
+      }
+      if (!tp1) continue; // Must have at least TP1 in fixed mode
     }
-    if (!tp1) continue; // Must have at least TP1
 
     // Deduct entry fees from equity (mirrors live margin + fees deduction)
     equity -= entryFees;
@@ -826,7 +903,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       tp1Hit: false,
       tp2Hit: false,
       breakevenHit: false,
-      trailingActivated: false,
+      trailingActivated: F_TRAILING_TP ? true : false,
       reducedByScore: false,
       takenPartialByScore: false,
       bestPrice: null,
@@ -834,7 +911,12 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       minPrice: entry,
       partialPnl: 0,
       lastScoreCheckBar: t + 1,
-      actions: []  // Track all badges: BE, TS, PP, RP, EXIT, LOCK
+      actions: [],
+      tpMode: F_TRAILING_TP ? 'trailing' : 'fixed',
+      trailingTpDistance: btTrailingTpDist,
+      avgEntryPrice: entry,
+      dcaCount: 0,
+      dcaEntries: []
     };
   }
 

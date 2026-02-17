@@ -1075,6 +1075,25 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
       s.autoTrailingStop = false;
     }
 
+    // TP Mode: fixed or trailing
+    s.tpMode = req.body.tpMode === 'trailing' ? 'trailing' : 'fixed';
+    s.trailingTpDistanceMode = req.body.trailingTpDistanceMode === 'fixed' ? 'fixed' : 'atr';
+    const atrMult = parseFloat(req.body.trailingTpAtrMultiplier);
+    s.trailingTpAtrMultiplier = !isNaN(atrMult) && atrMult >= 0.5 && atrMult <= 5 ? atrMult : 1.5;
+    const fixedPct = parseFloat(req.body.trailingTpFixedPercent);
+    s.trailingTpFixedPercent = !isNaN(fixedPct) && fixedPct >= 0.5 && fixedPct <= 10 ? fixedPct : 2;
+
+    // DCA settings
+    s.dcaEnabled = req.body.dcaEnabled ? parseBool(req.body.dcaEnabled) : false;
+    const maxAdds = parseInt(req.body.dcaMaxAdds, 10);
+    s.dcaMaxAdds = !isNaN(maxAdds) && maxAdds >= 1 && maxAdds <= 10 ? maxAdds : 3;
+    const dipPct = parseFloat(req.body.dcaDipPercent);
+    s.dcaDipPercent = !isNaN(dipPct) && dipPct >= 0.5 && dipPct <= 20 ? dipPct : 2;
+    const addSizePct = parseFloat(req.body.dcaAddSizePercent);
+    s.dcaAddSizePercent = !isNaN(addSizePct) && addSizePct >= 25 && addSizePct <= 200 ? addSizePct : 100;
+    const dcaMinScr = parseInt(req.body.dcaMinScore, 10);
+    s.dcaMinScore = !isNaN(dcaMinScr) && dcaMinScr >= 30 && dcaMinScr <= 95 ? dcaMinScr : 52;
+
     u.settings = s;
     u.markModified('settings');
     await u.save();
@@ -2051,7 +2070,7 @@ app.get('/api/candles/:coinId', async (req, res) => {
 async function runStopTPCheck() {
   if (!dbConnected) return; // Skip if no database
   try {
-    const openTrades = await Trade.find({ status: 'OPEN' }).select('coinId').lean();
+    const openTrades = await Trade.find({ status: 'OPEN' }).select('coinId userId').lean();
     if (openTrades.length === 0) return;
     // Fetch live prices from Bitget/Kraken for all coins with open trades
     const coinIds = [...new Set(openTrades.map(t => t.coinId))];
@@ -2064,7 +2083,29 @@ async function runStopTPCheck() {
     });
     // Fall back to cached price if live fetch failed for a coin
     const getLivePrice = (coinId) => priceMap[coinId] || getCurrentPrice(coinId);
-    await checkStopsAndTPs(getLivePrice);
+
+    // Build signal getter for DCA (lazy — only fetches data if DCA is actually triggered)
+    let _dcaSignalCache = {};
+    let _dcaDataLoaded = false;
+    let _dcaPrices, _dcaCandles, _dcaHistory, _dcaOptions;
+    const getSignalForCoin = async (coinId) => {
+      if (_dcaSignalCache[coinId]) return _dcaSignalCache[coinId];
+      if (!_dcaDataLoaded) {
+        _dcaPrices = await fetchAllPrices();
+        _dcaCandles = fetchAllCandles();
+        _dcaHistory = await fetchAllHistory();
+        _dcaOptions = await buildEngineOptions(_dcaPrices, _dcaCandles, _dcaHistory);
+        _dcaDataLoaded = true;
+      }
+      const coinData = _dcaPrices.find(p => p.id === coinId);
+      if (!coinData) return null;
+      const candles = _dcaCandles[coinId] || null;
+      const history = _dcaHistory[coinId] || { prices: [], volumes: [] };
+      _dcaSignalCache[coinId] = analyzeCoin(coinData, candles, history, _dcaOptions);
+      return _dcaSignalCache[coinId];
+    };
+
+    await checkStopsAndTPs(getLivePrice, getSignalForCoin);
   } catch (err) {
     console.error('[AutoCheck] Error:', err.message);
   }
