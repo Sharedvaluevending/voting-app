@@ -191,7 +191,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       for (const action of actions) {
         if (action.type === 'SL' || action.type === 'EXIT' || (action.type === 'TP1' && action.fullClose) || (action.type === 'TP2' && action.fullClose) || action.type === 'TP3') {
           const exitPrice = action.marketPrice || (action.type === 'SL' ? position.stopLoss : nextBar.close);
-          const slipMul = 1 + (SLIPPAGE_BPS / 10000);
+          const slipMul = F_SLIPPAGE ? (1 + (SLIPPAGE_BPS / 10000)) : 1;
           const adjExit = position.direction === 'LONG' ? exitPrice / slipMul : exitPrice * slipMul;
           const exitFees = F_FEES ? position.size * TAKER_FEE : 0;
           const pnl = position.direction === 'LONG'
@@ -222,7 +222,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
         if (action.type === 'TP1' || action.type === 'TP2') {
           const portion = action.portion || 0;
           const exitPrice = action.marketPrice;
-          const slipMul = 1 + (SLIPPAGE_BPS / 10000);
+          const slipMul = F_SLIPPAGE ? (1 + (SLIPPAGE_BPS / 10000)) : 1;
           const adjExit = position.direction === 'LONG' ? exitPrice / slipMul : exitPrice * slipMul;
           const exitFees = F_FEES ? portion * TAKER_FEE : 0;
           const pnl = position.direction === 'LONG'
@@ -348,7 +348,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     const fillResult = execute(
       { direction: orders.direction, size: orders.size, entry: orders.entry, orderType: 'market' },
       execSnapshot,
-      { takerFee: TAKER_FEE, minSlipBps: SLIPPAGE_BPS }
+      { takerFee: F_FEES ? TAKER_FEE : 0, minSlipBps: F_SLIPPAGE ? SLIPPAGE_BPS : 0 }
     );
     if (!fillResult.filled) continue;
 
@@ -398,7 +398,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   if (position) {
     const lastBar = c1h[c1h.length - 1];
     const exitPrice = lastBar.close;
-    const slipMul = 1 + (SLIPPAGE_BPS / 10000);
+    const slipMul = F_SLIPPAGE ? (1 + (SLIPPAGE_BPS / 10000)) : 1;
     const adjExit = position.direction === 'LONG' ? exitPrice / slipMul : exitPrice * slipMul;
     const exitFees = F_FEES ? position.size * TAKER_FEE : 0;
     const pnl = position.direction === 'LONG'

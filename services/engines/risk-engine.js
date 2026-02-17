@@ -81,7 +81,7 @@ function plan(decision, snapshot, context) {
   const ff = featureFlags;
 
   // Slippage: worse entry (LONG pay more, SHORT receive less)
-  const slippage = 1 + (SLIPPAGE_BPS / 10000);
+  const slippage = (ff.slippage !== false) ? (1 + (SLIPPAGE_BPS / 10000)) : 1;
   const entryPrice = direction === 'LONG'
     ? decision.entry * slippage
     : decision.entry / slippage;

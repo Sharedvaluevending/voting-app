@@ -16,22 +16,24 @@ function evaluate(snapshot) {
   const { coinData, candles, history, options } = snapshot;
   const result = analyzeCoin(coinData, candles, history || {}, options || {});
 
-  // Map signal to side: LONG, SHORT, or null (HOLD)
-  let side = null;
-  if (result.signal === 'STRONG_BUY' || result.signal === 'BUY') side = 'LONG';
-  else if (result.signal === 'STRONG_SELL' || result.signal === 'SELL') side = 'SHORT';
-
-  // Pick best strategy for levels (matches runAutoTrade / backtest logic)
+  // Pick best strategy for direction AND levels (matches runAutoTrade / live exactly)
+  // Live auto-trade prefers best strategy direction, then falls back to blended signal.
   let bestStrat = null;
+  let side = null;
   if (result.topStrategies && Array.isArray(result.topStrategies)) {
     for (const strat of result.topStrategies) {
       const s = strat.signal || '';
       if (s === 'STRONG_BUY' || s === 'BUY' || s === 'STRONG_SELL' || s === 'SELL') {
         if (!bestStrat || (strat.score || 0) > (bestStrat.score || 0)) {
           bestStrat = strat;
+          side = (s === 'STRONG_BUY' || s === 'BUY') ? 'LONG' : 'SHORT';
         }
       }
     }
+  }
+  if (!side) {
+    if (result.signal === 'STRONG_BUY' || result.signal === 'BUY') side = 'LONG';
+    else if (result.signal === 'STRONG_SELL' || result.signal === 'SELL') side = 'SHORT';
   }
 
   // Use best strategy levels when direction matches; otherwise blended signal levels
