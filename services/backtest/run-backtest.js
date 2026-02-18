@@ -198,8 +198,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
           const pnl = position.direction === 'LONG'
             ? ((adjExit - position.entry) / position.entry) * position.size
             : ((position.entry - adjExit) / position.entry) * position.size;
-          const totalPnl = (position.partialPnl || 0) + pnl - exitFees;
-          // Only add the remaining portion's PnL to equity — partials were already added during partial closes
+          const totalPnl = (position.partialPnl || 0) + pnl - exitFees - (position.entryFees || 0);
           equity = Math.max(0, equity + pnl - exitFees);
           const exitReason = action.type === 'SL'
             ? (action.reason === 'TRAILING_TP_EXIT' ? 'TRAILING_TP_EXIT' : 'SL')
@@ -389,6 +388,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       maxPrice: fillResult.fillPrice,
       minPrice: fillResult.fillPrice,
       partialPnl: 0,
+      entryFees,
       lastScoreCheckBar: t + 1,
       actions: [],
       tpMode: orders.tpMode || 'fixed',
@@ -410,7 +410,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     const pnl = position.direction === 'LONG'
       ? ((adjExit - position.entry) / position.entry) * position.size
       : ((position.entry - adjExit) / position.entry) * position.size;
-    const totalPnl = (position.partialPnl || 0) + pnl - exitFees;
+    const totalPnl = (position.partialPnl || 0) + pnl - exitFees - (position.entryFees || 0);
     equity = Math.max(0, equity + pnl - exitFees);
     trades.push({
       direction: position.direction,
