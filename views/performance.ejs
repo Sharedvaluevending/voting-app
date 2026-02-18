@@ -254,6 +254,17 @@
   </div>
   <div id="live-feature-toggles">
     <p style="color:#6b7280;font-size:12px;margin-bottom:12px;">Toggle trading features on/off for live &amp; paper trading. These match the backtest feature toggles for consistent behavior.</p>
+
+    <div class="ft-tips" style="margin-bottom:16px;padding:14px 16px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.35);border-radius:8px;">
+      <h4 style="color:#93c5fd;font-size:13px;margin:0 0 10px 0;">Tips &amp; Conflicts</h4>
+      <ul style="margin:0;padding-left:18px;color:#9ca3af;font-size:12px;line-height:1.6;">
+        <li><strong style="color:#e5e7eb;">Trailing TP mode</strong> ignores Partial TP, Breakeven, and Trailing Stop — the stop trails from entry instead. Use Fixed TPs if you want those features.</li>
+        <li><strong style="color:#e5e7eb;">DCA + Score Re-check</strong> can conflict: DCA adds to losers when the signal re-confirms, but Score Re-check may exit when the score drops. Prefer DCA OFF if using Score Re-check.</li>
+        <li><strong style="color:#e5e7eb;">Quality filters</strong> (Price-Action Confluence, Volatility Filter, Volume Confirmation) stack — using all three reduces trade count but improves quality.</li>
+        <li><strong style="color:#e5e7eb;">Max profit / least losses:</strong> Signal filters ON, Partial TP + Breakeven + Trailing Stop + Lock-In ON, DCA OFF, Score Re-check ON, Min R:R 1.2–1.5.</li>
+      </ul>
+    </div>
+
     <form id="feature-toggles-form" action="/account/feature-toggles" method="POST">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
@@ -376,6 +387,7 @@
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <button type="button" class="btn btn-sm" onclick="setLiveToggles(true)" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:4px;cursor:pointer;">All ON</button>
         <button type="button" class="btn btn-sm" onclick="setLiveToggles(false)" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:4px;cursor:pointer;">All OFF</button>
+        <button type="button" class="btn btn-sm" onclick="applyMaxProfitPreset()" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #10b981;color:#10b981;border-radius:4px;cursor:pointer;" title="Apply recommended settings for max profit / least losses">Max Profit Preset</button>
         <button type="button" class="btn btn-sm" onclick="loadBacktestPreset()" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #3b82f6;color:#3b82f6;border-radius:4px;cursor:pointer;" title="Load toggle config saved from the Backtest page">Load from Backtest</button>
         <button type="button" class="btn btn-sm" onclick="loadCoinWeightsFromBacktest()" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #10b981;color:#10b981;border-radius:4px;cursor:pointer;" title="Load coin weights from latest massive backtest (prioritizes top performers in auto-trade)">Load Coin Weights</button>
         <button type="submit" class="btn btn-outline btn-sm" style="margin-left:auto;">Save Toggles</button>
@@ -835,6 +847,45 @@ function setLiveToggles(val) {
       cb.addEventListener('change', function() { wrap.style.display = cb.checked ? 'flex' : 'none'; });
     }
   });
+
+  function applyMaxProfitPreset() {
+    var form = document.getElementById('feature-toggles-form');
+    if (!form) return;
+    var set = function(name, checked) {
+      var el = form.querySelector('input[name="' + name + '"]');
+      if (el) el.checked = !!checked;
+    };
+    var setRadio = function(name, value) {
+      var el = form.querySelector('input[name="' + name + '"][value="' + value + '"]');
+      if (el) el.checked = true;
+    };
+    set('featureBtcFilter', true);
+    set('featureBtcCorrelation', true);
+    set('featureSessionFilter', true);
+    set('minRiskRewardEnabled', true);
+    set('featurePartialTP', true);
+    set('autoMoveBreakeven', true);
+    set('autoTrailingStop', true);
+    set('featureLockIn', true);
+    set('featureMinSlDistance', true);
+    set('featureScoreRecheck', true);
+    set('featureSlCap', true);
+    set('featureConfidenceSizing', true);
+    set('featurePriceActionConfluence', true);
+    set('featureVolatilityFilter', true);
+    set('featureVolumeConfirmation', true);
+    set('dcaEnabled', false);
+    setRadio('tpMode', 'fixed');
+    var trailOpts = document.getElementById('trailing-tp-opts');
+    if (trailOpts) trailOpts.style.display = 'none';
+    var minRr = form.querySelector('input[name="minRiskReward"]');
+    if (minRr) minRr.value = 1.2;
+    var wrap = document.getElementById('minRrValueWrap');
+    if (wrap) wrap.style.display = 'flex';
+    var dcaOpts = document.getElementById('dca-opts');
+    if (dcaOpts) dcaOpts.style.display = 'none';
+    alert('Max Profit preset applied. Click "Save Toggles" to apply.');
+  }
 
   // Save current toggle state to localStorage for backtest → live transfer
   function saveLiveTogglesToLocal() {
