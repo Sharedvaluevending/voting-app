@@ -86,5 +86,17 @@
   })();
   </script>
   <% } %>
+  <script>
+  (function() {
+    var toggle = document.getElementById('nav-toggle');
+    var links = document.getElementById('nav-links');
+    if (toggle && links) {
+      toggle.addEventListener('click', function() {
+        links.classList.toggle('nav-open');
+        toggle.setAttribute('aria-expanded', links.classList.contains('nav-open'));
+      });
+    }
+  })();
+  </script>
 </body>
 </html>

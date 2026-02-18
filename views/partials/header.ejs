@@ -10,7 +10,8 @@
   <nav class="nav">
     <div class="nav-inner">
       <a href="/" class="logo"><span>Crypto</span>Signals Pro</a>
-      <div class="nav-links">
+      <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Toggle menu">Menu</button>
+      <div class="nav-links" id="nav-links">
         <a href="/" class="<%= typeof activePage !== 'undefined' && activePage === 'dashboard' ? 'active' : '' %>">Dashboard</a>
         <% if (typeof user !== 'undefined' && user) { %>
           <a href="/trades" class="<%= typeof activePage !== 'undefined' && activePage === 'trades' ? 'active' : '' %>">Trades</a>
@@ -22,7 +23,7 @@
           <a href="/alerts" class="<%= typeof activePage !== 'undefined' && activePage === 'alerts' ? 'active' : '' %>">Alerts</a>
         <% } %>
         <a href="/learn" class="<%= typeof activePage !== 'undefined' && activePage === 'learn' ? 'active' : '' %>">Learn</a>
-        <a href="/learning" class="<%= typeof activePage !== 'undefined' && activePage === 'learning' ? 'active' : '' %>">AI Engine</a>
+        <a href="/learning" class="<%= typeof activePage !== 'undefined' && activePage === 'learning' ? 'active' : '' %>">Strategy Optimizer</a>
         <a href="/strategy-comparison" class="<%= typeof activePage !== 'undefined' && activePage === 'comparison' ? 'active' : '' %>">Compare</a>
         <a href="/backtest" class="<%= typeof activePage !== 'undefined' && activePage === 'backtest' ? 'active' : '' %>">Backtest</a>
         <a href="/backtest-results" class="<%= typeof activePage !== 'undefined' && activePage === 'backtest-results' ? 'active' : '' %>">Results</a>

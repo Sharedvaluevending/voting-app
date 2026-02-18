@@ -980,20 +980,55 @@ app.get('/analytics', requireLogin, async (req, res) => {
   try {
     const { getPerformanceStats } = require('./services/paper-trading');
     const { computeCorrelationMatrix } = require('./services/analytics');
+    const { runMonteCarlo } = require('./services/monte-carlo');
 
-    const [stats, allCandles] = await Promise.all([
+    const [stats, allCandles, closedTrades] = await Promise.all([
       getPerformanceStats(req.session.userId),
-      Promise.resolve(fetchAllCandles())
+      Promise.resolve(fetchAllCandles()),
+      Trade.find({ userId: req.session.userId, status: { $ne: 'OPEN' } }).lean()
     ]);
 
     const correlation = computeCorrelationMatrix(allCandles);
     const regimeTimeline = getRegimeTimeline();
+
+    let monteCarlo = null;
+    const initialBalance = (await User.findById(req.session.userId).lean())?.initialBalance || 10000;
+    if (closedTrades && closedTrades.length >= 5) {
+      monteCarlo = runMonteCarlo(closedTrades, initialBalance, { paths: 500, horizonTrades: 50 });
+    }
+
+    const regimeDetails = {};
+    if (closedTrades && closedTrades.length > 0) {
+      const regimes = ['trending', 'ranging', 'volatile', 'compression', 'mixed'];
+      for (const r of regimes) {
+        const inRegime = closedTrades.filter(t => (t.regime || 'unknown') === r);
+        if (inRegime.length > 0) {
+          const wins = inRegime.filter(t => t.pnl > 0).length;
+          const byCoin = {};
+          inRegime.forEach(t => {
+            if (!byCoin[t.symbol]) byCoin[t.symbol] = { trades: 0, pnl: 0, wins: 0 };
+            byCoin[t.symbol].trades++;
+            byCoin[t.symbol].pnl += t.pnl || 0;
+            if (t.pnl > 0) byCoin[t.symbol].wins++;
+          });
+          regimeDetails[r] = {
+            trades: inRegime.length,
+            wins,
+            winRate: ((wins / inRegime.length) * 100).toFixed(1),
+            totalPnl: inRegime.reduce((s, t) => s + (t.pnl || 0), 0),
+            byCoin: Object.entries(byCoin).map(([sym, d]) => ({ symbol: sym, ...d })).sort((a, b) => b.pnl - a.pnl)
+          };
+        }
+      }
+    }
 
     res.render('analytics', {
       activePage: 'analytics',
       stats: stats || {},
       correlation,
       regimeTimeline,
+      monteCarlo,
+      regimeDetails,
       user: await User.findById(req.session.userId).lean()
     });
   } catch (err) {
@@ -1768,6 +1803,43 @@ app.get('/backtest-results', (req, res) => {
 });
 
 // ====================================================
+// LEARNING ENGINE - Optimize weights (optional, apply only if improved)
+// ====================================================
+app.post('/api/learning/optimize/:strategyId', requireLogin, async (req, res) => {
+  try {
+    const { strategyId } = req.params;
+    const { apply } = req.body || {};
+    const closedTrades = await Trade.find({ userId: req.session.userId, status: { $ne: 'OPEN' } }).lean();
+    const strategy = await StrategyWeight.findOne({ strategyId }).lean();
+    if (!strategy) return res.json({ success: false, error: 'Strategy not found' });
+
+    const { optimizeWeights } = require('./services/weight-optimizer');
+    const result = optimizeWeights(strategyId, closedTrades, strategy.weights || {}, { maxIterations: 30 });
+
+    if (result.error) return res.json({ success: false, error: result.error });
+
+    if (result.improved && apply === 'true') {
+      await StrategyWeight.updateOne(
+        { strategyId },
+        { $set: { weights: result.weights, updatedAt: new Date() } }
+      );
+    }
+
+    res.json({
+      success: true,
+      weights: result.weights,
+      fitness: result.fitness,
+      baseFitness: result.baseFitness,
+      improved: result.improved,
+      applied: result.improved && apply === 'true'
+    });
+  } catch (err) {
+    console.error('[Learning Optimize] Error:', err);
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// ====================================================
 // LEARNING ENGINE DASHBOARD (public - shows strategy performance)
 // ====================================================
 app.get('/learning', async (req, res) => {
@@ -1790,10 +1862,11 @@ app.get('/learning', async (req, res) => {
         updatedAt: s.updatedAt
       };
     });
-    res.render('learning', { activePage: 'learning', strategies });
+    const user = req.session?.userId ? await User.findById(req.session.userId).lean() : null;
+    res.render('learning', { activePage: 'learning', strategies, user });
   } catch (err) {
     console.error('[Learning] Error:', err);
-    res.render('learning', { activePage: 'learning', strategies: [] });
+    res.render('learning', { activePage: 'learning', strategies: [], user: null });
   }
 });
 

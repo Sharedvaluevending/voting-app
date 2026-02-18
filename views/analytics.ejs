@@ -69,6 +69,52 @@
   <% } %>
 </div>
 
+<!-- Monte Carlo Simulation -->
+<% if (monteCarlo && !monteCarlo.error) { %>
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Monte Carlo Simulation</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Bootstrap of <%= monteCarlo.sampleSize %> trade returns over <%= monteCarlo.pathsRun %> paths. Equity percentiles after <%= monteCarlo.pathsRun === 500 ? '50' : '50' %> simulated trades.</p>
+  <div class="perf-grid" style="margin-bottom:16px;">
+    <div class="perf-card">
+      <div class="perf-label">Equity P5 (5th %ile)</div>
+      <div class="perf-value">$<%= (monteCarlo.percentiles.p5 || 0).toLocaleString(undefined, {minimumFractionDigits:2}) %></div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Equity P50 (median)</div>
+      <div class="perf-value">$<%= (monteCarlo.percentiles.p50 || 0).toLocaleString(undefined, {minimumFractionDigits:2}) %></div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Equity P95 (95th %ile)</div>
+      <div class="perf-value">$<%= (monteCarlo.percentiles.p95 || 0).toLocaleString(undefined, {minimumFractionDigits:2}) %></div>
+    </div>
+  </div>
+  <div class="perf-grid" style="margin-bottom:16px;">
+    <div class="perf-card">
+      <div class="perf-label">Max DD P50</div>
+      <div class="perf-value down"><%= (monteCarlo.maxDrawdownDistribution.p50 || 0).toFixed(1) %>%</div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Max DD P95</div>
+      <div class="perf-value down"><%= (monteCarlo.maxDrawdownDistribution.p95 || 0).toFixed(1) %>%</div>
+    </div>
+  </div>
+  <h4 style="color:#9ca3af;font-size:13px;margin:12px 0 8px 0;">Risk of Ruin (probability of hitting drawdown)</h4>
+  <div style="display:flex;flex-wrap:wrap;gap:12px;">
+    <% Object.entries(monteCarlo.riskOfRuin || {}).forEach(function([k, v]) { %>
+    <div style="padding:10px 16px;background:#1e293b;border-radius:8px;">
+      <span style="color:#6b7280;font-size:12px;"><%= k %> DD</span>
+      <span style="color:#eab308;font-weight:700;margin-left:8px;"><%= v %>%</span>
+    </div>
+    <% }); %>
+  </div>
+</div>
+<% } else if (monteCarlo && monteCarlo.error) { %>
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Monte Carlo Simulation</h3>
+  <p style="font-size:13px;color:#6b7280;"><%= monteCarlo.error %></p>
+</div>
+<% } %>
+
 <!-- Drawdown Analysis -->
 <div class="section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Drawdown Analysis</h3>
@@ -141,9 +187,13 @@
         </tr>
       </thead>
       <tbody>
-        <% Object.entries(rbr.byRegime || {}).forEach(function([name, d]) { %>
+        <% Object.entries(rbr.byRegime || {}).forEach(function([name, d]) {
+          var rd = typeof regimeDetails !== 'undefined' && regimeDetails[name];
+        %>
         <tr style="border-bottom:1px solid rgba(30,42,58,0.5);">
-          <td style="padding:10px 8px;color:#e5e7eb;font-weight:600;"><%= name %></td>
+          <td style="padding:10px 8px;color:#e5e7eb;font-weight:600;">
+            <% if (rd) { %><button type="button" class="regime-drill-btn" data-regime="<%= name %>" style="background:none;border:none;color:#3b82f6;cursor:pointer;font-weight:600;padding:0;text-align:left;"><%= name %> &#9660;</button><% } else { %><%= name %><% } %>
+          </td>
           <td style="text-align:center;padding:10px 8px;color:#9ca3af;"><%= d.trades %></td>
           <td style="text-align:center;padding:10px 8px;color:<%= d.sharpe != null && d.sharpe > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sharpe != null ? d.sharpe : '-' %></td>
           <td style="text-align:center;padding:10px 8px;color:<%= d.sortino != null && d.sortino > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sortino != null ? d.sortino : '-' %></td>
@@ -158,11 +208,52 @@
   <% if (Object.keys(rbr.byStrategy || {}).length === 0 && Object.keys(rbr.byRegime || {}).length === 0) { %>
   <p style="color:#6b7280;font-size:13px;margin-top:12px;">No trade data yet. Close some trades to see risk metrics by strategy and regime.</p>
   <% } %>
+  <% if (typeof regimeDetails !== 'undefined' && Object.keys(regimeDetails).length > 0) { %>
+  <div id="regime-drill-panels" style="margin-top:16px;">
+    <% Object.entries(regimeDetails).forEach(function([r, rd]) { %>
+    <div id="regime-panel-<%= r %>" class="regime-drill-panel" style="display:none;padding:14px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;margin-bottom:12px;">
+      <h4 style="color:#60a5fa;margin:0 0 10px 0;"><%= r %> — <%= rd.trades %> trades, <%= rd.winRate %>% win rate, <%= rd.totalPnl >= 0 ? '+' : '' %>$<%= rd.totalPnl.toFixed(2) %> P&L</h4>
+      <div style="font-size:12px;color:#9ca3af;">By coin:</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+        <% (rd.byCoin || []).slice(0, 10).forEach(function(c) { %>
+        <span style="padding:6px 10px;background:#1e293b;border-radius:6px;font-size:12px;"><%= c.symbol %>: <%= c.trades %> trades, <%= c.pnl >= 0 ? '+' : '' %>$<%= c.pnl.toFixed(2) %></span>
+        <% }); %>
+      </div>
+    </div>
+    <% }); %>
+  </div>
+  <script>
+  (function() {
+    document.querySelectorAll('.regime-drill-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var r = this.getAttribute('data-regime');
+        var panel = document.getElementById('regime-panel-' + r);
+        if (panel) {
+          panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+          this.innerHTML = panel.style.display === 'none' ? r + ' &#9660;' : r + ' &#9650;';
+        }
+      });
+    });
+  })();
+  </script>
+  <% } %>
 </div>
+
+<!-- Equity Curve -->
+<% if (stats.equityCurve && stats.equityCurve.length > 1) { %>
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Equity Curve</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Account equity over time. Red shading = drawdown periods.</p>
+  <div style="background:#0d1320;border-radius:8px;padding:12px;border:1px solid #1e2a3a;">
+    <canvas id="analytics-equity-curve" style="width:100%;height:260px;display:block;"></canvas>
+  </div>
+</div>
+<% } %>
 
 <!-- Overall Risk Metrics -->
 <div class="section">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Overall Risk Metrics</h3>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:12px;"><%= (stats.totalTrades || 0) < 2 ? 'Need 2+ closed trades for Sharpe/Sortino.' : '' %></p>
   <div class="perf-grid">
     <div class="perf-card">
       <div class="perf-label">Sharpe Ratio</div>
@@ -183,4 +274,86 @@
   </div>
 </div>
 
+<% if (stats.equityCurve && stats.equityCurve.length > 1) { %>
+<script>
+(function() {
+  var data = <%- JSON.stringify(stats.equityCurve) %>;
+  var canvas = document.getElementById('analytics-equity-curve');
+  if (!canvas || !data || data.length < 2) return;
+  var ctx = canvas.getContext('2d');
+  var dpr = window.devicePixelRatio || 1;
+  function resizeCanvas() {
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    drawChart();
+  }
+  function drawChart() {
+    var rect = canvas.getBoundingClientRect();
+    var w = rect.width, h = rect.height;
+    var pad = { top: 14, right: 14, bottom: 28, left: 54 };
+    var plotW = w - pad.left - pad.right, plotH = h - pad.top - pad.bottom;
+    var eq = data.map(function(d) { return d.equity; });
+    var minE = Math.min.apply(null, eq);
+    var maxE = Math.max.apply(null, eq);
+    var range = maxE - minE || 1;
+    minE = Math.max(0, minE - range * 0.08);
+    maxE = maxE + range * 0.08;
+    range = maxE - minE || 1;
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = '#1e2a3a';
+    ctx.lineWidth = 0.5;
+    for (var g = 0; g <= 4; g++) {
+      var gy = pad.top + (plotH * g / 4);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, gy);
+      ctx.lineTo(pad.left + plotW, gy);
+      ctx.stroke();
+      ctx.fillStyle = '#4b5563';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText('$' + Math.round(maxE - (range * g / 4)).toLocaleString(), pad.left - 4, gy + 3);
+    }
+    var pts = [];
+    for (var i = 0; i < data.length; i++) {
+      var x = pad.left + (i / (data.length - 1)) * plotW;
+      var y = pad.top + plotH - ((data[i].equity - minE) / range) * plotH;
+      pts.push({ x: x, y: y });
+    }
+    var peak = data[0].equity;
+    ctx.beginPath();
+    var inDrawdown = false;
+    for (var i = 0; i < data.length; i++) {
+      if (data[i].equity > peak) peak = data[i].equity;
+      var peakY = pad.top + plotH - ((peak - minE) / range) * plotH;
+      if (data[i].drawdown > 0) {
+        if (!inDrawdown) { ctx.moveTo(pts[i].x, peakY); inDrawdown = true; }
+        ctx.lineTo(pts[i].x, pts[i].y);
+      } else {
+        if (inDrawdown) { ctx.lineTo(pts[i].x, peakY); ctx.closePath(); inDrawdown = false; }
+        ctx.moveTo(pts[i].x, pts[i].y);
+      }
+    }
+    if (inDrawdown) {
+      var lastPeakY = pad.top + plotH - ((peak - minE) / range) * plotH;
+      ctx.lineTo(pts[data.length - 1].x, lastPeakY);
+      ctx.closePath();
+    }
+    ctx.fillStyle = 'rgba(239,68,68,0.12)';
+    ctx.fill();
+    ctx.beginPath();
+    for (var i = 0; i < pts.length; i++) {
+      if (i === 0) ctx.moveTo(pts[i].x, pts[i].y);
+      else ctx.lineTo(pts[i].x, pts[i].y);
+    }
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+})();
+</script>
+<% } %>
 <%- include('partials/footer') %>

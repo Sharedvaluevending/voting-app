@@ -1,8 +1,8 @@
 <%- include('partials/header') %>
 
 <div class="section-header">
-  <h2 style="color:#fff;font-size:22px;">AI Engine</h2>
-  <span style="font-size:12px;color:#6b7280;">Self-improving strategy performance. Weights here are used live by the trading engine to score signals. Regime gating and min 5 trades per strategy apply.</span>
+  <h2 style="color:#fff;font-size:22px;">Strategy Learning & Optimization</h2>
+  <span style="font-size:12px;color:#6b7280;">Uses automated optimization (regime-based + grid search) to tune strategy weights based on your trade history. Weights are used live by the trading engine. Apply only when improved.</span>
 </div>
 
 <% if (!strategies || strategies.length === 0) { %>
@@ -81,6 +81,7 @@
           <th>Structure</th>
           <th>Volatility</th>
           <th>Risk Qual</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -93,6 +94,11 @@
             <td><%= s.weights.structure %></td>
             <td><%= s.weights.volatility %></td>
             <td><%= s.weights.riskQuality %></td>
+            <td>
+              <% if (s.totalTrades >= 10 && typeof user !== 'undefined' && user) { %>
+              <button type="button" class="btn btn-outline btn-sm optimize-btn" data-strategy-id="<%= s.id %>" style="font-size:11px;padding:4px 8px;">Optimize</button>
+              <% } %>
+            </td>
           </tr>
         <% }); %>
       </tbody>
@@ -149,8 +155,44 @@
   <div class="journal-entry"><strong>3. Adjust weights</strong><br>After 10+ trades, strategies with negative expectancy get scoring weights reduced by 5%. Strategies with high expectancy (>0.5) get a 2% boost.</div>
   <div class="journal-entry"><strong>4. Live use in signals</strong><br>Strategy weights above are passed to the trading engine. Each strategy’s score uses its learned weights. Regime gating (e.g. no Mean Reversion in trending) and min 5 trades per strategy apply.</div>
   <div class="journal-entry" style="color:#6b7280;"><strong>Note:</strong> Weight adjustments are gradual. A strategy needs 20+ trades with negative expectancy before weights start decreasing.</div>
+  <div class="journal-entry"><strong>Optimize:</strong> Click "Optimize" next to a strategy (10+ trades) to run automated weight optimization. Only apply when improved.</div>
 </div>
 
+<% } %>
+
+<% if (typeof user !== 'undefined' && user && strategies && strategies.length > 0) { %>
+<script>
+(function() {
+  document.querySelectorAll('.optimize-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var sid = this.getAttribute('data-strategy-id');
+      if (!sid) return;
+      this.disabled = true;
+      this.textContent = 'Running...';
+      fetch('/api/learning/optimize/' + encodeURIComponent(sid), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': (document.querySelector('meta[name="csrf-token"]') || {}).content || '' },
+        body: JSON.stringify({ apply: confirm('Apply new weights if improved?') ? 'true' : 'false' }),
+        credentials: 'same-origin'
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.success) {
+          alert('Fitness: ' + (data.fitness || '-') + (data.improved ? ' (improved from ' + data.baseFitness + ')' : '') + (data.applied ? ' Applied.' : ' Not applied.'));
+          if (data.applied) location.reload();
+        } else {
+          alert('Error: ' + (data.error || 'Unknown'));
+        }
+      })
+      .catch(function() { alert('Request failed'); })
+      .finally(function() {
+        btn.disabled = false;
+        btn.textContent = 'Optimize';
+      });
+    });
+  });
+})();
+</script>
 <% } %>
 
 <%- include('partials/footer') %>
