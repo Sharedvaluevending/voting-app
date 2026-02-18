@@ -126,6 +126,9 @@ function analyzeWithCandles(coinData, candles, options) {
     scores1d.total * 0.40 + scores4h.total * 0.35 + scores1h.total * 0.25
   );
 
+  // Save pre-penalty score for penalty stacking floor
+  const preModifierScore = finalScore;
+
   // MTF divergence penalty: 1H vs 4H direction disagree
   const directions = [scores1h.direction, scores4h.direction, scores1d.direction];
   const bullCount = directions.filter(d => d === 'BULL').length;
@@ -227,6 +230,14 @@ function analyzeWithCandles(coinData, candles, options) {
     if (distFromPOC < 0.005) {  // within 0.5% of POC = strong level
       finalScore = Math.min(100, finalScore + 3);
     }
+  }
+
+  // Penalty stacking floor: independent penalties (MTF -10, session -5, BTC -8,
+  // potential top -12, funding -8) can stack to -43, killing viable signals.
+  // Cap total penalty reduction to -25 so a score-70 signal can't drop below 45.
+  const MAX_TOTAL_PENALTY = 25;
+  if (finalScore < preModifierScore - MAX_TOTAL_PENALTY) {
+    finalScore = preModifierScore - MAX_TOTAL_PENALTY;
   }
 
   // Final score clamp: ensure score stays within 0-100 after all modifiers

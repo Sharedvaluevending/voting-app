@@ -137,7 +137,9 @@ function plan(decision, snapshot, context) {
   else if (streak <= -2) positionSize *= 0.75;
   else if (streak >= 3) positionSize *= Math.min(1.15, 1 + streak * 0.03);
 
-  // Kelly criterion sizing
+  // Kelly criterion sizing — blend with risk-based, don't hard-cap
+  // Old: min(riskBased, kelly) could shrink positions 8x on good strategies
+  // New: blend 70% risk-based + 30% kelly to nudge size without crushing it
   const strat = strategyStats[decision.strategy];
   if (strat && strat.totalTrades >= 15 && strat.winRate > 0 && strat.avgRR > 0) {
     const w = strat.winRate / 100;
@@ -146,9 +148,10 @@ function plan(decision, snapshot, context) {
     if (kellyFull > 0) {
       const kellyFraction = Math.min(0.25, kellyFull * 0.25);
       const kellySize = balance * kellyFraction * leverage;
-      positionSize = Math.min(positionSize, kellySize);
+      // Blend: 70% risk-based + 30% kelly (soft adjustment, not hard cap)
+      positionSize = positionSize * 0.7 + Math.min(positionSize, kellySize) * 0.3;
     } else if (kellyFull < -0.1) {
-      positionSize *= 0.5;
+      positionSize *= 0.75;  // Was 0.5 — less punishing for strategies with limited data
     }
   }
 

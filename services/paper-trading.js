@@ -1166,7 +1166,9 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
       return { level: 'high', actionId: 'reduce_position', text: 'Reduce position' };
     }
   }
-  if (considerPartial && !inProfit) {
+  if (considerPartial) {
+    // Was: considerPartial && !inProfit — but nearTP1 means trade IS profitable, so !inProfit was contradictory.
+    // PP intent: score weakening near TP1, take profit now before reversal. Should fire when IN profit.
     return { level: 'medium', actionId: 'take_partial', text: 'Take partial' };
   }
   const lockInAvailable = messages.some(m => m.text === 'Lock in profit available');
@@ -1248,8 +1250,8 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
 
   // PROFIT PROTECTION: Never auto-close or auto-reduce a trade that is currently profitable.
   // If the trade is in profit, the stop loss / trailing stop should handle the exit — not score checks.
-  // This prevents the system from locking in a loss via partial at a slightly lower price.
-  if (['consider_exit', 'reduce_position', 'take_partial'].includes(actionId)) {
+  // Note: take_partial is excluded — it's a profit-TAKING action near TP1, not a loss-cutting action.
+  if (['consider_exit', 'reduce_position'].includes(actionId)) {
     const isLongExec = trade.direction === 'LONG';
     const execPnlPct = trade.entryPrice > 0
       ? ((isLongExec ? (price - trade.entryPrice) : (trade.entryPrice - price)) / trade.entryPrice * 100) * (trade.leverage || 1)

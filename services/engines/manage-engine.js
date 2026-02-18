@@ -203,9 +203,12 @@ function update(openTrade, snapshot, opts) {
       return { actions, updatedTrade: trade };
     }
 
-    // RP: reduce position 30% (matches paper-trading: less destructive per trigger)
-    const wouldReduce = effectiveDiff <= -25 || (signalFlipped && effectiveDiff <= -20);
-    if (wouldReduce && pnlPct < 0 && !trade.reducedByScore) {
+    // RP: reduce position 30% — only on meaningful losses (matches paper-trading thresholds)
+    // Was -25/-20: too sensitive for crypto score noise (scores swing 20-30 pts every 4h)
+    // Now -35/-30: matches paper-trading's determineSuggestedAction thresholds
+    // PnL gate: require at least -3% loss, not any negative (tiny dips are noise)
+    const wouldReduce = effectiveDiff <= -35 || (signalFlipped && effectiveDiff <= -30);
+    if (wouldReduce && pnlPct <= -3 && !trade.reducedByScore) {
       const portion = Math.round((trade.positionSize * 0.3) * 100) / 100;
       if (portion > 1) {
         actions.push({ type: 'RP', portion, marketPrice: currentPrice, reason: 'SCORE_CHECK_REDUCE' });
@@ -214,8 +217,9 @@ function update(openTrade, snapshot, opts) {
       }
     }
 
-    // PP: take partial 1/3 near TP1
-    const wouldTakePartial = effectiveDiff < 0 && effectiveDiff > -25 && pnlPct < 0 && !trade.takenPartialByScore;
+    // PP: take partial 1/3 near TP1 when score is weakening
+    // Removed pnlPct < 0 gate: near TP1 means trade IS profitable, so pnlPct < 0 was contradictory (dead code)
+    const wouldTakePartial = effectiveDiff < 0 && effectiveDiff > -35 && !trade.takenPartialByScore;
     const tp1 = trade.takeProfit1;
     const nearTP1 = tp1 && (isLong ? currentPrice >= tp1 * 0.98 : currentPrice <= tp1 * 1.02);
     if (wouldTakePartial && nearTP1) {

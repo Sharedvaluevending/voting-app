@@ -17,7 +17,7 @@ const { COIN_META } = require('../crypto-api');
 const SLIPPAGE_BPS = 5;
 const TAKER_FEE = 0.001;
 const COOLDOWN_BARS = 4;
-const SCORE_RECHECK_INTERVAL = 4;
+const SCORE_RECHECK_INTERVAL = 6;  // Every 6 bars (6h) — was 4, too frequent for crypto score noise
 const STOP_GRACE_BARS = 1;
 const TP1_PCT = 0.4;
 const TP2_PCT = 0.3;
@@ -62,6 +62,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   let position = null;
   let lastClosedBar = -999;
   let lastClosedDirection = null;
+  let streak = 0;  // Track win/loss streak (matches live trading behavior)
 
   let tradeStartBar = 50;
   for (let i = 0; i < c1h.length; i++) {
@@ -218,6 +219,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
           });
           lastClosedBar = t + 1;
           lastClosedDirection = position.direction;
+          streak = totalPnl > 0 ? Math.max(0, streak) + 1 : Math.min(0, streak) - 1;
           position = null;
           closed = true;
           break;
@@ -324,7 +326,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     const context = {
       balance: equity,
       openTrades: position ? [position] : [],
-      streak: 0,
+      streak,
       strategyStats: options.strategyStats || {},
       featureFlags: ft,
       userSettings: {
