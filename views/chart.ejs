@@ -23,6 +23,7 @@
         <input type="checkbox" id="live-modify-trades" title="Enable drag to modify SL, TP1, TP2, TP3">
         <span class="toggle-text">Live modify trades</span>
       </label>
+      <span id="trade-levels-saved" style="display:none;font-size:11px;color:#10b981;margin-left:8px;">Saved</span>
       <% } %>
     </div>
     <div class="trade-levels-grid">
@@ -118,27 +119,27 @@
         <div class="indicators-dropdown-wrap" id="dropdown-overlays-wrap">
           <button type="button" class="tool-btn indicators-dropdown-btn" data-dropdown="overlays" title="Overlays">Overlays <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
           <div class="indicators-dropdown-panel">
-            <label class="toggle-label"><input type="checkbox" id="toggle-bb" checked> <span class="toggle-text">Bollinger Bands</span></label>
-            <label class="toggle-label"><input type="checkbox" id="toggle-ma" checked> <span class="toggle-text">Moving Averages</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-bb"> <span class="toggle-text">Bollinger Bands</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-ma"> <span class="toggle-text">Moving Averages</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-keltner"> <span class="toggle-text">Keltner Channel</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-donchian"> <span class="toggle-text">Donchian Channel</span></label>
-            <label class="toggle-label"><input type="checkbox" id="toggle-fib" checked> <span class="toggle-text">Fibonacci</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-fib"> <span class="toggle-text">Fibonacci</span></label>
           </div>
         </div>
         <div class="indicators-dropdown-wrap" id="dropdown-levels-wrap">
           <button type="button" class="tool-btn indicators-dropdown-btn" data-dropdown="levels" title="Levels">Levels <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
           <div class="indicators-dropdown-panel">
-            <label class="toggle-label"><input type="checkbox" id="toggle-sr" checked> <span class="toggle-text">Support / Resistance</span></label>
-            <label class="toggle-label"><input type="checkbox" id="toggle-poc" checked> <span class="toggle-text">POC (Volume)</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-sr"> <span class="toggle-text">Support / Resistance</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-poc"> <span class="toggle-text">POC (Volume)</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-pivots"> <span class="toggle-text">Pivot Points</span></label>
           </div>
         </div>
         <div class="indicators-dropdown-wrap" id="dropdown-patterns-wrap">
           <button type="button" class="tool-btn indicators-dropdown-btn" data-dropdown="patterns" title="Patterns">Patterns <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
           <div class="indicators-dropdown-panel">
-            <label class="toggle-label"><input type="checkbox" id="toggle-chart-patterns" checked> <span class="toggle-text">Chart Patterns</span></label>
-            <label class="toggle-label"><input type="checkbox" id="toggle-badges" checked> <span class="toggle-text">Action Badges</span></label>
-            <label class="toggle-label"><input type="checkbox" id="toggle-patterns" checked> <span class="toggle-text">Candlestick Patterns</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-chart-patterns"> <span class="toggle-text">Chart Patterns</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-badges"> <span class="toggle-text">Action Badges</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-patterns"> <span class="toggle-text">Candlestick Patterns</span></label>
             <% if (typeof tradeId !== 'undefined' && tradeId) { %>
             <label class="toggle-label"><input type="checkbox" id="toggle-trade" checked> <span class="toggle-text">Trade Levels</span></label>
             <% } %>
@@ -147,8 +148,8 @@
         <div class="indicators-dropdown-wrap" id="dropdown-advanced-wrap">
           <button type="button" class="tool-btn indicators-dropdown-btn" data-dropdown="advanced" title="Advanced">Advanced <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
           <div class="indicators-dropdown-panel">
-            <label class="toggle-label"><input type="checkbox" id="toggle-ob"> <span class="toggle-text">Order Blocks</span></label>
-            <label class="toggle-label"><input type="checkbox" id="toggle-fvg"> <span class="toggle-text">Fair Value Gaps</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-ob" <%= (typeof tradeId !== 'undefined' && tradeId) ? 'checked' : '' %>> <span class="toggle-text">Order Blocks</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-fvg" <%= (typeof tradeId !== 'undefined' && tradeId) ? 'checked' : '' %>> <span class="toggle-text">Fair Value Gaps</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-liq"> <span class="toggle-text">Liquidity Clusters</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-vwap"> <span class="toggle-text">VWAP</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-premium"> <span class="toggle-text">Premium/Discount</span></label>
@@ -159,6 +160,9 @@
         <div class="indicators-dropdown-wrap" id="dropdown-style-wrap">
           <button type="button" class="tool-btn indicators-dropdown-btn" data-dropdown="style" title="Style">Style <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
           <div class="indicators-dropdown-panel">
+            <div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #334155;">
+              <button type="button" class="btn btn-outline btn-sm" id="indicators-save-btn" style="padding:4px 10px;font-size:11px;width:100%;" title="Save current indicator toggles">Save Indicators</button>
+            </div>
             <div class="candle-colors-wrap">
               <button type="button" class="tool-btn" id="candle-colors-btn" title="Candle colors">
                 <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="4" height="8" rx="0.5"/><rect x="6" y="2" width="4" height="12" rx="0.5"/><rect x="10" y="6" width="4" height="6" rx="0.5"/></svg>
@@ -201,6 +205,7 @@
       <div id="candle-countdown" style="font-size:14px;font-weight:700;color:#e5e7eb;font-variant-numeric:tabular-nums;"></div>
     </div>
     <div id="chart-structure-overlay" style="display:none;position:absolute;bottom:8px;left:12px;z-index:6;pointer-events:none;padding:4px 8px;background:rgba(15,23,42,0.85);border:1px solid #334155;border-radius:6px;font-size:11px;font-weight:600;color:#a78bfa;">—</div>
+    <canvas id="indicator-zones-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:4;"></canvas>
     <canvas id="draw-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;"></canvas>
   </div>
 
@@ -379,25 +384,45 @@
     } catch (e) { console.warn('applyCandleColors:', e); }
   }
   var currentTF = '1h';
-  var showBB = true;
-  var showMA = true;
-  var showKeltner = false;
-  var showDonchian = false;
-  var showFib = true;
-  var showBadges = true;
-  var showPatterns = true;
-  var showChartPatterns = true;
-  var showSR = true;
-  var showPOC = true;
-  var showPivots = false;
-  var showTradeLevels = true;
-  var showOB = false;
-  var showFVG = false;
-  var showLiq = false;
-  var showVWAP = false;
-  var showPremium = false;
-  var showSwing = false;
-  var showStructure = false;
+  var CHART_INDICATOR_STORAGE_KEY = 'chartIndicatorPrefs';
+  function getIndicatorDefaults() {
+    var hasTrade = !!(tradeId && (levels.entry != null || levels.sl != null));
+    return {
+      bb: false, ma: false, keltner: false, donchian: false, fib: false,
+      badges: false, patterns: false, chartPatterns: false, sr: false, poc: false, pivots: false,
+      tradeLevels: hasTrade, ob: hasTrade, fvg: hasTrade, liq: false, vwap: false, premium: false, swing: false, structure: false
+    };
+  }
+  function loadIndicatorPrefs() {
+    try {
+      var raw = localStorage.getItem(CHART_INDICATOR_STORAGE_KEY);
+      if (raw) {
+        var prefs = JSON.parse(raw);
+        return Object.assign(getIndicatorDefaults(), prefs);
+      }
+    } catch (e) {}
+    return getIndicatorDefaults();
+  }
+  var indicatorPrefs = loadIndicatorPrefs();
+  var showBB = indicatorPrefs.bb;
+  var showMA = indicatorPrefs.ma;
+  var showKeltner = indicatorPrefs.keltner;
+  var showDonchian = indicatorPrefs.donchian;
+  var showFib = indicatorPrefs.fib;
+  var showBadges = indicatorPrefs.badges;
+  var showPatterns = indicatorPrefs.patterns;
+  var showChartPatterns = indicatorPrefs.chartPatterns;
+  var showSR = indicatorPrefs.sr;
+  var showPOC = indicatorPrefs.poc;
+  var showPivots = indicatorPrefs.pivots;
+  var showTradeLevels = indicatorPrefs.tradeLevels;
+  var showOB = indicatorPrefs.ob;
+  var showFVG = indicatorPrefs.fvg;
+  var showLiq = indicatorPrefs.liq;
+  var showVWAP = indicatorPrefs.vwap;
+  var showPremium = indicatorPrefs.premium;
+  var showSwing = indicatorPrefs.swing;
+  var showStructure = indicatorPrefs.structure;
   var srLevels = { support: null, resistance: null };
   var pocLevel = null;
   var lastPatterns = [];
@@ -859,6 +884,53 @@
         structEl.textContent = 'Structure: ' + lastMarketStructure;
       } else {
         structEl.style.display = 'none';
+      }
+    }
+    renderZoneOverlays();
+  }
+
+  function renderZoneOverlays() {
+    var zonesCanvas = document.getElementById('indicator-zones-canvas');
+    if (!zonesCanvas || !chartRef.chart || !chartRef.series || !chartRef.candleData || chartRef.candleData.length === 0) return;
+    var ctx = zonesCanvas.getContext('2d');
+    if (!ctx) return;
+    var w = zonesCanvas.getBoundingClientRect().width;
+    var h = zonesCanvas.getBoundingClientRect().height;
+    if (w <= 0 || h <= 0) return;
+    ctx.clearRect(0, 0, w, h);
+    var ts = chartRef.chart.timeScale();
+    var visibleRange = ts.getVisibleLogicalRange();
+    if (!visibleRange) return;
+    var firstTime = chartRef.candleData[0] && chartRef.candleData[0].time;
+    var lastTime = chartRef.candleData[chartRef.candleData.length - 1] && chartRef.candleData[chartRef.candleData.length - 1].time;
+    if (firstTime == null || lastTime == null) return;
+    function toPx(time, price) {
+      var x = ts.timeToCoordinate(time);
+      var y = chartRef.series.priceToCoordinate(price);
+      return (x != null && y != null) ? { x: x, y: y } : null;
+    }
+    if (showOB && lastOrderBlocks.length > 0) {
+      for (var obi = 0; obi < lastOrderBlocks.length; obi++) {
+        var ob = lastOrderBlocks[obi];
+        var startTime = (ob.idx != null && chartRef.candleData[ob.idx]) ? chartRef.candleData[ob.idx].time : firstTime;
+        var p1 = toPx(startTime, ob.top);
+        var p2 = toPx(lastTime, ob.bottom);
+        if (p1 && p2) {
+          ctx.fillStyle = ob.type === 'BULL' ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)';
+          ctx.fillRect(p1.x, Math.min(p1.y, p2.y), Math.max(0, p2.x - p1.x), Math.abs(p2.y - p1.y));
+        }
+      }
+    }
+    if (showFVG && lastFVGs.length > 0) {
+      for (var fvgi = 0; fvgi < lastFVGs.length; fvgi++) {
+        var fvg = lastFVGs[fvgi];
+        var startTime = (fvg.idx != null && chartRef.candleData[fvg.idx]) ? chartRef.candleData[fvg.idx].time : firstTime;
+        var p1 = toPx(startTime, fvg.top);
+        var p2 = toPx(lastTime, fvg.bottom);
+        if (p1 && p2) {
+          ctx.fillStyle = fvg.type === 'BULL' ? 'rgba(34,197,94,0.18)' : 'rgba(239,68,68,0.18)';
+          ctx.fillRect(p1.x, Math.min(p1.y, p2.y), Math.max(0, p2.x - p1.x), Math.abs(p2.y - p1.y));
+        }
       }
     }
   }
@@ -1613,6 +1685,12 @@
               break;
             }
           }
+          var savedEl = document.getElementById('trade-levels-saved');
+          if (savedEl) {
+            savedEl.style.display = 'inline';
+            savedEl.textContent = 'Saved';
+            setTimeout(function() { savedEl.style.display = 'none'; }, 2000);
+          }
         }
       }).catch(function(err) { console.warn('Live modify failed:', err); });
     }
@@ -1686,6 +1764,64 @@
   if (toggleStructureEl) toggleStructureEl.addEventListener('change', function() { toggleStructureOverlay(this.checked); });
   var toggleTradeEl = document.getElementById('toggle-trade');
   if (toggleTradeEl) toggleTradeEl.addEventListener('change', function() { toggleTradeLevels(this.checked); });
+
+  function syncIndicatorCheckboxes() {
+    var map = { 'toggle-bb': showBB, 'toggle-ma': showMA, 'toggle-keltner': showKeltner, 'toggle-donchian': showDonchian,
+      'toggle-fib': showFib, 'toggle-badges': showBadges, 'toggle-patterns': showPatterns, 'toggle-chart-patterns': showChartPatterns,
+      'toggle-sr': showSR, 'toggle-poc': showPOC, 'toggle-pivots': showPivots, 'toggle-trade': showTradeLevels,
+      'toggle-ob': showOB, 'toggle-fvg': showFVG, 'toggle-liq': showLiq, 'toggle-vwap': showVWAP,
+      'toggle-premium': showPremium, 'toggle-swing': showSwing, 'toggle-structure': showStructure };
+    for (var id in map) {
+      var el = document.getElementById(id);
+      if (el) el.checked = map[id];
+    }
+  }
+  function saveIndicatorPrefs() {
+    var prefs = { bb: showBB, ma: showMA, keltner: showKeltner, donchian: showDonchian, fib: showFib,
+      badges: showBadges, patterns: showPatterns, chartPatterns: showChartPatterns, sr: showSR, poc: showPOC, pivots: showPivots,
+      tradeLevels: showTradeLevels, ob: showOB, fvg: showFVG, liq: showLiq, vwap: showVWAP,
+      premium: showPremium, swing: showSwing, structure: showStructure };
+    try {
+      localStorage.setItem(CHART_INDICATOR_STORAGE_KEY, JSON.stringify(prefs));
+    } catch (e) {}
+  }
+  syncIndicatorCheckboxes();
+  var indicatorsSaveBtn = document.getElementById('indicators-save-btn');
+  if (indicatorsSaveBtn) {
+    indicatorsSaveBtn.addEventListener('click', function() {
+      showBB = document.getElementById('toggle-bb') && document.getElementById('toggle-bb').checked;
+      showMA = document.getElementById('toggle-ma') && document.getElementById('toggle-ma').checked;
+      showKeltner = document.getElementById('toggle-keltner') && document.getElementById('toggle-keltner').checked;
+      showDonchian = document.getElementById('toggle-donchian') && document.getElementById('toggle-donchian').checked;
+      showFib = document.getElementById('toggle-fib') && document.getElementById('toggle-fib').checked;
+      showBadges = document.getElementById('toggle-badges') && document.getElementById('toggle-badges').checked;
+      showPatterns = document.getElementById('toggle-patterns') && document.getElementById('toggle-patterns').checked;
+      showChartPatterns = document.getElementById('toggle-chart-patterns') && document.getElementById('toggle-chart-patterns').checked;
+      showSR = document.getElementById('toggle-sr') && document.getElementById('toggle-sr').checked;
+      showPOC = document.getElementById('toggle-poc') && document.getElementById('toggle-poc').checked;
+      showPivots = document.getElementById('toggle-pivots') && document.getElementById('toggle-pivots').checked;
+      showTradeLevels = (toggleTradeEl && toggleTradeEl.checked) || false;
+      showOB = document.getElementById('toggle-ob') && document.getElementById('toggle-ob').checked;
+      showFVG = document.getElementById('toggle-fvg') && document.getElementById('toggle-fvg').checked;
+      showLiq = document.getElementById('toggle-liq') && document.getElementById('toggle-liq').checked;
+      showVWAP = document.getElementById('toggle-vwap') && document.getElementById('toggle-vwap').checked;
+      showPremium = document.getElementById('toggle-premium') && document.getElementById('toggle-premium').checked;
+      showSwing = document.getElementById('toggle-swing') && document.getElementById('toggle-swing').checked;
+      showStructure = document.getElementById('toggle-structure') && document.getElementById('toggle-structure').checked;
+      saveIndicatorPrefs();
+      if (chartRef.chart) {
+        try { addPriceLines(); } catch(e) {}
+        try { renderBollingerBands(); } catch(e) {}
+        try { renderMALines(); } catch(e) {}
+        try { renderKeltnerLines(); } catch(e) {}
+        try { renderDonchianLines(); } catch(e) {}
+        try { applyActionMarkers(initialActions || []); } catch(e) {}
+        try { renderChartPatterns(); } catch(e) {}
+      }
+      indicatorsSaveBtn.textContent = 'Saved!';
+      setTimeout(function() { indicatorsSaveBtn.textContent = 'Save Indicators'; }, 1500);
+    });
+  }
   var candleColorsBtn = document.getElementById('candle-colors-btn');
   var candleColorsPanel = document.getElementById('candle-colors-panel');
   var candleUpInput = document.getElementById('candle-up-color');
@@ -1805,6 +1941,14 @@
     drawCanvas.style.height = rect.height + 'px';
     drawCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     renderDrawings();
+    var zonesCanvas = document.getElementById('indicator-zones-canvas');
+    if (zonesCanvas) {
+      zonesCanvas.width = rect.width * dpr;
+      zonesCanvas.height = rect.height * dpr;
+      zonesCanvas.style.width = rect.width + 'px';
+      zonesCanvas.style.height = rect.height + 'px';
+    }
+    if (typeof renderZoneOverlays === 'function') renderZoneOverlays();
   }
 
   // Convert price/time to pixel coordinates
@@ -2010,7 +2154,10 @@
   // Re-render drawings whenever chart pans/zooms
   function hookChartRedraw() {
     if (!chartRef.chart) return;
-    chartRef.chart.timeScale().subscribeVisibleLogicalRangeChange(function() { renderDrawings(); });
+    chartRef.chart.timeScale().subscribeVisibleLogicalRangeChange(function() {
+      renderDrawings();
+      if (typeof renderZoneOverlays === 'function') renderZoneOverlays();
+    });
     chartRef.chart.subscribeCrosshairMove(function() { /* lightweight redraw on move if drawing */ });
   }
 
