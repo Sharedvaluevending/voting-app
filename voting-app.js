@@ -1981,17 +1981,17 @@ app.get('/api/candles/:coinId', async (req, res) => {
       return { time: t, value: c.volume || 0, color: isUp ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.5)' };
     });
 
-    // Support/Resistance from engine (swing-based)
+    // Support/Resistance with role reversal (break above R→S, break below S→R, new levels drawn)
     let support = null;
     let resistance = null;
     let poc = null;
     try {
-      const { findSR, calculatePOC } = require('./services/trading-engine');
+      const { findSRWithRoleReversal, calculatePOC } = require('./services/trading-engine');
       const highs = raw.map(c => c.high);
       const lows = raw.map(c => c.low);
       const closes = raw.map(c => c.close);
-      const sr = findSR(highs, lows, closes);
-      if (sr.support > 0 && sr.resistance > sr.support) {
+      const sr = findSRWithRoleReversal(highs, lows, closes);
+      if (sr.support > 0 && sr.resistance > 0) {
         support = sr.support;
         resistance = sr.resistance;
       }

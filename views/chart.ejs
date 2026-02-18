@@ -52,27 +52,12 @@
   </div>
   <% } %>
 
-  <!-- TradingView-style toolbar: timeframe + drawing tools + toggles -->
-  <div class="chart-toolbar chart-toolbar-tv" id="chart-toolbar">
-    <div class="chart-toolbar-row chart-toolbar-row-1">
-      <div class="tf-selector" id="tf-selector">
-        <button class="tf-btn" data-tf="15m">15m</button>
-        <button class="tf-btn tf-active" data-tf="1h">1H</button>
-        <button class="tf-btn" data-tf="4h">4H</button>
-        <button class="tf-btn" data-tf="1d">1D</button>
-        <button class="tf-btn" data-tf="1w">1W</button>
-      </div>
-      <button type="button" class="tool-btn chart-fit-btn" id="chart-fit-btn" title="Reset zoom / Fit content">
-        <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="8" y="8" width="6" height="6" rx="1"/></svg>
-        <span class="chart-fit-text">Fit</span>
-      </button>
-      <button type="button" class="draw-tools-toggle" id="draw-tools-toggle" aria-label="Drawing tools">
-        <svg width="20" height="20" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 5v14M5 12h14"/></svg>
-        <span class="draw-tools-toggle-text">Tools</span>
-      </button>
-    </div>
-    <div class="chart-toolbar-row chart-toolbar-row-2">
-      <div class="draw-tools" id="draw-tools">
+  <!-- TradingView-style layout: tools sidebar left, chart center, timeframes bottom -->
+  <div class="chart-layout">
+    <!-- Left sidebar: drawing tools -->
+    <aside class="chart-tools-sidebar" id="chart-tools-sidebar">
+      <div class="sidebar-label">Drawing</div>
+      <div class="draw-tools draw-tools-vertical" id="draw-tools">
         <button class="tool-btn tool-active" data-tool="cursor" title="Select">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M3 1l10 6.5L8.5 9l-2 5.5L3 1z"/></svg>
         </button>
@@ -91,8 +76,8 @@
         <button class="tool-btn" data-tool="ray" title="Ray">
           <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><line x1="2" y1="12" x2="14" y2="5"/><polygon points="14,5 10,5.5 12.5,7.5" fill="currentColor" stroke="none"/></svg>
         </button>
-        <div class="toolbar-divider-vert"></div>
-        <div class="draw-color-picker" id="draw-color-picker" title="Line color">
+        <div class="toolbar-divider-horiz"></div>
+        <div class="draw-color-picker draw-color-picker-vertical" id="draw-color-picker" title="Line color">
           <input type="color" id="draw-color-input" value="#f59e0b" title="Pick color">
           <span class="draw-color-swatches" id="draw-color-swatches">
             <span class="color-swatch" data-color="#f59e0b" style="background:#f59e0b"></span>
@@ -103,6 +88,7 @@
             <span class="color-swatch" data-color="#06b6d4" style="background:#06b6d4"></span>
           </span>
         </div>
+        <div class="toolbar-divider-horiz"></div>
         <button class="tool-btn tool-btn-danger" data-tool="delete" id="draw-delete-btn" title="Delete" disabled style="opacity:0.5;cursor:not-allowed;">
           <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 4h10v10H3zM6 4V2h4v2M6 7v4M10 7v4"/></svg>
         </button>
@@ -110,42 +96,60 @@
           <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
         </button>
       </div>
-    </div>
-    <div class="chart-toolbar-row chart-toolbar-row-3">
-      <div class="chart-toggles">
-        <label class="toggle-label"><input type="checkbox" id="toggle-fib" checked> <span class="toggle-text">Fib</span></label>
-        <label class="toggle-label"><input type="checkbox" id="toggle-badges" checked> <span class="toggle-text">Badges</span></label>
-        <label class="toggle-label"><input type="checkbox" id="toggle-patterns" checked> <span class="toggle-text">Patterns</span></label>
-        <label class="toggle-label"><input type="checkbox" id="toggle-chart-patterns" checked> <span class="toggle-text">Chart Pat.</span></label>
-        <label class="toggle-label"><input type="checkbox" id="toggle-sr" checked> <span class="toggle-text">S/R</span></label>
-        <label class="toggle-label"><input type="checkbox" id="toggle-poc" checked> <span class="toggle-text">POC</span></label>
-        <% if (typeof tradeId !== 'undefined' && tradeId) { %>
-        <label class="toggle-label"><input type="checkbox" id="toggle-trade" checked> <span class="toggle-text">Trade</span></label>
-        <% } %>
-        <div class="candle-colors-wrap" style="position:relative;display:inline-flex;align-items:center;">
-          <button type="button" class="tool-btn" id="candle-colors-btn" title="Candle colors">
-            <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="4" height="8" rx="0.5"/><rect x="6" y="2" width="4" height="12" rx="0.5"/><rect x="10" y="6" width="4" height="6" rx="0.5"/></svg>
-            <span class="chart-fit-text">Candle</span>
+    </aside>
+
+    <!-- Main chart area -->
+    <div class="chart-main">
+      <!-- Top bar: Fit, Indicators dropdown -->
+      <div class="chart-top-bar">
+        <button type="button" class="tool-btn chart-fit-btn" id="chart-fit-btn" title="Reset zoom / Fit content">
+          <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="8" y="8" width="6" height="6" rx="1"/></svg>
+          <span class="chart-fit-text">Fit</span>
+        </button>
+        <div class="indicators-dropdown-wrap">
+          <button type="button" class="tool-btn indicators-dropdown-btn" id="indicators-dropdown-btn" title="Indicators">
+            <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><path d="M2 12 L6 6 L10 10 L14 2"/></svg>
+            <span>Indicators</span>
+            <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg>
           </button>
-          <div class="candle-colors-panel" id="candle-colors-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:6px;padding:10px 12px;background:rgba(15,23,42,0.98);border:1px solid #334155;border-radius:8px;z-index:100;min-width:180px;">
-            <div style="font-size:11px;color:#6b7280;margin-bottom:8px;text-transform:uppercase;">Candle colors</div>
-            <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px;">
-              <label style="font-size:12px;color:#9ca3af;">Up</label>
-              <input type="color" id="candle-up-color" value="#22c55e" style="width:36px;height:28px;padding:2px;border:1px solid #334155;border-radius:6px;cursor:pointer;background:#1e293b;">
-            </div>
-            <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;">
-              <label style="font-size:12px;color:#9ca3af;">Down</label>
-              <input type="color" id="candle-down-color" value="#ef4444" style="width:36px;height:28px;padding:2px;border:1px solid #334155;border-radius:6px;cursor:pointer;background:#1e293b;">
-            </div>
-            <div style="display:flex;gap:6px;">
-              <button type="button" class="btn btn-outline btn-sm" id="candle-colors-save" style="padding:4px 10px;font-size:11px;">Save</button>
-              <button type="button" class="btn btn-outline btn-sm" id="candle-colors-reset" style="padding:4px 10px;font-size:11px;">Reset</button>
+          <div class="indicators-dropdown-panel" id="indicators-dropdown-panel">
+            <div class="indicators-dropdown-title">Overlays</div>
+            <label class="toggle-label"><input type="checkbox" id="toggle-bb" checked> <span class="toggle-text">Bollinger Bands</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-fib" checked> <span class="toggle-text">Fibonacci</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-sr" checked> <span class="toggle-text">Support / Resistance</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-poc" checked> <span class="toggle-text">POC (Volume)</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-chart-patterns" checked> <span class="toggle-text">Chart Patterns</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-badges" checked> <span class="toggle-text">Action Badges</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-patterns" checked> <span class="toggle-text">Candlestick Patterns</span></label>
+            <% if (typeof tradeId !== 'undefined' && tradeId) { %>
+            <label class="toggle-label"><input type="checkbox" id="toggle-trade" checked> <span class="toggle-text">Trade Levels</span></label>
+            <% } %>
+            <div class="toolbar-divider-horiz"></div>
+            <div class="indicators-dropdown-title">Style</div>
+            <div class="candle-colors-wrap">
+              <button type="button" class="tool-btn" id="candle-colors-btn" title="Candle colors">
+                <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="4" height="8" rx="0.5"/><rect x="6" y="2" width="4" height="12" rx="0.5"/><rect x="10" y="6" width="4" height="6" rx="0.5"/></svg>
+                <span>Candle colors</span>
+              </button>
+              <div class="candle-colors-panel" id="candle-colors-panel" style="display:none;position:absolute;top:100%;left:0;margin-top:6px;padding:10px 12px;background:rgba(15,23,42,0.98);border:1px solid #334155;border-radius:8px;z-index:100;min-width:180px;">
+                <div style="font-size:11px;color:#6b7280;margin-bottom:8px;text-transform:uppercase;">Candle colors</div>
+                <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px;">
+                  <label style="font-size:12px;color:#9ca3af;">Up</label>
+                  <input type="color" id="candle-up-color" value="#22c55e" style="width:36px;height:28px;padding:2px;border:1px solid #334155;border-radius:6px;cursor:pointer;background:#1e293b;">
+                </div>
+                <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;">
+                  <label style="font-size:12px;color:#9ca3af;">Down</label>
+                  <input type="color" id="candle-down-color" value="#ef4444" style="width:36px;height:28px;padding:2px;border:1px solid #334155;border-radius:6px;cursor:pointer;background:#1e293b;">
+                </div>
+                <div style="display:flex;gap:6px;">
+                  <button type="button" class="btn btn-outline btn-sm" id="candle-colors-save" style="padding:4px 10px;font-size:11px;">Save</button>
+                  <button type="button" class="btn btn-outline btn-sm" id="candle-colors-reset" style="padding:4px 10px;font-size:11px;">Reset</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  </div>
 
   <!-- Lightweight Charts (primary – with trade level lines) -->
   <div class="chart-container" id="lw-chart-container" style="display:none;">
@@ -174,6 +178,19 @@
     </div>
   </div>
 
+  <!-- Timeframes bar (TradingView-style at bottom) -->
+  <div class="chart-tf-bar" id="chart-tf-bar">
+    <div class="tf-selector" id="tf-selector">
+      <button class="tf-btn" data-tf="15m">15m</button>
+      <button class="tf-btn tf-active" data-tf="1h">1H</button>
+      <button class="tf-btn" data-tf="4h">4H</button>
+      <button class="tf-btn" data-tf="1d">1D</button>
+      <button class="tf-btn" data-tf="1w">1W</button>
+    </div>
+  </div>
+    </div><!-- .chart-main -->
+  </div><!-- .chart-layout -->
+
   <!-- Chart Pattern Info Panel (populated via JS) -->
   <div class="chart-pattern-panel" id="chart-pattern-panel" style="display:none;">
     <div class="chart-pattern-panel-title">Chart Patterns Detected</div>
@@ -197,7 +214,7 @@
 .chart-page { padding: 1rem; max-width: 100%; box-sizing: border-box; }
 .chart-header { display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
 .chart-header h1 { margin: 0; font-size: 1.25rem; color: #e5e7eb; }
-.trade-levels-overlay { margin-bottom: 1rem; padding: 0.75rem 1rem; background: rgba(15,23,42,0.95); border: 1px solid #334155; border-radius: 8px; }
+.trade-levels-overlay { margin-bottom: 1rem; padding: 0.75rem 1rem; background: rgba(15,23,42,0.6); border: 1px solid #334155; border-radius: 8px; backdrop-filter: blur(8px); }
 .trade-levels-title { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; }
 .trade-levels-grid { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
 .level-row { font-size: 0.9rem; padding: 0.2rem 0.5rem; border-radius: 4px; }
@@ -230,48 +247,59 @@
 .chart-marker-legend { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; padding: 6px 10px; background: rgba(15,23,42,0.8); border: 1px solid #1e293b; border-radius: 6px; font-size: 10px; color: #9ca3af; }
 .chart-marker-legend .legend-item { display: flex; align-items: center; gap: 4px; }
 .chart-marker-legend .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
-.chart-container { position: relative; width: 100%; height: calc(100vh - 320px); min-height: 400px; border-radius: 8px; overflow: hidden; background: #0f172a; }
-.chart-toolbar-tv { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
-.chart-toolbar-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.chart-toolbar-row-1 { justify-content: space-between; }
+/* TradingView-style layout */
+.chart-layout { display: flex; gap: 0; margin-bottom: 8px; background: rgba(15,23,42,0.6); border: 1px solid #334155; border-radius: 8px; overflow: hidden; backdrop-filter: blur(8px); }
+.chart-tools-sidebar { display: flex; flex-direction: column; width: 52px; min-width: 52px; padding: 8px 6px; background: rgba(15,23,42,0.85); border-right: 1px solid #334155; }
+.sidebar-label { font-size: 9px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 0 6px; text-align: center; }
+.draw-tools-vertical { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+.draw-tools-vertical .tool-btn { width: 36px; height: 36px; min-width: 36px; min-height: 36px; padding: 6px; }
+.toolbar-divider-horiz { height: 1px; width: 100%; background: #334155; margin: 6px 0; }
+.draw-color-picker-vertical { flex-direction: column; }
+.draw-color-picker-vertical .draw-color-swatches { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
+.chart-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.chart-top-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: rgba(15,23,42,0.5); border-bottom: 1px solid #334155; }
+.indicators-dropdown-wrap { position: relative; }
+.indicators-dropdown-btn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; }
+.indicators-dropdown-btn .dropdown-chevron { margin-left: 2px; transition: transform 0.2s; }
+.indicators-dropdown-wrap.open .dropdown-chevron { transform: rotate(180deg); }
+.indicators-dropdown-panel { display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; padding: 12px 14px; min-width: 220px; background: rgba(15,23,42,0.98); border: 1px solid #334155; border-radius: 8px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+.indicators-dropdown-wrap.open .indicators-dropdown-panel { display: flex; flex-direction: column; gap: 8px; }
+.indicators-dropdown-title { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+.chart-tf-bar { display: flex; align-items: center; justify-content: center; padding: 8px 12px; background: rgba(15,23,42,0.6); border-top: 1px solid #334155; }
+.chart-container { position: relative; width: 100%; flex: 1; height: calc(100vh - 380px); min-height: 380px; overflow: hidden; background: #0f172a; }
 .tf-selector { display: flex; gap: 4px; }
 .tf-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
 .tf-btn:hover { background: rgba(51,65,85,0.8); color: #e5e7eb; }
 .tf-btn.tf-active { background: rgba(59,130,246,0.25); border-color: #3b82f6; color: #93c5fd; }
 .chart-fit-btn { display: flex; align-items: center; gap: 4px; padding: 6px 10px; }
 .chart-fit-text { font-size: 12px; font-weight: 600; }
-.draw-tools-toggle { display: none; background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 8px 12px; border-radius: 6px; cursor: pointer; align-items: center; gap: 6px; font-size: 13px; }
-.draw-tools { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
 .tool-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; min-width: 38px; min-height: 38px; }
 .tool-btn:hover { background: rgba(51,65,85,0.8); color: #e5e7eb; }
 .tool-btn.tool-active { background: rgba(59,130,246,0.25); border-color: #3b82f6; color: #93c5fd; }
 .tool-btn-danger:hover { background: rgba(239,68,68,0.25); border-color: #ef4444; color: #fca5a5; }
-.toolbar-divider-vert { width: 1px; height: 28px; background: #334155; margin: 0 4px; }
-.draw-color-picker { display: flex; align-items: center; gap: 6px; }
+.draw-color-picker { display: flex; align-items: center; gap: 6px; position: relative; }
 .draw-color-picker input[type="color"] { width: 28px; height: 28px; padding: 2px; border: 1px solid #334155; border-radius: 6px; cursor: pointer; background: #1e293b; }
 .draw-color-swatches { display: flex; gap: 4px; }
 .color-swatch { width: 20px; height: 20px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; }
 .color-swatch:hover, .color-swatch.active { border-color: #fff; }
-.chart-toggles { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.toggle-label { display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: #9ca3af; user-select: none; }
+.toggle-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: #9ca3af; user-select: none; }
 .toggle-label input[type="checkbox"] { accent-color: #3b82f6; width: 14px; height: 14px; cursor: pointer; }
 .toggle-label:hover .toggle-text { color: #e5e7eb; }
-/* Mobile: TradingView-style - tools always visible, larger touch targets */
+.candle-colors-wrap { position: relative; }
+/* Mobile: collapse sidebar, stack layout */
 @media (max-width: 768px) {
   .chart-page { padding: 0.5rem; }
   .chart-header h1 { font-size: 1.1rem; }
-  .chart-container { min-height: 300px; height: calc(100vh - 380px); }
-  .chart-toolbar-row-2 { order: 2; }
-  .chart-toolbar-row-3 { order: 3; }
-  .draw-tools-toggle { display: flex; min-height: 44px; padding: 10px 14px; }
-  .draw-tools { display: none; gap: 6px; }
-  .draw-tools.draw-tools-open { display: flex; padding: 10px 0; }
-  .tool-btn { min-width: 44px; min-height: 44px; padding: 10px; }
+  .chart-layout { flex-direction: column; }
+  .chart-tools-sidebar { flex-direction: row; width: 100%; min-width: 100%; padding: 8px; border-right: none; border-bottom: 1px solid #334155; }
+  .sidebar-label { display: none; }
+  .draw-tools-vertical { flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 6px; }
+  .draw-tools-vertical .tool-btn { min-width: 44px; min-height: 44px; }
+  .draw-color-picker-vertical { flex-direction: row; }
+  .draw-color-picker-vertical .draw-color-swatches { justify-content: flex-start; }
+  .chart-container { min-height: 300px; height: calc(100vh - 420px); }
+  .chart-tf-bar { padding: 10px; }
   .tf-btn { padding: 10px 16px; min-height: 44px; font-size: 14px; }
-  .toggle-label { padding: 8px 0; min-height: 44px; }
-  .toggle-label input[type="checkbox"] { width: 20px; height: 20px; }
-  .draw-color-picker input[type="color"] { width: 36px; height: 36px; }
-  .color-swatch { width: 28px; height: 28px; }
 }
 </style>
 
@@ -293,7 +321,7 @@
   var tradeId = <%- JSON.stringify(typeof tradeId !== 'undefined' ? tradeId : null) %>;
   var tradeDirection = <%- JSON.stringify(typeof direction !== 'undefined' ? direction : null) %>;
   var initialActions = <%- JSON.stringify(typeof tradeActions !== 'undefined' ? tradeActions : []) %>;
-  var chartRef = { chart: null, series: null, volumeSeries: null, slLine: null, origSlLine: null, priceLines: [], fibLines: [], srLines: [], pocLines: [], candleTimes: [], candleData: [] };
+  var chartRef = { chart: null, series: null, volumeSeries: null, slLine: null, origSlLine: null, priceLines: [], fibLines: [], srLines: [], pocLines: [], bbSeries: [], candleTimes: [], candleData: [] };
   var CANDLE_STORAGE_KEY_UP = 'chartCandleUpColor';
   var CANDLE_STORAGE_KEY_DOWN = 'chartCandleDownColor';
   var CANDLE_DEFAULT_UP = '#22c55e';
@@ -316,6 +344,7 @@
     } catch (e) { console.warn('applyCandleColors:', e); }
   }
   var currentTF = '1h';
+  var showBB = true;
   var showFib = true;
   var showBadges = true;
   var showPatterns = true;
@@ -570,7 +599,8 @@
     stopCandleAnimation();
     lwContainer.style.display = 'none';
     tvContainer.style.display = '';
-    if (tfSelector) tfSelector.style.display = 'none';
+    var chartTfBar = document.getElementById('chart-tf-bar');
+    if (chartTfBar) chartTfBar.style.display = 'none';
     var tvLoading = document.getElementById('tv-loading');
     var tvWrap = document.getElementById('tv-widget-wrap');
     var script = document.createElement('script');
@@ -671,8 +701,8 @@
       <% if (fibLevels.fib618) { %>chartRef.fibLines.push(chartRef.series.createPriceLine(Object.assign({}, fibOpts, { price: <%= fibLevels.fib618 %>, color: '#e879f9', title: 'Fib 61.8%' })));<% } %>
     }
     <% } %>
-    // Support/Resistance from engine (toggleable)
-    if (showSR && srLevels.support != null && srLevels.resistance != null) {
+    // Support/Resistance with role reversal (toggleable) — redrawn on timeframe switch
+    if (showSR && srLevels.support != null && srLevels.resistance != null && srLevels.support !== srLevels.resistance) {
       var srOpts = Object.assign({}, lineOpts, { lineWidth: 1.5, lineStyle: LightweightCharts.LineStyle.Solid });
       chartRef.srLines.push(chartRef.series.createPriceLine(Object.assign({}, srOpts, { price: srLevels.support, color: '#22c55e', title: 'Support' })));
       chartRef.srLines.push(chartRef.series.createPriceLine(Object.assign({}, srOpts, { price: srLevels.resistance, color: '#ef4444', title: 'Resistance' })));
@@ -723,6 +753,16 @@
     }
   }
 
+  function toggleBBLines(visible) {
+    showBB = visible;
+    if (!chartRef.chart) return;
+    if (!visible) {
+      removeBollingerBands();
+    } else {
+      renderBollingerBands();
+    }
+  }
+
   // Toggle Fib lines on/off
   function toggleFibLines(visible) {
     showFib = visible;
@@ -743,6 +783,44 @@
     if (!chartRef.series) return;
     // Re-apply markers (applyActionMarkers handles showBadges/showPatterns flags)
     applyActionMarkers(initialActions || []);
+  }
+
+  // =============================================
+  //  BOLLINGER BANDS — SMA(20) ± 2*std
+  // =============================================
+  function removeBollingerBands() {
+    for (var i = 0; i < chartRef.bbSeries.length; i++) {
+      try { chartRef.chart.removeSeries(chartRef.bbSeries[i]); } catch(e) {}
+    }
+    chartRef.bbSeries = [];
+  }
+
+  function renderBollingerBands() {
+    removeBollingerBands();
+    if (!showBB || !chartRef.chart || !chartRef.candleData || chartRef.candleData.length < 20) return;
+    var period = 20;
+    var mult = 2;
+    var closes = chartRef.candleData.map(function(c) { return c.close; });
+    var upper = [], middle = [], lower = [];
+    for (var i = period - 1; i < closes.length; i++) {
+      var slice = closes.slice(i - period + 1, i + 1);
+      var sma = slice.reduce(function(a, b) { return a + b; }, 0) / period;
+      var variance = slice.reduce(function(sum, v) { return sum + (v - sma) * (v - sma); }, 0) / period;
+      var std = Math.sqrt(variance) || 0;
+      var t = chartRef.candleData[i].time;
+      middle.push({ time: t, value: sma });
+      upper.push({ time: t, value: sma + mult * std });
+      lower.push({ time: t, value: sma - mult * std });
+    }
+    try {
+      var upperSeries = chartRef.chart.addLineSeries({ color: 'rgba(168,85,247,0.8)', lineWidth: 1, crosshairMarkerVisible: true, lastValueVisible: true, priceLineVisible: false });
+      var middleSeries = chartRef.chart.addLineSeries({ color: 'rgba(251,191,36,0.8)', lineWidth: 1, crosshairMarkerVisible: true, lastValueVisible: true, priceLineVisible: false });
+      var lowerSeries = chartRef.chart.addLineSeries({ color: 'rgba(168,85,247,0.8)', lineWidth: 1, crosshairMarkerVisible: true, lastValueVisible: true, priceLineVisible: false });
+      upperSeries.setData(upper);
+      middleSeries.setData(middle);
+      lowerSeries.setData(lower);
+      chartRef.bbSeries = [upperSeries, middleSeries, lowerSeries];
+    } catch (e) { console.warn('Bollinger Bands error:', e); }
   }
 
   // =============================================
@@ -961,6 +1039,7 @@
               try { addPriceLines(); } catch(e) { console.warn('addPriceLines error:', e); }
               try { applyActionMarkers(initialActions || []); } catch(e) { console.warn('applyActionMarkers error:', e); }
               try { renderChartPatterns(); } catch(e) { console.warn('renderChartPatterns error:', e); }
+              try { renderBollingerBands(); } catch(e) { console.warn('renderBollingerBands error:', e); }
 
               chart.timeScale().fitContent();
               startCandleCountdown();
@@ -1002,6 +1081,7 @@
             try { addPriceLines(); } catch(e) { console.warn('addPriceLines error:', e); }
             try { applyActionMarkers(initialActions || []); } catch(e) { console.warn('applyActionMarkers error:', e); }
             try { renderChartPatterns(); } catch(e) { console.warn('renderChartPatterns error:', e); }
+            try { renderBollingerBands(); } catch(e) { console.warn('renderBollingerBands error:', e); }
             if (!preserveView) chartRef.chart.timeScale().fitContent();
             startCandleCountdown();
             updateSymbolOverlay(lastC ? lastC.close : null);
@@ -1113,6 +1193,8 @@
   }
   // ---- Toggle listeners and drawing tools (wrapped so chart load is never blocked) ----
   try {
+  var toggleBBEl = document.getElementById('toggle-bb');
+  if (toggleBBEl) toggleBBEl.addEventListener('change', function() { toggleBBLines(this.checked); });
   var toggleFibEl = document.getElementById('toggle-fib');
   if (toggleFibEl) toggleFibEl.addEventListener('change', function() { toggleFibLines(this.checked); });
   var toggleBadgesEl = document.getElementById('toggle-badges');
@@ -1185,12 +1267,17 @@
       applyCandleColors(CANDLE_DEFAULT_UP, CANDLE_DEFAULT_DOWN);
     });
   }
-  var drawToolsToggle = document.getElementById('draw-tools-toggle');
-  var drawTools = document.getElementById('draw-tools');
-  if (drawToolsToggle && drawTools) {
-    drawToolsToggle.addEventListener('click', function() {
-      drawTools.classList.toggle('draw-tools-open');
+  var indicatorsDropdownBtn = document.getElementById('indicators-dropdown-btn');
+  var indicatorsDropdownWrap = document.querySelector('.indicators-dropdown-wrap');
+  if (indicatorsDropdownBtn && indicatorsDropdownWrap) {
+    indicatorsDropdownBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      indicatorsDropdownWrap.classList.toggle('open');
     });
+    document.addEventListener('click', function() {
+      indicatorsDropdownWrap.classList.remove('open');
+    });
+    if (indicatorsDropdownWrap) indicatorsDropdownWrap.addEventListener('click', function(e) { e.stopPropagation(); });
   }
   var colorInput = document.getElementById('draw-color-input');
   var colorSwatches = document.querySelectorAll('.color-swatch');

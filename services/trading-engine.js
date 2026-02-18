@@ -1292,6 +1292,47 @@ function findSR(highs, lows, closes) {
   return { support, resistance };
 }
 
+/**
+ * Support/Resistance with role reversal.
+ * When price breaks above resistance → that level becomes support, new resistance above.
+ * When price breaks below support → that level becomes resistance, new support below.
+ * Returns { support, resistance } for chart drawing. Redraws on each timeframe switch.
+ */
+function findSRWithRoleReversal(highs, lows, closes) {
+  if (!highs?.length || !lows?.length || !closes?.length) return { support: 0, resistance: 0 };
+  const lookback = Math.min(80, highs.length);
+  const recentH = highs.slice(-lookback);
+  const recentL = lows.slice(-lookback);
+  const currentPrice = closes[closes.length - 1];
+
+  const swingLows = [];
+  const swingHighs = [];
+  for (let i = 2; i < recentH.length - 2; i++) {
+    if (recentL[i] < recentL[i-1] && recentL[i] < recentL[i+1]) swingLows.push(recentL[i]);
+    if (recentH[i] > recentH[i-1] && recentH[i] > recentH[i+1]) swingHighs.push(recentH[i]);
+  }
+
+  const lastSwingLow = swingLows.length > 0 ? swingLows[swingLows.length - 1] : Math.min(...recentL);
+  const lastSwingHigh = swingHighs.length > 0 ? swingHighs[swingHighs.length - 1] : Math.max(...recentH);
+
+  // Breakout above resistance: old resistance becomes support, find new resistance above
+  if (currentPrice > lastSwingHigh) {
+    const above = swingHighs.filter(h => h > currentPrice);
+    const newResistance = above.length > 0 ? Math.min(...above) : currentPrice * 1.02; // fallback: 2% above price
+    return { support: lastSwingHigh, resistance: newResistance };
+  }
+
+  // Breakdown below support: old support becomes resistance, find new support below
+  if (currentPrice < lastSwingLow) {
+    const below = swingLows.filter(l => l < currentPrice);
+    const newSupport = below.length > 0 ? Math.max(...below) : currentPrice * 0.98; // fallback: 2% below price
+    return { support: newSupport, resistance: lastSwingLow };
+  }
+
+  // Price in range: standard S/R
+  return { support: lastSwingLow, resistance: lastSwingHigh };
+}
+
 // ====================================================
 // ORDER BLOCKS (last opposing candle before strong move)
 // ====================================================
@@ -2258,4 +2299,4 @@ function r2(num) {
   return Math.round(num * 100000000) / 100000000;
 }
 
-module.exports = { analyzeCoin, analyzeAllCoins, ENGINE_CONFIG, findSR, calculatePOC };
+module.exports = { analyzeCoin, analyzeAllCoins, ENGINE_CONFIG, findSR, findSRWithRoleReversal, calculatePOC };
