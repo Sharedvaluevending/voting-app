@@ -109,48 +109,56 @@
 
     <!-- Main chart area -->
     <div class="chart-main">
-      <!-- Top bar: Fit, Indicators dropdown -->
+      <!-- Top bar: Fit + dropdowns across -->
       <div class="chart-top-bar">
         <button type="button" class="tool-btn chart-fit-btn" id="chart-fit-btn" title="Reset zoom / Fit content">
           <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="8" y="8" width="6" height="6" rx="1"/></svg>
           <span class="chart-fit-text">Fit</span>
         </button>
-        <div class="indicators-dropdown-wrap">
-          <button type="button" class="tool-btn indicators-dropdown-btn" id="indicators-dropdown-btn" title="Indicators">
-            <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><path d="M2 12 L6 6 L10 10 L14 2"/></svg>
-            <span>Indicators</span>
-            <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg>
-          </button>
-          <div class="indicators-dropdown-panel" id="indicators-dropdown-panel">
-            <div class="indicators-dropdown-title">Overlays</div>
+        <div class="indicators-dropdown-wrap" id="dropdown-overlays-wrap">
+          <button type="button" class="tool-btn indicators-dropdown-btn" data-dropdown="overlays" title="Overlays">Overlays <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
+          <div class="indicators-dropdown-panel">
             <label class="toggle-label"><input type="checkbox" id="toggle-bb" checked> <span class="toggle-text">Bollinger Bands</span></label>
-            <label class="toggle-label"><input type="checkbox" id="toggle-ma" checked> <span class="toggle-text">Moving Averages (SMA/EMA)</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-ma" checked> <span class="toggle-text">Moving Averages</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-keltner"> <span class="toggle-text">Keltner Channel</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-donchian"> <span class="toggle-text">Donchian Channel</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-fib" checked> <span class="toggle-text">Fibonacci</span></label>
-            <div class="indicators-dropdown-title">Levels</div>
+          </div>
+        </div>
+        <div class="indicators-dropdown-wrap" id="dropdown-levels-wrap">
+          <button type="button" class="tool-btn indicators-dropdown-btn" data-dropdown="levels" title="Levels">Levels <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
+          <div class="indicators-dropdown-panel">
             <label class="toggle-label"><input type="checkbox" id="toggle-sr" checked> <span class="toggle-text">Support / Resistance</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-poc" checked> <span class="toggle-text">POC (Volume)</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-pivots"> <span class="toggle-text">Pivot Points</span></label>
-            <div class="indicators-dropdown-title">Patterns</div>
+          </div>
+        </div>
+        <div class="indicators-dropdown-wrap" id="dropdown-patterns-wrap">
+          <button type="button" class="tool-btn indicators-dropdown-btn" data-dropdown="patterns" title="Patterns">Patterns <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
+          <div class="indicators-dropdown-panel">
             <label class="toggle-label"><input type="checkbox" id="toggle-chart-patterns" checked> <span class="toggle-text">Chart Patterns</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-badges" checked> <span class="toggle-text">Action Badges</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-patterns" checked> <span class="toggle-text">Candlestick Patterns</span></label>
             <% if (typeof tradeId !== 'undefined' && tradeId) { %>
             <label class="toggle-label"><input type="checkbox" id="toggle-trade" checked> <span class="toggle-text">Trade Levels</span></label>
             <% } %>
-            <div class="toolbar-divider-horiz"></div>
-            <div class="indicators-dropdown-title">Advanced – Smart Money</div>
+          </div>
+        </div>
+        <div class="indicators-dropdown-wrap" id="dropdown-advanced-wrap">
+          <button type="button" class="tool-btn indicators-dropdown-btn" data-dropdown="advanced" title="Advanced">Advanced <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
+          <div class="indicators-dropdown-panel">
             <label class="toggle-label"><input type="checkbox" id="toggle-ob"> <span class="toggle-text">Order Blocks</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-fvg"> <span class="toggle-text">Fair Value Gaps</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-liq"> <span class="toggle-text">Liquidity Clusters</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-vwap"> <span class="toggle-text">VWAP</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-premium"> <span class="toggle-text">Premium/Discount</span></label>
-            <div class="indicators-dropdown-title">Advanced – Structure</div>
             <label class="toggle-label"><input type="checkbox" id="toggle-swing"> <span class="toggle-text">Swing Points</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-structure"> <span class="toggle-text">Market Structure</span></label>
-            <div class="toolbar-divider-horiz"></div>
-            <div class="indicators-dropdown-title">Style</div>
+          </div>
+        </div>
+        <div class="indicators-dropdown-wrap" id="dropdown-style-wrap">
+          <button type="button" class="tool-btn indicators-dropdown-btn" data-dropdown="style" title="Style">Style <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
+          <div class="indicators-dropdown-panel">
             <div class="candle-colors-wrap">
               <button type="button" class="tool-btn" id="candle-colors-btn" title="Candle colors">
                 <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="4" height="8" rx="0.5"/><rect x="6" y="2" width="4" height="12" rx="0.5"/><rect x="10" y="6" width="4" height="6" rx="0.5"/></svg>
@@ -284,7 +292,7 @@
 .draw-color-picker-vertical { flex-direction: column; }
 .draw-color-picker-vertical .draw-color-swatches { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
 .chart-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-.chart-top-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: rgba(15,23,42,0.5); border-bottom: 1px solid #334155; }
+.chart-top-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 10px; background: rgba(15,23,42,0.5); border-bottom: 1px solid #334155; }
 .indicators-dropdown-wrap { position: relative; }
 .indicators-dropdown-btn { display: flex; align-items: center; gap: 6px; padding: 6px 12px; }
 .indicators-dropdown-btn .dropdown-chevron { margin-left: 2px; transition: transform 0.2s; }
@@ -1730,18 +1738,21 @@
       applyCandleColors(CANDLE_DEFAULT_UP, CANDLE_DEFAULT_DOWN);
     });
   }
-  var indicatorsDropdownBtn = document.getElementById('indicators-dropdown-btn');
-  var indicatorsDropdownWrap = document.querySelector('.indicators-dropdown-wrap');
-  if (indicatorsDropdownBtn && indicatorsDropdownWrap) {
-    indicatorsDropdownBtn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      indicatorsDropdownWrap.classList.toggle('open');
-    });
-    document.addEventListener('click', function() {
-      indicatorsDropdownWrap.classList.remove('open');
-    });
-    if (indicatorsDropdownWrap) indicatorsDropdownWrap.addEventListener('click', function(e) { e.stopPropagation(); });
-  }
+  var dropdownWraps = document.querySelectorAll('.indicators-dropdown-wrap');
+  dropdownWraps.forEach(function(wrap) {
+    var btn = wrap.querySelector('.indicators-dropdown-btn');
+    if (btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        dropdownWraps.forEach(function(w) { if (w !== wrap) w.classList.remove('open'); });
+        wrap.classList.toggle('open');
+      });
+    }
+    wrap.addEventListener('click', function(e) { e.stopPropagation(); });
+  });
+  document.addEventListener('click', function() {
+    dropdownWraps.forEach(function(w) { w.classList.remove('open'); });
+  });
   var colorInput = document.getElementById('draw-color-input');
   var colorSwatches = document.querySelectorAll('.color-swatch');
   function onColorChange(c) {
