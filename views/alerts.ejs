@@ -1,0 +1,68 @@
+<%- include('partials/header') %>
+
+<h2 style="color:#fff;font-size:22px;margin-bottom:16px;">Price Alerts</h2>
+
+<% if (typeof success !== 'undefined' && success) { %>
+  <div class="alert alert-success" style="margin-bottom:12px;"><%= success %></div>
+<% } %>
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="alert alert-error" style="margin-bottom:12px;"><%= error %></div>
+<% } %>
+
+<div class="section" style="margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;padding:16px;">
+  <h3 style="color:#e5e7eb;font-size:14px;margin:0 0 12px 0;">Create Alert</h3>
+  <p style="font-size:12px;color:#9ca3af;margin:0 0 12px 0;">Get notified when price crosses your target. Requires push notifications enabled.</p>
+  <form action="/alerts" method="POST" style="display:flex;flex-wrap:wrap;gap:12px;align-items:end;">
+    <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
+    <div>
+      <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:4px;">Coin</label>
+      <select name="coinId" required style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;min-width:140px;">
+        <% (TRACKED_COINS || []).forEach(function(id) { var m = COIN_META && COIN_META[id]; if (m) { %>
+        <option value="<%= id %>"><%= m.symbol %> – <%= m.name %></option>
+        <% } }); %>
+      </select>
+    </div>
+    <div>
+      <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:4px;">Condition</label>
+      <select name="condition" required style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
+        <option value="above">Price above</option>
+        <option value="below">Price below</option>
+      </select>
+    </div>
+    <div>
+      <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:4px;">Price ($)</label>
+      <input type="number" name="price" required min="0" step="0.01" placeholder="e.g. 100000" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;width:120px;">
+    </div>
+    <button type="submit" class="btn btn-outline btn-sm" style="border-color:#a78bfa;color:#a78bfa;">Add Alert</button>
+  </form>
+</div>
+
+<% if (alerts && alerts.length > 0) { %>
+<div class="section">
+  <h3 style="color:#e5e7eb;font-size:14px;margin:0 0 12px 0;">Your Alerts</h3>
+  <div style="display:grid;gap:8px;">
+    <% alerts.forEach(function(a) { %>
+    <div class="ft-toggle" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:rgba(15,23,42,0.5);border:1px solid #1e2a3a;border-radius:6px;">
+      <div>
+        <strong style="color:#e5e7eb;"><%= a.symbol %></strong>
+        <span style="color:#9ca3af;margin-left:8px;">Alert when price goes <%= a.condition %> $<%= a.price >= 1 ? a.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : a.price.toFixed(6) %></span>
+        <% if (a.triggeredAt) { %>
+        <span style="color:#10b981;font-size:11px;margin-left:8px;">Triggered <%= new Date(a.triggeredAt).toLocaleString() %></span>
+        <% } else { %>
+        <span style="color:#6b7280;font-size:11px;margin-left:8px;">Active</span>
+        <% } %>
+      </div>
+      <form action="/alerts/<%= a._id %>/delete" method="POST" style="display:inline;">
+        <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
+        <button type="submit" class="btn btn-outline btn-sm" style="margin-left:8px;color:#ef4444;border-color:#ef4444;padding:4px 10px;font-size:11px;">Delete</button>
+      </form>
+    </div>
+    <% }); %>
+  </div>
+</div>
+<% } else { %>
+<div class="empty-state" style="text-align:center;padding:40px 20px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;">
+  <h3 style="color:#9ca3af;margin:0 0 8px 0;">No alerts yet</h3>
+  <p style="color:#6b7280;font-size:14px;margin:0;">Create an alert above to get notified when price crosses your target.</p>
+</div>
+<% } %>

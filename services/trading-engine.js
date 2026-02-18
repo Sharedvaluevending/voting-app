@@ -1632,6 +1632,39 @@ function calculatePOC(candles) {
   return minP + (maxIdx + 0.5) * bucketSize;
 }
 
+// Full Volume Profile: price buckets with volume for chart overlay
+function calculateVolumeProfile(candles, numBuckets = 50) {
+  if (!candles || candles.length < 10) return { buckets: [], poc: 0 };
+  let minP = Infinity, maxP = -Infinity;
+  for (const c of candles) {
+    if (c.high > maxP) maxP = c.high;
+    if (c.low < minP) minP = c.low;
+  }
+  if (maxP <= minP || minP <= 0) return { buckets: [], poc: 0 };
+  const range = maxP - minP;
+  const bucketSize = range / numBuckets;
+  const buckets = new Array(numBuckets).fill(0);
+  for (const c of candles) {
+    const vol = c.volume || 0;
+    if (vol <= 0) continue;
+    const lowIdx = Math.max(0, Math.floor((c.low - minP) / bucketSize));
+    const highIdx = Math.min(numBuckets - 1, Math.floor((c.high - minP) / bucketSize));
+    const span = highIdx - lowIdx + 1;
+    const volPerBucket = vol / span;
+    for (let i = lowIdx; i <= highIdx; i++) buckets[i] += volPerBucket;
+  }
+  let maxVol = 0, maxIdx = 0;
+  for (let i = 0; i < buckets.length; i++) {
+    if (buckets[i] > maxVol) { maxVol = buckets[i]; maxIdx = i; }
+  }
+  const poc = minP + (maxIdx + 0.5) * bucketSize;
+  const bucketList = buckets.map((vol, i) => ({
+    price: minP + (i + 0.5) * bucketSize,
+    volume: vol
+  })).filter(b => b.volume > 0);
+  return { buckets: bucketList, poc };
+}
+
 // ====================================================
 // FIBONACCI RETRACEMENT LEVELS
 // Uses swing high/low from recent candles to calculate key fib levels
@@ -2300,7 +2333,7 @@ function r2(num) {
 }
 
 module.exports = {
-  analyzeCoin, analyzeAllCoins, ENGINE_CONFIG, findSR, findSRWithRoleReversal, calculatePOC,
+  analyzeCoin, analyzeAllCoins, ENGINE_CONFIG, findSR, findSRWithRoleReversal, calculatePOC, calculateVolumeProfile,
   detectOrderBlocks, detectFVGs, detectLiquidityClusters, calculateVWAP,
   getSwingPoints, detectMarketStructure, ATR_OHLC, SMA, EMA
 };

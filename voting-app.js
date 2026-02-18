@@ -37,6 +37,7 @@ const StrategyWeight = require('./models/StrategyWeight');
 const User = require('./models/User');
 const Trade = require('./models/Trade');
 const Journal = require('./models/Journal');
+const Alert = require('./models/Alert');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -625,6 +626,12 @@ app.get('/chart/:coinId', async (req, res) => {
   const prevCoinId = currentCoinIndex > 0 ? TRACKED_COINS[currentCoinIndex - 1] : TRACKED_COINS[TRACKED_COINS.length - 1];
   const nextCoinId = currentCoinIndex < TRACKED_COINS.length - 1 && currentCoinIndex >= 0 ? TRACKED_COINS[currentCoinIndex + 1] : TRACKED_COINS[0];
 
+  const chartCoins = TRACKED_COINS.filter(id => COIN_META[id] && COIN_META[id].bybit).map(id => ({
+    id,
+    symbol: COIN_META[id].symbol,
+    name: COIN_META[id].name
+  }));
+
   res.render('chart', {
     activePage: 'dashboard',
     pageTitle: meta.name + ' Chart',
@@ -643,7 +650,8 @@ app.get('/chart/:coinId', async (req, res) => {
     tp3,
     fibLevels,
     prevCoinId,
-    nextCoinId
+    nextCoinId,
+    chartCoins
   });
 });
 
@@ -847,6 +855,53 @@ app.post('/trades/close/:tradeId', requireLogin, async (req, res) => {
   } catch (err) {
     console.error('[CloseTrade] Error:', err);
     res.redirect('/trades?error=' + encodeURIComponent(err.message));
+  }
+});
+
+// ====================================================
+// PRICE ALERTS
+// ====================================================
+app.get('/alerts', requireLogin, async (req, res) => {
+  try {
+    const alerts = await Alert.find({ userId: req.session.userId }).sort({ createdAt: -1 }).lean();
+    res.render('alerts', { activePage: 'alerts', alerts, TRACKED_COINS, COIN_META });
+  } catch (err) {
+    console.error('[Alerts] Error:', err);
+    res.status(500).send('Error loading alerts');
+  }
+});
+
+app.post('/alerts', requireLogin, async (req, res) => {
+  try {
+    const { coinId, condition, price } = req.body;
+    if (!coinId || !TRACKED_COINS.includes(coinId) || !condition || !price) {
+      return res.redirect('/alerts?error=' + encodeURIComponent('Invalid alert: coin, condition, and price required'));
+    }
+    const p = parseFloat(price);
+    if (isNaN(p) || p <= 0) return res.redirect('/alerts?error=' + encodeURIComponent('Invalid price'));
+    if (condition !== 'above' && condition !== 'below') return res.redirect('/alerts?error=' + encodeURIComponent('Condition must be above or below'));
+    const meta = COIN_META[coinId];
+    await Alert.create({
+      userId: req.session.userId,
+      coinId,
+      symbol: meta?.symbol || coinId.toUpperCase(),
+      condition,
+      price: p
+    });
+    res.redirect('/alerts?success=Alert+created');
+  } catch (err) {
+    console.error('[Alerts Create] Error:', err);
+    res.redirect('/alerts?error=' + encodeURIComponent(err.message));
+  }
+});
+
+app.post('/alerts/:id/delete', requireLogin, async (req, res) => {
+  try {
+    await Alert.findOneAndDelete({ _id: req.params.id, userId: req.session.userId });
+    res.redirect('/alerts?success=Alert+deleted');
+  } catch (err) {
+    console.error('[Alerts Delete] Error:', err);
+    res.redirect('/alerts?error=' + encodeURIComponent(err.message));
   }
 });
 
@@ -2029,6 +2084,7 @@ app.get('/api/candles/:coinId', async (req, res) => {
     let support = null;
     let resistance = null;
     let poc = null;
+    let volumeProfile = null;
     let orderBlocks = [];
     let fvgs = [];
     let liquidityClusters = {};
@@ -2038,7 +2094,7 @@ app.get('/api/candles/:coinId', async (req, res) => {
     let pivotPoints = null;
     try {
       const {
-        findSRWithRoleReversal, calculatePOC,
+        findSRWithRoleReversal, calculatePOC, calculateVolumeProfile,
         detectOrderBlocks, detectFVGs, detectLiquidityClusters, calculateVWAP,
         getSwingPoints, detectMarketStructure, ATR_OHLC
       } = require('./services/trading-engine');
@@ -2054,6 +2110,8 @@ app.get('/api/candles/:coinId', async (req, res) => {
       }
       const pocVal = calculatePOC(raw);
       if (pocVal > 0) poc = Math.round(pocVal * 1000000) / 1000000;
+      const vp = calculateVolumeProfile(raw, 40);
+      if (vp.buckets && vp.buckets.length > 0) volumeProfile = { buckets: vp.buckets, poc: vp.poc };
       if (raw.length >= 5) {
         const atr = ATR_OHLC(highs, lows, closes, 14);
         orderBlocks = detectOrderBlocks(opens, highs, lows, closes, atr) || [];
@@ -2147,7 +2205,8 @@ app.get('/api/candles/:coinId', async (req, res) => {
 
     res.json({
       success: true, candles, volume, support, resistance, poc, patterns, chartPatterns,
-      orderBlocks, fvgs, liquidityClusters, vwap, swingPoints, marketStructure, pivotPoints
+      orderBlocks, fvgs, liquidityClusters, vwap, swingPoints, marketStructure, pivotPoints,
+      volumeProfile
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -2204,6 +2263,41 @@ async function runStopTPCheck() {
 setInterval(runStopTPCheck, 30 * 1000);
 // Run first check 15s after startup
 setTimeout(runStopTPCheck, 15 * 1000);
+
+// ====================================================
+// PRICE ALERT CHECK (runs every 60 seconds)
+// ====================================================
+async function checkPriceAlerts() {
+  if (!dbConnected) return;
+  try {
+    const activeAlerts = await Alert.find({ active: true, triggeredAt: null }).lean();
+    if (activeAlerts.length === 0) return;
+    const coinIds = [...new Set(activeAlerts.map(a => a.coinId))];
+    const prices = await fetchAllPrices();
+    const priceMap = {};
+    (prices || []).forEach(p => {
+      if (p && p.id && Number.isFinite(p.price) && p.price > 0) priceMap[p.id] = p.price;
+    });
+    for (const alert of activeAlerts) {
+      const price = priceMap[alert.coinId];
+      if (price == null) continue;
+      const triggered = (alert.condition === 'above' && price >= alert.price) ||
+        (alert.condition === 'below' && price <= alert.price);
+      if (triggered) {
+        await Alert.updateOne({ _id: alert._id }, { triggeredAt: new Date(), active: false });
+        try {
+          const { sendPushToUser } = require('./services/push-notifications');
+          const u = await User.findById(alert.userId).lean();
+          if (u) await sendPushToUser(u, `${alert.symbol} Alert`, `Price ${alert.condition} $${alert.price.toLocaleString()} (now $${price.toLocaleString()})`);
+        } catch (e) { /* non-critical */ }
+      }
+    }
+  } catch (err) {
+    console.error('[AlertCheck] Error:', err.message);
+  }
+}
+setInterval(checkPriceAlerts, 60 * 1000);
+setTimeout(checkPriceAlerts, 20 * 1000);
 
 // ====================================================
 // TRADE SCORE RE-CHECK (runs every SCORE_RECHECK_MINUTES)

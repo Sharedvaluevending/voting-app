@@ -3,15 +3,27 @@
 
 <main class="chart-page">
   <div class="chart-header">
-    <% if (typeof prevCoinId !== 'undefined' && prevCoinId) { %>
+    <% if (typeof chartCoins !== 'undefined' && chartCoins && chartCoins.length > 0) { %>
+    <div class="chart-symbol-search" style="display:flex;align-items:center;gap:8px;">
+      <label style="font-size:12px;color:#9ca3af;">Symbol:</label>
+      <select id="chart-symbol-select" onchange="var v=this.value;if(v)location.href='/chart/'+v;" style="padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;min-width:140px;cursor:pointer;">
+        <% chartCoins.forEach(function(c) { %>
+        <option value="<%= c.id %>" <%= c.id === coinId ? 'selected' : '' %>><%= c.symbol %> – <%= c.name %></option>
+        <% }); %>
+      </select>
+    </div>
+    <% } else if (typeof prevCoinId !== 'undefined' && prevCoinId) { %>
     <a href="/chart/<%= prevCoinId %>" class="btn btn-outline btn-sm chart-nav-btn" title="Previous coin">&#x2190; Prev</a>
     <% } %>
     <h1><%= coinName %> (<%= symbol %>) – Chart</h1>
+    <% if (typeof chartCoins === 'undefined' || !chartCoins || chartCoins.length === 0) { %>
     <% if (typeof nextCoinId !== 'undefined' && nextCoinId) { %>
     <a href="/chart/<%= nextCoinId %>" class="btn btn-outline btn-sm chart-nav-btn" title="Next coin">Next &#x2192;</a>
     <% } %>
+    <% } %>
     <a href="/trades" class="btn btn-outline btn-sm">Active Trades</a>
     <a href="/coin/<%= coinId %>" class="btn btn-outline btn-sm">Back to <%= coinName %></a>
+    <% if (typeof user !== 'undefined' && user) { %><a href="/alerts" class="btn btn-outline btn-sm" style="border-color:#a78bfa;color:#a78bfa;">Alerts</a><% } %>
   </div>
 
   <% if (entry != null || sl != null || tp1 != null || tp2 != null || tp3 != null) { %>
@@ -155,6 +167,9 @@
             <label class="toggle-label"><input type="checkbox" id="toggle-premium"> <span class="toggle-text">Premium/Discount</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-swing"> <span class="toggle-text">Swing Points</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-structure"> <span class="toggle-text">Market Structure</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-sessions"> <span class="toggle-text">Session Markers (Asian/London/NY)</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-gaps"> <span class="toggle-text">Gap Markers</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-vp"> <span class="toggle-text">Volume Profile</span></label>
           </div>
         </div>
         <div class="indicators-dropdown-wrap" id="dropdown-style-wrap">
@@ -390,7 +405,8 @@
     return {
       bb: false, ma: false, keltner: false, donchian: false, fib: false,
       badges: false, patterns: false, chartPatterns: false, sr: false, poc: false, pivots: false,
-      tradeLevels: hasTrade, ob: hasTrade, fvg: hasTrade, liq: false, vwap: false, premium: false, swing: false, structure: false
+      tradeLevels: hasTrade, ob: hasTrade, fvg: hasTrade, liq: false, vwap: false, premium: false, swing: false, structure: false,
+      sessions: false, gaps: false, vp: false
     };
   }
   function loadIndicatorPrefs() {
@@ -423,6 +439,9 @@
   var showPremium = indicatorPrefs.premium;
   var showSwing = indicatorPrefs.swing;
   var showStructure = indicatorPrefs.structure;
+  var showSessions = indicatorPrefs.sessions;
+  var showGaps = indicatorPrefs.gaps;
+  var showVP = indicatorPrefs.vp;
   var srLevels = { support: null, resistance: null };
   var pocLevel = null;
   var lastPatterns = [];
@@ -434,6 +453,7 @@
   var lastSwingPoints = { swingLows: [], swingHighs: [] };
   var lastMarketStructure = null;
   var lastPivotPoints = null;
+  var lastVolumeProfile = null;
   var chartRefMASeries = [];
   var chartRefKeltnerSeries = [];
   var chartRefDonchianSeries = [];
@@ -933,6 +953,62 @@
         }
       }
     }
+    if (showSessions && chartRef.candleData.length > 1) {
+      var daySec = 86400;
+      var t0 = Math.floor(firstTime / daySec) * daySec;
+      var t1 = Math.ceil(lastTime / daySec) * daySec;
+      for (var d = t0; d <= t1; d += daySec) {
+        var asianStart = d; var asianEnd = d + 8 * 3600;
+        var londonStart = d + 8 * 3600; var londonEnd = d + 16 * 3600;
+        var nyStart = d + 13 * 3600; var nyEnd = d + 21 * 3600;
+        var drawBand = function(s, e, color) {
+          var x1 = ts.timeToCoordinate(s);
+          var x2 = ts.timeToCoordinate(e);
+          if (x1 != null && x2 != null && x2 > 0 && x1 < w) {
+            ctx.fillStyle = color;
+            ctx.fillRect(Math.max(0, x1), 0, Math.min(w, x2 - x1), h);
+          }
+        };
+        drawBand(asianStart, asianEnd, 'rgba(59,130,246,0.06)');
+        drawBand(londonStart, londonEnd, 'rgba(234,179,8,0.06)');
+        drawBand(nyStart, nyEnd, 'rgba(34,197,94,0.06)');
+      }
+    }
+    if (showGaps && chartRef.candleData.length >= 2) {
+      var cd = chartRef.candleData;
+      for (var gi = 0; gi < cd.length - 1; gi++) {
+        var c0 = cd[gi], c1 = cd[gi + 1];
+        var gap = null;
+        if (c1.low > c0.high * 1.001) gap = { type: 'BULL', time: c1.time, top: c1.low, bottom: c0.high };
+        else if (c1.high < c0.low * 0.999) gap = { type: 'BEAR', time: c1.time, top: c0.low, bottom: c1.high };
+        if (gap) {
+          var pt = toPx(gap.time, (gap.top + gap.bottom) / 2);
+          if (pt && pt.x >= 0 && pt.x <= w) {
+            ctx.strokeStyle = gap.type === 'BULL' ? 'rgba(34,197,94,0.6)' : 'rgba(239,68,68,0.6)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(pt.x, chartRef.series.priceToCoordinate(gap.top));
+            ctx.lineTo(pt.x, chartRef.series.priceToCoordinate(gap.bottom));
+            ctx.stroke();
+          }
+        }
+      }
+    }
+    if (showVP && lastVolumeProfile && lastVolumeProfile.buckets && lastVolumeProfile.buckets.length > 0) {
+      var vpW = 60, vpPad = 8;
+      var maxVol = Math.max.apply(null, lastVolumeProfile.buckets.map(function(b) { return b.volume; }));
+      if (maxVol > 0) {
+        for (var vi = 0; vi < lastVolumeProfile.buckets.length; vi++) {
+          var b = lastVolumeProfile.buckets[vi];
+          var y = chartRef.series.priceToCoordinate(b.price);
+          if (y != null && y >= 0 && y <= h) {
+            var barW = (b.volume / maxVol) * vpW;
+            ctx.fillStyle = Math.abs(b.price - (lastVolumeProfile.poc || 0)) < 0.0001 ? 'rgba(168,85,247,0.5)' : 'rgba(107,114,128,0.35)';
+            ctx.fillRect(w - vpPad - barW, y - 2, barW, 4);
+          }
+        }
+      }
+    }
   }
 
   function toggleSRLines(visible) {
@@ -1370,6 +1446,7 @@
         lastSwingPoints = data.swingPoints || { swingLows: [], swingHighs: [] };
         lastMarketStructure = data.marketStructure;
         lastPivotPoints = data.pivotPoints || null;
+        lastVolumeProfile = data.volumeProfile || null;
 
         if (!chartRef.chart) {
           // First load — create the chart (defer so container has layout/dimensions)
@@ -1764,13 +1841,20 @@
   if (toggleStructureEl) toggleStructureEl.addEventListener('change', function() { toggleStructureOverlay(this.checked); });
   var toggleTradeEl = document.getElementById('toggle-trade');
   if (toggleTradeEl) toggleTradeEl.addEventListener('change', function() { toggleTradeLevels(this.checked); });
+  var toggleSessionsEl = document.getElementById('toggle-sessions');
+  if (toggleSessionsEl) toggleSessionsEl.addEventListener('change', function() { showSessions = this.checked; if (chartRef.series) renderZoneOverlays(); });
+  var toggleGapsEl = document.getElementById('toggle-gaps');
+  if (toggleGapsEl) toggleGapsEl.addEventListener('change', function() { showGaps = this.checked; if (chartRef.series) renderZoneOverlays(); });
+  var toggleVPEl = document.getElementById('toggle-vp');
+  if (toggleVPEl) toggleVPEl.addEventListener('change', function() { showVP = this.checked; if (chartRef.series) renderZoneOverlays(); });
 
   function syncIndicatorCheckboxes() {
     var map = { 'toggle-bb': showBB, 'toggle-ma': showMA, 'toggle-keltner': showKeltner, 'toggle-donchian': showDonchian,
       'toggle-fib': showFib, 'toggle-badges': showBadges, 'toggle-patterns': showPatterns, 'toggle-chart-patterns': showChartPatterns,
       'toggle-sr': showSR, 'toggle-poc': showPOC, 'toggle-pivots': showPivots, 'toggle-trade': showTradeLevels,
       'toggle-ob': showOB, 'toggle-fvg': showFVG, 'toggle-liq': showLiq, 'toggle-vwap': showVWAP,
-      'toggle-premium': showPremium, 'toggle-swing': showSwing, 'toggle-structure': showStructure };
+      'toggle-premium': showPremium, 'toggle-swing': showSwing, 'toggle-structure': showStructure,
+      'toggle-sessions': showSessions, 'toggle-gaps': showGaps, 'toggle-vp': showVP };
     for (var id in map) {
       var el = document.getElementById(id);
       if (el) el.checked = map[id];
@@ -1780,7 +1864,7 @@
     var prefs = { bb: showBB, ma: showMA, keltner: showKeltner, donchian: showDonchian, fib: showFib,
       badges: showBadges, patterns: showPatterns, chartPatterns: showChartPatterns, sr: showSR, poc: showPOC, pivots: showPivots,
       tradeLevels: showTradeLevels, ob: showOB, fvg: showFVG, liq: showLiq, vwap: showVWAP,
-      premium: showPremium, swing: showSwing, structure: showStructure };
+      premium: showPremium, swing: showSwing, structure: showStructure, sessions: showSessions, gaps: showGaps, vp: showVP };
     try {
       localStorage.setItem(CHART_INDICATOR_STORAGE_KEY, JSON.stringify(prefs));
     } catch (e) {}
@@ -1808,6 +1892,9 @@
       showPremium = document.getElementById('toggle-premium') && document.getElementById('toggle-premium').checked;
       showSwing = document.getElementById('toggle-swing') && document.getElementById('toggle-swing').checked;
       showStructure = document.getElementById('toggle-structure') && document.getElementById('toggle-structure').checked;
+      showSessions = document.getElementById('toggle-sessions') && document.getElementById('toggle-sessions').checked;
+      showGaps = document.getElementById('toggle-gaps') && document.getElementById('toggle-gaps').checked;
+      showVP = document.getElementById('toggle-vp') && document.getElementById('toggle-vp').checked;
       saveIndicatorPrefs();
       if (chartRef.chart) {
         try { addPriceLines(); } catch(e) {}
@@ -1817,6 +1904,7 @@
         try { renderDonchianLines(); } catch(e) {}
         try { applyActionMarkers(initialActions || []); } catch(e) {}
         try { renderChartPatterns(); } catch(e) {}
+        try { renderZoneOverlays(); } catch(e) {}
       }
       indicatorsSaveBtn.textContent = 'Saved!';
       setTimeout(function() { indicatorsSaveBtn.textContent = 'Save Indicators'; }, 1500);
