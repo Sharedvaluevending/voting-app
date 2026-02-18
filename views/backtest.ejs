@@ -536,11 +536,11 @@ function renderActionBadgesForTrade(actions) {
         var tr = document.createElement('tr');
         tr.innerHTML = '<td>' + (t.symbol || t.coinId) + '</td>' +
           '<td><span class="badge-' + (t.direction === 'LONG' ? 'BUY' : 'SELL') + '" style="padding:2px 6px;border-radius:4px;font-size:11px;">' + t.direction + '</span></td>' +
-          '<td>$' + Number(t.entry).toFixed(4) + '</td>' +
-          '<td>$' + Number(t.exit).toFixed(4) + '</td>' +
+          '<td>$' + Number(t.entry || 0).toFixed(4) + '</td>' +
+          '<td>$' + Number(t.exit || 0).toFixed(4) + '</td>' +
           '<td>' + (t.reason || '-') + '</td>' +
           '<td>' + renderActionBadgesForTrade(t.actions) + '</td>' +
-          '<td class="' + (t.pnl >= 0 ? 'up' : 'down') + '">' + (t.pnl >= 0 ? '+' : '') + '$' + t.pnl.toFixed(2) + '</td>';
+          '<td class="' + ((t.pnl || 0) >= 0 ? 'up' : 'down') + '">' + ((t.pnl || 0) >= 0 ? '+' : '') + '$' + (t.pnl || 0).toFixed(2) + '</td>';
         tradesBody.appendChild(tr);
       });
       if (allTrades.length > 100) {

@@ -1141,7 +1141,7 @@ function determineSuggestedAction(scoreDiff, heat, messages, isLong, trade, curr
   // Block if: in ANY profit (even 0.1%), making progress toward TP2, OR small loss (-5% to 0)
   // Small-loss guard: don't exit on -1% to -5% — let stop/TP handle; score can be noisy
   const wouldConsiderExit = (heat === 'red' && hasDanger && effective <= exitThreshold) || effective <= hardExitThreshold;
-  const smallLoss = pnlPct < 0 && pnlPct > -5;  // -5% to 0 = small loss
+  const smallLoss = pnlPct < 0 && pnlPct > -3;  // -3% to 0 = noise (matches manage-engine EXIT threshold)
   const blockExit = inProfit || nearTP2 || smallLoss;
   if (wouldConsiderExit && !blockExit) {
     return { level: 'extreme', actionId: 'consider_exit', text: 'Consider exit' };

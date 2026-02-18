@@ -77,8 +77,8 @@
           <div class="coin-price">
             <div class="price trade-price">$<%= formatPrice(currentPrice) %></div>
             <div class="change trade-pnl-wrap <%= pnl >= 0 ? 'up' : 'down' %>">
-              <span class="trade-pnl-dollar"><%= pnl >= 0 ? '+' : '' %>$<%= pnl.toFixed(2) %></span>
-              <span class="trade-pnl-pct"> (<%= pnlPct.toFixed(2) %>%)</span>
+              <span class="trade-pnl-dollar"><%= (pnl || 0) >= 0 ? '+' : '' %>$<%= (pnl || 0).toFixed(2) %></span>
+              <span class="trade-pnl-pct"> (<%= (pnlPct || 0).toFixed(2) %>%)</span>
             </div>
           </div>
         </div>
@@ -86,8 +86,8 @@
         <div class="signal-meta">
           <span>Entry: <strong>$<%= formatPrice(trade.entryPrice) %></strong></span>
           <% if (trade.avgEntryPrice && trade.dcaCount > 0) { %><span>Avg Entry: <strong>$<%= formatPrice(trade.avgEntryPrice) %></strong></span><% } %>
-          <span>Size: <strong>$<%= trade.positionSize.toFixed(2) %></strong><% if (trade.originalPositionSize && trade.originalPositionSize > trade.positionSize) { %> <span style="font-size:11px;color:#6b7280;">(of $<%= trade.originalPositionSize.toFixed(2) %>)</span><% } %></span>
-          <span>Margin: <strong>$<%= ((trade.originalPositionSize || trade.positionSize) / (trade.leverage || 1)).toFixed(2) %></strong><% if (trade.originalPositionSize && trade.originalPositionSize > trade.positionSize * 1.01) { %> <span style="font-size:11px;color:#6b7280;">(rem: $<%= trade.margin.toFixed(2) %>)</span><% } %></span>
+          <span>Size: <strong>$<%= (trade.positionSize || 0).toFixed(2) %></strong><% if (trade.originalPositionSize && trade.originalPositionSize > trade.positionSize) { %> <span style="font-size:11px;color:#6b7280;">(of $<%= (trade.originalPositionSize || 0).toFixed(2) %>)</span><% } %></span>
+          <span>Margin: <strong>$<%= ((trade.originalPositionSize || trade.positionSize || 0) / (trade.leverage || 1)).toFixed(2) %></strong><% if (trade.originalPositionSize && trade.originalPositionSize > trade.positionSize * 1.01) { %> <span style="font-size:11px;color:#6b7280;">(rem: $<%= (trade.margin || 0).toFixed(2) %>)</span><% } %></span>
           <span>Time: <strong class="trade-time"><%= timeStr %></strong></span>
           <span>Score: <strong><%= trade.score || '-' %></strong></span>
           <% if (trade.strategyType) { %><span>Strategy: <strong><%= trade.strategyType.replace(/_/g, ' ') %></strong></span><% } %>
@@ -140,11 +140,11 @@
           <% if (riskForProgress > 0) { %>
           <div style="margin-top:4px;font-size:10px;color:#6b7280;">
             <% if (trade.tpMode === 'trailing') { %>
-              <span style="color:#8b5cf6;">&#10003; Trailing TP active</span> · <%= profitR.toFixed(2) %>R profit
+              <span style="color:#8b5cf6;">&#10003; Trailing TP active</span> · <%= (profitR || 0).toFixed(2) %>R profit
             <% } else if (stopAtBE) { %>
-              <span style="color:#10b981;">&#10003; Stop at breakeven</span> · <%= profitR >= 1.5 ? '<span style="color:#3b82f6;">Trailing active</span>' : 'Trailing at 1.5R (' + Math.min(100, (profitR / 1.5 * 100)).toFixed(0) + '%)' %>
+              <span style="color:#10b981;">&#10003; Stop at breakeven</span> · <%= (profitR || 0) >= 1.5 ? '<span style="color:#3b82f6;">Trailing active</span>' : 'Trailing at 1.5R (' + Math.min(100, ((profitR || 0) / 1.5 * 100)).toFixed(0) + '%)' %>
             <% } else if (trade.trailingActivated) { %>
-              <span style="color:#3b82f6;">&#10003; Trailing active</span> · <%= profitR.toFixed(2) %>R profit
+              <span style="color:#3b82f6;">&#10003; Trailing active</span> · <%= (profitR || 0).toFixed(2) %>R profit
             <% } else { %>
               BE at 0.75R: <strong><%= Math.min(100, Math.max(0, (profitR / 0.75) * 100)).toFixed(0) %>%</strong>
               <% if (profitR < 0) { %><span style="color:#ef4444;"> (underwater)</span><% } %>

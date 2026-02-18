@@ -439,7 +439,7 @@
   </div>
   <div class="perf-card">
     <div class="perf-label">Total P&L</div>
-    <div class="perf-value <%= stats.totalPnl >= 0 ? 'up' : 'down' %>"><%= stats.totalPnl >= 0 ? '+' : '' %>$<%= stats.totalPnl.toFixed(2) %></div>
+    <div class="perf-value <%= (stats.totalPnl || 0) >= 0 ? 'up' : 'down' %>"><%= (stats.totalPnl || 0) >= 0 ? '+' : '' %>$<%= (stats.totalPnl || 0).toFixed(2) %></div>
   </div>
   <div class="perf-card">
     <div class="perf-label">Return</div>
@@ -463,19 +463,19 @@
   </div>
   <div class="perf-card">
     <div class="perf-label">Avg Win</div>
-    <div class="perf-value up">+$<%= stats.avgWin.toFixed(2) %></div>
+    <div class="perf-value up">+$<%= (stats.avgWin || 0).toFixed(2) %></div>
   </div>
   <div class="perf-card">
     <div class="perf-label">Avg Loss</div>
-    <div class="perf-value down">-$<%= stats.avgLoss.toFixed(2) %></div>
+    <div class="perf-value down">-$<%= (stats.avgLoss || 0).toFixed(2) %></div>
   </div>
   <div class="perf-card">
     <div class="perf-label">Best Trade</div>
-    <div class="perf-value up">+$<%= stats.bestTrade.toFixed(2) %></div>
+    <div class="perf-value up">+$<%= (stats.bestTrade || 0).toFixed(2) %></div>
   </div>
   <div class="perf-card">
     <div class="perf-label">Worst Trade</div>
-    <div class="perf-value down">$<%= stats.worstTrade.toFixed(2) %></div>
+    <div class="perf-value down">$<%= (stats.worstTrade || 0).toFixed(2) %></div>
   </div>
   <div class="perf-card">
     <div class="perf-label">Streak</div>
@@ -483,7 +483,7 @@
   </div>
   <div class="perf-card">
     <div class="perf-label">7-Day P&L</div>
-    <div class="perf-value <%= stats.pnl7d >= 0 ? 'up' : 'down' %>"><%= stats.pnl7d >= 0 ? '+' : '' %>$<%= stats.pnl7d.toFixed(2) %></div>
+    <div class="perf-value <%= (stats.pnl7d || 0) >= 0 ? 'up' : 'down' %>"><%= (stats.pnl7d || 0) >= 0 ? '+' : '' %>$<%= (stats.pnl7d || 0).toFixed(2) %></div>
   </div>
   <div class="perf-card">
     <div class="perf-label">Open Trades</div>
@@ -547,7 +547,7 @@
           <td class="up"><%= data.wins %></td>
           <td class="down"><%= data.losses %></td>
           <td><%= wr %>%</td>
-          <td class="<%= data.pnl >= 0 ? 'up' : 'down' %>"><%= data.pnl >= 0 ? '+' : '' %>$<%= data.pnl.toFixed(2) %></td>
+          <td class="<%= (data.pnl || 0) >= 0 ? 'up' : 'down' %>"><%= (data.pnl || 0) >= 0 ? '+' : '' %>$<%= (data.pnl || 0).toFixed(2) %></td>
         </tr>
       <% }); %>
     </tbody>
@@ -570,7 +570,7 @@
           <td class="up"><%= data.wins %></td>
           <td class="down"><%= data.losses %></td>
           <td><%= wr %>%</td>
-          <td class="<%= data.pnl >= 0 ? 'up' : 'down' %>"><%= data.pnl >= 0 ? '+' : '' %>$<%= data.pnl.toFixed(2) %></td>
+          <td class="<%= (data.pnl || 0) >= 0 ? 'up' : 'down' %>"><%= (data.pnl || 0) >= 0 ? '+' : '' %>$<%= (data.pnl || 0).toFixed(2) %></td>
         </tr>
       <% }); %>
     </tbody>

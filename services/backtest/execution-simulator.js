@@ -10,17 +10,19 @@ const DEFAULT_TAKER_FEE = 0.001;
 
 /**
  * Compute market order slippage: max(min_slip_bps, k * ATR% * size_factor)
+ * ATR% is used as a volatility proxy — higher vol = wider spreads.
+ * Typical crypto slippage: 3-10 bps for majors, 10-30 bps for small caps.
  */
 function computeMarketSlippageBps(order, snapshot, config) {
   config = config || {};
   const minBps = config.minSlipBps ?? 5;
-  const k = config.slippageK ?? 1;
+  const k = config.slippageK ?? 3;
   const sizeFactor = config.sizeFactor ?? 1;
   const atr = snapshot?.indicators?.atr || snapshot?.coinData?.atr;
   const price = snapshot?.currentPrice || snapshot?.coinData?.price || order.entry;
   const atrPct = atr && price > 0 ? (atr / price) * 100 : 0;
-  const sizeMult = Math.min(2, 1 + (order.size || 0) / 100000); // Larger size = more slippage
-  const slipBps = Math.max(minBps, k * atrPct * 100 * sizeFactor * sizeMult);
+  const sizeMult = Math.min(2, 1 + (order.size || 0) / 100000);
+  const slipBps = Math.max(minBps, k * atrPct * sizeFactor * sizeMult);
   return slipBps;
 }
 

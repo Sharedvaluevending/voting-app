@@ -199,7 +199,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             ? ((adjExit - position.entry) / position.entry) * position.size
             : ((position.entry - adjExit) / position.entry) * position.size;
           const totalPnl = (position.partialPnl || 0) + pnl - exitFees;
-          equity = Math.max(0, equity + totalPnl);
+          // Only add the remaining portion's PnL to equity — partials were already added during partial closes
+          equity = Math.max(0, equity + pnl - exitFees);
           const exitReason = action.type === 'SL'
             ? (action.reason === 'TRAILING_TP_EXIT' ? 'TRAILING_TP_EXIT' : 'SL')
             : action.type === 'EXIT' ? 'SCORE_EXIT' : action.type;
@@ -410,7 +411,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       ? ((adjExit - position.entry) / position.entry) * position.size
       : ((position.entry - adjExit) / position.entry) * position.size;
     const totalPnl = (position.partialPnl || 0) + pnl - exitFees;
-    equity = Math.max(0, equity + totalPnl);
+    equity = Math.max(0, equity + pnl - exitFees);
     trades.push({
       direction: position.direction,
       entry: position.entry,

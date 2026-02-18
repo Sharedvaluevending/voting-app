@@ -195,10 +195,11 @@ function update(openTrade, snapshot, opts) {
       ? (currentPrice - trade.entryPrice) / trade.entryPrice * 100
       : (trade.entryPrice - currentPrice) / trade.entryPrice * 100) * (trade.leverage || 1);
 
-    // EXIT: score collapsed, signal flipped, in loss
+    // EXIT: score collapsed or signal flipped, cut the loss before SL
+    // Old thresholds required pnlPct <= -8%, but SL hits at ~-6%, so EXIT never fired.
+    // Now: exit at -3% loss (before SL), giving score-based exit a chance to save capital.
     const wouldExit = effectiveDiff <= -45 || (signalFlipped && effectiveDiff <= -40);
-    const blockExit = pnlPct >= 0 || (pnlPct > -5);
-    if (wouldExit && !blockExit && pnlPct <= -8) {
+    if (wouldExit && pnlPct <= -3) {
       actions.push({ type: 'EXIT', marketPrice: currentPrice, reason: 'SCORE_CHECK_EXIT' });
       return { actions, updatedTrade: trade };
     }
@@ -218,12 +219,13 @@ function update(openTrade, snapshot, opts) {
     }
 
     // PP: take partial 1/3 near TP1 when score is weakening
-    // Removed pnlPct < 0 gate: near TP1 means trade IS profitable, so pnlPct < 0 was contradictory (dead code)
     const wouldTakePartial = effectiveDiff < 0 && effectiveDiff > -35 && !trade.takenPartialByScore;
     const tp1 = trade.takeProfit1;
     const nearTP1 = tp1 && (isLong ? currentPrice >= tp1 * 0.98 : currentPrice <= tp1 * 1.02);
     if (wouldTakePartial && nearTP1) {
-      const portion = Math.round((trade.originalPositionSize / 3) * 100) / 100;
+      const rawPortion = Math.round((trade.originalPositionSize / 3) * 100) / 100;
+      const maxSafePortion = Math.round((trade.positionSize * 0.5) * 100) / 100;
+      const portion = Math.min(rawPortion, maxSafePortion);
       if (portion > 1 && portion < trade.positionSize) {
         actions.push({ type: 'PP', portion, marketPrice: currentPrice, reason: 'SCORE_CHECK_PARTIAL' });
         trade.takenPartialByScore = true;
@@ -254,20 +256,22 @@ function update(openTrade, snapshot, opts) {
     const hitTP3 = isLong ? tpHigh >= (trade.takeProfit3 || 0) : tpLow <= (trade.takeProfit3 || Infinity);
 
     if (hitTP1 && !trade.partialTakenAtTP1 && trade.takeProfit1) {
-      const portion = ff.partialTP !== false && (trade.takeProfit2 || trade.takeProfit3)
+      const rawPortion = ff.partialTP !== false && (trade.takeProfit2 || trade.takeProfit3)
         ? Math.round((orig * TP1_PCT) * 100) / 100
         : trade.positionSize;
-      const fullClose = !ff.partialTP || (!trade.takeProfit2 && !trade.takeProfit3);
+      const portion = Math.min(rawPortion, trade.positionSize);
+      const fullClose = !ff.partialTP || (!trade.takeProfit2 && !trade.takeProfit3) || portion >= trade.positionSize - 0.01;
       actions.push({ type: 'TP1', portion, fullClose, marketPrice: trade.takeProfit1 });
       trade.partialTakenAtTP1 = true;
       if (fullClose) return { actions, updatedTrade: trade };
       trade.positionSize -= portion;
     }
     if (hitTP2 && !trade.partialTakenAtTP2 && trade.takeProfit2) {
-      const portion = trade.takeProfit3
+      const rawPortion = trade.takeProfit3
         ? Math.round((orig * TP2_PCT) * 100) / 100
         : trade.positionSize;
-      const fullClose = !trade.takeProfit3;
+      const portion = Math.min(rawPortion, trade.positionSize);
+      const fullClose = !trade.takeProfit3 || portion >= trade.positionSize - 0.01;
       actions.push({ type: 'TP2', portion, fullClose, marketPrice: trade.takeProfit2 });
       trade.partialTakenAtTP2 = true;
       if (fullClose) return { actions, updatedTrade: trade };

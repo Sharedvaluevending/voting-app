@@ -53,10 +53,10 @@
             <a href="/coin/<%= (result.allCoins || []).find(c => c.symbol === r.symbol)?.coinId || r.symbol.toLowerCase() %>" style="color:#3b82f6;text-decoration:none;font-weight:600;"><%= r.symbol %></a>
           </td>
           <td style="padding:10px 12px;text-align:right;color:<%= r.totalPnl >= 0 ? '#10b981' : '#ef4444' %>;">$<%= r.totalPnl.toLocaleString(undefined, {maximumFractionDigits: 0}) %></td>
-          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= ((result.allCoins || []).find(c => c.symbol === r.symbol)?.returnPct ?? r.totalPnl/100).toFixed(1) %>%</td>
-          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= r.winRate.toFixed(1) %>%</td>
-          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= r.profitFactor.toFixed(2) %></td>
-          <td style="padding:10px 12px;text-align:right;color:#eab308;"><%= r.maxDrawdownPct.toFixed(1) %>%</td>
+          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= ((result.allCoins || []).find(c => c.symbol === r.symbol)?.returnPct ?? r.totalPnl/100 ?? 0).toFixed(1) %>%</td>
+          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= (r.winRate || 0).toFixed(1) %>%</td>
+          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= (r.profitFactor || 0).toFixed(2) %></td>
+          <td style="padding:10px 12px;text-align:right;color:#eab308;"><%= (r.maxDrawdownPct || 0).toFixed(1) %>%</td>
           <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= (r.sharpeRatio || 0).toFixed(2) %></td>
         </tr>
         <% }); %>
@@ -73,7 +73,7 @@
     <div style="background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;padding:12px;">
       <div style="font-weight:600;color:#e5e7eb;"><%= c.symbol %></div>
       <div style="font-size:12px;color:<%= c.totalPnl >= 0 ? '#10b981' : '#ef4444' %>;">$<%= c.totalPnl.toLocaleString(undefined, {maximumFractionDigits: 0}) %></div>
-      <div style="font-size:11px;color:#6b7280;"><%= c.winRate.toFixed(1) %>% WR · <%= c.totalTrades %> trades</div>
+      <div style="font-size:11px;color:#6b7280;"><%= (c.winRate || 0).toFixed(1) %>% WR · <%= c.totalTrades %> trades</div>
     </div>
     <% }); %>
   </div>
@@ -88,7 +88,7 @@
     <% Object.entries(topCoin.strategyBreakdown).forEach(function([name, s]) { %>
     <div style="background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:6px;padding:10px 14px;min-width:140px;">
       <div style="font-size:12px;color:#9ca3af;"><%= name %></div>
-      <div style="font-size:14px;font-weight:600;color:<%= s.pnl >= 0 ? '#10b981' : '#ef4444' %>;">$<%= s.pnl.toFixed(0) %></div>
+      <div style="font-size:14px;font-weight:600;color:<%= (s.pnl || 0) >= 0 ? '#10b981' : '#ef4444' %>;">$<%= (s.pnl || 0).toFixed(0) %></div>
       <div style="font-size:11px;color:#6b7280;"><%= s.trades %> trades · <%= s.trades > 0 ? ((s.wins/s.trades)*100).toFixed(0) : 0 %>% WR</div>
     </div>
     <% }); %>
