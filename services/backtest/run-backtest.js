@@ -202,7 +202,9 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
           equity = Math.max(0, equity + pnl - exitFees);
           const exitReason = action.type === 'SL'
             ? (action.reason === 'TRAILING_TP_EXIT' ? 'TRAILING_TP_EXIT' : 'SL')
-            : action.type === 'EXIT' ? 'SCORE_EXIT' : action.type;
+            : action.type === 'EXIT' ? 'SCORE_EXIT'
+            : (action.type === 'TP1' && action.fullClose && !F_PARTIAL_TP) ? 'TP'
+            : action.type;
           trades.push({
             direction: position.direction,
             entry: position.entry,
@@ -334,6 +336,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
         riskMode,
         riskDollarsPerTrade,
         defaultLeverage: leverage,
+        useFixedLeverage: true,
         maxBalancePercentPerTrade: 25,
         tpMode: ft.trailingTp ? 'trailing' : 'fixed',
         trailingTpDistanceMode: ft.trailingTpDistanceMode || 'atr',

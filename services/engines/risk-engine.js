@@ -73,7 +73,9 @@ function plan(decision, snapshot, context) {
   if (!decision.entry || !decision.stopLoss) return null;
 
   const direction = decision.side;
-  const leverage = userSettings.disableLeverage ? 1 : (decision.suggestedLeverage || userSettings.defaultLeverage || 1);
+  const leverage = userSettings.disableLeverage ? 1
+    : userSettings.useFixedLeverage ? (userSettings.defaultLeverage || 1)
+    : (decision.suggestedLeverage || userSettings.defaultLeverage || 1);
   const riskPercent = userSettings.riskPerTrade || 2;
   const riskMode = userSettings.riskMode || 'percent';
   const riskDollarsPerTrade = userSettings.riskDollarsPerTrade ?? 200;

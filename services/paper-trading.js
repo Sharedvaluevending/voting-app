@@ -182,6 +182,7 @@ async function openTrade(userId, signalData) {
       riskMode: user.settings?.riskMode || 'percent',
       riskDollarsPerTrade: user.settings?.riskDollarsPerTrade ?? 200,
       defaultLeverage: user.settings?.defaultLeverage || 1,
+      useFixedLeverage: user.settings?.useFixedLeverage,
       disableLeverage: user.settings?.disableLeverage,
       maxBalancePercentPerTrade: user.settings?.maxBalancePercentPerTrade ?? 25,
       makerFeePercent: user.settings?.makerFeePercent,
