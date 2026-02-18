@@ -36,7 +36,8 @@
       <label>Type</label>
       <select name="type">
         <option value="daily_review">Daily Review</option>
-        <option value="trade_note" <%= typeof linkedTrade !== 'undefined' && linkedTrade ? 'selected' : '' %>>Trade Note</option>
+        <option value="trade_note" <%= typeof linkedTrade !== 'undefined' && linkedTrade ? '' : 'selected' %>>Trade Note</option>
+        <option value="post_trade_review" <%= typeof linkedTrade !== 'undefined' && linkedTrade ? 'selected' : '' %>>Post-Trade Review</option>
         <option value="lesson">Lesson Learned</option>
         <option value="mistake">Mistake</option>
         <option value="win_analysis">Win Analysis</option>
@@ -70,6 +71,49 @@
       <label>Session Rating (1-10)</label>
       <input type="number" name="rating" min="1" max="10" value="5">
     </div>
+    <% if (typeof linkedTrade !== 'undefined' && linkedTrade) { %>
+    <div style="border:1px solid #334155;border-radius:8px;padding:14px;margin:16px 0;background:rgba(30,58,95,0.2);">
+      <h4 style="margin:0 0 12px 0;color:#60a5fa;font-size:14px;">Post-Trade Review (optional)</h4>
+      <div class="form-group">
+        <label>Setup Quality (1-10)</label>
+        <input type="number" name="setupQuality" min="1" max="10" placeholder="How good was the setup?">
+      </div>
+      <div class="form-group">
+        <label>Execution Quality (1-10)</label>
+        <input type="number" name="executionQuality" min="1" max="10" placeholder="How well did you execute?">
+      </div>
+      <div class="form-group">
+        <label>What went right?</label>
+        <textarea name="whatWentRight" rows="2" placeholder="Things that went well..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>What went wrong?</label>
+        <textarea name="whatWentWrong" rows="2" placeholder="Things to improve..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Key lesson</label>
+        <input type="text" name="keyLesson" placeholder="One takeaway from this trade">
+      </div>
+      <div class="form-group">
+        <label>Next action</label>
+        <input type="text" name="nextAction" placeholder="What will you do differently next time?">
+      </div>
+      <div class="form-group" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" name="revengeTrade" value="true"> Revenge trade</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" name="fomoEntry" value="true"> FOMO entry</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" name="overtrading" value="true"> Overtrading</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;"><input type="checkbox" name="positionSizeCorrect" value="true"> Position size correct</label>
+      </div>
+    </div>
+    <% } %>
+    <div class="form-group">
+      <label>Lessons learned (summary)</label>
+      <input type="text" name="lessonsLearned" placeholder="e.g. Wait for pullback, size down in chop">
+    </div>
+    <div class="form-group">
+      <label>Tags (comma-separated)</label>
+      <input type="text" name="tags" placeholder="e.g. breakout, trend, revenge">
+    </div>
     <button type="submit" class="form-btn">Save Entry</button>
   </form>
 </div>
@@ -90,12 +134,12 @@
 </div>
 <% } %>
 
-<% if (typeof analytics !== 'undefined' && (Object.keys(analytics.byEmotion).length > 0 || analytics.byRules.followed.total > 0 || analytics.byRules.broke.total > 0)) { %>
+<% if (typeof analytics !== 'undefined' && (Object.keys(analytics.byEmotion || {}).length > 0 || (analytics.byRules && (analytics.byRules.followed.total > 0 || analytics.byRules.broke.total > 0)) || Object.keys(analytics.bySetupQuality || {}).length > 0 || Object.keys(analytics.byExecutionQuality || {}).length > 0)) { %>
 <div class="section">
   <h3>Journal Insights</h3>
   <p style="font-size:12px;color:#6b7280;margin-bottom:12px;">Win rates from trade-linked journal entries.</p>
   <div class="perf-grid">
-    <% if (analytics.byRules.followed.total > 0 || analytics.byRules.broke.total > 0) { %>
+    <% if (analytics.byRules && (analytics.byRules.followed.total > 0 || analytics.byRules.broke.total > 0)) { %>
     <div class="perf-card">
       <div class="perf-label">When you followed rules</div>
       <div class="perf-value <%= analytics.byRules.followed.total > 0 && (analytics.byRules.followed.wins / analytics.byRules.followed.total) >= 0.5 ? 'up' : 'down' %>">
@@ -109,7 +153,29 @@
       </div>
     </div>
     <% } %>
-    <% Object.keys(analytics.byEmotion).forEach(function(em) {
+    <% if (analytics.bySetupQuality && Object.keys(analytics.bySetupQuality).length > 0) {
+      var setupKeys = Object.keys(analytics.bySetupQuality).sort(function(a,b){ return parseInt(a)-parseInt(b); });
+      setupKeys.forEach(function(k) {
+        var d = analytics.bySetupQuality[k];
+        var pct = d.total > 0 ? (d.wins / d.total) * 100 : 0;
+    %>
+    <div class="perf-card">
+      <div class="perf-label">Setup quality <%= k %>/10</div>
+      <div class="perf-value <%= pct >= 50 ? 'up' : 'down' %>"><%= pct.toFixed(0) %>% (<%= d.wins %>/<%= d.total %>)</div>
+    </div>
+    <% }); } %>
+    <% if (analytics.byExecutionQuality && Object.keys(analytics.byExecutionQuality).length > 0) {
+      var execKeys = Object.keys(analytics.byExecutionQuality).sort(function(a,b){ return parseInt(a)-parseInt(b); });
+      execKeys.forEach(function(k) {
+        var d = analytics.byExecutionQuality[k];
+        var pct = d.total > 0 ? (d.wins / d.total) * 100 : 0;
+    %>
+    <div class="perf-card">
+      <div class="perf-label">Execution quality <%= k %>/10</div>
+      <div class="perf-value <%= pct >= 50 ? 'up' : 'down' %>"><%= pct.toFixed(0) %>% (<%= d.wins %>/<%= d.total %>)</div>
+    </div>
+    <% }); } %>
+    <% if (analytics.byEmotion) { Object.keys(analytics.byEmotion).forEach(function(em) {
       var d = analytics.byEmotion[em];
       var pct = d.total > 0 ? (d.wins / d.total) * 100 : 0;
     %>
@@ -117,7 +183,7 @@
       <div class="perf-label">When feeling <%= em %></div>
       <div class="perf-value <%= pct >= 50 ? 'up' : 'down' %>"><%= pct.toFixed(0) %>% (<%= d.wins %>/<%= d.total %>)</div>
     </div>
-    <% }); %>
+    <% }); } %>
   </div>
 </div>
 <% } %>
@@ -155,6 +221,28 @@
         </span>
       <% } %>
       <% if (entry.rating) { %><span style="font-size:11px;color:#6b7280;margin-left:10px;">Rating: <%= entry.rating %>/10</span><% } %>
+      <% if (entry.setupQuality) { %><span style="font-size:11px;color:#8b5cf6;margin-left:10px;">Setup: <%= entry.setupQuality %>/10</span><% } %>
+      <% if (entry.executionQuality) { %><span style="font-size:11px;color:#8b5cf6;margin-left:10px;">Execution: <%= entry.executionQuality %>/10</span><% } %>
+      <% if (entry.tags && entry.tags.length > 0) { %>
+        <div style="margin-top:6px;font-size:11px;">
+          <% entry.tags.forEach(function(t) { %><span style="background:#334155;color:#94a3b8;padding:2px 6px;border-radius:4px;margin-right:4px;"><%= t %></span><% }); %>
+        </div>
+      <% } %>
+      <% if (entry.lessonsLearned) { %><div style="font-size:12px;color:#10b981;margin-top:6px;">&#10003; <%= entry.lessonsLearned %></div><% } %>
+      <% if (entry.keyLesson) { %><div style="font-size:12px;color:#60a5fa;margin-top:4px;"><strong>Lesson:</strong> <%= entry.keyLesson %></div><% } %>
+      <% if (entry.whatWentRight || entry.whatWentWrong) { %>
+        <div style="margin-top:8px;font-size:12px;">
+          <% if (entry.whatWentRight) { %><div style="color:#10b981;">Right: <%= entry.whatWentRight %></div><% } %>
+          <% if (entry.whatWentWrong) { %><div style="color:#ef4444;">Wrong: <%= entry.whatWentWrong %></div><% } %>
+        </div>
+      <% } %>
+      <% if (entry.revengeTrade || entry.fomoEntry || entry.overtrading) { %>
+        <div style="margin-top:6px;font-size:11px;color:#eab308;">
+          <% if (entry.revengeTrade) { %>Revenge trade<% } %>
+          <% if (entry.fomoEntry) { %><%= entry.revengeTrade ? ' · ' : '' %>FOMO<% } %>
+          <% if (entry.overtrading) { %><%= (entry.revengeTrade || entry.fomoEntry) ? ' · ' : '' %>Overtrading<% } %>
+        </div>
+      <% } %>
     </div>
   <% }); %>
 </div>

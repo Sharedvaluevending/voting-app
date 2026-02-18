@@ -1618,6 +1618,8 @@ app.get('/journal', requireLogin, async (req, res) => {
 
     const byEmotion = {};
     const byRules = { followed: { wins: 0, total: 0 }, broke: { wins: 0, total: 0 } };
+    const bySetupQuality = {};
+    const byExecutionQuality = {};
     for (const entry of entriesWithTrade) {
       const tid = entry.tradeId && entry.tradeId.toString();
       const trade = tid ? tradeMap[tid] : null;
@@ -1633,6 +1635,18 @@ app.get('/journal', requireLogin, async (req, res) => {
         bucket.total++;
         if (isWin) bucket.wins++;
       }
+      if (entry.setupQuality != null && entry.setupQuality >= 1 && entry.setupQuality <= 10) {
+        const key = String(entry.setupQuality);
+        bySetupQuality[key] = bySetupQuality[key] || { wins: 0, total: 0 };
+        bySetupQuality[key].total++;
+        if (isWin) bySetupQuality[key].wins++;
+      }
+      if (entry.executionQuality != null && entry.executionQuality >= 1 && entry.executionQuality <= 10) {
+        const key = String(entry.executionQuality);
+        byExecutionQuality[key] = byExecutionQuality[key] || { wins: 0, total: 0 };
+        byExecutionQuality[key].total++;
+        if (isWin) byExecutionQuality[key].wins++;
+      }
     }
 
     res.render('journal', {
@@ -1640,7 +1654,7 @@ app.get('/journal', requireLogin, async (req, res) => {
       entries,
       ruleStats,
       linkedTrade,
-      analytics: { byEmotion, byRules },
+      analytics: { byEmotion, byRules, bySetupQuality, byExecutionQuality },
       startDate: startDate || '',
       endDate: endDate || '',
       error: req.query.error || null,
@@ -1654,7 +1668,12 @@ app.get('/journal', requireLogin, async (req, res) => {
 
 app.post('/journal', requireLogin, async (req, res) => {
   try {
-    const { type, emotion, followedRules, content, rating, tradeId } = req.body;
+    const {
+      type, emotion, followedRules, content, rating, tradeId,
+      setupQuality, executionQuality, whatWentRight, whatWentWrong, keyLesson, nextAction,
+      revengeTrade, fomoEntry, overtrading, positionSizeCorrect,
+      lessonsLearned, tags
+    } = req.body;
     if (!content || !content.trim()) {
       return res.redirect('/journal?error=' + encodeURIComponent('Content is required'));
     }
@@ -1665,19 +1684,50 @@ app.post('/journal', requireLogin, async (req, res) => {
       emotion: emotion || 'neutral',
       followedRules: followedRules === 'true',
       content: content.trim(),
-      rating: parseInt(rating) || undefined
+      rating: parseInt(rating) || undefined,
+      lessonsLearned: lessonsLearned ? lessonsLearned.trim() : undefined,
+      tags: tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : undefined,
+      setupQuality: setupQuality ? parseInt(setupQuality) : undefined,
+      executionQuality: executionQuality ? parseInt(executionQuality) : undefined,
+      whatWentRight: whatWentRight ? whatWentRight.trim() : undefined,
+      whatWentWrong: whatWentWrong ? whatWentWrong.trim() : undefined,
+      keyLesson: keyLesson ? keyLesson.trim() : undefined,
+      nextAction: nextAction ? nextAction.trim() : undefined,
+      revengeTrade: revengeTrade === 'true',
+      fomoEntry: fomoEntry === 'true',
+      overtrading: overtrading === 'true',
+      positionSizeCorrect: positionSizeCorrect === 'true' ? true : positionSizeCorrect === 'false' ? false : undefined
     };
+    let trade = null;
     if (tradeId && mongoose.Types.ObjectId.isValid(tradeId)) {
-      const trade = await Trade.findOne({ _id: tradeId, userId: req.session.userId });
-      if (trade) entryData.tradeId = trade._id;
+      trade = await Trade.findOne({ _id: tradeId, userId: req.session.userId });
+      if (trade) {
+        entryData.tradeId = trade._id;
+        entryData.tradeContext = {
+          symbol: trade.symbol,
+          direction: trade.direction,
+          entryPrice: trade.entryPrice,
+          exitPrice: trade.exitPrice,
+          pnl: trade.pnl,
+          pnlPercent: trade.pnlPercent,
+          score: trade.score,
+          strategyType: trade.strategyType,
+          status: trade.status
+        };
+      }
     }
 
     const entry = new Journal(entryData);
     await entry.save();
 
-    res.redirect('/journal?success=' + encodeURIComponent('Journal entry saved'));
+    const redirectUrl = trade ? '/journal?success=' + encodeURIComponent('Journal entry saved') + '&tradeId=' + trade._id : '/journal?success=' + encodeURIComponent('Journal entry saved');
+    res.redirect(redirectUrl);
   } catch (err) {
-    res.redirect('/journal?error=' + encodeURIComponent(err.message));
+    const tid = req.body.tradeId;
+    const errUrl = tid && mongoose.Types.ObjectId.isValid(tid)
+      ? '/journal?error=' + encodeURIComponent(err.message) + '&tradeId=' + tid
+      : '/journal?error=' + encodeURIComponent(err.message);
+    res.redirect(errUrl);
   }
 });
 

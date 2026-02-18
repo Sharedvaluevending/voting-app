@@ -282,6 +282,7 @@
         <div class="trade-actions">
           <% var chartUrl = '/chart/' + trade.coinId + '?tradeId=' + trade._id + '&entry=' + trade.entryPrice + (trade.stopLoss ? '&sl=' + trade.stopLoss : '') + (trade.takeProfit1 ? '&tp1=' + trade.takeProfit1 : '') + (trade.takeProfit2 ? '&tp2=' + trade.takeProfit2 : '') + (trade.takeProfit3 ? '&tp3=' + trade.takeProfit3 : ''); %>
           <a href="<%= chartUrl %>" class="btn btn-outline btn-sm" target="_blank" rel="noopener">View chart</a>
+          <a href="/journal?tradeId=<%= trade._id %>" class="btn btn-outline btn-sm">Journal</a>
           <form action="/trades/close/<%= trade._id %>" method="POST" style="display:inline;">
             <input type="hidden" name="_csrf" value="<%= csrfToken %>">
             <button type="submit" class="btn btn-close btn-sm">Close at Market</button>
