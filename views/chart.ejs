@@ -1264,16 +1264,6 @@
       var price = getPriceFromEvent(e);
       if (price == null) return;
       var obj = chartRef.tradeLevelMap[dragState.key];
-      var entry = levels.entry;
-      var isLong = tradeDirection === 'LONG';
-      var key = dragState.key;
-      if (key === 'sl') {
-        if (isLong && price >= entry) return;
-        if (!isLong && price <= entry) return;
-      } else {
-        if (isLong && price <= entry) return;
-        if (!isLong && price >= entry) return;
-      }
       try {
         obj.line.applyOptions({ price: price });
         obj.price = price;
