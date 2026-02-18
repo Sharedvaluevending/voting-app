@@ -1,4 +1,5 @@
 <%- include('partials/header') %>
+<input type="hidden" id="chart-csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
 
 <main class="chart-page">
   <div class="chart-header">
@@ -15,7 +16,15 @@
 
   <% if (entry != null || sl != null || tp1 != null || tp2 != null || tp3 != null) { %>
   <div class="trade-levels-overlay">
-    <div class="trade-levels-title">Trade Levels – drawn on chart</div>
+    <div class="trade-levels-header">
+      <div class="trade-levels-title">Trade Levels – drawn on chart</div>
+      <% if (typeof tradeId !== 'undefined' && tradeId) { %>
+      <label class="toggle-label live-modify-wrap">
+        <input type="checkbox" id="live-modify-trades" title="Enable drag to modify SL, TP1, TP2, TP3">
+        <span class="toggle-text">Live modify trades</span>
+      </label>
+      <% } %>
+    </div>
     <div class="trade-levels-grid">
       <% if (tp3 != null) { %><div class="level-row tp"><span class="level-name">TP3</span><span class="level-price">$<%= tp3.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }) %></span></div><% } %>
       <% if (tp2 != null) { %><div class="level-row tp"><span class="level-name">TP2</span><span class="level-price">$<%= tp2.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }) %></span></div><% } %>
@@ -215,7 +224,8 @@
 .chart-header { display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
 .chart-header h1 { margin: 0; font-size: 1.25rem; color: #e5e7eb; }
 .trade-levels-overlay { margin-bottom: 1rem; padding: 0.75rem 1rem; background: rgba(15,23,42,0.6); border: 1px solid #334155; border-radius: 8px; backdrop-filter: blur(8px); }
-.trade-levels-title { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.5rem; }
+.trade-levels-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.5rem; }
+.trade-levels-title { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin: 0; }
 .trade-levels-grid { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
 .level-row { font-size: 0.9rem; padding: 0.2rem 0.5rem; border-radius: 4px; }
 .level-row.entry { background: rgba(59, 130, 246, 0.25); color: #93c5fd; }
@@ -321,7 +331,7 @@
   var tradeId = <%- JSON.stringify(typeof tradeId !== 'undefined' ? tradeId : null) %>;
   var tradeDirection = <%- JSON.stringify(typeof direction !== 'undefined' ? direction : null) %>;
   var initialActions = <%- JSON.stringify(typeof tradeActions !== 'undefined' ? tradeActions : []) %>;
-  var chartRef = { chart: null, series: null, volumeSeries: null, slLine: null, origSlLine: null, priceLines: [], fibLines: [], srLines: [], pocLines: [], bbSeries: [], candleTimes: [], candleData: [] };
+  var chartRef = { chart: null, series: null, volumeSeries: null, slLine: null, origSlLine: null, priceLines: [], fibLines: [], srLines: [], pocLines: [], bbSeries: [], tradeLevelMap: {}, candleTimes: [], candleData: [] };
   var CANDLE_STORAGE_KEY_UP = 'chartCandleUpColor';
   var CANDLE_STORAGE_KEY_DOWN = 'chartCandleDownColor';
   var CANDLE_DEFAULT_UP = '#22c55e';
@@ -667,10 +677,12 @@
     });
     chartRef.pocLines = [];
 
+    chartRef.tradeLevelMap = {};
     var lineOpts = { lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true };
     if (showTradeLevels) {
       if (levels.sl != null) {
         chartRef.slLine = chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.sl, color: '#ef4444', title: 'SL' }));
+        chartRef.tradeLevelMap.sl = { line: chartRef.slLine, price: levels.sl };
       }
       if (levels.originalSl != null && levels.originalSl !== levels.sl) {
         chartRef.origSlLine = chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.originalSl, color: '#78716c', title: 'Orig SL', lineStyle: LightweightCharts.LineStyle.Dotted }));
@@ -679,13 +691,19 @@
         chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.entry, color: '#3b82f6', title: 'Entry' })));
       }
       if (levels.tp1 != null) {
-        chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp1, color: '#22c55e', title: 'TP1' })));
+        var tp1Line = chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp1, color: '#22c55e', title: 'TP1' }));
+        chartRef.priceLines.push(tp1Line);
+        chartRef.tradeLevelMap.tp1 = { line: tp1Line, price: levels.tp1 };
       }
       if (levels.tp2 != null) {
-        chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp2, color: '#22c55e', title: 'TP2' })));
+        var tp2Line = chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp2, color: '#22c55e', title: 'TP2' }));
+        chartRef.priceLines.push(tp2Line);
+        chartRef.tradeLevelMap.tp2 = { line: tp2Line, price: levels.tp2 };
       }
       if (levels.tp3 != null) {
-        chartRef.priceLines.push(chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp3, color: '#22c55e', title: 'TP3' })));
+        var tp3Line = chartRef.series.createPriceLine(Object.assign({}, lineOpts, { price: levels.tp3, color: '#22c55e', title: 'TP3' }));
+        chartRef.priceLines.push(tp3Line);
+        chartRef.tradeLevelMap.tp3 = { line: tp3Line, price: levels.tp3 };
       }
     } else {
       chartRef.slLine = null;
@@ -1191,6 +1209,133 @@
         .catch(function() {});
     }, 5000);
   }
+
+  // ---- Live modify trades: drag SL/TP1/TP2/TP3 to update trade ----
+  if (tradeId) {
+    var liveModifyCheck = document.getElementById('live-modify-trades');
+    var lwChartContainer = document.getElementById('lw-chart-container');
+    var lwChart = document.getElementById('lw-chart');
+    var dragState = null;
+    var HIT_RADIUS = 12;
+
+    function getPriceFromEvent(e) {
+      if (!chartRef.series || !lwChart) return null;
+      var rect = lwChart.getBoundingClientRect();
+      var y = (e.touches && e.touches[0]) ? e.touches[0].clientY : e.clientY;
+      y = y - rect.top;
+      if (y < 0 || y > rect.height) return null;
+      var price = chartRef.series.coordinateToPrice(y);
+      return price;
+    }
+
+    function findLineAtPrice(clickPrice) {
+      if (!chartRef.series || !chartRef.tradeLevelMap) return null;
+      var clickY = chartRef.series.priceToCoordinate(clickPrice);
+      if (clickY == null) return null;
+      var best = null;
+      var bestDist = Infinity;
+      for (var key in chartRef.tradeLevelMap) {
+        var obj = chartRef.tradeLevelMap[key];
+        if (!obj || !obj.line) continue;
+        var lineY = chartRef.series.priceToCoordinate(obj.price);
+        if (lineY == null) continue;
+        var dist = Math.abs(clickY - lineY);
+        if (dist <= HIT_RADIUS && dist < bestDist) {
+          bestDist = dist;
+          best = key;
+        }
+      }
+      return best;
+    }
+
+    function onModifyMouseDown(e) {
+      if (!liveModifyCheck || !liveModifyCheck.checked || !chartRef.chart || !chartRef.series || tvFallbackAttempted) return;
+      var price = getPriceFromEvent(e);
+      if (price == null) return;
+      var key = findLineAtPrice(price);
+      if (!key) return;
+      e.preventDefault();
+      dragState = { key: key };
+    }
+
+    function onModifyMouseMove(e) {
+      if (!dragState || !chartRef.tradeLevelMap || !chartRef.tradeLevelMap[dragState.key]) return;
+      var price = getPriceFromEvent(e);
+      if (price == null) return;
+      var obj = chartRef.tradeLevelMap[dragState.key];
+      var entry = levels.entry;
+      var isLong = tradeDirection === 'LONG';
+      var key = dragState.key;
+      if (key === 'sl') {
+        if (isLong && price >= entry) return;
+        if (!isLong && price <= entry) return;
+      } else {
+        if (isLong && price <= entry) return;
+        if (!isLong && price >= entry) return;
+      }
+      try {
+        obj.line.applyOptions({ price: price });
+        obj.price = price;
+      } catch (err) {}
+    }
+
+    function onModifyMouseUp(e) {
+      if (!dragState) return;
+      var key = dragState.key;
+      dragState = null;
+      var obj = chartRef.tradeLevelMap && chartRef.tradeLevelMap[key];
+      if (!obj || !tradeId) return;
+      var payload = {};
+      if (key === 'sl') payload.stopLoss = obj.price;
+      else if (key === 'tp1') payload.takeProfit1 = obj.price;
+      else if (key === 'tp2') payload.takeProfit2 = obj.price;
+      else if (key === 'tp3') payload.takeProfit3 = obj.price;
+      if (Object.keys(payload).length === 0) return;
+      var csrf = document.getElementById('chart-csrf');
+      var headers = { 'Content-Type': 'application/json' };
+      if (csrf && csrf.value) headers['X-CSRF-Token'] = csrf.value;
+      fetch('/api/trades/' + tradeId + '/levels', {
+        method: 'PATCH',
+        headers: headers,
+        body: JSON.stringify(payload),
+        credentials: 'same-origin'
+      }).then(function(r) { return r.json();       }).then(function(data) {
+        if (data.success) {
+          if (key === 'sl') levels.sl = obj.price;
+          else if (key === 'tp1') levels.tp1 = obj.price;
+          else if (key === 'tp2') levels.tp2 = obj.price;
+          else if (key === 'tp3') levels.tp3 = obj.price;
+          var label = key === 'sl' ? 'SL' : 'TP' + key.charAt(2);
+          var rows = document.querySelectorAll('.trade-levels-grid .level-row');
+          for (var i = 0; i < rows.length; i++) {
+            var nameSpan = rows[i].querySelector('.level-name');
+            if (nameSpan && nameSpan.textContent === label) {
+              var priceEl = rows[i].querySelector('.level-price');
+              if (priceEl) priceEl.textContent = '$' + (obj.price >= 1 ? obj.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 6}) : obj.price.toFixed(6));
+              break;
+            }
+          }
+        }
+      }).catch(function(err) { console.warn('Live modify failed:', err); });
+    }
+
+    if (liveModifyCheck && lwChartContainer) {
+      liveModifyCheck.addEventListener('change', function() {
+        if (this.checked) {
+          lwChartContainer.style.cursor = 'ns-resize';
+        } else {
+          lwChartContainer.style.cursor = '';
+        }
+      });
+      lwChartContainer.addEventListener('mousedown', onModifyMouseDown);
+      lwChartContainer.addEventListener('touchstart', function(e) { onModifyMouseDown(e); }, { passive: false });
+      document.addEventListener('mousemove', onModifyMouseMove);
+      document.addEventListener('touchmove', function(e) { if (dragState) { e.preventDefault(); onModifyMouseMove(e); } }, { passive: false });
+      document.addEventListener('mouseup', onModifyMouseUp);
+      document.addEventListener('touchend', function(e) { if (dragState) onModifyMouseUp(e); });
+    }
+  }
+
   // ---- Toggle listeners and drawing tools (wrapped so chart load is never blocked) ----
   try {
   var toggleBBEl = document.getElementById('toggle-bb');

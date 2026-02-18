@@ -209,7 +209,7 @@ const CSRF_EXEMPT_PATHS = ['/login', '/register', '/forgot-password', '/reset-pa
 
 app.use((req, res, next) => {
   // Step 1: Validate CSRF on state-changing requests
-  if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
     const isJsonApi = req.path.startsWith('/api/') || req.xhr || req.headers['content-type']?.includes('application/json');
     const isExempt = CSRF_EXEMPT_PATHS.includes(req.path);
     if (!isJsonApi && !isExempt && !validateCsrfToken(req)) {
@@ -1746,6 +1746,50 @@ app.get('/api/trades/active', requireLogin, async (req, res) => {
     trades.forEach(t => { map[t._id.toString()] = t; });
     res.json({ success: true, trades: map });
   } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /api/trades/:tradeId/levels — update SL, TP1, TP2, TP3 (chart live modify)
+app.patch('/api/trades/:tradeId/levels', requireLogin, async (req, res) => {
+  try {
+    const { tradeId } = req.params;
+    const { stopLoss, takeProfit1, takeProfit2, takeProfit3 } = req.body || {};
+    const trade = await Trade.findOne({ _id: tradeId, userId: req.session.userId, status: 'OPEN' });
+    if (!trade) {
+      return res.status(404).json({ success: false, error: 'Trade not found' });
+    }
+    const update = {};
+    const entry = trade.entryPrice;
+    const isLong = trade.direction === 'LONG';
+    if (stopLoss != null && Number.isFinite(stopLoss)) {
+      if (isLong && stopLoss >= entry) return res.status(400).json({ success: false, error: 'SL must be below entry for LONG' });
+      if (!isLong && stopLoss <= entry) return res.status(400).json({ success: false, error: 'SL must be above entry for SHORT' });
+      update.stopLoss = stopLoss;
+    }
+    if (takeProfit1 != null && Number.isFinite(takeProfit1)) {
+      if (isLong && takeProfit1 <= entry) return res.status(400).json({ success: false, error: 'TP1 must be above entry for LONG' });
+      if (!isLong && takeProfit1 >= entry) return res.status(400).json({ success: false, error: 'TP1 must be below entry for SHORT' });
+      update.takeProfit1 = takeProfit1;
+    }
+    if (takeProfit2 != null && Number.isFinite(takeProfit2)) {
+      if (isLong && takeProfit2 <= entry) return res.status(400).json({ success: false, error: 'TP2 must be above entry for LONG' });
+      if (!isLong && takeProfit2 >= entry) return res.status(400).json({ success: false, error: 'TP2 must be below entry for SHORT' });
+      update.takeProfit2 = takeProfit2;
+    }
+    if (takeProfit3 != null && Number.isFinite(takeProfit3)) {
+      if (isLong && takeProfit3 <= entry) return res.status(400).json({ success: false, error: 'TP3 must be above entry for LONG' });
+      if (!isLong && takeProfit3 >= entry) return res.status(400).json({ success: false, error: 'TP3 must be below entry for SHORT' });
+      update.takeProfit3 = takeProfit3;
+    }
+    if (Object.keys(update).length === 0) {
+      return res.status(400).json({ success: false, error: 'No valid levels to update' });
+    }
+    update.updatedAt = new Date();
+    await Trade.updateOne({ _id: tradeId, userId: req.session.userId }, { $set: update });
+    res.json({ success: true, updated: update });
+  } catch (err) {
+    console.error('[PatchTradeLevels] Error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
