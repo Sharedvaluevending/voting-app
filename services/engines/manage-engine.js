@@ -17,7 +17,7 @@ const TP3_PCT = 0.3;
 
 const BE_R_MULT = 0.75;  // Breakeven at 0.75R (matches paper-trading)
 const TRAILING_START_R = 1.5;
-const TRAILING_DIST_R = 1;
+const TRAILING_DIST_R = 1.5;  // Must match paper-trading: trail 1.5R behind max price
 const BE_BUFFER = 0.003;
 
 function getProgressTowardTP(trade, currentPrice) {
@@ -203,10 +203,10 @@ function update(openTrade, snapshot, opts) {
       return { actions, updatedTrade: trade };
     }
 
-    // RP: reduce position 50%
+    // RP: reduce position 30% (matches paper-trading: less destructive per trigger)
     const wouldReduce = effectiveDiff <= -25 || (signalFlipped && effectiveDiff <= -20);
     if (wouldReduce && pnlPct < 0 && !trade.reducedByScore) {
-      const portion = trade.positionSize * 0.5;
+      const portion = Math.round((trade.positionSize * 0.3) * 100) / 100;
       if (portion > 1) {
         actions.push({ type: 'RP', portion, marketPrice: currentPrice, reason: 'SCORE_CHECK_REDUCE' });
         trade.reducedByScore = true;
@@ -233,7 +233,8 @@ function update(openTrade, snapshot, opts) {
     const slCheckPrice = snapshot.closeBasedStops !== false ? currentPrice : (isLong ? low : high);
     const stopped = isLong ? slCheckPrice <= trade.stopLoss : slCheckPrice >= trade.stopLoss;
     if (stopped) {
-      actions.push({ type: 'SL', marketPrice: trade.stopLoss, reason: 'STOPPED_OUT' });
+      const isTrailingTpExit = trade.tpMode === 'trailing' && trade.trailingActivated;
+      actions.push({ type: 'SL', marketPrice: trade.stopLoss, reason: isTrailingTpExit ? 'TRAILING_TP_EXIT' : 'STOPPED_OUT' });
       return { actions, updatedTrade: trade };
     }
   }

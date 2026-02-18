@@ -199,13 +199,16 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             : ((position.entry - adjExit) / position.entry) * position.size;
           const totalPnl = (position.partialPnl || 0) + pnl - exitFees;
           equity = Math.max(0, equity + totalPnl);
+          const exitReason = action.type === 'SL'
+            ? (action.reason === 'TRAILING_TP_EXIT' ? 'TRAILING_TP_EXIT' : 'SL')
+            : action.type === 'EXIT' ? 'SCORE_EXIT' : action.type;
           trades.push({
             direction: position.direction,
             entry: position.entry,
             exit: adjExit,
             entryBar: position.entryBar,
             exitBar: t + 1,
-            reason: action.type === 'SL' ? 'SL' : action.type === 'EXIT' ? 'SCORE_EXIT' : action.type,
+            reason: exitReason,
             pnl: totalPnl,
             size: position.originalSize,
             partials: position.partialPnl || 0,
@@ -449,7 +452,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     PP: allActions.filter(a => a === 'PP').length,
     RP: allActions.filter(a => a === 'RP').length,
     EXIT: allActions.filter(a => a === 'EXIT').length,
-    LOCK: allActions.filter(a => a === 'LOCK').length
+    LOCK: allActions.filter(a => a === 'LOCK').length,
+    DCA: allActions.filter(a => a === 'DCA').length
   };
 
   const exitReasons = {};

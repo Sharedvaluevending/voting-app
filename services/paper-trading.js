@@ -612,7 +612,8 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       // Breakeven at 0.75R (if autoMoveBreakeven) — only if trailing hasn't started yet
       // Lowered from 1R to 0.75R so BE fires sooner, protecting positions earlier
       // Uses entry + 0.3% buffer so "breakeven" actually breaks even after round-trip fees + slippage
-      if (pastStopGrace && autoBE && !trade.trailingActivated && trade.stopLoss !== trade.entryPrice) {
+      // Guard: breakevenHit flag prevents duplicate BE actions (matches manage-engine)
+      if (pastStopGrace && autoBE && !trade.breakevenHit && !trade.trailingActivated) {
         const atBE = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * 0.75 : currentPrice <= trade.entryPrice - risk * 0.75;
         if (atBE) {
           const oldSl = trade.stopLoss;
@@ -620,6 +621,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
           trade.stopLoss = trade.direction === 'LONG'
             ? trade.entryPrice * (1 + BE_BUFFER)
             : trade.entryPrice * (1 - BE_BUFFER);
+          trade.breakevenHit = true;
           logTradeAction(trade, 'BE', `Stop moved to breakeven at $${trade.entryPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, trade.entryPrice, currentPrice);
           await trade.save();
           // Bitget: update SL on exchange
@@ -917,6 +919,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
 
                   trade.positionSize = newTotalSize;
                   trade.avgEntryPrice = newAvgEntry;
+                  trade.entryPrice = newAvgEntry;  // Update effective entry so BE/trailing/lock-in use DCA'd average (matches backtest)
                   trade.dcaCount = (trade.dcaCount || 0) + 1;
                   if (!Array.isArray(trade.dcaEntries)) trade.dcaEntries = [];
                   trade.dcaEntries.push({ price: currentPrice, size: addSize, time: new Date() });

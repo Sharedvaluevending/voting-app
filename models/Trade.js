@@ -7,7 +7,7 @@ const tradeSchema = new mongoose.Schema({
   direction: { type: String, enum: ['LONG', 'SHORT'], required: true },
   status: {
     type: String,
-    enum: ['OPEN', 'CLOSED_MANUAL', 'STOPPED_OUT', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT', 'SCORE_EXIT', 'CANCELLED'],
+    enum: ['OPEN', 'CLOSED_MANUAL', 'STOPPED_OUT', 'TP1_HIT', 'TP2_HIT', 'TP3_HIT', 'SCORE_EXIT', 'TRAILING_TP_EXIT', 'DUST_CLEANUP', 'CANCELLED'],
     default: 'OPEN'
   },
   entryPrice: { type: Number, required: true },
@@ -19,6 +19,9 @@ const tradeSchema = new mongoose.Schema({
   stopLoss: { type: Number },
   originalStopLoss: { type: Number },
   trailingActivated: { type: Boolean, default: false },
+  breakevenHit: { type: Boolean, default: false },
+  reducedByScore: { type: Boolean, default: false },
+  takenPartialByScore: { type: Boolean, default: false },
   actions: [{ type: mongoose.Schema.Types.Mixed }],
   takeProfit1: { type: Number },
   takeProfit2: { type: Number },
