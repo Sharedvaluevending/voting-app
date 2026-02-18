@@ -124,15 +124,31 @@
           <div class="indicators-dropdown-panel" id="indicators-dropdown-panel">
             <div class="indicators-dropdown-title">Overlays</div>
             <label class="toggle-label"><input type="checkbox" id="toggle-bb" checked> <span class="toggle-text">Bollinger Bands</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-ma" checked> <span class="toggle-text">Moving Averages (SMA/EMA)</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-keltner"> <span class="toggle-text">Keltner Channel</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-donchian"> <span class="toggle-text">Donchian Channel</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-fib" checked> <span class="toggle-text">Fibonacci</span></label>
+            <div class="indicators-dropdown-title">Levels</div>
             <label class="toggle-label"><input type="checkbox" id="toggle-sr" checked> <span class="toggle-text">Support / Resistance</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-poc" checked> <span class="toggle-text">POC (Volume)</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-pivots"> <span class="toggle-text">Pivot Points</span></label>
+            <div class="indicators-dropdown-title">Patterns</div>
             <label class="toggle-label"><input type="checkbox" id="toggle-chart-patterns" checked> <span class="toggle-text">Chart Patterns</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-badges" checked> <span class="toggle-text">Action Badges</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-patterns" checked> <span class="toggle-text">Candlestick Patterns</span></label>
             <% if (typeof tradeId !== 'undefined' && tradeId) { %>
             <label class="toggle-label"><input type="checkbox" id="toggle-trade" checked> <span class="toggle-text">Trade Levels</span></label>
             <% } %>
+            <div class="toolbar-divider-horiz"></div>
+            <div class="indicators-dropdown-title">Advanced – Smart Money</div>
+            <label class="toggle-label"><input type="checkbox" id="toggle-ob"> <span class="toggle-text">Order Blocks</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-fvg"> <span class="toggle-text">Fair Value Gaps</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-liq"> <span class="toggle-text">Liquidity Clusters</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-vwap"> <span class="toggle-text">VWAP</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-premium"> <span class="toggle-text">Premium/Discount</span></label>
+            <div class="indicators-dropdown-title">Advanced – Structure</div>
+            <label class="toggle-label"><input type="checkbox" id="toggle-swing"> <span class="toggle-text">Swing Points</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-structure"> <span class="toggle-text">Market Structure</span></label>
             <div class="toolbar-divider-horiz"></div>
             <div class="indicators-dropdown-title">Style</div>
             <div class="candle-colors-wrap">
@@ -176,6 +192,7 @@
       <div class="candle-countdown-label" style="font-size:10px;color:#6b7280;margin-bottom:2px;text-transform:uppercase;letter-spacing:0.5px;">Candle closes in</div>
       <div id="candle-countdown" style="font-size:14px;font-weight:700;color:#e5e7eb;font-variant-numeric:tabular-nums;"></div>
     </div>
+    <div id="chart-structure-overlay" style="display:none;position:absolute;bottom:8px;left:12px;z-index:6;pointer-events:none;padding:4px 8px;background:rgba(15,23,42,0.85);border:1px solid #334155;border-radius:6px;font-size:11px;font-weight:600;color:#a78bfa;">—</div>
     <canvas id="draw-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;"></canvas>
   </div>
 
@@ -355,17 +372,44 @@
   }
   var currentTF = '1h';
   var showBB = true;
+  var showMA = true;
+  var showKeltner = false;
+  var showDonchian = false;
   var showFib = true;
   var showBadges = true;
   var showPatterns = true;
   var showChartPatterns = true;
   var showSR = true;
   var showPOC = true;
+  var showPivots = false;
   var showTradeLevels = true;
+  var showOB = false;
+  var showFVG = false;
+  var showLiq = false;
+  var showVWAP = false;
+  var showPremium = false;
+  var showSwing = false;
+  var showStructure = false;
   var srLevels = { support: null, resistance: null };
   var pocLevel = null;
   var lastPatterns = [];
   var lastChartPatterns = [];
+  var lastOrderBlocks = [];
+  var lastFVGs = [];
+  var lastLiquidityClusters = {};
+  var lastVWAP = null;
+  var lastSwingPoints = { swingLows: [], swingHighs: [] };
+  var lastMarketStructure = null;
+  var lastPivotPoints = null;
+  var chartRefMASeries = [];
+  var chartRefKeltnerSeries = [];
+  var chartRefDonchianSeries = [];
+  var chartRefOBLines = [];
+  var chartRefFVGLines = [];
+  var chartRefLiqLines = [];
+  var chartRefVWAPLine = null;
+  var chartRefPremiumLines = [];
+  var chartRefPivotLines = [];
   var chartPatternSeries = [];  // line series for chart pattern trendlines
   var drawColor = '#f59e0b';
 
@@ -448,6 +492,18 @@
           shape: isBull ? 'arrowUp' : isBear ? 'arrowDown' : 'circle',
           text: pat.name
         });
+      }
+    }
+
+    // Add swing point markers if enabled
+    if (showSwing && lastSwingPoints) {
+      var swl = lastSwingPoints.swingLows || [];
+      var swh = lastSwingPoints.swingHighs || [];
+      for (var si = 0; si < swl.length; si++) {
+        if (swl[si].time) markers.push({ time: swl[si].time, position: 'belowBar', color: '#22c55e', shape: 'circle', text: 'L' });
+      }
+      for (var si = 0; si < swh.length; si++) {
+        if (swh[si].time) markers.push({ time: swh[si].time, position: 'aboveBar', color: '#ef4444', shape: 'circle', text: 'H' });
       }
     }
 
@@ -676,6 +732,17 @@
       try { chartRef.series.removePriceLine(pl); } catch(e) {}
     });
     chartRef.pocLines = [];
+    chartRefOBLines.forEach(function(pl) { try { chartRef.series.removePriceLine(pl); } catch(e) {} });
+    chartRefOBLines = [];
+    chartRefFVGLines.forEach(function(pl) { try { chartRef.series.removePriceLine(pl); } catch(e) {} });
+    chartRefFVGLines = [];
+    chartRefLiqLines.forEach(function(pl) { try { chartRef.series.removePriceLine(pl); } catch(e) {} });
+    chartRefLiqLines = [];
+    if (chartRefVWAPLine) { try { chartRef.series.removePriceLine(chartRefVWAPLine); } catch(e) {} chartRefVWAPLine = null; }
+    chartRefPremiumLines.forEach(function(pl) { try { chartRef.series.removePriceLine(pl); } catch(e) {} });
+    chartRefPremiumLines = [];
+    chartRefPivotLines.forEach(function(pl) { try { chartRef.series.removePriceLine(pl); } catch(e) {} });
+    chartRefPivotLines = [];
 
     chartRef.tradeLevelMap = {};
     var lineOpts = { lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true };
@@ -730,6 +797,62 @@
       var pocOpts = Object.assign({}, lineOpts, { lineWidth: 1.5, lineStyle: LightweightCharts.LineStyle.Dotted });
       chartRef.pocLines.push(chartRef.series.createPriceLine(Object.assign({}, pocOpts, { price: pocLevel, color: '#a78bfa', title: 'POC' })));
     }
+    // Pivot Points
+    if (showPivots && lastPivotPoints) {
+      var ppOpts = Object.assign({}, lineOpts, { lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted });
+      chartRefPivotLines.push(chartRef.series.createPriceLine(Object.assign({}, ppOpts, { price: lastPivotPoints.p, color: '#f59e0b', title: 'P' })));
+      if (lastPivotPoints.r1 != null) chartRefPivotLines.push(chartRef.series.createPriceLine(Object.assign({}, ppOpts, { price: lastPivotPoints.r1, color: '#ef4444', title: 'R1' })));
+      if (lastPivotPoints.r2 != null) chartRefPivotLines.push(chartRef.series.createPriceLine(Object.assign({}, ppOpts, { price: lastPivotPoints.r2, color: '#ef4444', title: 'R2' })));
+      if (lastPivotPoints.s1 != null) chartRefPivotLines.push(chartRef.series.createPriceLine(Object.assign({}, ppOpts, { price: lastPivotPoints.s1, color: '#22c55e', title: 'S1' })));
+      if (lastPivotPoints.s2 != null) chartRefPivotLines.push(chartRef.series.createPriceLine(Object.assign({}, ppOpts, { price: lastPivotPoints.s2, color: '#22c55e', title: 'S2' })));
+    }
+    // Order Blocks (top + bottom lines per zone)
+    if (showOB && lastOrderBlocks.length > 0) {
+      var obOpts = Object.assign({}, lineOpts, { lineWidth: 1.5, lineStyle: LightweightCharts.LineStyle.Solid });
+      for (var obi = 0; obi < lastOrderBlocks.length; obi++) {
+        var ob = lastOrderBlocks[obi];
+        var obColor = ob.type === 'BULL' ? 'rgba(34,197,94,0.8)' : 'rgba(239,68,68,0.8)';
+        chartRefOBLines.push(chartRef.series.createPriceLine(Object.assign({}, obOpts, { price: ob.top, color: obColor, title: 'OB' })));
+        chartRefOBLines.push(chartRef.series.createPriceLine(Object.assign({}, obOpts, { price: ob.bottom, color: obColor, title: '' })));
+      }
+    }
+    // Fair Value Gaps
+    if (showFVG && lastFVGs.length > 0) {
+      var fvgOpts = Object.assign({}, lineOpts, { lineWidth: 1.5, lineStyle: LightweightCharts.LineStyle.Dashed });
+      for (var fvgi = 0; fvgi < lastFVGs.length; fvgi++) {
+        var fvg = lastFVGs[fvgi];
+        var fvgColor = fvg.type === 'BULL' ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)';
+        chartRefFVGLines.push(chartRef.series.createPriceLine(Object.assign({}, fvgOpts, { price: fvg.top, color: fvgColor, title: 'FVG' })));
+        chartRefFVGLines.push(chartRef.series.createPriceLine(Object.assign({}, fvgOpts, { price: fvg.bottom, color: fvgColor, title: '' })));
+      }
+    }
+    // Liquidity Clusters
+    if (showLiq && lastLiquidityClusters) {
+      var liqOpts = Object.assign({}, lineOpts, { lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted });
+      if (lastLiquidityClusters.above != null) chartRefLiqLines.push(chartRef.series.createPriceLine(Object.assign({}, liqOpts, { price: lastLiquidityClusters.above, color: '#06b6d4', title: 'Liq Above' })));
+      if (lastLiquidityClusters.below != null) chartRefLiqLines.push(chartRef.series.createPriceLine(Object.assign({}, liqOpts, { price: lastLiquidityClusters.below, color: '#06b6d4', title: 'Liq Below' })));
+    }
+    // VWAP
+    if (showVWAP && lastVWAP != null && lastVWAP > 0) {
+      var vwapOpts = Object.assign({}, lineOpts, { lineWidth: 2, lineStyle: LightweightCharts.LineStyle.Solid });
+      chartRefVWAPLine = chartRef.series.createPriceLine(Object.assign({}, vwapOpts, { price: lastVWAP, color: '#8b5cf6', title: 'VWAP' }));
+    }
+    // Premium/Discount (Fib 0.5 zone from swing high/low)
+    if (showPremium && srLevels.support != null && srLevels.resistance != null && srLevels.support !== srLevels.resistance) {
+      var mid = (srLevels.resistance + srLevels.support) / 2;
+      var premOpts = Object.assign({}, lineOpts, { lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dotted });
+      chartRefPremiumLines.push(chartRef.series.createPriceLine(Object.assign({}, premOpts, { price: mid, color: '#a78bfa', title: 'Equilibrium' })));
+    }
+    // Market Structure overlay
+    var structEl = document.getElementById('chart-structure-overlay');
+    if (structEl) {
+      if (showStructure && lastMarketStructure && lastMarketStructure !== 'UNKNOWN') {
+        structEl.style.display = '';
+        structEl.textContent = 'Structure: ' + lastMarketStructure;
+      } else {
+        structEl.style.display = 'none';
+      }
+    }
   }
 
   function toggleSRLines(visible) {
@@ -780,6 +903,18 @@
       renderBollingerBands();
     }
   }
+
+  function toggleMALines(visible) { showMA = visible; if (!chartRef.chart) return; if (!visible) removeMALines(); else renderMALines(); }
+  function toggleKeltnerLines(visible) { showKeltner = visible; if (!chartRef.chart) return; if (!visible) removeKeltnerLines(); else renderKeltnerLines(); }
+  function toggleDonchianLines(visible) { showDonchian = visible; if (!chartRef.chart) return; if (!visible) removeDonchianLines(); else renderDonchianLines(); }
+  function togglePivotsLines(visible) { showPivots = visible; if (!chartRef.series) return; addPriceLines(); }
+  function toggleOBLines(visible) { showOB = visible; if (!chartRef.series) return; addPriceLines(); }
+  function toggleFVGLines(visible) { showFVG = visible; if (!chartRef.series) return; addPriceLines(); }
+  function toggleLiqLines(visible) { showLiq = visible; if (!chartRef.series) return; addPriceLines(); }
+  function toggleVWAPLine(visible) { showVWAP = visible; if (!chartRef.series) return; addPriceLines(); }
+  function togglePremiumLines(visible) { showPremium = visible; if (!chartRef.series) return; addPriceLines(); }
+  function toggleSwingMarkers(visible) { showSwing = visible; if (!chartRef.series) return; applyActionMarkers(initialActions || []); }
+  function toggleStructureOverlay(visible) { showStructure = visible; if (!chartRef.series) return; addPriceLines(); }
 
   // Toggle Fib lines on/off
   function toggleFibLines(visible) {
@@ -839,6 +974,157 @@
       lowerSeries.setData(lower);
       chartRef.bbSeries = [upperSeries, middleSeries, lowerSeries];
     } catch (e) { console.warn('Bollinger Bands error:', e); }
+  }
+
+  // =============================================
+  //  MOVING AVERAGES — SMA(20), EMA(9), EMA(21)
+  // =============================================
+  function removeMALines() {
+    for (var i = 0; i < chartRefMASeries.length; i++) {
+      try { chartRef.chart.removeSeries(chartRefMASeries[i]); } catch(e) {}
+    }
+    chartRefMASeries = [];
+  }
+  function renderMALines() {
+    removeMALines();
+    if (!showMA || !chartRef.chart || !chartRef.candleData || chartRef.candleData.length < 21) return;
+    var closes = chartRef.candleData.map(function(c) { return c.close; });
+    function ema(data, period) {
+      var k = 2 / (period + 1);
+      var result = [];
+      var prev = null;
+      for (var i = 0; i < data.length; i++) {
+        if (i < period - 1) result.push(null);
+        else {
+          if (prev == null) {
+            prev = data.slice(0, period).reduce(function(a, b) { return a + b; }, 0) / period;
+          }
+          prev = data[i] * k + prev * (1 - k);
+          result.push(prev);
+        }
+      }
+      return result;
+    }
+    var sma20 = [], ema9Arr = [], ema21Arr = [];
+    for (var i = 19; i < closes.length; i++) {
+      var t = chartRef.candleData[i].time;
+      var s = closes.slice(i - 19, i + 1).reduce(function(a, b) { return a + b; }, 0) / 20;
+      sma20.push({ time: t, value: s });
+    }
+    var e9 = ema(closes, 9);
+    var e21 = ema(closes, 21);
+    for (var i = 0; i < closes.length; i++) {
+      if (e9[i] != null) ema9Arr.push({ time: chartRef.candleData[i].time, value: e9[i] });
+      if (e21[i] != null) ema21Arr.push({ time: chartRef.candleData[i].time, value: e21[i] });
+    }
+    try {
+      var smaSeries = chartRef.chart.addLineSeries({ color: 'rgba(251,191,36,0.9)', lineWidth: 2, crosshairMarkerVisible: true, lastValueVisible: true, priceLineVisible: false });
+      var ema9Series = chartRef.chart.addLineSeries({ color: 'rgba(59,130,246,0.9)', lineWidth: 1.5, crosshairMarkerVisible: true, lastValueVisible: true, priceLineVisible: false });
+      var ema21Series = chartRef.chart.addLineSeries({ color: 'rgba(168,85,247,0.9)', lineWidth: 1.5, crosshairMarkerVisible: true, lastValueVisible: true, priceLineVisible: false });
+      smaSeries.setData(sma20);
+      ema9Series.setData(ema9Arr);
+      ema21Series.setData(ema21Arr);
+      chartRefMASeries = [smaSeries, ema9Series, ema21Series];
+    } catch (e) { console.warn('MA error:', e); }
+  }
+
+  // =============================================
+  //  KELTNER CHANNEL — EMA(20) ± ATR(20)*2
+  // =============================================
+  function removeKeltnerLines() {
+    for (var i = 0; i < chartRefKeltnerSeries.length; i++) {
+      try { chartRef.chart.removeSeries(chartRefKeltnerSeries[i]); } catch(e) {}
+    }
+    chartRefKeltnerSeries = [];
+  }
+  function renderKeltnerLines() {
+    removeKeltnerLines();
+    if (!showKeltner || !chartRef.chart || !chartRef.candleData || chartRef.candleData.length < 21) return;
+    var period = 20;
+    var mult = 2;
+    var closes = chartRef.candleData.map(function(c) { return c.close; });
+    var highs = chartRef.candleData.map(function(c) { return c.high; });
+    var lows = chartRef.candleData.map(function(c) { return c.low; });
+    function ema(data, p) {
+      var k = 2 / (p + 1);
+      var out = [];
+      for (var i = 0; i < data.length; i++) {
+        if (i < p - 1) out.push(null);
+        else {
+          var prev = data.slice(i - p + 1, i + 1).reduce(function(a, b) { return a + b; }, 0) / p;
+          for (var j = i - p + 1; j <= i; j++) prev = data[j] * k + prev * (1 - k);
+          out.push(prev);
+        }
+      }
+      return out;
+    }
+    function atr(h, l, c, p) {
+      var trs = [];
+      for (var i = 1; i < h.length; i++) {
+        trs.push(Math.max(h[i] - l[i], Math.abs(h[i] - c[i-1]), Math.abs(l[i] - c[i-1])));
+      }
+      var out = [];
+      for (var i = p - 1; i < trs.length; i++) {
+        var avg = trs.slice(i - p + 1, i + 1).reduce(function(a, b) { return a + b; }, 0) / p;
+        out.push(avg);
+      }
+      return out;
+    }
+    var emaMid = ema(closes, period);
+    var atrVals = atr(highs, lows, closes, period);
+    var upper = [], middle = [], lower = [];
+    for (var i = period - 1; i < closes.length; i++) {
+      var aidx = i - (period - 1);
+      var t = chartRef.candleData[i].time;
+      var m = emaMid[i];
+      var a = atrVals[aidx] || 0;
+      if (m != null) {
+        middle.push({ time: t, value: m });
+        upper.push({ time: t, value: m + mult * a });
+        lower.push({ time: t, value: m - mult * a });
+      }
+    }
+    try {
+      var kcUpper = chartRef.chart.addLineSeries({ color: 'rgba(34,197,94,0.7)', lineWidth: 1, crosshairMarkerVisible: true, lastValueVisible: true, priceLineVisible: false });
+      var kcMid = chartRef.chart.addLineSeries({ color: 'rgba(251,191,36,0.8)', lineWidth: 1.5, crosshairMarkerVisible: true, lastValueVisible: true, priceLineVisible: false });
+      var kcLower = chartRef.chart.addLineSeries({ color: 'rgba(239,68,68,0.7)', lineWidth: 1, crosshairMarkerVisible: true, lastValueVisible: true, priceLineVisible: false });
+      kcUpper.setData(upper);
+      kcMid.setData(middle);
+      kcLower.setData(lower);
+      chartRefKeltnerSeries = [kcUpper, kcMid, kcLower];
+    } catch (e) { console.warn('Keltner error:', e); }
+  }
+
+  // =============================================
+  //  DONCHIAN CHANNEL — highest high / lowest low (20)
+  // =============================================
+  function removeDonchianLines() {
+    for (var i = 0; i < chartRefDonchianSeries.length; i++) {
+      try { chartRef.chart.removeSeries(chartRefDonchianSeries[i]); } catch(e) {}
+    }
+    chartRefDonchianSeries = [];
+  }
+  function renderDonchianLines() {
+    removeDonchianLines();
+    if (!showDonchian || !chartRef.chart || !chartRef.candleData || chartRef.candleData.length < 21) return;
+    var period = 20;
+    var highs = chartRef.candleData.map(function(c) { return c.high; });
+    var lows = chartRef.candleData.map(function(c) { return c.low; });
+    var upper = [], lower = [];
+    for (var i = period - 1; i < chartRef.candleData.length; i++) {
+      var sliceH = highs.slice(i - period + 1, i + 1);
+      var sliceL = lows.slice(i - period + 1, i + 1);
+      var t = chartRef.candleData[i].time;
+      upper.push({ time: t, value: Math.max.apply(null, sliceH) });
+      lower.push({ time: t, value: Math.min.apply(null, sliceL) });
+    }
+    try {
+      var dcUpper = chartRef.chart.addLineSeries({ color: 'rgba(34,197,94,0.6)', lineWidth: 1, crosshairMarkerVisible: true, lastValueVisible: true, priceLineVisible: false });
+      var dcLower = chartRef.chart.addLineSeries({ color: 'rgba(239,68,68,0.6)', lineWidth: 1, crosshairMarkerVisible: true, lastValueVisible: true, priceLineVisible: false });
+      dcUpper.setData(upper);
+      dcLower.setData(lower);
+      chartRefDonchianSeries = [dcUpper, dcLower];
+    } catch (e) { console.warn('Donchian error:', e); }
   }
 
   // =============================================
@@ -991,12 +1277,19 @@
           return;
         }
 
-        // Capture pattern data, chart patterns, S/R and POC from API (redraw per timeframe)
+        // Capture pattern data, chart patterns, S/R, POC and SMC from API (redraw per timeframe)
         lastPatterns = data.patterns || [];
         lastChartPatterns = data.chartPatterns || [];
         srLevels.support = data.support;
         srLevels.resistance = data.resistance;
         pocLevel = data.poc != null ? data.poc : null;
+        lastOrderBlocks = data.orderBlocks || [];
+        lastFVGs = data.fvgs || [];
+        lastLiquidityClusters = data.liquidityClusters || {};
+        lastVWAP = data.vwap;
+        lastSwingPoints = data.swingPoints || { swingLows: [], swingHighs: [] };
+        lastMarketStructure = data.marketStructure;
+        lastPivotPoints = data.pivotPoints || null;
 
         if (!chartRef.chart) {
           // First load — create the chart (defer so container has layout/dimensions)
@@ -1058,6 +1351,9 @@
               try { applyActionMarkers(initialActions || []); } catch(e) { console.warn('applyActionMarkers error:', e); }
               try { renderChartPatterns(); } catch(e) { console.warn('renderChartPatterns error:', e); }
               try { renderBollingerBands(); } catch(e) { console.warn('renderBollingerBands error:', e); }
+              try { renderMALines(); } catch(e) { console.warn('renderMALines error:', e); }
+              try { renderKeltnerLines(); } catch(e) { console.warn('renderKeltnerLines error:', e); }
+              try { renderDonchianLines(); } catch(e) { console.warn('renderDonchianLines error:', e); }
 
               chart.timeScale().fitContent();
               startCandleCountdown();
@@ -1100,6 +1396,9 @@
             try { applyActionMarkers(initialActions || []); } catch(e) { console.warn('applyActionMarkers error:', e); }
             try { renderChartPatterns(); } catch(e) { console.warn('renderChartPatterns error:', e); }
             try { renderBollingerBands(); } catch(e) { console.warn('renderBollingerBands error:', e); }
+            try { renderMALines(); } catch(e) { console.warn('renderMALines error:', e); }
+            try { renderKeltnerLines(); } catch(e) { console.warn('renderKeltnerLines error:', e); }
+            try { renderDonchianLines(); } catch(e) { console.warn('renderDonchianLines error:', e); }
             if (!preserveView) chartRef.chart.timeScale().fitContent();
             startCandleCountdown();
             updateSymbolOverlay(lastC ? lastC.close : null);
@@ -1337,6 +1636,12 @@
   try {
   var toggleBBEl = document.getElementById('toggle-bb');
   if (toggleBBEl) toggleBBEl.addEventListener('change', function() { toggleBBLines(this.checked); });
+  var toggleMAEl = document.getElementById('toggle-ma');
+  if (toggleMAEl) toggleMAEl.addEventListener('change', function() { toggleMALines(this.checked); });
+  var toggleKeltnerEl = document.getElementById('toggle-keltner');
+  if (toggleKeltnerEl) toggleKeltnerEl.addEventListener('change', function() { toggleKeltnerLines(this.checked); });
+  var toggleDonchianEl = document.getElementById('toggle-donchian');
+  if (toggleDonchianEl) toggleDonchianEl.addEventListener('change', function() { toggleDonchianLines(this.checked); });
   var toggleFibEl = document.getElementById('toggle-fib');
   if (toggleFibEl) toggleFibEl.addEventListener('change', function() { toggleFibLines(this.checked); });
   var toggleBadgesEl = document.getElementById('toggle-badges');
@@ -1355,6 +1660,22 @@
   if (toggleSrEl) toggleSrEl.addEventListener('change', function() { toggleSRLines(this.checked); });
   var togglePocEl = document.getElementById('toggle-poc');
   if (togglePocEl) togglePocEl.addEventListener('change', function() { togglePOCLines(this.checked); });
+  var togglePivotsEl = document.getElementById('toggle-pivots');
+  if (togglePivotsEl) togglePivotsEl.addEventListener('change', function() { togglePivotsLines(this.checked); });
+  var toggleOBEl = document.getElementById('toggle-ob');
+  if (toggleOBEl) toggleOBEl.addEventListener('change', function() { toggleOBLines(this.checked); });
+  var toggleFVGEl = document.getElementById('toggle-fvg');
+  if (toggleFVGEl) toggleFVGEl.addEventListener('change', function() { toggleFVGLines(this.checked); });
+  var toggleLiqEl = document.getElementById('toggle-liq');
+  if (toggleLiqEl) toggleLiqEl.addEventListener('change', function() { toggleLiqLines(this.checked); });
+  var toggleVWAPEl = document.getElementById('toggle-vwap');
+  if (toggleVWAPEl) toggleVWAPEl.addEventListener('change', function() { toggleVWAPLine(this.checked); });
+  var togglePremiumEl = document.getElementById('toggle-premium');
+  if (togglePremiumEl) togglePremiumEl.addEventListener('change', function() { togglePremiumLines(this.checked); });
+  var toggleSwingEl = document.getElementById('toggle-swing');
+  if (toggleSwingEl) toggleSwingEl.addEventListener('change', function() { toggleSwingMarkers(this.checked); });
+  var toggleStructureEl = document.getElementById('toggle-structure');
+  if (toggleStructureEl) toggleStructureEl.addEventListener('change', function() { toggleStructureOverlay(this.checked); });
   var toggleTradeEl = document.getElementById('toggle-trade');
   if (toggleTradeEl) toggleTradeEl.addEventListener('change', function() { toggleTradeLevels(this.checked); });
   var candleColorsBtn = document.getElementById('candle-colors-btn');

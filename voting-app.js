@@ -2029,11 +2029,24 @@ app.get('/api/candles/:coinId', async (req, res) => {
     let support = null;
     let resistance = null;
     let poc = null;
+    let orderBlocks = [];
+    let fvgs = [];
+    let liquidityClusters = {};
+    let vwap = null;
+    let swingPoints = { swingLows: [], swingHighs: [] };
+    let marketStructure = null;
+    let pivotPoints = null;
     try {
-      const { findSRWithRoleReversal, calculatePOC } = require('./services/trading-engine');
+      const {
+        findSRWithRoleReversal, calculatePOC,
+        detectOrderBlocks, detectFVGs, detectLiquidityClusters, calculateVWAP,
+        getSwingPoints, detectMarketStructure, ATR_OHLC
+      } = require('./services/trading-engine');
       const highs = raw.map(c => c.high);
       const lows = raw.map(c => c.low);
       const closes = raw.map(c => c.close);
+      const opens = raw.map(c => c.open);
+      const currentPrice = closes.length > 0 ? closes[closes.length - 1] : 0;
       const sr = findSRWithRoleReversal(highs, lows, closes);
       if (sr.support > 0 && sr.resistance > 0) {
         support = sr.support;
@@ -2041,8 +2054,33 @@ app.get('/api/candles/:coinId', async (req, res) => {
       }
       const pocVal = calculatePOC(raw);
       if (pocVal > 0) poc = Math.round(pocVal * 1000000) / 1000000;
+      if (raw.length >= 5) {
+        const atr = ATR_OHLC(highs, lows, closes, 14);
+        orderBlocks = detectOrderBlocks(opens, highs, lows, closes, atr) || [];
+        fvgs = detectFVGs(highs, lows) || [];
+        liquidityClusters = detectLiquidityClusters(highs, lows, currentPrice) || {};
+        vwap = calculateVWAP(raw);
+        if (Number.isFinite(vwap) && vwap > 0) vwap = Math.round(vwap * 1000000) / 1000000;
+        else vwap = null;
+        const lookback = Math.min(48, highs.length);
+        const sp = getSwingPoints(lows, highs, lookback);
+        swingPoints = {
+          swingLows: (sp.swingLows || []).map(s => ({ time: candles[s.idx]?.time, price: s.val })).filter(x => x.time != null),
+          swingHighs: (sp.swingHighs || []).map(s => ({ time: candles[s.idx]?.time, price: s.val })).filter(x => x.time != null)
+        };
+        marketStructure = detectMarketStructure(highs, lows);
+      }
+      if (raw.length >= 1) {
+        const last = raw[raw.length - 1];
+        const p = (last.high + last.low + last.close) / 3;
+        const r1 = 2 * p - last.low;
+        const r2 = p + (last.high - last.low);
+        const s1 = 2 * p - last.high;
+        const s2 = p - (last.high - last.low);
+        pivotPoints = { p, r1, r2, s1, s2 };
+      }
     } catch (srErr) {
-      console.warn('S/R calc error:', srErr.message);
+      console.warn('S/R/SMC calc error:', srErr.message);
     }
 
     // Detect candlestick patterns on these candles (v4.1)
@@ -2107,7 +2145,10 @@ app.get('/api/candles/:coinId', async (req, res) => {
       console.warn('Chart pattern detection error:', cpErr.message);
     }
 
-    res.json({ success: true, candles, volume, support, resistance, poc, patterns, chartPatterns });
+    res.json({
+      success: true, candles, volume, support, resistance, poc, patterns, chartPatterns,
+      orderBlocks, fvgs, liquidityClusters, vwap, swingPoints, marketStructure, pivotPoints
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

@@ -2299,4 +2299,8 @@ function r2(num) {
   return Math.round(num * 100000000) / 100000000;
 }
 
-module.exports = { analyzeCoin, analyzeAllCoins, ENGINE_CONFIG, findSR, findSRWithRoleReversal, calculatePOC };
+module.exports = {
+  analyzeCoin, analyzeAllCoins, ENGINE_CONFIG, findSR, findSRWithRoleReversal, calculatePOC,
+  detectOrderBlocks, detectFVGs, detectLiquidityClusters, calculateVWAP,
+  getSwingPoints, detectMarketStructure, ATR_OHLC, SMA, EMA
+};
