@@ -286,6 +286,18 @@ function analyzeWithCandles(coinData, candles, options) {
     }
   }
 
+  // Top/bottom hard gate: NEVER buy at potential top or short at potential bottom
+  const anyPotentialTop = tf1h.potentialTop || tf4h.potentialTop;
+  const anyPotentialBottom = tf1h.potentialBottom || tf4h.potentialBottom;
+  if (anyPotentialTop && (signal === 'BUY' || signal === 'STRONG_BUY')) {
+    signal = 'HOLD';
+    strength = finalScore;
+  }
+  if (anyPotentialBottom && (signal === 'SELL' || signal === 'STRONG_SELL')) {
+    signal = 'HOLD';
+    strength = finalScore;
+  }
+
   // Strategy-specific direction: use the timeframes that strategy actually uses
   const stratDirMap = {
     scalping: scores15m ? [scores15m, scores1h] : [scores1h],
@@ -319,6 +331,9 @@ function analyzeWithCandles(coinData, candles, options) {
     if (stratSignal !== 'HOLD' && (stratScore < ENGINE_CONFIG.MIN_SIGNAL_SCORE || stratConfluence < stratMinConfluence)) {
       stratSignal = 'HOLD';
     }
+    // Top/bottom protection: no BUY at potential top, no SELL at potential bottom
+    if (anyPotentialTop && (stratSignal === 'BUY' || stratSignal === 'STRONG_BUY')) stratSignal = 'HOLD';
+    if (anyPotentialBottom && (stratSignal === 'SELL' || stratSignal === 'STRONG_SELL')) stratSignal = 'HOLD';
     const stratDirForLevels = stratSignal === 'STRONG_BUY' || stratSignal === 'BUY' ? 'BULL' : stratSignal === 'STRONG_SELL' || stratSignal === 'SELL' ? 'BEAR' : dominantDir;
     const levelsForStrat = calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, stratSignal, stratDirForLevels, regime, s.id);
     return {
