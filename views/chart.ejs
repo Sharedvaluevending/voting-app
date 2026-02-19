@@ -160,8 +160,8 @@
         <div class="indicators-dropdown-wrap" id="dropdown-advanced-wrap">
           <button type="button" class="tool-btn indicators-dropdown-btn" data-dropdown="advanced" title="Advanced">Advanced <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
           <div class="indicators-dropdown-panel">
-            <label class="toggle-label"><input type="checkbox" id="toggle-ob" <%= (typeof tradeId !== 'undefined' && tradeId) ? 'checked' : '' %>> <span class="toggle-text">Order Blocks</span></label>
-            <label class="toggle-label"><input type="checkbox" id="toggle-fvg" <%= (typeof tradeId !== 'undefined' && tradeId) ? 'checked' : '' %>> <span class="toggle-text">Fair Value Gaps</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-ob"> <span class="toggle-text">Order Blocks</span></label>
+            <label class="toggle-label"><input type="checkbox" id="toggle-fvg"> <span class="toggle-text">Fair Value Gaps</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-liq"> <span class="toggle-text">Liquidity Clusters</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-vwap"> <span class="toggle-text">VWAP</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-premium"> <span class="toggle-text">Premium/Discount</span></label>
@@ -405,7 +405,7 @@
     return {
       bb: false, ma: false, keltner: false, donchian: false, fib: false,
       badges: false, patterns: false, chartPatterns: false, sr: false, poc: false, pivots: false,
-      tradeLevels: hasTrade, ob: hasTrade, fvg: hasTrade, liq: false, vwap: false, premium: false, swing: false, structure: false,
+      tradeLevels: hasTrade, ob: false, fvg: false, liq: false, vwap: false, premium: false, swing: false, structure: false,
       sessions: false, gaps: false, vp: false
     };
   }
@@ -1453,6 +1453,8 @@
           lwContainer.style.display = '';
           tvContainer.style.display = 'none';
           if (tvLoading) tvLoading.style.display = 'none';
+          var initRetryCount = 0;
+          var MAX_INIT_RETRIES = 20;
           var initChart = function() {
             try {
               var chartEl = document.getElementById('lw-chart');
@@ -1461,10 +1463,21 @@
               // Ensure container has real dimensions before creating chart (retry if 0x0)
               var containerRect = chartEl.getBoundingClientRect();
               if (containerRect.width <= 0 || containerRect.height <= 0) {
-                requestAnimationFrame(function() {
-                  requestAnimationFrame(initChart);
-                });
-                return;
+                initRetryCount++;
+                if (initRetryCount >= MAX_INIT_RETRIES) {
+                  containerRect = { width: Math.max(containerRect.width, 320), height: Math.max(containerRect.height, 300) };
+                } else if (initRetryCount === 1 && typeof ResizeObserver !== 'undefined') {
+                  var ro = new ResizeObserver(function() {
+                    ro.disconnect();
+                    var rect = chartEl.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) initChart();
+                  });
+                  ro.observe(chartEl);
+                  return;
+                } else {
+                  requestAnimationFrame(function() { requestAnimationFrame(initChart); });
+                  return;
+                }
               }
               var chartOpts = {
                 layout: { background: { type: 'solid', color: '#0f172a' }, textColor: '#9ca3af' },
@@ -1533,11 +1546,13 @@
               showTradingViewFallback();
             }
           };
-          if (typeof requestAnimationFrame === 'function') {
-            requestAnimationFrame(function() { requestAnimationFrame(initChart); });
-          } else {
-            setTimeout(initChart, 0);
-          }
+          setTimeout(function() {
+            if (typeof requestAnimationFrame === 'function') {
+              requestAnimationFrame(function() { requestAnimationFrame(initChart); });
+            } else {
+              setTimeout(initChart, 0);
+            }
+          }, 100);
         } else {
           // Timeframe switch or new-candle refresh — update data
           try {
