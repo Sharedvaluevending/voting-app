@@ -1468,14 +1468,6 @@
                 initRetryCount++;
                 if (initRetryCount >= MAX_INIT_RETRIES) {
                   containerRect = { width: Math.max(containerRect.width, 320), height: Math.max(containerRect.height, 300) };
-                } else if (initRetryCount === 1 && typeof ResizeObserver !== 'undefined') {
-                  var ro = new ResizeObserver(function() {
-                    ro.disconnect();
-                    var rect = chartEl.getBoundingClientRect();
-                    if (rect.width > 0 && rect.height > 0) initChart();
-                  });
-                  ro.observe(chartEl);
-                  return;
                 } else {
                   requestAnimationFrame(function() { requestAnimationFrame(initChart); });
                   return;
