@@ -118,7 +118,7 @@ function analyzeWithCandles(coinData, candles, options) {
   const bullCount = directions.filter(d => d === 'BULL').length;
   const bearCount = directions.filter(d => d === 'BEAR').length;
   const confluenceLevel = Math.max(bullCount, bearCount);
-  const dominantDir = bullCount >= bearCount ? 'BULL' : 'BEAR';
+  const dominantDir = bullCount > bearCount ? 'BULL' : bearCount > bullCount ? 'BEAR' : 'NEUTRAL';
   if (scores1h.direction !== scores4h.direction && scores1h.direction !== 'NEUTRAL' && scores4h.direction !== 'NEUTRAL') {
     finalScore = Math.max(0, finalScore - ENGINE_CONFIG.MTF_DIVERGENCE_PENALTY);
   }
@@ -154,7 +154,10 @@ function analyzeWithCandles(coinData, candles, options) {
     .sort((a, b) => b.displayScore - a.displayScore);
   const topStrategies = topStrategiesRaw.map(s => {
     const stratScore = Math.round(s.displayScore);
-    const stratSignal = scoreToSignal(stratScore, Math.min(2, confluenceLevel), dominantDir).signal;
+    // Apply same quality gate as the main signal: score < MIN and confluence < MIN → HOLD
+    const stratSignal = (stratScore < ENGINE_CONFIG.MIN_SIGNAL_SCORE || confluenceLevel < ENGINE_CONFIG.MIN_CONFLUENCE_FOR_SIGNAL)
+      ? 'HOLD'
+      : scoreToSignal(stratScore, Math.min(2, confluenceLevel), dominantDir).signal;
     const stratDir = stratSignal === 'STRONG_BUY' || stratSignal === 'BUY' ? 'BULL' : stratSignal === 'STRONG_SELL' || stratSignal === 'SELL' ? 'BEAR' : dominantDir;
     const levelsForStrat = calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, stratSignal, stratDir, regime, s.id);
     return {
@@ -566,12 +569,10 @@ function scoreToSignal(score, confluenceLevel, dominantDir) {
   if (dominantDir === 'BULL') {
     if (adjScore >= 75) { signal = 'STRONG_BUY'; strength = Math.min(98, adjScore); }
     else if (adjScore >= 55) { signal = 'BUY'; strength = adjScore; }
-    else if (adjScore >= 45) { signal = 'BUY'; strength = adjScore; }
     else { signal = 'HOLD'; strength = adjScore; }
   } else if (dominantDir === 'BEAR') {
     if (adjScore >= 75) { signal = 'STRONG_SELL'; strength = Math.min(98, adjScore); }
     else if (adjScore >= 55) { signal = 'SELL'; strength = adjScore; }
-    else if (adjScore >= 45) { signal = 'SELL'; strength = adjScore; }
     else { signal = 'HOLD'; strength = adjScore; }
   } else {
     signal = 'HOLD';
@@ -1018,17 +1019,23 @@ function pickStrategy(s1h, s4h, s1d, regime, scores15m, scores1w, strategyWeight
   // Breakout: 1H
   strategies.breakout.score = s1h.volatility * 2 + s1h.structure * 1.3;
   if (regime === 'compression') strategies.breakout.score += 25;
-  strategies.breakout.displayScore = (byId.breakout && byId.breakout.weights) ? weightedScore(s1h, byId.breakout.weights) : s1h.total;
+  // Breakout display: weights volatility (40%) + structure (40%) + riskQuality (20%)
+  strategies.breakout.displayScore = (byId.breakout && byId.breakout.weights) ? weightedScore(s1h, byId.breakout.weights) :
+    Math.round((s1h.volatility / 10) * 40 + (s1h.structure / 20) * 40 + (s1h.riskQuality / 10) * 20);
 
   // Mean reversion: 1H
   strategies.mean_revert.score = s1h.momentum * 1.2 + s1h.structure * 1.0;
   if (regime === 'ranging') strategies.mean_revert.score += 20;
-  strategies.mean_revert.displayScore = (byId.mean_revert && byId.mean_revert.weights) ? weightedScore(s1h, byId.mean_revert.weights) : s1h.total;
+  // Mean reversion display: weights momentum (60%) + structure (40%)
+  strategies.mean_revert.displayScore = (byId.mean_revert && byId.mean_revert.weights) ? weightedScore(s1h, byId.mean_revert.weights) :
+    Math.round((s1h.momentum / 20) * 60 + (s1h.structure / 20) * 40);
 
   // Momentum: 1H
   strategies.momentum.score = s1h.momentum * 1.5 + s1h.volume * 1.3;
   if (regime === 'trending') strategies.momentum.score += 10;
-  strategies.momentum.displayScore = (byId.momentum && byId.momentum.weights) ? weightedScore(s1h, byId.momentum.weights) : s1h.total;
+  // Momentum display: weights momentum (50%) + volume (50%)
+  strategies.momentum.displayScore = (byId.momentum && byId.momentum.weights) ? weightedScore(s1h, byId.momentum.weights) :
+    Math.round((s1h.momentum / 20) * 50 + (s1h.volume / 20) * 50);
 
   // Scalping
   if (scores15m) {
