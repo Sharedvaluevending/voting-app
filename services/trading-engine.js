@@ -302,7 +302,7 @@ function analyzeWithCandles(coinData, candles, options) {
     const bull = dirs.filter(d => d === 'BULL').length;
     const bear = dirs.filter(d => d === 'BEAR').length;
     const conf = Math.max(bull, bear);
-    const dir = bear > bull ? 'BEAR' : bull > bear ? 'BULL' : dominantDir;
+    const dir = bear > bull ? 'BEAR' : bull > bear ? 'BULL' : 'NEUTRAL';
     return { dir, confluence: conf || 1 };
   }
 
@@ -313,7 +313,12 @@ function analyzeWithCandles(coinData, candles, options) {
   const topStrategies = topStrategiesRaw.map(s => {
     const stratScore = Math.round(s.displayScore);
     const { dir: stratDir, confluence: stratConfluence } = getStratDominantDirAndConfluence(s.id);
-    const stratSignal = scoreToSignal(stratScore, Math.max(1, stratConfluence), stratDir).signal;
+    let stratSignal = scoreToSignal(stratScore, Math.max(1, stratConfluence), stratDir).signal;
+    // Apply quality gate to strategy signals (same as main signal)
+    const stratMinConfluence = stratScore >= 58 ? 1 : ENGINE_CONFIG.MIN_CONFLUENCE_FOR_SIGNAL;
+    if (stratSignal !== 'HOLD' && (stratScore < ENGINE_CONFIG.MIN_SIGNAL_SCORE || stratConfluence < stratMinConfluence)) {
+      stratSignal = 'HOLD';
+    }
     const stratDirForLevels = stratSignal === 'STRONG_BUY' || stratSignal === 'BUY' ? 'BULL' : stratSignal === 'STRONG_SELL' || stratSignal === 'SELL' ? 'BEAR' : dominantDir;
     const levelsForStrat = calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, stratSignal, stratDirForLevels, regime, s.id);
     return {
@@ -882,15 +887,17 @@ function scoreToSignal(score, confluenceLevel, dominantDir) {
   const confBonus = confluenceLevel === 3 ? 10 : confluenceLevel === 2 ? 5 : 0;
   const adjScore = score + confBonus;
 
-  if (dominantDir === 'BULL') {
+  // 45-54 = neutral zone (HOLD) regardless of direction
+  if (adjScore >= 45 && adjScore <= 54) {
+    signal = 'HOLD';
+    strength = adjScore;
+  } else if (dominantDir === 'BULL') {
     if (adjScore >= 75) { signal = 'STRONG_BUY'; strength = Math.min(98, adjScore); }
     else if (adjScore >= 55) { signal = 'BUY'; strength = adjScore; }
-    else if (adjScore >= 48) { signal = 'BUY'; strength = adjScore; }  // mild bullish lean (was 45)
     else { signal = 'HOLD'; strength = adjScore; }
   } else if (dominantDir === 'BEAR') {
     if (adjScore >= 75) { signal = 'STRONG_SELL'; strength = Math.min(98, adjScore); }
     else if (adjScore >= 55) { signal = 'SELL'; strength = adjScore; }
-    else if (adjScore >= 48) { signal = 'SELL'; strength = adjScore; }  // mild bearish lean (was 45)
     else { signal = 'HOLD'; strength = adjScore; }
   } else {
     signal = 'HOLD';
