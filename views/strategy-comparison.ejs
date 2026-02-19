@@ -82,7 +82,7 @@
             <%
               var displaySignal = sig.signal;
               var displayLabel = sig.signal.replace('_',' ');
-              if (sig.signal === 'HOLD' && sig.topStrategies && sig.topStrategies.length > 0) {
+              if (sig.signal === 'HOLD' && (sig.score || 0) >= 52 && sig.topStrategies && sig.topStrategies.length > 0) {
                 var bestStrat = sig.topStrategies.find(function(s) {
                   return (s.signal === 'BUY' || s.signal === 'STRONG_BUY' || s.signal === 'SELL' || s.signal === 'STRONG_SELL') && (s.score || 0) >= 55;
                 });

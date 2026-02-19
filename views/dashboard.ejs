@@ -3,7 +3,7 @@
   var displayCounts = { STRONG_BUY: 0, BUY: 0, SELL: 0, STRONG_SELL: 0, HOLD: 0 };
   (signals || []).forEach(function(sig) {
     var s = sig.signal;
-    if (s === 'HOLD' && sig.topStrategies && sig.topStrategies.length > 0) {
+    if (s === 'HOLD' && (sig.score || 0) >= 52 && sig.topStrategies && sig.topStrategies.length > 0) {
       var fallback = sig.topStrategies.find(function(ts) {
         return (ts.signal === 'BUY' || ts.signal === 'STRONG_BUY' || ts.signal === 'SELL' || ts.signal === 'STRONG_SELL') && (ts.score || 0) >= 55;
       });
@@ -120,7 +120,7 @@
   <% signals.forEach(function(sig) {
     var displaySignal = sig.signal;
     var displayStrategyType = sig.strategyType || '';
-    if (sig.signal === 'HOLD' && sig.topStrategies && sig.topStrategies.length > 0) {
+    if (sig.signal === 'HOLD' && (sig.score || 0) >= 52 && sig.topStrategies && sig.topStrategies.length > 0) {
       var bestStrat = sig.topStrategies.find(function(s) {
         return (s.signal === 'BUY' || s.signal === 'STRONG_BUY' || s.signal === 'SELL' || s.signal === 'STRONG_SELL') && (s.score || 0) >= 55;
       });
