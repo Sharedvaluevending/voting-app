@@ -310,6 +310,8 @@
       &bull; <strong>Pattern type reliability</strong> — historical win rates from backtesting<br>
       &bull; <strong>Completion %</strong> — how close the pattern is to triggering a breakout<br>
       &bull; <strong>Volume confirmation</strong> — declining volume during consolidation = higher reliability<br>
+      &bull; <strong>Breakout volume spike</strong> — volume on the breakout candle(s) &gt; 1.2× pattern average = confirms real breakout, not fake-out (1.25× weight)<br>
+      &bull; <strong>Close beyond boundary</strong> — last candle must <em>close</em> beyond the pattern boundary (not just wick through) = reduces false breakout signals (1.2× weight)<br>
       &bull; <strong>Trend alignment</strong> — continuation patterns in the trend direction get a 1.3x boost<br><br>
       Chart patterns add up to <strong>+6 Structure points</strong> and feed <strong>bull/bear direction points</strong> into the scoring engine.
       They appear as trendlines drawn directly on your chart (toggled with the "Chart Pat." checkbox).
@@ -395,7 +397,11 @@
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px;">
         <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;">
           <strong style="color:#3b82f6;">Scoring</strong><br>
-          <span style="font-size:12px;color:#9ca3af;">Each pattern adds up to +6 to the Structure score (0-20). Higher-tier patterns (S, A) contribute more than lower-tier (B). The bonus is weighted by completion %, volume confirmation, and trend alignment.</span>
+          <span style="font-size:12px;color:#9ca3af;">Each pattern adds up to +6 to the Structure score (0-20). Higher-tier patterns (S, A) contribute more than lower-tier (B). The bonus is weighted by completion %, volume confirmation, trend alignment, and <strong>breakout confirmation</strong> (volume spike + close beyond boundary) to filter fake-outs.</span>
+        </div>
+        <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;">
+          <strong style="color:#10b981;">Breakout Confirmation (Fake-Out Filter)</strong><br>
+          <span style="font-size:12px;color:#9ca3af;">To reduce false signals, the engine checks: (1) <strong>Breakout vol ✓</strong> — volume on breakout candle(s) &gt; 1.2× pattern average; (2) <strong>Close beyond ✓</strong> — price must close beyond the pattern boundary, not just wick through. Patterns with both get the strongest weight boost. Shown on the chart pattern panel.</span>
         </div>
         <div style="padding:8px 12px;background:#0a0e17;border-radius:6px;">
           <strong style="color:#10b981;">Direction</strong><br>

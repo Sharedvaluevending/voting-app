@@ -1318,7 +1318,9 @@
       html += '<div class="chart-pattern-card ' + cls + '">' +
         '<div class="cp-name">' + p.name + '</div>' +
         '<div class="cp-meta">' + dir + ' ' + p.type + (p.completion != null ? ' | ' + p.completion + '% complete' : '') +
-        (p.volumeConfirm ? ' | Vol ✓' : '') + '</div>' +
+        (p.volumeConfirm ? ' | Vol ✓' : '') +
+        (p.breakoutVolumeConfirm ? ' | Breakout vol ✓' : '') +
+        (p.breakoutCloseConfirm ? ' | Close beyond ✓' : '') + '</div>' +
         targetStr + wrStr +
         '</div>';
     }

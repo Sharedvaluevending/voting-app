@@ -106,6 +106,59 @@ function isVolumeDeclining(candles, startIdx, endIdx) {
 }
 
 /**
+ * Check if breakout candle(s) have volume spike vs pattern average (confirms real breakout, not fake-out)
+ * Uses last 1-2 candles after patternEnd. Volume must be > patternAvg * 1.2
+ */
+function isVolumeSpikeOnBreakout(candles, pattern) {
+  const { patternEnd } = pattern;
+  if (patternEnd >= candles.length - 1) return false; // no candles after pattern yet
+  const patternAvgVol = avgVolume(candles, pattern.patternStart, patternEnd);
+  if (patternAvgVol <= 0) return false;
+  const breakoutStart = patternEnd + 1;
+  const breakoutEnd = candles.length - 1;
+  const breakoutAvgVol = avgVolume(candles, breakoutStart, breakoutEnd);
+  return breakoutAvgVol >= patternAvgVol * 1.2;
+}
+
+/**
+ * Check if last candle closed beyond pattern boundary (not just wick) — reduces fake-out signals
+ * BULL: close above upper resistance. BEAR: close below lower support.
+ * For neckline patterns (double top/bottom, H&S): uses neckline as boundary.
+ */
+function isCloseBeyondBoundary(candles, pattern) {
+  if (!candles || candles.length === 0) return false;
+  const lastCandle = candles[candles.length - 1];
+  const close = lastCandle.close;
+  const { direction, trendlines, patternEnd, neckline } = pattern;
+
+  if (patternEnd >= candles.length - 1) return false; // no breakout candle yet
+
+  let boundary;
+  if (neckline != null) {
+    boundary = neckline;
+  } else if (trendlines) {
+    if (direction === 'BULL' && trendlines.upper) {
+      boundary = trendlines.upper.endPrice != null ? trendlines.upper.endPrice : trendlines.upper.startPrice;
+    } else if (direction === 'BEAR' && trendlines.lower) {
+      boundary = trendlines.lower.endPrice != null ? trendlines.lower.endPrice : trendlines.lower.startPrice;
+    } else if (direction === 'BULL' && trendlines.neckline) {
+      boundary = trendlines.neckline.endPrice != null ? trendlines.neckline.endPrice : trendlines.neckline.startPrice;
+    } else if (direction === 'BEAR' && trendlines.neckline) {
+      boundary = trendlines.neckline.endPrice != null ? trendlines.neckline.endPrice : trendlines.neckline.startPrice;
+    } else if (trendlines.resistance) {
+      boundary = (trendlines.resistance.startPrice + trendlines.resistance.endPrice) / 2;
+    } else if (trendlines.support) {
+      boundary = (trendlines.support.startPrice + trendlines.support.endPrice) / 2;
+    }
+  }
+  if (boundary == null) return false;
+
+  if (direction === 'BULL') return close > boundary;
+  if (direction === 'BEAR') return close < boundary;
+  return false;
+}
+
+/**
  * Get the price range (ATR proxy) for normalization
  */
 function getPriceRange(candles) {
@@ -857,6 +910,12 @@ function detectChartPatterns(candles) {
     deduped.push(p);
   }
 
+  // Enrich with breakout confirmation (volume spike + close beyond boundary) to reduce fake-outs
+  for (const p of deduped) {
+    p.breakoutVolumeConfirm = isVolumeSpikeOnBreakout(candles, p);
+    p.breakoutCloseConfirm = isCloseBeyondBoundary(candles, p);
+  }
+
   return deduped;
 }
 
@@ -909,6 +968,16 @@ function scoreChartPatterns(patterns, context) {
       contextFactors.push('volume declining');
     }
 
+    // Breakout confirmation — reduces fake-out signals
+    if (p.breakoutVolumeConfirm) {
+      weight *= 1.25;
+      contextFactors.push('breakout vol spike');
+    }
+    if (p.breakoutCloseConfirm) {
+      weight *= 1.2;
+      contextFactors.push('close beyond boundary');
+    }
+
     if (p.completion >= 80) {
       weight *= 1.3;
       contextFactors.push('near completion');
@@ -946,7 +1015,9 @@ function scoreChartPatterns(patterns, context) {
       description: p.description,
       trendlines: p.trendlines,
       patternStart: p.patternStart,
-      patternEnd: p.patternEnd
+      patternEnd: p.patternEnd,
+      breakoutVolumeConfirm: p.breakoutVolumeConfirm,
+      breakoutCloseConfirm: p.breakoutCloseConfirm
     });
   }
 

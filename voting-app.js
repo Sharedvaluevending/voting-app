@@ -2307,6 +2307,8 @@ app.get('/api/candles/:coinId', async (req, res) => {
             description: p.description,
             reliability: p.reliability,
             volumeConfirm: p.volumeConfirm,
+            breakoutVolumeConfirm: p.breakoutVolumeConfirm,
+            breakoutCloseConfirm: p.breakoutCloseConfirm,
             trendlines: p.trendlines ? Object.keys(p.trendlines).map(key => {
               const tl = p.trendlines[key];
               return {
