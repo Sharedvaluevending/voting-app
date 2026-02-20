@@ -63,6 +63,8 @@ function evaluate(snapshot) {
     indicators: result.indicators || {},
     scoreBreakdown: result.scoreBreakdown || {},
     topStrategies: result.topStrategies || [],
+    topStrategiesSlice: (result.topStrategies || []).slice(0, 3),
+    confidenceInterval: result.confidenceInterval || [result.confidence || 50, result.confidence || 50],
     suggestedLeverage: result.suggestedLeverage ?? 1,
     coin: result.coin,
     confluenceLevel: result.confluenceLevel,

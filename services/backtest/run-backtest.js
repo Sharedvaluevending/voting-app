@@ -125,7 +125,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       barTime: F_SESSION_FILTER ? bar.openTime : new Date('2026-01-01T15:00:00Z').getTime(),
       featurePriceActionConfluence: ft.priceActionConfluence === true,
       featureVolatilityFilter: ft.volatilityFilter === true,
-      featureVolumeConfirmation: ft.volumeConfirmation === true
+      featureVolumeConfirmation: ft.volumeConfirmation === true,
+      featureFundingRateFilter: ft.fundingRateFilter === true
     };
 
     if (btcCandles && btcCandles['1h'] && (t - lastBtcAnalysisBar >= 4)) {
@@ -233,6 +234,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             exit: adjExit,
             entryBar: position.entryBar,
             exitBar: t + 1,
+            exitTime: nextBar?.openTime,
             reason: exitReason,
             pnl: totalPnl,
             size: position.originalSize,
@@ -453,6 +455,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       exit: adjExit,
       entryBar: position.entryBar,
       exitBar: c1h.length - 1,
+      exitTime: c1h[c1h.length - 1]?.openTime,
       reason: 'END',
       pnl: totalPnl,
       size: position.originalSize,

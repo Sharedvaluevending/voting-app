@@ -419,6 +419,9 @@
         <label class="ft-toggle" title="Require relative volume &gt; 1.0. Avoids entries on thin, low-conviction moves.">
           <input type="checkbox" name="featureVolumeConfirmation" value="true" <%= (user.settings && user.settings.featureVolumeConfirmation) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Volume Confirmation
         </label>
+        <label class="ft-toggle" title="Skip LONG when funding &gt;0.15%, skip SHORT when funding &lt;-0.15% (crowded trades)">
+          <input type="checkbox" name="featureFundingRateFilter" value="true" <%= (user.settings && user.settings.featureFundingRateFilter) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Funding Rate Filter
+        </label>
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <button type="button" class="btn btn-sm" onclick="setLiveToggles(true)" style="padding:4px 12px;font-size:11px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:4px;cursor:pointer;">All ON</button>
@@ -957,6 +960,7 @@ function setLiveToggles(val) {
         priceActionConfluence: 'featurePriceActionConfluence',
         volatilityFilter: 'featureVolatilityFilter',
         volumeConfirmation: 'featureVolumeConfirmation',
+        fundingRateFilter: 'featureFundingRateFilter',
         minRiskRewardEnabled: 'minRiskRewardEnabled',
         minRiskReward: 'minRiskReward',
         correlationFilterEnabled: 'correlationFilterEnabled'

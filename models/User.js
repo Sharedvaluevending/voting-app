@@ -44,6 +44,7 @@ const userSchema = new mongoose.Schema({
     featurePriceActionConfluence: { type: Boolean, default: false },
     featureVolatilityFilter: { type: Boolean, default: false },
     featureVolumeConfirmation: { type: Boolean, default: false },
+    featureFundingRateFilter: { type: Boolean, default: false },
     // Min R:R filter (default off) - hide/block signals below this R:R
     minRiskRewardEnabled: { type: Boolean, default: false },
     minRiskReward: { type: Number, default: 1.2, min: 1.0, max: 5.0 },

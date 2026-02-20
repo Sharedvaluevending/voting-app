@@ -423,6 +423,7 @@ async function buildEngineOptions(prices, allCandles, allHistory, user) {
     opts.featurePriceActionConfluence = s.featurePriceActionConfluence === true;
     opts.featureVolatilityFilter = s.featureVolatilityFilter === true;
     opts.featureVolumeConfirmation = s.featureVolumeConfirmation === true;
+    opts.featureFundingRateFilter = s.featureFundingRateFilter === true;
   }
   return opts;
 }
@@ -1156,6 +1157,7 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
     s.featurePriceActionConfluence = req.body.featurePriceActionConfluence ? parseBool(req.body.featurePriceActionConfluence) : false;
     s.featureVolatilityFilter = req.body.featureVolatilityFilter ? parseBool(req.body.featureVolatilityFilter) : false;
     s.featureVolumeConfirmation = req.body.featureVolumeConfirmation ? parseBool(req.body.featureVolumeConfirmation) : false;
+    s.featureFundingRateFilter = req.body.featureFundingRateFilter ? parseBool(req.body.featureFundingRateFilter) : false;
     s.minRiskRewardEnabled = req.body.minRiskRewardEnabled ? parseBool(req.body.minRiskRewardEnabled) : false;
     const minRr = parseFloat(req.body.minRiskReward);
     s.minRiskReward = !isNaN(minRr) && minRr >= 1 && minRr <= 5 ? minRr : 1.2;
@@ -2796,10 +2798,36 @@ app.get('/strategy-comparison', async (req, res) => {
     // Get learning engine data
     const strategies = await StrategyWeight.find({}).lean();
 
+    // Recommendation: most common regime + best strategy for that regime
+    const regimeCounts = {};
+    signals.forEach(s => {
+      const r = s.regime || 'unknown';
+      regimeCounts[r] = (regimeCounts[r] || 0) + 1;
+    });
+    const topRegime = Object.entries(regimeCounts).sort((a, b) => b[1] - a[1])[0];
+    let recommendation = 'Use default blended signal.';
+    if (topRegime && strategies.length > 0) {
+      const [regime, count] = topRegime;
+      const bestForRegime = strategies
+        .filter(s => s.performance?.byRegime?.[regime])
+        .map(s => {
+          const rd = s.performance.byRegime[regime];
+          const total = (rd.wins || 0) + (rd.losses || 0);
+          const wr = total > 0 ? (rd.wins / total) * 100 : 0;
+          return { name: s.name || s.strategyId, wr, total };
+        })
+        .filter(s => s.total >= 3)
+        .sort((a, b) => b.wr - a.wr)[0];
+      if (bestForRegime) {
+        recommendation = `${count} coin(s) in ${regime} regime. Best strategy: ${bestForRegime.name} (${bestForRegime.wr.toFixed(0)}% WR in ${regime}).`;
+      }
+    }
+
     res.render('strategy-comparison', {
       activePage: 'learning',
       signals,
-      strategies
+      strategies,
+      recommendation
     });
   } catch (err) {
     console.error('[StrategyComparison] Error:', err);
