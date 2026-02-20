@@ -352,7 +352,7 @@
   .draw-tools-vertical .tool-btn { min-width: 44px; min-height: 44px; }
   .draw-color-picker-vertical { flex-direction: row; }
   .draw-color-picker-vertical .draw-color-swatches { justify-content: flex-start; }
-  .chart-container { min-height: 300px; height: calc(100vh - 420px); }
+  .chart-container { min-height: 300px; height: calc(100vh - 420px); min-height: max(300px, 45vh); }
   .chart-tf-bar { padding: 10px; }
   .tf-btn { padding: 10px 16px; min-height: 44px; font-size: 14px; }
 }
@@ -1457,6 +1457,8 @@
           if (tvLoading) tvLoading.style.display = 'none';
           var initRetryCount = 0;
           var MAX_INIT_RETRIES = 20;
+          var initTimeout = null;
+          var resizeObs = null;
           var initChart = function() {
             try {
               var chartEl = document.getElementById('lw-chart');
@@ -1473,6 +1475,8 @@
                   return;
                 }
               }
+              if (resizeObs) { try { resizeObs.disconnect(); } catch(e) {} resizeObs = null; }
+              if (initTimeout) { clearTimeout(initTimeout); initTimeout = null; }
               var chartOpts = {
                 layout: { background: { type: 'solid', color: '#0f172a' }, textColor: '#9ca3af' },
                 grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
@@ -1536,31 +1540,75 @@
               // Set up drawing overlay after chart is ready
               setTimeout(function() { resizeDrawCanvas(); hookChartRedraw(); }, 100);
               // Mobile portrait fix: force resize after layout settles (candles may not render until container has final dimensions)
-              setTimeout(function() {
-                var c = document.getElementById('lw-chart-container');
-                if (c && chartRef.chart) {
-                  var r = c.getBoundingClientRect();
-                  if (r.width > 0 && r.height > 0) {
-                    try {
-                      chartRef.chart.resize(r.width, r.height);
-                      chartRef.chart.timeScale().fitContent();
-                    } catch (e) {}
+              [350, 600, 1000].forEach(function(delay) {
+                setTimeout(function() {
+                  var c = document.getElementById('lw-chart-container');
+                  if (c && chartRef.chart && !tvFallbackAttempted) {
+                    var r = c.getBoundingClientRect();
+                    if (r.width > 50 && r.height > 50) {
+                      try {
+                        chartRef.chart.resize(r.width, r.height);
+                        chartRef.chart.timeScale().fitContent();
+                        resizeDrawCanvas();
+                      } catch (e) {}
+                    }
                   }
-                  resizeDrawCanvas();
-                }
-              }, 350);
+                }, delay);
+              });
             } catch (chartErr) {
               console.error('Chart init error:', chartErr);
               showTradingViewFallback();
             }
           };
-          setTimeout(function() {
-            if (typeof requestAnimationFrame === 'function') {
-              requestAnimationFrame(function() { requestAnimationFrame(initChart); });
-            } else {
-              setTimeout(initChart, 0);
+          var tryInitAttempts = 0;
+          var tryInit = function() {
+            var chartEl = document.getElementById('lw-chart');
+            if (!chartEl) return;
+            var r = chartEl.getBoundingClientRect();
+            if (r.width > 50 && r.height > 50) {
+              initChart();
+              return;
             }
-          }, 100);
+            tryInitAttempts++;
+            if (tryInitAttempts >= 60) {
+              initChart();
+              return;
+            }
+            if (typeof requestAnimationFrame === 'function') {
+              requestAnimationFrame(function() { requestAnimationFrame(tryInit); });
+            } else {
+              setTimeout(tryInit, 50);
+            }
+          };
+          if (typeof ResizeObserver !== 'undefined') {
+            resizeObs = new ResizeObserver(function() {
+              var chartEl = document.getElementById('lw-chart');
+              if (!chartEl || chartRef.chart) return;
+              var r = chartEl.getBoundingClientRect();
+              if (r.width > 50 && r.height > 50) {
+                if (resizeObs) { try { resizeObs.disconnect(); } catch(e) {} resizeObs = null; }
+                if (initTimeout) { clearTimeout(initTimeout); initTimeout = null; }
+                initChart();
+              }
+            });
+            resizeObs.observe(lwContainer);
+            initTimeout = setTimeout(function() {
+              if (!chartRef.chart && resizeObs) {
+                resizeObs.disconnect();
+                resizeObs = null;
+                initTimeout = null;
+                initChart();
+              }
+            }, 3000);
+          } else {
+            setTimeout(function() {
+              if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(function() { requestAnimationFrame(tryInit); });
+              } else {
+                tryInit();
+              }
+            }, 150);
+          }
         } else {
           // Timeframe switch or new-candle refresh — update data
           try {
@@ -2590,6 +2638,9 @@
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', function() { forceChartResize(); });
   }
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') setTimeout(forceChartResize, 150);
+  });
 
 })();
 </script>
