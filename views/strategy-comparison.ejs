@@ -51,7 +51,8 @@
 
 <div class="section">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Live Strategy Scores by Coin</h3>
-  <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">When overall is HOLD (quality gate or market filters), the Signal column shows the best strategy's BUY/SELL if it scores ≥55.</p>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:6px;">When overall is HOLD (quality gate or market filters), the Signal column shows the best strategy's BUY/SELL if it scores ≥55.</p>
+  <p style="font-size:11px;color:#6b7280;margin-bottom:10px;">Strategies use different timeframes: TF/Swing/Pos = 4H+1D (trend); Mom/BO/MR/Scalp = 1H (short-term). Mixed BUY/SELL in one row is normal — e.g. 4H bullish trend + 1H bearish pullback.</p>
   <div style="overflow-x:auto;">
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead>
@@ -82,7 +83,7 @@
             <%
               var displaySignal = sig.signal;
               var displayLabel = sig.signal.replace('_',' ');
-              if (sig.signal === 'HOLD' && sig.topStrategies && sig.topStrategies.length > 0) {
+              if (sig.signal === 'HOLD' && (sig.score || 0) >= 52 && sig.topStrategies && sig.topStrategies.length > 0) {
                 var bestStrat = sig.topStrategies.find(function(s) {
                   return (s.signal === 'BUY' || s.signal === 'STRONG_BUY' || s.signal === 'SELL' || s.signal === 'STRONG_SELL') && (s.score || 0) >= 55;
                 });

@@ -2711,8 +2711,15 @@ app.get('/api/strategy-comparison', async (req, res) => {
       Promise.resolve(fetchAllCandles()),
       fetchAllHistory()
     ]);
-    const options = await buildEngineOptions(prices, allCandles, allHistory);
-    const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
+    const pricesMerged = mergeWebSocketPrices(prices);
+    let compUser = null;
+    if (req.session?.userId) {
+      try {
+        compUser = await User.findById(req.session.userId).select('settings').lean();
+      } catch (e) { /* ignore */ }
+    }
+    const options = await buildEngineOptions(pricesMerged, allCandles, allHistory, compUser);
+    const signals = analyzeAllCoins(pricesMerged, allCandles, allHistory, options);
 
     // Build comparison: for each coin, show all strategy scores
     const comparison = signals.map(sig => ({
@@ -2748,8 +2755,15 @@ app.get('/strategy-comparison', async (req, res) => {
       Promise.resolve(fetchAllCandles()),
       fetchAllHistory()
     ]);
-    const options = await buildEngineOptions(prices, allCandles, allHistory);
-    const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
+    const pricesMerged = mergeWebSocketPrices(prices);
+    let compUser = null;
+    if (req.session?.userId) {
+      try {
+        compUser = await User.findById(req.session.userId).select('settings').lean();
+      } catch (e) { /* ignore */ }
+    }
+    const options = await buildEngineOptions(pricesMerged, allCandles, allHistory, compUser);
+    const signals = analyzeAllCoins(pricesMerged, allCandles, allHistory, options);
 
     // Get learning engine data
     const strategies = await StrategyWeight.find({}).lean();

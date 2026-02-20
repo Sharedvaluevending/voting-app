@@ -139,10 +139,11 @@ function analyzeWithCandles(coinData, candles, options) {
   if (bullCount >= 2 && bullCount > bearCount) dominantDir = 'BULL';
   else if (bearCount >= 2 && bearCount > bullCount) dominantDir = 'BEAR';
   else if (bullCount === bearCount) {
-    // Tie: defer to daily direction first, then score
+    // Tie: defer to daily direction first, then 4H, then score
     if (scores1d.direction === 'BULL' && finalScore >= 52) dominantDir = 'BULL';
     else if (scores1d.direction === 'BEAR' && finalScore <= 48) dominantDir = 'BEAR';
     else if (finalScore >= 58 && (scores1d.direction === 'BULL' || scores1d.direction === 'BEAR')) dominantDir = scores1d.direction;
+    else if (finalScore >= 60 && (scores4h.direction === 'BULL' || scores4h.direction === 'BEAR')) dominantDir = scores4h.direction;  // High score + 4H has direction
     else dominantDir = 'NEUTRAL';
   } else {
     dominantDir = bullCount > bearCount ? 'BULL' : bearCount > bullCount ? 'BEAR' : 'NEUTRAL';
@@ -257,12 +258,14 @@ function analyzeWithCandles(coinData, candles, options) {
 
   // Determine signal from score (with min score/confluence gate)
   let { signal, strength } = scoreToSignal(finalScore, confluenceLevel, dominantDir);
+  let holdReason = null;
   // Relax confluence for high scores: 58+ needs only 1 TF; 52–57 needs 2 TF
   const minConfluence = finalScore >= 58 ? 1 : ENGINE_CONFIG.MIN_CONFLUENCE_FOR_SIGNAL;
   if (finalScore < ENGINE_CONFIG.MIN_SIGNAL_SCORE || confluenceLevel < minConfluence) {
     if (signal !== 'HOLD') {
       signal = 'HOLD';
       strength = finalScore;
+      holdReason = `Score ${finalScore} or confluence ${confluenceLevel} below gate (need ${minConfluence})`;
     }
   }
 
@@ -276,14 +279,28 @@ function analyzeWithCandles(coinData, candles, options) {
       const hasFVG = (tf1h.fvgs?.length || tf4h.fvgs?.length || 0) > 0;
       const hasLiq = (tf1h.liquidityClusters && (tf1h.liquidityClusters.above != null || tf1h.liquidityClusters.below != null)) ||
         (tf4h.liquidityClusters && (tf4h.liquidityClusters.above != null || tf4h.liquidityClusters.below != null));
-      if (!hasOB && !hasFVG && !hasLiq) { signal = 'HOLD'; strength = finalScore; }
+      if (!hasOB && !hasFVG && !hasLiq) { signal = 'HOLD'; strength = finalScore; holdReason = 'No price action confluence (OB/FVG/liquidity)'; }
     }
     if (reqVolFilter && (tf1h.volatilityState === 'extreme' || tf4h.volatilityState === 'extreme')) {
-      signal = 'HOLD'; strength = finalScore;
+      signal = 'HOLD'; strength = finalScore; holdReason = 'Extreme volatility – waiting for calmer conditions';
     }
     if (reqVolume && (tf1h.relativeVolume || 0) < 1.0) {
-      signal = 'HOLD'; strength = finalScore;
+      signal = 'HOLD'; strength = finalScore; holdReason = 'Volume below average – no confirmation';
     }
+  }
+
+  // Top/bottom hard gate: NEVER buy at potential top or short at potential bottom
+  const anyPotentialTop = tf1h.potentialTop || tf4h.potentialTop;
+  const anyPotentialBottom = tf1h.potentialBottom || tf4h.potentialBottom;
+  if (anyPotentialTop && (signal === 'BUY' || signal === 'STRONG_BUY')) {
+    signal = 'HOLD';
+    strength = finalScore;
+    holdReason = 'Potential top detected (divergence + overbought RSI + resistance) – avoiding longs';
+  }
+  if (anyPotentialBottom && (signal === 'SELL' || signal === 'STRONG_SELL')) {
+    signal = 'HOLD';
+    strength = finalScore;
+    holdReason = 'Potential bottom detected (divergence + oversold RSI + support) – avoiding shorts';
   }
 
   // Strategy-specific direction: use the timeframes that strategy actually uses
@@ -296,13 +313,16 @@ function analyzeWithCandles(coinData, candles, options) {
     swing: [scores4h, scores1d],
     position: scores1w ? [scores1d, scores1w] : [scores1d]
   };
-  function getStratDominantDirAndConfluence(stratId) {
+  function getStratDominantDirAndConfluence(stratId, stratScore) {
     const scores = stratDirMap[stratId] || [scores1h, scores4h, scores1d];
     const dirs = scores.map(sc => sc && sc.direction).filter(Boolean);
     const bull = dirs.filter(d => d === 'BULL').length;
     const bear = dirs.filter(d => d === 'BEAR').length;
     const conf = Math.max(bull, bear);
-    const dir = bear > bull ? 'BEAR' : bull > bear ? 'BULL' : dominantDir;
+    let dir = bear > bull ? 'BEAR' : bull > bear ? 'BULL' : 'NEUTRAL';
+    // Tie-breaker: high score + 4H has direction → use 4H
+    if (dir === 'NEUTRAL' && stratScore >= 60 && (scores4h.direction === 'BULL' || scores4h.direction === 'BEAR'))
+      dir = scores4h.direction;
     return { dir, confluence: conf || 1 };
   }
 
@@ -312,8 +332,16 @@ function analyzeWithCandles(coinData, candles, options) {
     .sort((a, b) => b.displayScore - a.displayScore);
   const topStrategies = topStrategiesRaw.map(s => {
     const stratScore = Math.round(s.displayScore);
-    const { dir: stratDir, confluence: stratConfluence } = getStratDominantDirAndConfluence(s.id);
-    const stratSignal = scoreToSignal(stratScore, Math.max(1, stratConfluence), stratDir).signal;
+    const { dir: stratDir, confluence: stratConfluence } = getStratDominantDirAndConfluence(s.id, stratScore);
+    let stratSignal = scoreToSignal(stratScore, Math.max(1, stratConfluence), stratDir).signal;
+    // Apply quality gate to strategy signals (same as main signal)
+    const stratMinConfluence = stratScore >= 58 ? 1 : ENGINE_CONFIG.MIN_CONFLUENCE_FOR_SIGNAL;
+    if (stratSignal !== 'HOLD' && (stratScore < ENGINE_CONFIG.MIN_SIGNAL_SCORE || stratConfluence < stratMinConfluence)) {
+      stratSignal = 'HOLD';
+    }
+    // Top/bottom protection: no BUY at potential top, no SELL at potential bottom
+    if (anyPotentialTop && (stratSignal === 'BUY' || stratSignal === 'STRONG_BUY')) stratSignal = 'HOLD';
+    if (anyPotentialBottom && (stratSignal === 'SELL' || stratSignal === 'STRONG_SELL')) stratSignal = 'HOLD';
     const stratDirForLevels = stratSignal === 'STRONG_BUY' || stratSignal === 'BUY' ? 'BULL' : stratSignal === 'STRONG_SELL' || stratSignal === 'SELL' ? 'BEAR' : dominantDir;
     const levelsForStrat = calculateTradeLevels(currentPrice, tf1h, tf4h, tf1d, stratSignal, stratDirForLevels, regime, s.id);
     return {
@@ -338,7 +366,7 @@ function analyzeWithCandles(coinData, candles, options) {
 
   // Build reasoning (include session, MTF divergence, quality gate, new features)
   const reasoning = buildReasoning(scores1h, scores4h, scores1d, confluenceLevel, regime, bestStrategy, signal, finalScore, inSession, tf1h, tf4h, tf1d, {
-    btcCorrelation, poc, fibLevels, fundingRate: fundingData ? fundingData.rate : null
+    btcCorrelation, poc, fibLevels, fundingRate: fundingData ? fundingData.rate : null, holdReason, dominantDir
   });
 
   // Confidence
@@ -882,15 +910,17 @@ function scoreToSignal(score, confluenceLevel, dominantDir) {
   const confBonus = confluenceLevel === 3 ? 10 : confluenceLevel === 2 ? 5 : 0;
   const adjScore = score + confBonus;
 
-  if (dominantDir === 'BULL') {
+  // 45-54 = neutral zone (HOLD) regardless of direction
+  if (adjScore >= 45 && adjScore <= 54) {
+    signal = 'HOLD';
+    strength = adjScore;
+  } else if (dominantDir === 'BULL') {
     if (adjScore >= 75) { signal = 'STRONG_BUY'; strength = Math.min(98, adjScore); }
     else if (adjScore >= 55) { signal = 'BUY'; strength = adjScore; }
-    else if (adjScore >= 48) { signal = 'BUY'; strength = adjScore; }  // mild bullish lean (was 45)
     else { signal = 'HOLD'; strength = adjScore; }
   } else if (dominantDir === 'BEAR') {
     if (adjScore >= 75) { signal = 'STRONG_SELL'; strength = Math.min(98, adjScore); }
     else if (adjScore >= 55) { signal = 'SELL'; strength = adjScore; }
-    else if (adjScore >= 48) { signal = 'SELL'; strength = adjScore; }  // mild bearish lean (was 45)
     else { signal = 'HOLD'; strength = adjScore; }
   } else {
     signal = 'HOLD';
@@ -1254,7 +1284,7 @@ function detectMACDDivergence(closes, lows, highs, macdHistHistory) {
 function detectPotentialBottom(closes, lows, rsi, allDivs, support, currentPrice) {
   if (!support || support <= 0) return false;
   const bullishDiv = (allDivs.rsiDiv?.bullish || allDivs.macdDiv?.bullish || allDivs.obvDiv?.bullish || allDivs.stochDiv?.bullish) || false;
-  const oversold = rsi < 35;
+  const oversold = rsi < 30;  // Stricter: was 35 — avoid over-triggering
   const nearSupport = currentPrice <= support * 1.02 && currentPrice >= support * 0.98;
   return bullishDiv && (oversold || nearSupport);
 }
@@ -1262,7 +1292,7 @@ function detectPotentialBottom(closes, lows, rsi, allDivs, support, currentPrice
 function detectPotentialTop(closes, highs, rsi, allDivs, resistance, currentPrice) {
   if (!resistance || resistance <= 0) return false;
   const bearishDiv = (allDivs.rsiDiv?.bearish || allDivs.macdDiv?.bearish || allDivs.obvDiv?.bearish || allDivs.stochDiv?.bearish) || false;
-  const overbought = rsi > 65;
+  const overbought = rsi > 70;  // Stricter: was 65 — avoid blocking valid longs in strong trends
   const nearResistance = currentPrice >= resistance * 0.98 && currentPrice <= resistance * 1.02;
   return bearishDiv && (overbought || nearResistance);
 }
@@ -2083,6 +2113,12 @@ function calculateConfidence(score, confluenceLevel, regime, dataPoints) {
 function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal, finalScore, inSession, tf1h, tf4h, tf1d, extras) {
   extras = extras || {};
   const reasons = [];
+
+  // HOLD reasoning: why we're holding instead of trading
+  if (signal === 'HOLD') {
+    if (extras.holdReason) reasons.push('HOLD: ' + extras.holdReason);
+    else if (extras.dominantDir === 'NEUTRAL') reasons.push('HOLD: Timeframe direction NEUTRAL – no clear bull/bear edge despite score');
+  }
 
   if (confluenceLevel === 3) reasons.push('All 3 timeframes agree - strong confluence');
   else if (confluenceLevel === 2) reasons.push('2/3 timeframes agree - moderate confluence');
