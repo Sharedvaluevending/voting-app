@@ -1462,14 +1462,19 @@
           var initChart = function() {
             try {
               var chartEl = document.getElementById('lw-chart');
-              if (!chartEl) { showTradingViewFallback(); return; }
+              var containerEl = document.getElementById('lw-chart-container');
+              if (!chartEl || !containerEl) { showTradingViewFallback(); return; }
 
-              // Ensure container has real dimensions before creating chart (retry if 0x0)
-              var containerRect = chartEl.getBoundingClientRect();
-              if (containerRect.width <= 0 || containerRect.height <= 0) {
+              // Use outer container + force reflow (offsetWidth/offsetHeight triggers layout)
+              var w = containerEl.offsetWidth || containerEl.clientWidth || chartEl.getBoundingClientRect().width || 0;
+              var h = containerEl.offsetHeight || containerEl.clientHeight || chartEl.getBoundingClientRect().height || 0;
+              if (w <= 0 || h <= 0) {
                 initRetryCount++;
                 if (initRetryCount >= MAX_INIT_RETRIES) {
-                  containerRect = { width: Math.max(containerRect.width, 320), height: Math.max(containerRect.height, 300) };
+                  var vw = window.innerWidth || 375;
+                  var vh = window.innerHeight || 500;
+                  w = Math.max(w, Math.min(vw - 32, 400));
+                  h = Math.max(h, Math.min(Math.floor(vh * 0.45), 350));
                 } else {
                   requestAnimationFrame(function() { requestAnimationFrame(initChart); });
                   return;
@@ -1477,18 +1482,23 @@
               }
               if (resizeObs) { try { resizeObs.disconnect(); } catch(e) {} resizeObs = null; }
               if (initTimeout) { clearTimeout(initTimeout); initTimeout = null; }
+              var isMobile = (window.innerWidth || 0) <= 768 || 'ontouchstart' in window;
               var chartOpts = {
                 layout: { background: { type: 'solid', color: '#0f172a' }, textColor: '#9ca3af' },
                 grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#334155', shiftVisibleRangeOnNewBar: false },
                 rightPriceScale: { borderColor: '#334155', scaleMargins: { top: 0.1, bottom: 0.25 } }
               };
-              if (containerRect.width > 0 && containerRect.height > 0) {
+              if (isMobile) {
+                chartOpts.width = Math.max(w, 280);
+                chartOpts.height = Math.max(h, 250);
+                chartOpts.autoSize = false;
+              } else if (w > 0 && h > 0) {
                 chartOpts.autoSize = true;
               } else {
-                chartOpts.width = Math.max(containerRect.width, 800);
-                chartOpts.height = Math.max(containerRect.height, 400);
-                chartOpts.autoSize = true;
+                chartOpts.width = Math.max(w, 800);
+                chartOpts.height = Math.max(h, 400);
+                chartOpts.autoSize = false;
               }
               var chart = LightweightCharts.createChart(chartEl, chartOpts);
               var candleColors = getCandleColors();
@@ -1562,9 +1572,9 @@
           };
           var tryInitAttempts = 0;
           var tryInit = function() {
-            var chartEl = document.getElementById('lw-chart');
-            if (!chartEl) return;
-            var r = chartEl.getBoundingClientRect();
+            var containerEl = document.getElementById('lw-chart-container');
+            if (!containerEl) return;
+            var r = containerEl.getBoundingClientRect();
             if (r.width > 50 && r.height > 50) {
               initChart();
               return;
@@ -1582,9 +1592,9 @@
           };
           if (typeof ResizeObserver !== 'undefined') {
             resizeObs = new ResizeObserver(function() {
-              var chartEl = document.getElementById('lw-chart');
-              if (!chartEl || chartRef.chart) return;
-              var r = chartEl.getBoundingClientRect();
+              var containerEl = document.getElementById('lw-chart-container');
+              if (!containerEl || chartRef.chart) return;
+              var r = containerEl.getBoundingClientRect();
               if (r.width > 50 && r.height > 50) {
                 if (resizeObs) { try { resizeObs.disconnect(); } catch(e) {} resizeObs = null; }
                 if (initTimeout) { clearTimeout(initTimeout); initTimeout = null; }
@@ -2616,7 +2626,7 @@
   });
   updateDeleteButton();
 
-  window.addEventListener('resize', function() { resizeDrawCanvas(); });
+  window.addEventListener('resize', function() { forceChartResize(); resizeDrawCanvas(); });
 
   // Mobile: force chart resize on orientation change (fixes candles not showing in portrait until rotate)
   function forceChartResize() {
