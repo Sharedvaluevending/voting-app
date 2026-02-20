@@ -1535,6 +1535,20 @@
                 .catch(function() {});
               // Set up drawing overlay after chart is ready
               setTimeout(function() { resizeDrawCanvas(); hookChartRedraw(); }, 100);
+              // Mobile portrait fix: force resize after layout settles (candles may not render until container has final dimensions)
+              setTimeout(function() {
+                var c = document.getElementById('lw-chart-container');
+                if (c && chartRef.chart) {
+                  var r = c.getBoundingClientRect();
+                  if (r.width > 0 && r.height > 0) {
+                    try {
+                      chartRef.chart.resize(r.width, r.height);
+                      chartRef.chart.timeScale().fitContent();
+                    } catch (e) {}
+                  }
+                  resizeDrawCanvas();
+                }
+              }, 350);
             } catch (chartErr) {
               console.error('Chart init error:', chartErr);
               showTradingViewFallback();
@@ -1756,7 +1770,8 @@
         body: JSON.stringify(payload),
         credentials: 'same-origin'
       }).then(function(r) { return r.json();       }).then(function(data) {
-        if (data.success) {
+        var savedEl = document.getElementById('trade-levels-saved');
+        if (data && data.success) {
           if (key === 'sl') levels.sl = obj.price;
           else if (key === 'tp1') levels.tp1 = obj.price;
           else if (key === 'tp2') levels.tp2 = obj.price;
@@ -1771,14 +1786,28 @@
               break;
             }
           }
-          var savedEl = document.getElementById('trade-levels-saved');
           if (savedEl) {
             savedEl.style.display = 'inline';
+            savedEl.style.color = '#10b981';
             savedEl.textContent = 'Saved';
             setTimeout(function() { savedEl.style.display = 'none'; }, 2000);
           }
+        } else if (savedEl) {
+          savedEl.style.display = 'inline';
+          savedEl.style.color = '#ef4444';
+          savedEl.textContent = 'Save failed';
+          setTimeout(function() { savedEl.style.display = 'none'; }, 3000);
         }
-      }).catch(function(err) { console.warn('Live modify failed:', err); });
+      }).catch(function(err) {
+        console.warn('Live modify failed:', err);
+        var savedEl = document.getElementById('trade-levels-saved');
+        if (savedEl) {
+          savedEl.style.display = 'inline';
+          savedEl.style.color = '#ef4444';
+          savedEl.textContent = 'Save failed';
+          setTimeout(function() { savedEl.style.display = 'none'; }, 3000);
+        }
+      });
     }
 
     if (liveModifyCheck && lwChartContainer) {
@@ -1786,13 +1815,18 @@
       liveModifyCheck.addEventListener('change', function() {
         if (this.checked) {
           lwChartContainer.style.cursor = 'ns-resize';
+          lwChartContainer.style.touchAction = 'none';
           if (drawOverlay) drawOverlay.style.pointerEvents = 'none';
         } else {
           lwChartContainer.style.cursor = '';
+          lwChartContainer.style.touchAction = '';
           if (drawOverlay) drawOverlay.style.pointerEvents = '';
         }
       });
-      if (liveModifyCheck.checked && drawOverlay) drawOverlay.style.pointerEvents = 'none';
+      if (liveModifyCheck.checked) {
+        lwChartContainer.style.touchAction = 'none';
+        if (drawOverlay) drawOverlay.style.pointerEvents = 'none';
+      }
       var useCapture = true;
       lwChartContainer.addEventListener('mousedown', onModifyMouseDown, useCapture);
       lwChartContainer.addEventListener('touchstart', function(e) { onModifyMouseDown(e); }, { passive: false, capture: true });
@@ -2535,6 +2569,27 @@
   updateDeleteButton();
 
   window.addEventListener('resize', function() { resizeDrawCanvas(); });
+
+  // Mobile: force chart resize on orientation change (fixes candles not showing in portrait until rotate)
+  function forceChartResize() {
+    if (!chartRef.chart || tvFallbackAttempted) return;
+    var container = document.getElementById('lw-chart-container');
+    if (!container) return;
+    var rect = container.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      try {
+        chartRef.chart.resize(rect.width, rect.height);
+        chartRef.chart.timeScale().fitContent();
+      } catch (e) {}
+    }
+    resizeDrawCanvas();
+  }
+  window.addEventListener('orientationchange', function() {
+    setTimeout(forceChartResize, 100);
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function() { forceChartResize(); });
+  }
 
 })();
 </script>
