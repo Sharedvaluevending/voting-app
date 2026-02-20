@@ -67,10 +67,21 @@ function suggestLeverage(score, regime, volatilityState) {
  */
 function plan(decision, snapshot, context) {
   context = context || {};
-  const { balance, openTrades = [], streak = 0, strategyStats = {}, featureFlags = {}, userSettings = {} } = context;
+  const { balance, openTrades = [], streak = 0, strategyStats = {}, featureFlags = {}, userSettings = {}, peakEquity } = context;
 
   if (!decision || !decision.side) return null;
   if (!decision.entry || !decision.stopLoss) return null;
+
+  if (userSettings.expectancyFilterEnabled) {
+    const strat = strategyStats[decision.strategy];
+    if (strat && (strat.totalTrades || 0) >= 10 && strat.winRate > 0 && strat.avgRR > 0) {
+      const w = strat.winRate / 100;
+      const r = strat.avgRR;
+      const expectancy = (w * r) - (1 - w); // (winRate * avgRR) - lossRate
+      const minExp = userSettings.minExpectancy ?? 0.15;
+      if (expectancy < minExp) return null;
+    }
+  }
 
   const direction = decision.side;
   const leverage = userSettings.disableLeverage ? 1
@@ -138,6 +149,14 @@ function plan(decision, snapshot, context) {
   if (streak <= -3) positionSize *= 0.6;
   else if (streak <= -2) positionSize *= 0.75;
   else if (streak >= 3) positionSize *= Math.min(1.15, 1 + streak * 0.03);
+
+  // Drawdown-based sizing: reduce size when in drawdown
+  if (userSettings.drawdownSizingEnabled && peakEquity > 0) {
+    const threshold = (userSettings.drawdownThresholdPercent ?? 10) / 100;
+    if (balance < peakEquity * (1 - threshold)) {
+      positionSize *= 0.5;
+    }
+  }
 
   // Kelly criterion sizing — blend with risk-based, don't hard-cap
   // Old: min(riskBased, kelly) could shrink positions 8x on good strategies

@@ -1754,9 +1754,9 @@ function detectRegime(tf1d, tf4h) {
 
 // Regime–strategy gating: hard block for worst mismatches, soft penalty for borderline
 const REGIME_STRATEGY_BLOCK = {
-  mean_revert: ['trending'],                  // MR hard-blocked only in trending (not compression)
-  trend_follow: ['volatile'],                 // TF hard-blocked only in volatile
-  breakout: ['trending'],                     // Breakout needs consolidation
+  mean_revert: ['trending'],                  // MR hard-blocked in trending (fade the trend = bad)
+  trend_follow: ['volatile'],                 // TF hard-blocked in volatile
+  breakout: ['trending', 'ranging'],           // Breakout needs consolidation, not trend or chop
   position: ['volatile']                      // Position can't handle wild vol
 };
 // Soft penalty: reduce score instead of hard block for borderline matches

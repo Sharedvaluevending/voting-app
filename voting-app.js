@@ -825,7 +825,8 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       stopLabel: signal.stopLabel || 'ATR + S/R + Fib',
       tpType: signal.tpType || 'R_multiple',
       tpLabel: signal.tpLabel || 'R multiples',
-      strategyStats: strategyStatsForKelly
+      strategyStats: strategyStatsForKelly,
+      volume24h: coinData?.volume24h
     };
 
     await openTrade(req.session.userId, tradeData);
@@ -1189,6 +1190,19 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
     s.dcaAddSizePercent = !isNaN(addSizePct) && addSizePct >= 25 && addSizePct <= 200 ? addSizePct : 100;
     const dcaMinScr = parseInt(req.body.dcaMinScore, 10);
     s.dcaMinScore = !isNaN(dcaMinScr) && dcaMinScr >= 30 && dcaMinScr <= 95 ? dcaMinScr : 52;
+
+    // Risk controls
+    const maxDaily = parseFloat(req.body.maxDailyLossPercent);
+    s.maxDailyLossPercent = !isNaN(maxDaily) && maxDaily >= 0 && maxDaily <= 20 ? maxDaily : 0;
+    s.drawdownSizingEnabled = req.body.drawdownSizingEnabled ? parseBool(req.body.drawdownSizingEnabled) : false;
+    const ddThresh = parseFloat(req.body.drawdownThresholdPercent);
+    s.drawdownThresholdPercent = !isNaN(ddThresh) && ddThresh >= 5 && ddThresh <= 50 ? ddThresh : 10;
+    const minVol = parseFloat(req.body.minVolume24hUsd);
+    s.minVolume24hUsd = !isNaN(minVol) && minVol >= 0 ? minVol : 0;
+    s.correlationFilterEnabled = req.body.correlationFilterEnabled ? parseBool(req.body.correlationFilterEnabled) : false;
+    s.expectancyFilterEnabled = req.body.expectancyFilterEnabled ? parseBool(req.body.expectancyFilterEnabled) : false;
+    const minExp = parseFloat(req.body.minExpectancy);
+    s.minExpectancy = !isNaN(minExp) && minExp >= -1 && minExp <= 2 ? minExp : 0.15;
 
     u.settings = s;
     u.markModified('settings');
@@ -2584,6 +2598,17 @@ async function runAutoTrade() {
         const slotsAvailable = maxOpen - openTrades.length;
         const toOpen = candidates.slice(0, slotsAvailable);
 
+        // Build strategy stats for expectancy filter (risk engine)
+        const allStratWeights = await StrategyWeight.find({ active: true }).lean();
+        const strategyStatsForOpen = {};
+        allStratWeights.forEach(s => {
+          strategyStatsForOpen[s.strategyId] = {
+            totalTrades: s.performance?.totalTrades || 0,
+            winRate: s.performance?.winRate || 0,
+            avgRR: s.performance?.avgRR || 0
+          };
+        });
+
         for (const sig of toOpen) {
           try {
             const coinId = sig._coinId;
@@ -2653,6 +2678,7 @@ async function runAutoTrade() {
               takeProfit1: useTP1,
               takeProfit2: useTP2,
               takeProfit3: useTP3,
+              volume24h: coinData?.volume24h,
               leverage: lev,
               score: sig._overallScore,
               strategyType: useStratType,
@@ -2664,6 +2690,7 @@ async function runAutoTrade() {
               stopLabel: sig.stopLabel || 'ATR + S/R + Fib',
               tpType: sig.tpType || 'R_multiple',
               tpLabel: sig.tpLabel || 'R multiples',
+              strategyStats: strategyStatsForOpen,
               autoTriggered: true
             };
 

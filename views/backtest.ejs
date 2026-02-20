@@ -126,6 +126,27 @@
       <label class="ft-toggle" title="Require relative volume &gt; 1.0">
         <input type="checkbox" id="ft-volumeConfirmation"> <span class="ft-badge ft-signal">QUALITY</span> Volume Confirmation
       </label>
+      <label class="ft-toggle" title="Skip signals with R:R below threshold (matches live Min R:R filter)">
+        <input type="checkbox" id="ft-minRiskRewardEnabled" onchange="document.getElementById('ft-minRrValue').style.display=this.checked?'flex':'none'"> <span class="ft-badge ft-signal">QUALITY</span> Min R:R Filter
+      </label>
+      <div id="ft-minRrValue" style="display:none;align-items:center;gap:6px;">
+        <input type="number" id="ft-minRiskReward" value="1.2" min="1" max="5" step="0.1" style="width:60px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
+        <span style="font-size:11px;color:#6b7280;">min R:R</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <label style="font-size:11px;color:#9ca3af;">Max Daily Loss %</label>
+        <input type="number" id="ft-maxDailyLoss" value="0" min="0" max="20" step="1" style="width:60px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" placeholder="0=off" title="0=off. Stop new trades when daily loss exceeds this % of balance.">
+      </div>
+      <label class="ft-toggle" title="Halve position size when in drawdown" onchange="document.getElementById('ft-drawdownThreshWrap').style.display=this.checked?'flex':'none'">
+        <input type="checkbox" id="ft-drawdownSizing"> <span class="ft-badge ft-risk">RISK</span> Drawdown Sizing
+      </label>
+      <div id="ft-drawdownThreshWrap" style="display:none;align-items:center;gap:6px;">
+        <input type="number" id="ft-drawdownThresh" value="10" min="5" max="50" style="width:50px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;"> % threshold
+      </div>
+      <label class="ft-toggle" title="Skip coins with 24h volume below this (USD). Requires volume data in backtest.">
+        <input type="checkbox" id="ft-minVolumeEnabled" onchange="document.getElementById('ft-minVolume').style.display=this.checked?'block':'none'"> <span class="ft-badge ft-signal">QUALITY</span> Min Volume
+      </label>
+      <input type="number" id="ft-minVolume" value="0" min="0" step="1000000" style="display:none;width:100px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" placeholder="e.g. 50000000">
 
       <!-- Sizing & Costs -->
       <label class="ft-toggle" title="Higher score = slightly larger position (0.5 + score/100, cap 1.2x)">
@@ -329,6 +350,12 @@ function getFeatureFlags() {
     priceActionConfluence: document.getElementById('ft-priceActionConfluence').checked,
     volatilityFilter: document.getElementById('ft-volatilityFilter').checked,
     volumeConfirmation: document.getElementById('ft-volumeConfirmation').checked,
+    minRiskRewardEnabled: document.getElementById('ft-minRiskRewardEnabled').checked,
+    minRiskReward: parseFloat(document.getElementById('ft-minRiskReward').value) || 1.2,
+    maxDailyLossPercent: parseFloat(document.getElementById('ft-maxDailyLoss')?.value) || 0,
+    minVolume24hUsd: (document.getElementById('ft-minVolumeEnabled')?.checked ? parseFloat(document.getElementById('ft-minVolume')?.value) : 0) || 0,
+    drawdownSizingEnabled: document.getElementById('ft-drawdownSizing')?.checked || false,
+    drawdownThresholdPercent: parseFloat(document.getElementById('ft-drawdownThresh')?.value) || 10,
     fees: document.getElementById('ft-fees').checked,
     slippage: document.getElementById('ft-slippage').checked,
     closeBasedStops: document.getElementById('ft-closeBasedStops').checked,

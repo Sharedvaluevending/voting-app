@@ -323,6 +323,41 @@
         </div>
       </div>
 
+      <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
+        <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Risk Controls</h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+          <div>
+            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Max Daily Loss % (0=off)</label>
+            <input type="number" name="maxDailyLossPercent" value="<%= (user.settings && user.settings.maxDailyLossPercent) != null ? user.settings.maxDailyLossPercent : 0 %>" min="0" max="20" step="1" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;" placeholder="0">
+          </div>
+          <div>
+            <label class="ft-toggle" title="Halve position size when in drawdown" style="margin-bottom:4px;">
+              <input type="checkbox" name="drawdownSizingEnabled" value="true" <%= (user.settings && user.settings.drawdownSizingEnabled) === true ? 'checked' : '' %> onchange="document.getElementById('dd-thresh-wrap').style.display=this.checked?'block':'none'"> <span class="ft-badge ft-risk">RISK</span> Drawdown Sizing
+            </label>
+            <div id="dd-thresh-wrap" style="display:<%= (user.settings && user.settings.drawdownSizingEnabled) === true ? 'block' : 'none' %>;margin-top:6px;">
+              <input type="number" name="drawdownThresholdPercent" value="<%= (user.settings && user.settings.drawdownThresholdPercent) ?? 10 %>" min="5" max="50" step="1" style="width:80px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;"> % threshold
+            </div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Min 24h Volume USD (0=off)</label>
+            <input type="number" name="minVolume24hUsd" value="<%= (user.settings && user.settings.minVolume24hUsd) ?? 0 %>" min="0" step="1000000" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;" placeholder="0">
+          </div>
+          <div>
+            <label class="ft-toggle" title="Block opening a trade if it's correlated with an open position (e.g. ETH + MATIC in same group)">
+              <input type="checkbox" name="correlationFilterEnabled" value="true" <%= (user.settings && user.settings.correlationFilterEnabled) === true ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> Correlation Filter
+            </label>
+          </div>
+          <div>
+            <label class="ft-toggle" title="Block trades when strategy expectancy is below threshold (needs 10+ trades)" onchange="document.getElementById('minExp-wrap').style.display=this.checked?'block':'none'">
+              <input type="checkbox" name="expectancyFilterEnabled" value="true" id="expectancyFilterCb" <%= (user.settings && user.settings.expectancyFilterEnabled) === true ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> Expectancy Filter
+            </label>
+            <div id="minExp-wrap" style="display:<%= (user.settings && user.settings.expectancyFilterEnabled) === true ? 'block' : 'none' %>;margin-top:6px;">
+              <input type="number" name="minExpectancy" value="<%= (user.settings && user.settings.minExpectancy) ?? 0.15 %>" min="-1" max="2" step="0.05" style="width:80px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;"> min expectancy
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
         <!-- Signal Filters -->
         <label class="ft-toggle" title="Block altcoin LONGs when BTC is STRONG_SELL, block SHORTs when BTC is STRONG_BUY">
@@ -921,13 +956,20 @@ function setLiveToggles(val) {
         confidenceSizing: 'featureConfidenceSizing',
         priceActionConfluence: 'featurePriceActionConfluence',
         volatilityFilter: 'featureVolatilityFilter',
-        volumeConfirmation: 'featureVolumeConfirmation'
+        volumeConfirmation: 'featureVolumeConfirmation',
+        minRiskRewardEnabled: 'minRiskRewardEnabled',
+        minRiskReward: 'minRiskReward',
+        correlationFilterEnabled: 'correlationFilterEnabled'
       };
       for (var key in mapping) {
         var input = document.querySelector('#feature-toggles-form input[name="' + mapping[key] + '"]');
         if (input && preset[key] !== undefined) {
-          input.checked = preset[key];
+          if (input.type === 'checkbox') input.checked = preset[key];
+          else input.value = preset[key];
         }
+      }
+      if (preset.minRiskRewardEnabled && document.getElementById('minRrValueWrap')) {
+        document.getElementById('minRrValueWrap').style.display = 'flex';
       }
       alert('Backtest preset loaded! Click "Save Toggles" to apply.');
     } catch (e) {

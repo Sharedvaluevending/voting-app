@@ -57,7 +57,15 @@ const userSchema = new mongoose.Schema({
     dcaMaxAdds: { type: Number, default: 3, min: 1, max: 10 },
     dcaDipPercent: { type: Number, default: 2, min: 0.5, max: 20 },
     dcaAddSizePercent: { type: Number, default: 100, min: 25, max: 200 },
-    dcaMinScore: { type: Number, default: 52, min: 30, max: 95 }
+    dcaMinScore: { type: Number, default: 52, min: 30, max: 95 },
+    // Risk controls
+    maxDailyLossPercent: { type: Number, default: 0, min: 0, max: 20 },
+    drawdownSizingEnabled: { type: Boolean, default: false },
+    drawdownThresholdPercent: { type: Number, default: 10, min: 5, max: 50 },
+    minVolume24hUsd: { type: Number, default: 0, min: 0, max: 500000000 },
+    expectancyFilterEnabled: { type: Boolean, default: false },
+    minExpectancy: { type: Number, default: 0.15, min: -1, max: 2 },
+    correlationFilterEnabled: { type: Boolean, default: false }
   },
   excludedCoins: [{ type: String }], // Coins excluded from auto-trade (e.g. ['dogecoin', 'cardano']),
   // Coin weights from backtest (1.0 = normal, 1.2 = 20% more allocation, 0.8 = 20% less)
