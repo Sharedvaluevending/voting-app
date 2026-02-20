@@ -2086,7 +2086,8 @@ app.post('/api/backtest', async (req, res) => {
     }
     let coinsToRun = coins && Array.isArray(coins) ? coins : (coinId ? [coinId] : undefined);
     if (!coinsToRun && TRACKED_COINS) {
-      coinsToRun = TRACKED_COINS.slice(0, 6);
+      // Limit to 3 coins by default to stay under typical 30s hosting timeout (Render, etc.)
+      coinsToRun = TRACKED_COINS.slice(0, 3);
     }
 
     // Fetch user settings when logged in (strategy weights, excluded coins, coin weights, maxOpenTrades)

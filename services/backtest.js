@@ -143,8 +143,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
  * Coins are processed in parallel batches to stay within API rate limits
  * while keeping total time well under Render's 30s request timeout.
  */
-const PER_COIN_BACKTEST_TIMEOUT = 20000; // 20s max per coin simulation
-const PARALLEL_BATCH_SIZE = 3; // process 3 coins at a time (avoids Bitget rate limits)
+const PER_COIN_BACKTEST_TIMEOUT = 12000; // 12s max per coin (fits ~30s hosting timeout)
+const PARALLEL_BATCH_SIZE = 2; // 2 coins at a time (stays under Render/Heroku 30s limit)
 
 async function runBacktest(startMs, endMs, options) {
   options = options || {};

@@ -12,7 +12,7 @@
     <div>
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Coin</label>
       <select name="coinId" id="coinId" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
-        <option value="">All coins (first 6, ~30s)</option>
+        <option value="">All coins (first 3, ~25s)</option>
         <% if (typeof TRACKED_COINS !== 'undefined' && TRACKED_COINS) { %>
           <% TRACKED_COINS.forEach(function(cid) { %>
             <option value="<%= cid %>"><%= cid %></option>
@@ -462,12 +462,13 @@ function renderActionBadgesForTrade(actions) {
 
     try {
       var controller = new AbortController();
-      var timeoutId = setTimeout(function() { controller.abort(); }, 120000);
+      var timeoutId = setTimeout(function() { controller.abort(); }, 60000);
       var res = await fetch('/api/backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: controller.signal
+        signal: controller.signal,
+        credentials: 'same-origin'
       });
       clearTimeout(timeoutId);
       var data = await res.json();
@@ -578,7 +579,11 @@ function renderActionBadgesForTrade(actions) {
       }
     } catch (err) {
       loading.style.display = 'none';
-      alert(err.message || 'Backtest failed');
+      var msg = err.message || 'Backtest failed';
+      if (msg === 'Failed to fetch' || err.name === 'AbortError' || msg.includes('fetch')) {
+        msg = 'Request timed out or network error. Try fewer coins (e.g. single coin) or a shorter date range (7–14 days).';
+      }
+      alert(msg);
     }
     runBtn.disabled = false;
   });
