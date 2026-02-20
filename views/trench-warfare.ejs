@@ -1,0 +1,342 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Trench Warfare</h2>
+  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Solana memecoin scalping — find pumping coins, quick trades. Connect Phantom to trade directly.</p>
+</div>
+
+<!-- Hero -->
+<div class="section" style="margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;">
+  <h3 style="color:#e5e7eb;margin-bottom:8px;">Shitcoin Scalping Hub</h3>
+  <p style="font-size:13px;color:#9ca3af;margin:0;">Trending Solana tokens from Mobula. Paper trade with fake $ or connect Phantom for real swaps. DYOR — not financial advice.</p>
+  <div style="margin-top:12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+    <div style="display:flex;gap:8px;">
+      <button type="button" id="btn-mode-paper" class="nav-btn" style="padding:8px 16px;">Paper</button>
+      <button type="button" id="btn-mode-live" class="nav-btn" style="padding:8px 16px;">Live (Phantom)</button>
+    </div>
+    <% if (typeof user !== 'undefined' && user) { %>
+    <span id="paper-balance" style="color:#10b981;font-size:14px;font-weight:600;">Paper: $<%= (trenchPaperBalance || 1000).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) %></span>
+    <button type="button" id="btn-reset-paper" class="nav-btn" style="padding:6px 12px;font-size:12px;" title="Reset to $1,000">Reset</button>
+    <% } else { %>
+    <span style="color:#6b7280;font-size:13px;">Login to paper trade</span>
+    <% } %>
+    <button type="button" id="btn-connect-wallet" class="nav-btn" style="padding:6px 12px;font-size:12px;display:none;">Connect Phantom</button>
+    <span id="wallet-status" style="color:#6b7280;font-size:13px;"></span>
+  </div>
+</div>
+
+<!-- Open Paper Positions -->
+<% if (typeof user !== 'undefined' && user && openPositions && openPositions.length > 0) { %>
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Open Positions (Paper)</h3>
+  <div style="overflow-x:auto;">
+    <table class="data-table">
+      <thead>
+        <tr><th>Token</th><th>Amount</th><th>Entry</th><th>Cost</th><th>Action</th></tr>
+      </thead>
+      <tbody>
+        <% openPositions.forEach(function(p) { %>
+        <tr data-position-id="<%= p._id %>" data-token-address="<%= p.tokenAddress %>">
+          <td><strong><%= p.tokenSymbol %></strong></td>
+          <td><%= (p.tokenAmount || 0).toLocaleString(undefined, {maximumFractionDigits:0}) %></td>
+          <td>$<%= (p.entryPrice || 0).toLocaleString(undefined, {minimumFractionDigits:6, maximumFractionDigits:8}) %></td>
+          <td>$<%= (p.amountIn || 0).toFixed(2) %></td>
+          <td><button type="button" class="btn-sell-paper nav-btn" style="padding:4px 10px;font-size:12px;">Sell</button></td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+<% } %>
+
+<!-- Trending Now -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Trending Now (Solana)</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Updated every 15 min. Click Buy to swap SOL for token (requires Phantom).</p>
+  <% if (trendings && trendings.length > 0) { %>
+  <div style="overflow-x:auto;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Token</th>
+          <th>Price</th>
+          <th>24h %</th>
+          <th>Score</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% trendings.forEach(function(t, i) {
+          var chg = (t.priceChange24h || 0);
+          var chgClass = chg >= 0 ? 'up' : 'down';
+        %>
+        <tr>
+          <td><%= i + 1 %></td>
+          <td>
+            <% if (t.logo) { %><img src="<%= t.logo %>" alt="" style="width:24px;height:24px;border-radius:50%;vertical-align:middle;margin-right:8px;"><% } %>
+            <strong style="color:#e5e7eb;"><%= t.symbol %></strong>
+            <span style="color:#6b7280;font-size:11px;"><%= t.name %></span>
+          </td>
+          <td>$<%= (t.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 }) %></td>
+          <td class="<%= chgClass %>"><%= chg >= 0 ? '+' : '' %><%= Number(chg).toFixed(2) %>%</td>
+          <td><%= (t.trendingScore || 0).toFixed(1) %></td>
+          <td>
+            <% if (t.tokenAddress) { %>
+            <button type="button" class="btn-buy-token nav-btn" style="padding:4px 10px;font-size:12px;" data-token-address="<%= t.tokenAddress %>" data-symbol="<%= t.symbol %>" data-name="<%= t.name %>" data-price="<%= t.price || 0 %>">Buy</button>
+            <% } else { %>
+            <span style="color:#6b7280;font-size:11px;">—</span>
+            <% } %>
+          </td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+  <% } else { %>
+  <p style="color:#6b7280;font-size:13px;">No trending data. Check Mobula API or try again later.</p>
+  <% } %>
+</div>
+
+<!-- Quick Links -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Quick Links</h3>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
+    <a href="https://dexscreener.com/solana" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">Dexscreener</a>
+    <a href="https://pump.fun" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">pump.fun</a>
+    <a href="https://jup.ag" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">Jupiter</a>
+    <a href="https://birdeye.so" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">Birdeye</a>
+    <a href="https://mobula.io" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">Mobula</a>
+  </div>
+</div>
+
+<!-- Scalping Criteria -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Scalping Criteria</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Key filters for shitcoin scalps.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">
+    <div style="padding:10px 14px;background:#1e293b;border-radius:8px;border-left:3px solid #10b981;"><strong style="color:#e5e7eb;">Liquidity</strong><br><span style="font-size:12px;color:#9ca3af;">$50k+ pool, volume spike</span></div>
+    <div style="padding:10px 14px;background:#1e293b;border-radius:8px;border-left:3px solid #3b82f6;"><strong style="color:#e5e7eb;">Momentum</strong><br><span style="font-size:12px;color:#9ca3af;">5m/15m % change, not parabolic</span></div>
+    <div style="padding:10px 14px;background:#1e293b;border-radius:8px;border-left:3px solid #a78bfa;"><strong style="color:#e5e7eb;">Smart Money</strong><br><span style="font-size:12px;color:#9ca3af;">Whale buys, sniper activity</span></div>
+    <div style="padding:10px 14px;background:#1e293b;border-radius:8px;border-left:3px solid #eab308;"><strong style="color:#e5e7eb;">Security</strong><br><span style="font-size:12px;color:#9ca3af;">No honeypot, holder distribution</span></div>
+    <div style="padding:10px 14px;background:#1e293b;border-radius:8px;border-left:3px solid #f97316;"><strong style="color:#e5e7eb;">Timing</strong><br><span style="font-size:12px;color:#9ca3af;">Volume before price, pullback entry</span></div>
+    <div style="padding:10px 14px;background:#1e293b;border-radius:8px;border-left:3px solid #ef4444;"><strong style="color:#e5e7eb;">Exit</strong><br><span style="font-size:12px;color:#9ca3af;">10–25% TP, 5–10% SL, time stop</span></div>
+  </div>
+</div>
+
+<!-- Buy Modal -->
+<div id="buy-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#111827;border:1px solid #1e2a3a;border-radius:12px;padding:24px;max-width:400px;width:100%;">
+    <h3 style="color:#fff;margin:0 0 16px 0;">Buy <span id="modal-token-symbol"></span></h3>
+    <p id="modal-desc" style="color:#9ca3af;font-size:12px;margin:0 0 12px 0;">Paper: spend USD. Live: swap SOL via Phantom.</p>
+    <div id="modal-amount-row" style="margin-bottom:12px;">
+      <label style="display:block;color:#9ca3af;font-size:12px;margin-bottom:4px;">Amount (<span id="modal-amount-label">USD</span>)</label>
+      <input type="number" id="modal-amount" step="0.01" min="0.01" placeholder="10" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;font-size:14px;">
+    </div>
+    <div id="modal-slippage-row" style="margin-bottom:16px;display:none;">
+      <label style="display:block;color:#9ca3af;font-size:12px;margin-bottom:4px;">Slippage (%)</label>
+      <input type="number" id="modal-slippage" value="5" min="1" max="50" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;font-size:14px;">
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button type="button" id="modal-cancel" class="nav-btn" style="flex:1;">Cancel</button>
+      <button type="button" id="modal-confirm" class="nav-btn primary" style="flex:1;">Confirm Buy</button>
+    </div>
+    <div id="modal-status" style="margin-top:12px;font-size:12px;color:#9ca3af;"></div>
+  </div>
+</div>
+
+<script>window.__TRENDINGS__ = <%- JSON.stringify((trendings || []).map(function(t){ return { tokenAddress: t.tokenAddress, price: t.price }; })) %>;</script>
+<script src="https://unpkg.com/@solana/web3.js@1.95.4/lib/index.iife.min.js"></script>
+<script src="/js/trench-phantom.js"></script>
+<script>
+(function() {
+  var walletPubkey = null;
+  var modalToken = null;
+  var isPaperMode = true;
+
+  function setMode(paper) {
+    isPaperMode = !!paper;
+    var paperBtn = document.getElementById('btn-mode-paper');
+    var liveBtn = document.getElementById('btn-mode-live');
+    if (paperBtn) paperBtn.className = isPaperMode ? 'nav-btn primary' : 'nav-btn';
+    if (liveBtn) liveBtn.className = !isPaperMode ? 'nav-btn primary' : 'nav-btn';
+    document.getElementById('modal-slippage-row').style.display = isPaperMode ? 'none' : 'block';
+    document.getElementById('modal-amount-label').textContent = isPaperMode ? 'USD' : 'SOL';
+    document.getElementById('modal-amount').placeholder = isPaperMode ? '10' : '0.1';
+  }
+
+  function showModal(token) {
+    modalToken = token;
+    document.getElementById('modal-token-symbol').textContent = token.symbol;
+    document.getElementById('modal-amount').value = isPaperMode ? '10' : '0.1';
+    document.getElementById('modal-slippage').value = '5';
+    document.getElementById('modal-status').textContent = '';
+    document.getElementById('modal-slippage-row').style.display = isPaperMode ? 'none' : 'block';
+    document.getElementById('modal-amount-label').textContent = isPaperMode ? 'USD' : 'SOL';
+    document.getElementById('buy-modal').style.display = 'flex';
+  }
+
+  function hideModal() {
+    document.getElementById('buy-modal').style.display = 'none';
+    modalToken = null;
+  }
+
+  function getPriceForToken(addr) {
+    var list = window.__TRENDINGS__ || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].tokenAddress === addr) return list[i].price || 0;
+    }
+    return 0;
+  }
+
+  document.getElementById('btn-mode-paper').addEventListener('click', function() { setMode(true); });
+  document.getElementById('btn-mode-live').addEventListener('click', function() {
+    setMode(false);
+    document.getElementById('btn-connect-wallet').style.display = 'inline-block';
+  });
+  document.getElementById('btn-connect-wallet').addEventListener('click', function() {
+    if (window.TrenchPhantom && window.TrenchPhantom.connect) {
+      window.TrenchPhantom.connect().then(function(pk) {
+        walletPubkey = pk;
+        document.getElementById('wallet-status').textContent = 'Connected: ' + (pk ? pk.slice(0,4) + '...' + pk.slice(-4) : '');
+      }).catch(function(err) {
+        document.getElementById('wallet-status').textContent = 'Error: ' + (err.message || 'Install Phantom');
+      });
+    } else {
+      document.getElementById('wallet-status').textContent = 'Phantom not found.';
+    }
+  });
+  setMode(true);
+
+  document.getElementById('btn-reset-paper').addEventListener('click', function() {
+    if (!confirm('Reset trench paper balance to $1,000? Close all positions first.')) return;
+    fetch('/api/trench-warfare/paper/reset', { method: 'POST', credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.success) { document.getElementById('paper-balance').textContent = 'Paper: $' + d.trenchPaperBalance.toFixed(2); location.reload(); }
+      });
+  });
+
+  document.querySelectorAll('.btn-buy-token').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var tokenAddress = this.getAttribute('data-token-address');
+      var symbol = this.getAttribute('data-symbol');
+      var name = this.getAttribute('data-name');
+      var price = parseFloat(this.getAttribute('data-price')) || 0;
+      if (isPaperMode) {
+        if (!<%= typeof user !== 'undefined' && user ? 'true' : 'false' %>) { alert('Login to paper trade.'); return; }
+        if (!price || price <= 0) { alert('Token price not available.'); return; }
+        showModal({ tokenAddress: tokenAddress, symbol: symbol, name: name, price: price });
+      } else {
+        if (!walletPubkey) { alert('Connect Phantom first (click Live).'); return; }
+        showModal({ tokenAddress: tokenAddress, symbol: symbol, name: name, price: price });
+      }
+    });
+  });
+
+  document.querySelectorAll('.btn-sell-paper').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var row = this.closest('tr');
+      var posId = row.getAttribute('data-position-id');
+      var tokenAddr = row.getAttribute('data-token-address');
+      var price = getPriceForToken(tokenAddr);
+      if (!price || price <= 0) { alert('Price not found. Refresh page to update.'); return; }
+      fetch('/api/trench-warfare/paper/sell', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ positionId: posId, currentPrice: price })
+      }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.error) alert(d.error);
+        else location.reload();
+      });
+    });
+  });
+
+  document.getElementById('modal-cancel').addEventListener('click', hideModal);
+
+  document.getElementById('modal-confirm').addEventListener('click', function() {
+    if (!modalToken) return;
+    var amount = parseFloat(document.getElementById('modal-amount').value);
+    if (!amount || amount <= 0) {
+      document.getElementById('modal-status').textContent = 'Enter valid amount.';
+      return;
+    }
+    var statusEl = document.getElementById('modal-status');
+
+    if (isPaperMode) {
+      statusEl.textContent = 'Buying...';
+      fetch('/api/trench-warfare/paper/buy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          tokenAddress: modalToken.tokenAddress,
+          tokenSymbol: modalToken.symbol,
+          tokenName: modalToken.name,
+          amountUsd: amount,
+          price: modalToken.price || 0
+        })
+      }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.error) statusEl.textContent = d.error;
+        else { statusEl.textContent = 'Done!'; document.getElementById('paper-balance').textContent = 'Paper: $' + d.trenchPaperBalance.toFixed(2); setTimeout(function(){ hideModal(); location.reload(); }, 500); }
+      }).catch(function(e) { statusEl.textContent = 'Error: ' + e.message; });
+      return;
+    }
+
+    if (!walletPubkey) { statusEl.textContent = 'Connect Phantom first.'; return; }
+    var slippage = parseFloat(document.getElementById('modal-slippage').value) || 5;
+    statusEl.textContent = 'Getting quote...';
+    fetch('/api/trench-warfare/swap/quote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tokenOut: modalToken.tokenAddress,
+        amount: amount,
+        walletAddress: walletPubkey,
+        slippage: slippage
+      })
+    }).then(function(r) { return r.json(); }).then(function(quote) {
+      if (quote.error) throw new Error(quote.error);
+      var solana = quote.data && quote.data.solana;
+      var serialized = solana && solana.transaction && solana.transaction.serialized;
+      if (!serialized) throw new Error('No transaction in quote');
+      statusEl.textContent = 'Sign in Phantom...';
+      return window.TrenchPhantom.signAndSendTransaction(serialized);
+    }).then(function(signedB64) {
+      statusEl.textContent = 'Sending...';
+      return fetch('/api/trench-warfare/swap/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signedTransaction: signedB64,
+          tokenAddress: modalToken.tokenAddress,
+          tokenSymbol: modalToken.symbol,
+          tokenName: modalToken.name,
+          amountIn: amount,
+          side: 'BUY',
+          walletAddress: walletPubkey
+        })
+      });
+    }).then(function(r) { return r.json(); }).then(function(result) {
+      if (result.error) throw new Error(result.error);
+      var data = result.data || result;
+      if (data.success && data.transactionHash) {
+        statusEl.innerHTML = 'Done! <a href="https://solscan.io/tx/' + data.transactionHash + '" target="_blank" rel="noopener" style="color:#3b82f6;">View tx</a>';
+        hideModal();
+      } else {
+        statusEl.textContent = 'Failed: ' + (result.error || 'Unknown');
+      }
+    }).catch(function(err) {
+      statusEl.textContent = 'Error: ' + (err.message || err);
+    });
+  });
+
+  document.getElementById('buy-modal').addEventListener('click', function(e) {
+    if (e.target === this) hideModal();
+  });
+})();
+</script>
+
+<%- include('partials/footer') %>

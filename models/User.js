@@ -7,6 +7,8 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   paperBalance: { type: Number, default: 10000 },
   initialBalance: { type: Number, default: 10000 },
+  trenchPaperBalance: { type: Number, default: 1000 },
+  trenchPaperBalanceInitial: { type: Number, default: 1000 },
   tier: { type: String, enum: ['free', 'premium'], default: 'free' },
   settings: {
     defaultLeverage: { type: Number, default: 2, min: 1, max: 20 },

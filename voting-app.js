@@ -1819,6 +1819,191 @@ app.get('/backtest-results', (req, res) => {
 });
 
 // ====================================================
+// TRENCH WARFARE - Shitcoin scalping hub (Solana memecoins)
+// ====================================================
+app.get('/trench-warfare', async (req, res) => {
+  const mobula = require('./services/mobula-api');
+  const ScalpTrade = require('./models/ScalpTrade');
+  let trendings = [];
+  try {
+    trendings = await mobula.fetchMetaTrendings('solana');
+  } catch (e) {
+    console.error('[TrenchWarfare] Mobula fetch failed:', e.message);
+  }
+  let openPositions = [];
+  const user = req.session?.userId ? await User.findById(req.session.userId).lean() : null;
+  if (user) {
+    openPositions = await ScalpTrade.find({ userId: user._id, isPaper: true, status: 'OPEN' }).sort({ createdAt: -1 }).lean();
+  }
+  res.render('trench-warfare', {
+    activePage: 'trench-warfare',
+    pageTitle: 'Trench Warfare',
+    trendings,
+    user,
+    trenchPaperBalance: user ? (user.trenchPaperBalance ?? 1000) : 0,
+    openPositions
+  });
+});
+
+app.get('/api/trench-warfare/trendings', async (req, res) => {
+  const mobula = require('./services/mobula-api');
+  try {
+    const data = await mobula.fetchMetaTrendings(req.query.blockchain || 'solana');
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/swap/quote', async (req, res) => {
+  const mobula = require('./services/mobula-api');
+  try {
+    const { tokenOut, amount, walletAddress, slippage } = req.body || {};
+    if (!tokenOut || !amount || !walletAddress) {
+      return res.status(400).json({ error: 'Missing tokenOut, amount, or walletAddress' });
+    }
+    const quote = await mobula.getSwapQuote(
+      'solana',
+      mobula.SOL_MINT,
+      tokenOut,
+      amount,
+      walletAddress,
+      { slippage: slippage ?? 5 }
+    );
+    res.json(quote);
+  } catch (e) {
+    console.error('[TrenchWarfare] Swap quote failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/paper/buy', requireLogin, async (req, res) => {
+  const ScalpTrade = require('./models/ScalpTrade');
+  try {
+    const { tokenAddress, tokenSymbol, tokenName, amountUsd, price } = req.body || {};
+    if (!tokenAddress || !tokenSymbol || !amountUsd || !price || price <= 0) {
+      return res.status(400).json({ error: 'Missing tokenAddress, tokenSymbol, amountUsd, or price' });
+    }
+    const amount = parseFloat(amountUsd);
+    const tokenPrice = parseFloat(price);
+    if (amount <= 0 || !Number.isFinite(amount)) {
+      return res.status(400).json({ error: 'Invalid amount' });
+    }
+    if (!tokenPrice || tokenPrice <= 0 || !Number.isFinite(tokenPrice)) {
+      return res.status(400).json({ error: 'Invalid token price. Refresh the page.' });
+    }
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const balance = user.trenchPaperBalance ?? 1000;
+    if (amount > balance) {
+      return res.status(400).json({ error: 'Insufficient trench paper balance. Need $' + amount.toFixed(2) + ', have $' + balance.toFixed(2) });
+    }
+    const tokenAmount = amount / tokenPrice;
+    user.trenchPaperBalance = Math.round((balance - amount) * 100) / 100;
+    await user.save();
+    await ScalpTrade.create({
+      userId: user._id,
+      walletAddress: 'paper',
+      isPaper: true,
+      tokenAddress,
+      tokenSymbol,
+      tokenName,
+      side: 'BUY',
+      amountIn: amount,
+      tokenAmount,
+      entryPrice: tokenPrice,
+      status: 'OPEN'
+    });
+    res.json({ success: true, trenchPaperBalance: user.trenchPaperBalance });
+  } catch (e) {
+    console.error('[TrenchWarfare] Paper buy failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/paper/sell', requireLogin, async (req, res) => {
+  const ScalpTrade = require('./models/ScalpTrade');
+  try {
+    const { positionId, currentPrice } = req.body || {};
+    if (!positionId || !currentPrice || currentPrice <= 0) {
+      return res.status(400).json({ error: 'Missing positionId or currentPrice' });
+    }
+    const pos = await ScalpTrade.findOne({ _id: positionId, userId: req.session.userId, isPaper: true, status: 'OPEN' });
+    if (!pos) return res.status(404).json({ error: 'Position not found' });
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const exitPrice = parseFloat(currentPrice);
+    const valueOut = pos.tokenAmount * exitPrice;
+    const pnl = valueOut - pos.amountIn;
+    user.trenchPaperBalance = Math.round(((user.trenchPaperBalance ?? 1000) + valueOut) * 100) / 100;
+    await user.save();
+    pos.exitPrice = exitPrice;
+    pos.amountOut = valueOut;
+    pos.pnl = Math.round(pnl * 100) / 100;
+    pos.status = 'CLOSED';
+    pos.exitTime = new Date();
+    await pos.save();
+    res.json({ success: true, trenchPaperBalance: user.trenchPaperBalance, pnl });
+  } catch (e) {
+    console.error('[TrenchWarfare] Paper sell failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/paper/reset', requireLogin, async (req, res) => {
+  const ScalpTrade = require('./models/ScalpTrade');
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const openCount = await ScalpTrade.countDocuments({ userId: user._id, isPaper: true, status: 'OPEN' });
+    if (openCount > 0) {
+      return res.status(400).json({ error: 'Close all open positions before reset' });
+    }
+    user.trenchPaperBalance = 1000;
+    user.trenchPaperBalanceInitial = 1000;
+    await user.save();
+    res.json({ success: true, trenchPaperBalance: 1000 });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/swap/send', async (req, res) => {
+  const mobula = require('./services/mobula-api');
+  const ScalpTrade = require('./models/ScalpTrade');
+  try {
+    const { signedTransaction, tokenAddress, tokenSymbol, tokenName, amountIn, side, walletAddress } = req.body || {};
+    if (!signedTransaction) {
+      return res.status(400).json({ error: 'Missing signedTransaction' });
+    }
+    const result = await mobula.sendSwapTransaction('solana', signedTransaction);
+    const data = result.data || result;
+    if (data.success && data.transactionHash && (tokenAddress || tokenSymbol)) {
+      try {
+        await ScalpTrade.create({
+          userId: req.session?.userId || null,
+          walletAddress: walletAddress || '',
+          tokenAddress: tokenAddress || '',
+          tokenSymbol: tokenSymbol || '',
+          tokenName: tokenName || '',
+          side: side || 'BUY',
+          amountIn: amountIn || 0,
+          amountOut: 0,
+          txHash: data.transactionHash,
+          status: 'CONFIRMED'
+        });
+      } catch (logErr) {
+        console.warn('[TrenchWarfare] ScalpTrade log failed:', logErr.message);
+      }
+    }
+    res.json(result);
+  } catch (e) {
+    console.error('[TrenchWarfare] Swap send failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ====================================================
 // LEARNING ENGINE - Optimize weights (optional, apply only if improved)
 // ====================================================
 app.post('/api/learning/optimize/:strategyId', requireLogin, async (req, res) => {
