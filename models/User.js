@@ -47,7 +47,11 @@ const userSchema = new mongoose.Schema({
     pausedReason: { type: String, default: '' },
     // Notifications
     trenchNotifyTradeOpen: { type: Boolean, default: true },
-    trenchNotifyTradeClose: { type: Boolean, default: true }
+    trenchNotifyTradeClose: { type: Boolean, default: true },
+    // Profit payout (live mode only)
+    profitPayoutAddress: { type: String, default: '' },
+    profitPayoutPercent: { type: Number, default: 0, min: 0, max: 100 },
+    profitPayoutMinSol: { type: Number, default: 0.1, min: 0.01, max: 10 }
   },
   trenchBlacklist: [{ type: String }],
   trenchStats: {

@@ -96,35 +96,48 @@ function scoreCandidate(t) {
   const change = t.priceChange24h || 0;
   const vol = t.volume24h || 0;
   const liq = t.liquidity || 0;
+  const buyPressure = t.buyPressure || 0.5;
+  const organicScore = t.organicScore || 0;
 
-  // Hard rejects: extreme pumps, crashing, or no real activity
+  // Hard rejects
   if (change > 500) return -1;
   if (change < -25) return -1;
   if (vol < 15000) return -1;
   if (liq < 8000) return -1;
+  if (buyPressure < 0.35) return -1;  // heavy selling = avoid
 
   let score = 0;
 
-  // Sweet spot: 5-100% gains are early enough to still have upside
-  if (change >= 5 && change <= 50) score += 35;
-  else if (change > 50 && change <= 100) score += 30;
-  else if (change > 100 && change <= 200) score += 25;
-  else if (change > 200 && change <= 500) score += 15;
-  else if (change >= 0 && change < 5) score += 10;
+  // Price change sweet spot: 5-100% gains
+  if (change >= 5 && change <= 50) score += 30;
+  else if (change > 50 && change <= 100) score += 25;
+  else if (change > 100 && change <= 200) score += 20;
+  else if (change > 200 && change <= 500) score += 10;
+  else if (change >= 0 && change < 5) score += 8;
 
-  // Higher volume = safer to enter/exit
-  if (vol >= 200000) score += 30;
-  else if (vol >= 100000) score += 25;
-  else if (vol >= 50000) score += 20;
-  else if (vol >= 15000) score += 12;
-  else score += 5;
-
-  // Higher liquidity = less slippage
-  if (liq >= 100000) score += 25;
-  else if (liq >= 50000) score += 20;
-  else if (liq >= 25000) score += 15;
-  else if (liq >= 8000) score += 10;
+  // Volume tiers
+  if (vol >= 200000) score += 25;
+  else if (vol >= 100000) score += 20;
+  else if (vol >= 50000) score += 15;
+  else if (vol >= 15000) score += 10;
   else score += 3;
+
+  // Liquidity tiers
+  if (liq >= 100000) score += 20;
+  else if (liq >= 50000) score += 16;
+  else if (liq >= 25000) score += 12;
+  else if (liq >= 8000) score += 8;
+  else score += 2;
+
+  // Buy pressure bonus (from Jupiter data)
+  if (buyPressure >= 0.6) score += 15;
+  else if (buyPressure >= 0.55) score += 10;
+  else if (buyPressure >= 0.5) score += 5;
+
+  // Jupiter organic score bonus (real activity vs wash trading)
+  if (organicScore >= 80) score += 15;
+  else if (organicScore >= 50) score += 10;
+  else if (organicScore >= 20) score += 5;
 
   return score;
 }
@@ -166,7 +179,7 @@ async function fetchTrendingsCached() {
   scored.sort((a, b) => b._qualityScore - a._qualityScore);
 
   const all = Array.from(seen.values());
-  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$15k, liq>$8k, 24h<500%)`);
+  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$15k, liq>$8k, 24h<500%, buyP>35%)`);
 
   trendingCache = { data: scored, fetchedAt: Date.now() };
   return scored;
@@ -371,6 +384,45 @@ async function executeLiveSell(user, pos, currentPrice, keypair) {
 }
 
 // ====================================================
+// Profit payout: auto-send profits to another wallet
+// ====================================================
+async function sendProfitPayout(user, keypair, profitSol) {
+  const settings = user.trenchAuto || {};
+  const payoutAddr = settings.profitPayoutAddress;
+  const payoutPct = settings.profitPayoutPercent || 0;
+  const payoutMin = settings.profitPayoutMinSol || 0.1;
+
+  if (!payoutAddr || payoutPct <= 0 || profitSol <= 0) return null;
+
+  const payoutAmount = profitSol * (payoutPct / 100);
+  if (payoutAmount < payoutMin) return null;
+
+  try {
+    const { Connection, PublicKey, Transaction, SystemProgram } = require('@solana/web3.js');
+    const conn = new Connection(process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com');
+
+    const walletBal = await conn.getBalance(keypair.publicKey);
+    const reserveSol = (settings.minSolBalance || 0.05) + 0.01;
+    const availableSol = (walletBal / 1e9) - reserveSol;
+    if (availableSol < payoutAmount) return null;
+
+    const lamports = Math.floor(payoutAmount * 1e9);
+    const tx = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: keypair.publicKey,
+        toPubkey: new PublicKey(payoutAddr),
+        lamports
+      })
+    );
+    const sig = await conn.sendTransaction(tx, [keypair]);
+    return { amount: payoutAmount, sig };
+  } catch (e) {
+    console.error('[TrenchBot] Profit payout failed:', e.message);
+    return null;
+  }
+}
+
+// ====================================================
 // EXIT TICK - Fast loop (every 10s) to monitor open positions
 // Only fetches fresh prices for held tokens, no scanning
 // ====================================================
@@ -477,6 +529,15 @@ async function exitTick(userId) {
         sellCount++;
         botLog(userId, `LIVE SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)}`);
         notifyUser(user, `Trench LIVE SELL ${pos.tokenSymbol}`, `PnL: $${pnl.toFixed(2)}`, 'close').catch(() => {});
+
+        if (pnl > 0 && settings.profitPayoutAddress) {
+          const solPrice = currentPrice > 1 ? currentPrice : 85;
+          const profitSol = pnl / solPrice;
+          const payout = await sendProfitPayout(user, keypair, profitSol);
+          if (payout) {
+            botLog(userId, `PAYOUT ${payout.amount.toFixed(4)} SOL sent to ${settings.profitPayoutAddress.slice(0, 8)}...`);
+          }
+        }
       }
     }
   }
@@ -500,7 +561,7 @@ async function entryTick(userId) {
 
   const settings = user.trenchAuto || {};
   const mode = settings.mode || 'paper';
-  const maxPositions = settings.maxOpenPositions ?? 3;
+  const maxPositions = settings.maxOpenPositions ?? 6;
   const blacklist = user.trenchBlacklist || [];
 
   // Risk check
@@ -578,7 +639,9 @@ async function entryTick(userId) {
         bot.tradesOpened++;
         const vol = (t.volume24h || 0) >= 1000 ? '$' + Math.round((t.volume24h || 0) / 1000) + 'k' : '$' + Math.round(t.volume24h || 0);
         const liq = (t.liquidity || 0) >= 1000 ? '$' + Math.round((t.liquidity || 0) / 1000) + 'k' : '$' + Math.round(t.liquidity || 0);
-        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${slippedEntry.toFixed(8)} (listed: $${t.price.toFixed(8)}, slip: +${(PAPER_SLIPPAGE * 100).toFixed(0)}%, 24h: ${(t.priceChange24h || 0).toFixed(1)}%, vol: ${vol}, liq: ${liq}, score: ${t._qualityScore || 0}, momentum: +${(momentum.changeSinceFirstSight || 0).toFixed(1)}%)`);
+        const bp = t.buyPressure ? ` bp:${(t.buyPressure * 100).toFixed(0)}%` : '';
+        const os = t.organicScore ? ` org:${Math.round(t.organicScore)}` : '';
+        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${slippedEntry.toFixed(8)} (24h: ${(t.priceChange24h || 0).toFixed(1)}%, vol: ${vol}, liq: ${liq}, score: ${t._qualityScore || 0}${bp}${os}, mom: +${(momentum.changeSinceFirstSight || 0).toFixed(1)}%)`);
         notifyUser(user, `Trench BUY ${t.symbol}`, `$${amount} @ $${slippedEntry.toFixed(8)}`, 'open').catch(() => {});
       } catch (err) {
         botLog(userId, `Buy failed ${t.symbol}: ${err.message}`);
@@ -674,7 +737,7 @@ function startBot(userId) {
   };
   activeBots.set(uid, bot);
 
-  botLog(userId, 'Bot STARTED — exits 10s, entries 90s, slip 2%, momentum 90s, vol>$20k, liq>$10k, max24h 200%');
+  botLog(userId, 'Bot STARTED — exits 10s, entries 60s, slip 2%, momentum 60s, vol>$15k, liq>$8k, max24h 500%');
 
   // First tick: run entry scan immediately (which also seeds momentum cache)
   entryTick(userId).catch(err => botLog(userId, `Entry error: ${err.message}`));
