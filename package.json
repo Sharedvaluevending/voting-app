@@ -25,9 +25,10 @@
   "dependencies": {
     "@solana/web3.js": "^1.95.4",
     "bcryptjs": "^2.4.3",
-    "bs58": "^5.0.0",
     "bitget-api": "^3.1.4",
+    "bs58": "^5.0.0",
     "connect-mongo": "^5.1.0",
+    "dotenv": "^17.3.1",
     "ejs": "^3.1.10",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
