@@ -34,11 +34,11 @@ const userSchema = new mongoose.Schema({
     useBreakevenStop: { type: Boolean, default: true },
     maxHoldMinutes: { type: Number, default: 30, min: 15, max: 480 },
     // Entry filters
-    minLiquidityUsd: { type: Number, default: 0, min: 0, max: 1000000 },
-    maxTop10HoldersPercent: { type: Number, default: 100, min: 50, max: 100 },
-    maxPriceChange24hPercent: { type: Number, default: 5000, min: 200, max: 10000 },
+    minLiquidityUsd: { type: Number, default: 10000, min: 0, max: 1000000 },
+    maxTop10HoldersPercent: { type: Number, default: 80, min: 50, max: 100 },
+    maxPriceChange24hPercent: { type: Number, default: 500, min: 100, max: 10000 },
     cooldownHours: { type: Number, default: 1, min: 0, max: 48 },
-    useEntryFilters: { type: Boolean, default: false },
+    useEntryFilters: { type: Boolean, default: true },
     // Risk controls
     maxDailyLossPercent: { type: Number, default: 15, min: 0, max: 50 },
     consecutiveLossesToPause: { type: Number, default: 3, min: 0, max: 10 },

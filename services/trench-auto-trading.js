@@ -26,6 +26,7 @@ const PAPER_SLIPPAGE = 0.02; // 2% simulated slippage each way
 // ====================================================
 const activeBots = new Map();
 let trendingCache = { data: [], fetchedAt: 0 };
+const tickLocks = new Map();
 
 // Momentum tracking: tokenAddress -> { price, seenAt }
 const momentumCache = new Map();
@@ -202,6 +203,8 @@ function sanitizeSettings(raw) {
   s.maxDailyLossPercent = Math.min(Math.max(s.maxDailyLossPercent ?? 15, 5), 50);
   s.trailingStopPercent = Math.min(Math.max(s.trailingStopPercent ?? 8, 3), 20);
   s.breakevenAtPercent = Math.min(Math.max(s.breakevenAtPercent ?? 5, 2), 15);
+  s.amountPerTradeUsd = Math.min(Math.max(s.amountPerTradeUsd ?? 50, 5), 500);
+  s.amountPerTradeSol = Math.min(Math.max(s.amountPerTradeSol ?? 0.05, 0.01), 1);
   s.minTrendingScore = 1;
   return s;
 }
@@ -341,23 +344,31 @@ function shouldSellPosition(pos, currentPrice, settings) {
   if (pnlPct <= -sl) return { sell: true, reason: 'stop_loss', pnlPct };
   if (pnlPct >= tp) return { sell: true, reason: 'take_profit', pnlPct };
 
-  // Time limit: only force-close if flat or losing. If in profit, let trailing stop manage.
+  // Breakeven enforcement: once triggered, sell if price drops back to entry
+  if (useBreakeven && pos.breakevenTriggered && pnlPct <= 0) {
+    return { sell: true, reason: 'breakeven_stop', pnlPct };
+  }
+
+  // Time limit: only force-close if flat or losing
   if (holdMinutes >= maxHold && pnlPct <= 2) {
     return { sell: true, reason: 'time_limit', pnlPct };
   }
-  // Extended time: if held 2x max hold, close regardless (safety valve)
   if (holdMinutes >= maxHold * 2) {
     return { sell: true, reason: 'time_limit_hard', pnlPct };
   }
 
+  // Adaptive trailing: use PEAK pnl to determine trail width so it doesn't
+  // tighten during normal pullbacks from a high
   if (useTrail && pnlPct > 0 && peakPrice > 0) {
-    const adaptiveTrail = getAdaptiveTrail(pnlPct, baseTrail);
+    const peakPnlPct = ((peakPrice - entry) / entry) * 100;
+    const adaptiveTrail = getAdaptiveTrail(peakPnlPct, baseTrail);
     const dropFromPeak = ((peakPrice - currentPrice) / peakPrice) * 100;
     if (dropFromPeak >= adaptiveTrail) {
       return { sell: true, reason: `trailing_stop(${adaptiveTrail}%)`, pnlPct };
     }
   }
 
+  // Set breakeven flag when profit first reaches threshold
   if (useBreakeven && pnlPct >= breakevenAt && !pos.breakevenTriggered) {
     return { sell: false, updateBreakeven: true, peakPrice };
   }
@@ -447,6 +458,14 @@ async function sendProfitPayout(user, keypair, profitSol) {
 // Only fetches fresh prices for held tokens, no scanning
 // ====================================================
 async function exitTick(userId) {
+  const uid = userId.toString();
+  const lockKey = `exit_${uid}`;
+  if (tickLocks.get(lockKey)) return;
+  tickLocks.set(lockKey, true);
+  try { await _exitTickInner(userId); } finally { tickLocks.delete(lockKey); }
+}
+
+async function _exitTickInner(userId) {
   const bot = activeBots.get(userId.toString());
   if (!bot) return;
 
@@ -573,6 +592,14 @@ async function exitTick(userId) {
 // Scans trending tokens, applies momentum check, opens positions
 // ====================================================
 async function entryTick(userId) {
+  const uid = userId.toString();
+  const lockKey = `entry_${uid}`;
+  if (tickLocks.get(lockKey)) return;
+  tickLocks.set(lockKey, true);
+  try { await _entryTickInner(userId); } finally { tickLocks.delete(lockKey); }
+}
+
+async function _entryTickInner(userId) {
   const bot = activeBots.get(userId.toString());
   if (!bot) return;
   bot.scanCount++;
@@ -634,16 +661,16 @@ async function entryTick(userId) {
     for (const t of candidates) {
       if (buyCount >= slotsAvailable) break;
       if ((user.trenchPaperBalance ?? 0) < amountPerTrade) { botLog(userId, 'Insufficient paper balance'); break; }
-      const pass = await passesEntryFilters(t, settings, blacklist);
-      if (!pass) { filteredOut++; continue; }
+
+      // Cheap checks first, expensive API calls last
       const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
       if (cool) { cooldownBlocked++; continue; }
 
       const momentum = checkMomentum(t.tokenAddress, t.price);
-      if (!momentum.ready) {
-        momentumWaiting++;
-        continue;
-      }
+      if (!momentum.ready) { momentumWaiting++; continue; }
+
+      const pass = await passesEntryFilters(t, settings, blacklist);
+      if (!pass) { filteredOut++; continue; }
 
       try {
         // Apply slippage: entry price is 2% worse than listed
@@ -688,16 +715,15 @@ async function entryTick(userId) {
 
     for (const t of candidates) {
       if (buyCount >= slotsAvailable) break;
-      const pass = await passesEntryFilters(t, settings, blacklist);
-      if (!pass) { filteredOut++; continue; }
+
       const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
       if (cool) { cooldownBlocked++; continue; }
 
       const momentum = checkMomentum(t.tokenAddress, t.price);
-      if (!momentum.ready) {
-        momentumWaiting++;
-        continue;
-      }
+      if (!momentum.ready) { momentumWaiting++; continue; }
+
+      const pass = await passesEntryFilters(t, settings, blacklist);
+      if (!pass) { filteredOut++; continue; }
 
       try {
         const quote = await mobula.getSwapQuote('solana', mobula.SOL_MINT, t.tokenAddress, amountPerTrade, walletAddress, { slippage: 8 });
@@ -711,7 +737,8 @@ async function entryTick(userId) {
         const result = await mobula.sendSwapTransaction('solana', signedB64);
         const data = result.data || result;
         if (data.success && data.transactionHash) {
-          const tokenAmount = (amountPerTrade * 200) / (t.price || 1e-9);
+          const solPrice = 150;
+          const tokenAmount = (amountPerTrade * solPrice) / (t.price || 1e-9);
           await ScalpTrade.create({
             userId: user._id, walletAddress, isPaper: false,
             tokenAddress: t.tokenAddress, tokenSymbol: t.symbol, tokenName: t.name,
