@@ -1829,7 +1829,7 @@ app.get('/trench-warfare', async (req, res) => {
   let trendings = [];
   try {
     const dexscreener = require('./services/dexscreener-api');
-    trendings = await dexscreener.fetchSolanaTrendings(30);
+    trendings = await dexscreener.fetchSolanaTrendings(300);
   } catch (e) {
     console.warn('[TrenchWarfare] DexScreener failed:', e.message);
   }
@@ -2225,7 +2225,7 @@ app.get('/api/trench-warfare/auto/debug', requireLogin, async (req, res) => {
     const ScalpTrade = require('./models/ScalpTrade');
     const user = await User.findById(req.session.userId);
     if (!user) return res.status(401).json({ error: 'Not logged in' });
-    const trendings = await dexscreener.fetchSolanaTrendings(20);
+    const trendings = await dexscreener.fetchSolanaTrendings(300);
     const openCount = await ScalpTrade.countDocuments({ userId: user._id, status: 'OPEN' });
     const balance = user.trenchPaperBalance ?? 1000;
     const settings = user.trenchAuto || {};

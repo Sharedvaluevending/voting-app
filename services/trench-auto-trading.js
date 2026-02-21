@@ -90,7 +90,7 @@ async function fetchTrendingsCached() {
   }
   let trendings = [];
   try {
-    trendings = await dexscreener.fetchSolanaTrendings(150);
+    trendings = await dexscreener.fetchSolanaTrendings(300);
   } catch (e) {
     console.warn('[TrenchBot] DexScreener failed:', e.message);
   }
@@ -385,8 +385,8 @@ async function botTick(userId) {
   const heldTokens = new Set((await ScalpTrade.find({ userId: user._id, status: 'OPEN' }).lean()).map(p => p.tokenAddress));
 
   const candidates = validTrendings
-    .filter(t => !heldTokens.has(t.tokenAddress) && !blacklist.includes(t.tokenAddress) && (t.trendingScore || 0) >= minScore)
-    .slice(0, 50);
+    .filter(t => !heldTokens.has(t.tokenAddress) && !blacklist.includes(t.tokenAddress) && t.price > 0)
+    .slice(0, 200);
 
   if (candidates.length === 0) {
     botLog(userId, `Scanning... ${validTrendings.length} tokens found, 0 candidates after filters`);
