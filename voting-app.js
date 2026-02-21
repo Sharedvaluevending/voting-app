@@ -1987,13 +1987,28 @@ app.post('/api/trench-warfare/paper/reset', requireLogin, async (req, res) => {
   try {
     const user = await User.findById(req.session.userId);
     if (!user) return res.status(401).json({ error: 'Not logged in' });
-    const openCount = await ScalpTrade.countDocuments({ userId: user._id, isPaper: true, status: 'OPEN' });
-    if (openCount > 0) {
-      return res.status(400).json({ error: 'Close all open positions before reset' });
-    }
+
+    // Stop the bot if running
+    try {
+      const trenchAuto = require('./services/trench-auto-trading');
+      trenchAuto.stopBot(user._id);
+    } catch (e) { /* ignore */ }
+
+    // Force-close all open paper positions
+    await ScalpTrade.updateMany(
+      { userId: user._id, isPaper: true, status: 'OPEN' },
+      { $set: { status: 'CLOSED', exitTime: new Date(), exitReason: 'reset', pnl: 0, pnlPercent: 0 } }
+    );
+
+    // Reset balance and stats
     user.trenchPaperBalance = 1000;
     user.trenchPaperBalanceInitial = 1000;
-    await user.save();
+    user.trenchStats = { wins: 0, losses: 0, totalPnl: 0, totalPnlPercent: 0, bestTrade: 0, worstTrade: 0, consecutiveLosses: 0, dailyPnlStart: 1000, dailyPnlStartAt: new Date() };
+    user.trenchAuto = user.trenchAuto || {};
+    user.trenchAuto.lastPausedAt = undefined;
+    user.trenchAuto.pausedReason = '';
+    await user.save({ validateBeforeSave: false });
+
     res.json({ success: true, trenchPaperBalance: 1000 });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -2136,15 +2151,63 @@ app.get('/api/trench-warfare/analytics', requireLogin, async (req, res) => {
   }
 });
 
+app.get('/api/trench-warfare/positions', requireLogin, async (req, res) => {
+  try {
+    const ScalpTrade = require('./models/ScalpTrade');
+    const dexscreener = require('./services/dexscreener-api');
+    const user = await User.findById(req.session.userId).lean();
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const open = await ScalpTrade.find({ userId: user._id, status: 'OPEN' }).lean();
+    if (open.length === 0) return res.json({ positions: [] });
+
+    const addresses = open.map(p => p.tokenAddress);
+    let prices = {};
+    try {
+      const pairs = await dexscreener.fetchTokensBulk('solana', addresses);
+      for (const p of pairs) {
+        if (p.tokenAddress && p.price > 0) prices[p.tokenAddress] = p.price;
+      }
+    } catch (e) { /* ignore */ }
+
+    const positions = open.map(p => {
+      const currentPrice = prices[p.tokenAddress] || 0;
+      const pnlPct = currentPrice > 0 && p.entryPrice > 0 ? ((currentPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
+      const currentValue = (p.tokenAmount || 0) * currentPrice;
+      const pnl = currentValue - (p.amountIn || 0);
+      const holdMinutes = (Date.now() - new Date(p.createdAt).getTime()) / 60000;
+      return {
+        _id: p._id,
+        tokenAddress: p.tokenAddress,
+        tokenSymbol: p.tokenSymbol,
+        tokenAmount: p.tokenAmount,
+        entryPrice: p.entryPrice,
+        currentPrice,
+        amountIn: p.amountIn,
+        currentValue,
+        pnl,
+        pnlPct,
+        holdMinutes: Math.round(holdMinutes),
+        isPaper: p.isPaper,
+        peakPrice: p.peakPrice || p.entryPrice
+      };
+    });
+    res.json({ positions, paperBalance: user.trenchPaperBalance ?? 1000 });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/trench-warfare/unpause', requireLogin, async (req, res) => {
   try {
-    const user = await User.findById(req.session.userId);
-    if (!user) return res.status(401).json({ error: 'Not logged in' });
-    user.trenchAuto.lastPausedAt = null;
-    user.trenchAuto.pausedReason = '';
-    user.trenchStats = user.trenchStats || {};
-    user.trenchStats.consecutiveLosses = 0;
-    await user.save();
+    await User.updateOne({ _id: req.session.userId }, {
+      $set: {
+        'trenchAuto.pausedReason': '',
+        'trenchStats.consecutiveLosses': 0
+      },
+      $unset: {
+        'trenchAuto.lastPausedAt': 1
+      }
+    });
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
