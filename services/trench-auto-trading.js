@@ -97,31 +97,28 @@ function scoreCandidate(t) {
   const vol = t.volume24h || 0;
   const liq = t.liquidity || 0;
 
-  if (change > 2000) return -1;
-  if (change < -30) return -1;
-  if (vol < 5000) return -1;
-  if (liq < 3000) return -1;
+  if (change > 200) return -1;
+  if (change < -15) return -1;
+  if (vol < 20000) return -1;
+  if (liq < 10000) return -1;
 
   let score = 0;
 
-  if (change >= 5 && change <= 50) score += 30;
-  else if (change > 50 && change <= 200) score += 25;
-  else if (change > 200 && change <= 500) score += 15;
-  else if (change > 500 && change <= 1000) score += 5;
-  else if (change > 1000) score += 0;
+  // Sweet spot: 5-100% gains are early enough to still have upside
+  if (change >= 5 && change <= 50) score += 35;
+  else if (change > 50 && change <= 100) score += 30;
+  else if (change > 100 && change <= 200) score += 20;
   else if (change >= 0 && change < 5) score += 10;
 
-  if (vol >= 100000) score += 30;
-  else if (vol >= 50000) score += 25;
-  else if (vol >= 20000) score += 20;
-  else if (vol >= 10000) score += 15;
-  else score += 5;
+  if (vol >= 200000) score += 30;
+  else if (vol >= 100000) score += 25;
+  else if (vol >= 50000) score += 20;
+  else score += 10;
 
-  if (liq >= 50000) score += 25;
-  else if (liq >= 20000) score += 20;
-  else if (liq >= 10000) score += 15;
-  else if (liq >= 5000) score += 10;
-  else score += 3;
+  if (liq >= 100000) score += 25;
+  else if (liq >= 50000) score += 20;
+  else if (liq >= 25000) score += 15;
+  else score += 10;
 
   return score;
 }
@@ -163,7 +160,7 @@ async function fetchTrendingsCached() {
   scored.sort((a, b) => b._qualityScore - a._qualityScore);
 
   const all = Array.from(seen.values());
-  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter`);
+  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$20k, liq>$10k, 24h<200%)`);
 
   trendingCache = { data: scored, fetchedAt: Date.now() };
   return scored;
@@ -246,20 +243,21 @@ async function inCooldown(userId, tokenAddress, cooldownHours) {
 function checkMomentum(tokenAddress, currentPrice) {
   const prev = momentumCache.get(tokenAddress);
   if (!prev) {
-    momentumCache.set(tokenAddress, { price: currentPrice, seenAt: Date.now() });
+    momentumCache.set(tokenAddress, { price: currentPrice, seenAt: Date.now(), checks: 1 });
     return { ready: false, reason: 'first_sight' };
   }
   const elapsed = Date.now() - prev.seenAt;
-  if (elapsed < 30000) {
-    return { ready: false, reason: 'too_soon' };
+  // Need at least 2 minutes of observation
+  if (elapsed < 120000) {
+    prev.checks++;
+    return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / 120s)` };
   }
   const changeSinceFirstSight = ((currentPrice - prev.price) / prev.price) * 100;
-  // Price must not have dropped more than 3% since first sighting
-  if (changeSinceFirstSight < -3) {
-    momentumCache.set(tokenAddress, { price: currentPrice, seenAt: Date.now() });
+  // Price must have held or risen (no more than 2% drop allowed)
+  if (changeSinceFirstSight < -2) {
+    momentumCache.set(tokenAddress, { price: currentPrice, seenAt: Date.now(), checks: 1 });
     return { ready: false, reason: `momentum_lost (${changeSinceFirstSight.toFixed(1)}%)` };
   }
-  // Passed momentum check, clear cache entry
   momentumCache.delete(tokenAddress);
   return { ready: true, changeSinceFirstSight };
 }
@@ -673,7 +671,7 @@ function startBot(userId) {
   };
   activeBots.set(uid, bot);
 
-  botLog(userId, 'Bot STARTED — exits every 10s, entries every 90s, slippage 2%, momentum check ON');
+  botLog(userId, 'Bot STARTED — exits 10s, entries 90s, slip 2%, momentum 2min, vol>$20k, liq>$10k, max24h 200%');
 
   // First tick: run entry scan immediately (which also seeds momentum cache)
   entryTick(userId).catch(err => botLog(userId, `Entry error: ${err.message}`));
