@@ -1,15 +1,17 @@
 // services/dexscreener-api.js
 // ====================================================
-// DEXSCREENER + GECKOTERMINAL - Broad Solana token scanning
+// TOKEN SCANNER - Multi-source Solana token aggregation
 // DexScreener: 5 endpoints (boosts, top boosts, profiles, takeovers, ads)
-// GeckoTerminal: trending pools, new pools, top pools
-// No API key needed, 60 req/min per DexScreener endpoint
+// GeckoTerminal: trending, new, top pools (multiple sort options)
+// Jupiter: trending, top traded, organic score, recent tokens
+// No API keys needed, all free endpoints
 // ====================================================
 
 const fetch = require('node-fetch');
 
 const DEX_BASE = 'https://api.dexscreener.com';
 const GT_BASE = 'https://api.geckoterminal.com/api/v2';
+const JUP_BASE = 'https://api.jup.ag/tokens/v2';
 
 // ====================================================
 // DEXSCREENER ENDPOINTS
@@ -179,11 +181,63 @@ async function fetchGeckoTerminalPools(endpoint, maxPages = 3) {
 }
 
 // ====================================================
+// JUPITER - Trending, top traded, organic score, recent
+// ====================================================
+
+function jupiterTokenToStandard(t) {
+  if (!t || !t.id) return null;
+  const vol24h = (t.stats24h?.buyVolume || 0) + (t.stats24h?.sellVolume || 0);
+  const price = t.usdPrice || 0;
+  if (price <= 0) return null;
+  return {
+    tokenAddress: t.id,
+    symbol: t.symbol || '?',
+    name: t.name || '',
+    price,
+    priceChange24h: t.stats24h?.priceChange || 0,
+    volume24h: vol24h,
+    liquidity: t.liquidity || 0,
+    trendingScore: 1,
+    organicScore: t.organicScore || 0,
+    holderCount: t.holderCount || 0,
+    source: 'jupiter'
+  };
+}
+
+async function fetchJupiterCategory(category, interval, limit = 100) {
+  try {
+    const url = `${JUP_BASE}/${category}/${interval}?limit=${limit}`;
+    const res = await fetch(url, { timeout: 12000 });
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!Array.isArray(data)) return [];
+    return data.map(jupiterTokenToStandard).filter(Boolean);
+  } catch (e) {
+    console.warn(`[Jupiter] ${category}/${interval} failed:`, e.message);
+    return [];
+  }
+}
+
+async function fetchJupiterRecent(limit = 100) {
+  try {
+    const url = `${JUP_BASE}/recent?limit=${limit}`;
+    const res = await fetch(url, { timeout: 12000 });
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!Array.isArray(data)) return [];
+    return data.map(jupiterTokenToStandard).filter(Boolean);
+  } catch (e) {
+    console.warn('[Jupiter] recent failed:', e.message);
+    return [];
+  }
+}
+
+// ====================================================
 // MAIN: Fetch all Solana trending tokens from every source
 // ====================================================
 
-async function fetchSolanaTrendings(limit = 300) {
-  // Phase 1: Collect token addresses from all DexScreener endpoints
+async function fetchSolanaTrendings(limit = 500) {
+  // Phase 1: DexScreener endpoints (5 sources)
   const [boosts, topBoosts, profiles, takeovers, ads] = await Promise.all([
     fetchTokenBoosts('solana').catch(() => []),
     fetchTopBoosts('solana').catch(() => []),
@@ -201,26 +255,44 @@ async function fetchSolanaTrendings(limit = 300) {
     }
   }
 
-  console.log(`[DexScreener] ${dexAddresses.length} unique Solana tokens from 5 endpoints (boosts:${boosts.length} top:${topBoosts.length} profiles:${profiles.length} takeovers:${takeovers.length} ads:${ads.length})`);
+  console.log(`[DexScreener] ${dexAddresses.length} unique tokens (boosts:${boosts.length} top:${topBoosts.length} profiles:${profiles.length} takeovers:${takeovers.length} ads:${ads.length})`);
 
-  // Phase 2: Fetch GeckoTerminal trending + new pools in parallel
-  const [gtTrending, gtNew, gtTop] = await Promise.all([
-    fetchGeckoTerminalPools('trending_pools', 3).catch(() => []),
-    fetchGeckoTerminalPools('new_pools', 3).catch(() => []),
-    fetchGeckoTerminalPools('pools?sort=h24_tx_count_desc', 2).catch(() => [])
+  // Phase 2: GeckoTerminal (4 sort options, more pages)
+  const [gtTrending, gtNew, gtTopTx, gtTopVol] = await Promise.all([
+    fetchGeckoTerminalPools('trending_pools', 4).catch(() => []),
+    fetchGeckoTerminalPools('new_pools', 4).catch(() => []),
+    fetchGeckoTerminalPools('pools?sort=h24_tx_count_desc', 3).catch(() => []),
+    fetchGeckoTerminalPools('pools?sort=h24_volume_usd_desc', 3).catch(() => [])
   ]);
 
-  const gtTokens = [...gtTrending, ...gtNew, ...gtTop];
-  console.log(`[GeckoTerminal] ${gtTokens.length} pools (trending:${gtTrending.length} new:${gtNew.length} top:${gtTop.length})`);
+  const gtTokens = [...gtTrending, ...gtNew, ...gtTopTx, ...gtTopVol];
+  console.log(`[GeckoTerminal] ${gtTokens.length} pools (trending:${gtTrending.length} new:${gtNew.length} topTx:${gtTopTx.length} topVol:${gtTopVol.length})`);
 
-  // Phase 3: Bulk fetch prices for DexScreener tokens (fast, 30 at a time)
-  const toFetch = dexAddresses.slice(0, Math.min(limit, 300));
+  // Phase 3: Jupiter (trending, top traded, organic score, recent)
+  const [jupTrending1h, jupTrending6h, jupTraded, jupOrganic, jupRecent] = await Promise.all([
+    fetchJupiterCategory('toptrending', '1h', 100).catch(() => []),
+    fetchJupiterCategory('toptrending', '6h', 100).catch(() => []),
+    fetchJupiterCategory('toptraded', '24h', 100).catch(() => []),
+    fetchJupiterCategory('toporganicscore', '1h', 100).catch(() => []),
+    fetchJupiterRecent(100).catch(() => [])
+  ]);
+
+  const jupTokens = [...jupTrending1h, ...jupTrending6h, ...jupTraded, ...jupOrganic, ...jupRecent];
+  console.log(`[Jupiter] ${jupTokens.length} tokens (trend1h:${jupTrending1h.length} trend6h:${jupTrending6h.length} traded:${jupTraded.length} organic:${jupOrganic.length} recent:${jupRecent.length})`);
+
+  // Phase 4: Bulk fetch prices for DexScreener tokens
+  const toFetch = dexAddresses.slice(0, Math.min(limit, 500));
   const dexTokens = await fetchTokensBulk('solana', toFetch);
 
-  // Phase 4: Merge all sources, dedup by address
+  // Phase 5: Merge all sources, dedup by address (DexScreener > Jupiter > GeckoTerminal priority)
   const merged = new Map();
   for (const t of dexTokens) {
     if (t.tokenAddress && t.price > 0) merged.set(t.tokenAddress, t);
+  }
+  for (const t of jupTokens) {
+    if (t.tokenAddress && t.price > 0 && !merged.has(t.tokenAddress)) {
+      merged.set(t.tokenAddress, t);
+    }
   }
   for (const t of gtTokens) {
     if (t.tokenAddress && t.price > 0 && !merged.has(t.tokenAddress)) {

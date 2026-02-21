@@ -37,7 +37,7 @@ const userSchema = new mongoose.Schema({
     minLiquidityUsd: { type: Number, default: 0, min: 0, max: 1000000 },
     maxTop10HoldersPercent: { type: Number, default: 100, min: 50, max: 100 },
     maxPriceChange24hPercent: { type: Number, default: 5000, min: 200, max: 10000 },
-    cooldownHours: { type: Number, default: 1, min: 0, max: 48 },
+    cooldownHours: { type: Number, default: 0.5, min: 0, max: 48 },
     useEntryFilters: { type: Boolean, default: false },
     // Risk controls
     maxDailyLossPercent: { type: Number, default: 15, min: 0, max: 50 },

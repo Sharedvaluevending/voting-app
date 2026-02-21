@@ -138,7 +138,7 @@ async function fetchTrendingsCached() {
   }
   let trendings = [];
   try {
-    trendings = await dexscreener.fetchSolanaTrendings(300);
+    trendings = await dexscreener.fetchSolanaTrendings(500);
   } catch (e) {
     console.warn('[TrenchBot] DexScreener failed:', e.message);
   }
@@ -532,7 +532,7 @@ async function entryTick(userId) {
 
   const candidates = validTrendings
     .filter(t => !heldTokens.has(t.tokenAddress) && !blacklist.includes(t.tokenAddress) && t.price > 0)
-    .slice(0, 200);
+    .slice(0, 300);
 
   if (candidates.length === 0) {
     botLog(userId, `Scanning... ${validTrendings.length} tokens, 0 candidates after filters`);
@@ -553,7 +553,7 @@ async function entryTick(userId) {
       if ((user.trenchPaperBalance ?? 0) < amountPerTrade) { botLog(userId, 'Insufficient paper balance'); break; }
       const pass = await passesEntryFilters(t, settings, blacklist);
       if (!pass) { filteredOut++; continue; }
-      const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
+      const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 0.5);
       if (cool) { cooldownBlocked++; continue; }
 
       const momentum = checkMomentum(t.tokenAddress, t.price);
@@ -605,7 +605,7 @@ async function entryTick(userId) {
       if (buyCount >= slotsAvailable) break;
       const pass = await passesEntryFilters(t, settings, blacklist);
       if (!pass) { filteredOut++; continue; }
-      const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
+      const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 0.5);
       if (cool) { cooldownBlocked++; continue; }
 
       const momentum = checkMomentum(t.tokenAddress, t.price);
