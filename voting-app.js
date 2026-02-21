@@ -1846,10 +1846,16 @@ app.get('/trench-warfare', async (req, res) => {
     openPositions = await ScalpTrade.find({ userId: user._id, status: 'OPEN' }).sort({ createdAt: -1 }).lean();
   }
   let botRunning = false;
+  const trenchAutoService = require('./services/trench-auto-trading');
   if (user) {
-    const trenchAutoService = require('./services/trench-auto-trading');
     botRunning = trenchAutoService.getBotStatus(user._id).running;
   }
+  // Score coins with the real quality scorer so the page shows accurate data
+  for (const t of trendings) {
+    t._qualityScore = trenchAutoService.scoreCandidate(t);
+  }
+  // Sort by quality score descending, pumping coins first
+  trendings.sort((a, b) => (b._qualityScore || 0) - (a._qualityScore || 0));
   res.render('trench-warfare', {
     activePage: 'trench-warfare',
     pageTitle: 'Trench Warfare',

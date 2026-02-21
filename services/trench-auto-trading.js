@@ -21,7 +21,7 @@ const TRENDING_CACHE_TTL = 60 * 1000;
 const MAX_LOG_ENTRIES = 50;
 const PAPER_SLIPPAGE = 0.02; // 2% simulated slippage each way
 const MAX_BUYS_PER_SCAN = 2;  // stagger entries across scans
-const MIN_QUALITY_SCORE = 60; // skip marginal candidates, focus on strong setups
+const MIN_QUALITY_SCORE = 50; // skip marginal candidates, focus on actively pumping coins
 
 // ====================================================
 // In-memory state
@@ -119,53 +119,65 @@ function scoreCandidate(t) {
   if (change1h < 1) return -1;       // must be green in last hour
   if (buyPressure < 0.50) return -1;  // must have more buyers than sellers
 
+  const buyVol1h = t.buyVolume1h || 0;
+  const sellVol1h = t.sellVolume1h || 0;
+  const vol1h = buyVol1h + sellVol1h;
+
+  // Breakout detection: 1h volume relative to liquidity shows explosive activity
+  // vol1h/liq > 1 means the entire pool turned over in the last hour = breakout
+  const volVelocity = liq > 0 ? vol1h / liq : 0;
+  const buyDominance = vol1h > 0 ? buyVol1h / vol1h : buyPressure;
+
   let score = 0;
 
   // 1h momentum -- THE dominant signal (max 40 pts)
-  // This tells us if the coin is pumping RIGHT NOW
   if (change1h >= 10 && change1h <= 40) score += 40;
   else if (change1h >= 5 && change1h < 10) score += 35;
   else if (change1h > 40 && change1h <= 80) score += 25;
   else if (change1h >= 2 && change1h < 5) score += 20;
   else if (change1h >= 1 && change1h < 2) score += 10;
 
-  // Buy pressure -- are people buying right now? (max 25 pts)
-  if (buyPressure >= 0.65) score += 25;
-  else if (buyPressure >= 0.60) score += 20;
-  else if (buyPressure >= 0.55) score += 15;
-  else if (buyPressure >= 0.50) score += 8;
+  // BREAKOUT: volume velocity (max 20 pts)
+  // How fast money is flowing in relative to pool size
+  if (volVelocity >= 2) score += 20;       // 2x pool turnover in 1h = major breakout
+  else if (volVelocity >= 1) score += 15;   // full pool turnover = strong breakout
+  else if (volVelocity >= 0.5) score += 10; // half pool = active pump
+  else if (volVelocity >= 0.2) score += 5;
 
-  // Recent organic buyers -- real demand right now (max 15 pts)
+  // Buy pressure + buy dominance (max 25 pts)
+  const effectiveBP = Math.max(buyPressure, buyDominance);
+  if (effectiveBP >= 0.65) score += 25;
+  else if (effectiveBP >= 0.60) score += 20;
+  else if (effectiveBP >= 0.55) score += 15;
+  else if (effectiveBP >= 0.50) score += 8;
+
+  // Buyer surge -- lots of unique buyers = organic demand (max 15 pts)
   if (numBuyers1h >= 50) score += 15;
   else if (numBuyers1h >= 20) score += 10;
   else if (numBuyers1h >= 5) score += 5;
 
-  // Volume tiers -- proof of activity (max 15 pts)
-  if (vol >= 200000) score += 15;
-  else if (vol >= 100000) score += 12;
-  else if (vol >= 50000) score += 10;
-  else if (vol >= 15000) score += 6;
+  // 24h volume tiers (max 10 pts)
+  if (vol >= 200000) score += 10;
+  else if (vol >= 100000) score += 8;
+  else if (vol >= 50000) score += 6;
+  else if (vol >= 15000) score += 4;
 
-  // Liquidity -- safety floor (max 10 pts)
-  if (liq >= 100000) score += 10;
-  else if (liq >= 50000) score += 8;
-  else if (liq >= 25000) score += 6;
-  else if (liq >= 8000) score += 3;
+  // Liquidity -- safety floor (max 8 pts)
+  if (liq >= 100000) score += 8;
+  else if (liq >= 50000) score += 6;
+  else if (liq >= 25000) score += 4;
+  else if (liq >= 8000) score += 2;
 
-  // 24h context -- moderate pumps are better entries than exhausted ones (max 10 pts)
-  if (change >= 5 && change <= 50) score += 10;
-  else if (change > 50 && change <= 150) score += 7;
-  else if (change > 150 && change <= 500) score += 3;
-  else if (change >= 0 && change < 5) score += 5;
+  // 24h context -- moderate pumps are better entries than exhausted ones (max 8 pts)
+  if (change >= 5 && change <= 50) score += 8;
+  else if (change > 50 && change <= 150) score += 5;
+  else if (change > 150 && change <= 500) score += 2;
+  else if (change >= 0 && change < 5) score += 4;
 
-  // Organic score (max 8 pts)
-  if (organicScore >= 80) score += 8;
-  else if (organicScore >= 50) score += 5;
-  else if (organicScore >= 20) score += 3;
-
-  // Vol/liq ratio -- healthy activity (max 5 pts)
-  if (volLiqRatio >= 3 && volLiqRatio <= 15) score += 5;
-  else if (volLiqRatio >= 1.5 && volLiqRatio < 3) score += 3;
+  // Organic score (max 6 pts)
+  if (organicScore >= 80) score += 6;
+  else if (organicScore >= 50) score += 4;
+  else if (organicScore >= 20) score += 2;
 
   // Safety bonuses (max 13 pts combined)
   if (holderCount >= 1000) score += 5;
@@ -736,11 +748,11 @@ async function _entryTickInner(userId) {
         const vol = (t.volume24h || 0) >= 1000 ? '$' + Math.round((t.volume24h || 0) / 1000) + 'k' : '$' + Math.round(t.volume24h || 0);
         const liq = (t.liquidity || 0) >= 1000 ? '$' + Math.round((t.liquidity || 0) / 1000) + 'k' : '$' + Math.round(t.liquidity || 0);
         const bp = t.buyPressure ? ` bp:${(t.buyPressure * 100).toFixed(0)}%` : '';
-        const os = t.organicScore ? ` org:${Math.round(t.organicScore)}` : '';
-        const h1 = t.priceChange1h ? ` 1h:${(t.priceChange1h).toFixed(1)}%` : '';
+        const h1 = t.priceChange1h ? ` 1h:+${(t.priceChange1h).toFixed(1)}%` : '';
+        const bv1h = (t.buyVolume1h || 0) + (t.sellVolume1h || 0);
+        const vel = t.liquidity > 0 ? (bv1h / t.liquidity).toFixed(1) : '0';
         const holders = t.holderCount ? ` hldr:${t.holderCount}` : '';
-        const src = (t._sourceCount || 1) > 1 ? ` src:${t._sourceCount}` : '';
-        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${slippedEntry.toFixed(8)} (24h:${(t.priceChange24h || 0).toFixed(1)}%${h1} vol:${vol} liq:${liq} score:${t._qualityScore || 0}${bp}${os}${holders}${src} mom:+${(momentum.changeSinceFirstSight || 0).toFixed(1)}%)`);
+        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${slippedEntry.toFixed(8)} (${h1}${bp} vel:${vel}x score:${t._qualityScore || 0} vol:${vol} liq:${liq}${holders} mom:+${(momentum.changeSinceFirstSight || 0).toFixed(1)}%)`);
         notifyUser(user, `Trench BUY ${t.symbol}`, `$${amount} @ $${slippedEntry.toFixed(8)}`, 'open').catch(() => {});
       } catch (err) {
         botLog(userId, `Buy failed ${t.symbol}: ${err.message}`);
@@ -924,4 +936,4 @@ async function runTrenchAutoTrade(opts = {}) {
   return { users: users.length, ticked: started };
 }
 
-module.exports = { runTrenchAutoTrade, startBot, stopBot, getBotStatus, encrypt, decrypt, getBotKeypair };
+module.exports = { runTrenchAutoTrade, startBot, stopBot, getBotStatus, encrypt, decrypt, getBotKeypair, scoreCandidate };

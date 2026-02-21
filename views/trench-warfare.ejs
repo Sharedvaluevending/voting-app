@@ -218,26 +218,43 @@
           <th>#</th>
           <th>Token</th>
           <th>Price</th>
+          <th>1h %</th>
           <th>24h %</th>
+          <th>Buy Press</th>
+          <th>Vol</th>
+          <th>Liq</th>
           <th>Score</th>
           <th>Action</th>
         </tr>
       </thead>
       <tbody>
         <% trendings.forEach(function(t, i) {
-          var chg = (t.priceChange24h || 0);
-          var chgClass = chg >= 0 ? 'up' : 'down';
+          var chg24 = (t.priceChange24h || 0);
+          var chg1h = (t.priceChange1h || 0);
+          var chg24Class = chg24 >= 0 ? 'up' : 'down';
+          var chg1hClass = chg1h >= 0 ? 'up' : 'down';
+          var bp = ((t.buyPressure || 0) * 100);
+          var bpClass = bp >= 55 ? 'up' : bp >= 50 ? '' : 'down';
+          var qs = t._qualityScore || 0;
+          var qsColor = qs >= 80 ? '#22c55e' : qs >= 60 ? '#eab308' : qs > 0 ? '#f97316' : '#ef4444';
+          var volK = (t.volume24h || 0) >= 1000 ? '$' + Math.round((t.volume24h || 0) / 1000) + 'k' : '$' + Math.round(t.volume24h || 0);
+          var liqK = (t.liquidity || 0) >= 1000 ? '$' + Math.round((t.liquidity || 0) / 1000) + 'k' : '$' + Math.round(t.liquidity || 0);
         %>
-        <tr>
+        <tr style="<%= qs <= 0 ? 'opacity:0.4;' : '' %>">
           <td><%= i + 1 %></td>
           <td>
             <% if (t.logo) { %><img src="<%= t.logo %>" alt="" style="width:24px;height:24px;border-radius:50%;vertical-align:middle;margin-right:8px;"><% } %>
             <strong style="color:#e5e7eb;"><%= t.symbol %></strong>
             <span style="color:#6b7280;font-size:11px;"><%= t.name %></span>
+            <% if (t.isVerified) { %><span style="color:#3b82f6;font-size:10px;" title="Jupiter Verified">&#10003;</span><% } %>
           </td>
           <td>$<%= (t.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 }) %></td>
-          <td class="<%= chgClass %>"><%= chg >= 0 ? '+' : '' %><%= Number(chg).toFixed(2) %>%</td>
-          <td><%= (t.trendingScore || 0).toFixed(1) %></td>
+          <td class="<%= chg1hClass %>" style="font-weight:600;"><%= chg1h >= 0 ? '+' : '' %><%= Number(chg1h).toFixed(1) %>%</td>
+          <td class="<%= chg24Class %>"><%= chg24 >= 0 ? '+' : '' %><%= Number(chg24).toFixed(1) %>%</td>
+          <td class="<%= bpClass %>"><%= bp.toFixed(0) %>%</td>
+          <td style="font-size:12px;"><%= volK %></td>
+          <td style="font-size:12px;"><%= liqK %></td>
+          <td style="color:<%= qsColor %>;font-weight:700;"><%= qs > 0 ? qs : 'SKIP' %></td>
           <td>
             <% if (t.tokenAddress) { %>
             <button type="button" class="btn-buy-token nav-btn" style="padding:4px 10px;font-size:12px;" data-token-address="<%= t.tokenAddress %>" data-symbol="<%= t.symbol %>" data-name="<%= t.name %>" data-price="<%= t.price || 0 %>">Buy</button>
