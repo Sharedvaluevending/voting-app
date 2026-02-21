@@ -1843,6 +1843,11 @@ app.get('/trench-warfare', async (req, res) => {
   if (user) {
     openPositions = await ScalpTrade.find({ userId: user._id, status: 'OPEN' }).sort({ createdAt: -1 }).lean();
   }
+  let botRunning = false;
+  if (user) {
+    const trenchAutoService = require('./services/trench-auto-trading');
+    botRunning = trenchAutoService.getBotStatus(user._id).running;
+  }
   res.render('trench-warfare', {
     activePage: 'trench-warfare',
     pageTitle: 'Trench Warfare',
@@ -1851,7 +1856,8 @@ app.get('/trench-warfare', async (req, res) => {
     trenchPaperBalance: user ? (user.trenchPaperBalance ?? 1000) : 0,
     openPositions,
     trenchBot: user?.trenchBot || {},
-    trenchAuto: user?.trenchAuto || {}
+    trenchAuto: user?.trenchAuto || {},
+    botRunning
   });
 });
 
@@ -2143,6 +2149,54 @@ app.post('/api/trench-warfare/unpause', requireLogin, async (req, res) => {
   }
 });
 
+app.post('/api/trench-warfare/auto/start', requireLogin, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    if (!userId) return res.status(401).json({ error: 'Not logged in' });
+    const user = await User.findById(userId);
+    if (!user) return res.status(401).json({ error: 'User not found' });
+    if (!user.trenchAuto) user.trenchAuto = {};
+    user.trenchAuto.enabled = true;
+    user.trenchAuto.mode = (req.body?.mode || user.trenchAuto.mode || 'paper');
+    user.trenchAuto.lastPausedAt = null;
+    user.trenchAuto.pausedReason = '';
+    await user.save({ validateBeforeSave: false });
+    const trenchAuto = require('./services/trench-auto-trading');
+    const result = trenchAuto.startBot(userId);
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error('[TrenchBot] Start error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/auto/stop', requireLogin, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    if (!userId) return res.status(401).json({ error: 'Not logged in' });
+    const user = await User.findById(userId);
+    if (user) {
+      user.trenchAuto.enabled = false;
+      await user.save({ validateBeforeSave: false });
+    }
+    const trenchAuto = require('./services/trench-auto-trading');
+    const result = trenchAuto.stopBot(userId);
+    res.json({ success: true, ...result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/trench-warfare/auto/status', requireLogin, async (req, res) => {
+  try {
+    const trenchAuto = require('./services/trench-auto-trading');
+    const status = trenchAuto.getBotStatus(req.session.userId);
+    res.json(status);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/trench-warfare/auto/run-now', requireLogin, async (req, res) => {
   try {
     const userId = req.session.userId;
@@ -2154,10 +2208,10 @@ app.post('/api/trench-warfare/auto/run-now', requireLogin, async (req, res) => {
     user.trenchAuto.mode = (req.body?.mode || user.trenchAuto.mode || 'paper');
     await user.save({ validateBeforeSave: false });
     const trenchAuto = require('./services/trench-auto-trading');
-    const result = await trenchAuto.runTrenchAutoTrade({ forceRun: true, runForUserId: userId });
-    res.json({ success: true, message: 'Auto trade run completed', ...result });
+    const result = trenchAuto.startBot(userId);
+    res.json({ success: true, ...result });
   } catch (e) {
-    console.error('[TrenchAuto] Run-now error:', e);
+    console.error('[TrenchBot] Run-now error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -2173,9 +2227,11 @@ app.get('/api/trench-warfare/auto/debug', requireLogin, async (req, res) => {
     const openCount = await ScalpTrade.countDocuments({ userId: user._id, status: 'OPEN' });
     const balance = user.trenchPaperBalance ?? 1000;
     const settings = user.trenchAuto || {};
-    const amountPerTrade = settings.amountPerTradeUsd ?? 20;
+    const amountPerTrade = settings.amountPerTradeUsd ?? 50;
     const maxPos = settings.maxOpenPositions ?? 3;
     const canBuy = balance >= amountPerTrade && openCount < maxPos;
+    const trenchAuto = require('./services/trench-auto-trading');
+    const botStatus = trenchAuto.getBotStatus(req.session.userId);
     res.json({
       trendings: trendings.length,
       sample: trendings[0],
@@ -2185,7 +2241,8 @@ app.get('/api/trench-warfare/auto/debug', requireLogin, async (req, res) => {
       amountPerTrade,
       canBuy,
       autoEnabled: !!settings.enabled,
-      mode: settings.mode
+      mode: settings.mode,
+      botRunning: botStatus.running
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -3327,8 +3384,19 @@ function startKeepAlive() {
 }
 
 // Health endpoint for keep-alive pings (lightweight, no auth)
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
+app.get('/api/health', async (req, res) => {
+  const prices = await fetchAllPrices();
+  const candles = fetchAllCandles();
+  const candleCount = Object.keys(candles || {}).length;
+  res.json({
+    status: prices.length > 0 ? 'ok' : 'loading',
+    uptime: Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+    coins: prices.length,
+    coinsWithCandles: candleCount,
+    totalTracked: TRACKED_COINS.length,
+    memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
+  });
 });
 
 Promise.race([

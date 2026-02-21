@@ -1,7 +1,7 @@
 // services/trench-auto-trading.js
 // ====================================================
-// TRENCH AUTO TRADING - Full feature set
-// Paper + Live, profit locking, entry filters, risk controls
+// TRENCH AUTO TRADING - Persistent bot per user
+// Scans every 30s, enters trades, monitors exits, repeats
 // ====================================================
 
 const User = require('../models/User');
@@ -13,6 +13,17 @@ const push = require('./push-notifications');
 
 const ENCRYPT_KEY = process.env.TRENCH_SECRET || process.env.SESSION_SECRET || 'trench-default-key-change-me';
 const ALGO = 'aes-256-gcm';
+
+const BOT_SCAN_INTERVAL = 30 * 1000; // 30 seconds between scans
+const TRENDING_CACHE_TTL = 90 * 1000; // cache trending data for 90s
+const MAX_LOG_ENTRIES = 50;
+
+// ====================================================
+// In-memory bot state per user
+// ====================================================
+const activeBots = new Map();
+
+let trendingCache = { data: [], fetchedAt: 0 };
 
 function encrypt(text) {
   const iv = crypto.randomBytes(16);
@@ -46,7 +57,7 @@ function getBotKeypair(user) {
     const { Keypair } = require('@solana/web3.js');
     return Keypair.fromSecretKey(secretKey);
   } catch (e) {
-    console.error('[TrenchAuto] Invalid bot key:', e.message);
+    console.error('[TrenchBot] Invalid bot key:', e.message);
     return null;
   }
 }
@@ -60,6 +71,52 @@ async function notifyUser(user, title, body, type) {
   } catch (e) { /* ignore */ }
 }
 
+function botLog(userId, msg) {
+  const bot = activeBots.get(userId.toString());
+  if (!bot) return;
+  const entry = { time: new Date().toISOString(), msg };
+  bot.log.push(entry);
+  if (bot.log.length > MAX_LOG_ENTRIES) bot.log.shift();
+  bot.lastAction = entry;
+  console.log(`[TrenchBot:${userId.toString().slice(-6)}] ${msg}`);
+}
+
+// ====================================================
+// Trending data fetcher with cache
+// ====================================================
+async function fetchTrendingsCached() {
+  if (Date.now() - trendingCache.fetchedAt < TRENDING_CACHE_TTL && trendingCache.data.length > 0) {
+    return trendingCache.data;
+  }
+  let trendings = [];
+  try {
+    trendings = await dexscreener.fetchSolanaTrendings(150);
+  } catch (e) {
+    console.warn('[TrenchBot] DexScreener failed:', e.message);
+  }
+  let mobulaTokens = [];
+  try {
+    mobulaTokens = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)('solana');
+  } catch (e) {
+    console.warn('[TrenchBot] Mobula fetch failed:', e.message);
+  }
+  const seen = new Map();
+  for (const t of trendings) {
+    if (t.tokenAddress && t.price > 0) seen.set(t.tokenAddress, t);
+  }
+  for (const t of mobulaTokens) {
+    if (t.tokenAddress && t.price > 0 && !seen.has(t.tokenAddress)) {
+      seen.set(t.tokenAddress, { ...t, trendingScore: t.trendingScore || 1 });
+    }
+  }
+  const result = Array.from(seen.values()).sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0));
+  trendingCache = { data: result, fetchedAt: Date.now() };
+  return result;
+}
+
+// ====================================================
+// Risk checks
+// ====================================================
 function shouldPauseForRisk(user, settings) {
   const stats = user.trenchStats || {};
   const maxDaily = settings.maxDailyLossPercent ?? 15;
@@ -73,7 +130,7 @@ function shouldPauseForRisk(user, settings) {
       if (lossPct >= maxDaily) return { pause: true, reason: `Daily loss limit (${lossPct.toFixed(1)}%)` };
     }
   }
-  const consecLoss = settings.consecutiveLossesToPause ?? 3;
+  const consecLoss = settings.consecutiveLossesToPause ?? 5;
   if (consecLoss > 0 && (stats.consecutiveLosses || 0) >= consecLoss) {
     return { pause: true, reason: `${consecLoss} consecutive losses` };
   }
@@ -91,16 +148,17 @@ function resetDailyPnlIfNewDay(user) {
   }
 }
 
+// ====================================================
+// Entry filters & cooldown
+// ====================================================
 async function passesEntryFilters(t, settings, blacklist) {
   if (!settings.useEntryFilters) return true;
   if (blacklist && blacklist.includes(t.tokenAddress)) return false;
   let max24h = settings.maxPriceChange24hPercent ?? 5000;
-  if (max24h === 200) max24h = 5000;
+  if (max24h < 500) max24h = 5000;
   if (max24h < 10000 && (t.priceChange24h || 0) >= max24h) return false;
   let minLiq = settings.minLiquidityUsd ?? 0;
   let maxTop10 = settings.maxTop10HoldersPercent ?? 100;
-  if (minLiq === 10000) minLiq = 0;
-  if (maxTop10 === 80) maxTop10 = 100;
   if (minLiq > 0 || maxTop10 < 100) {
     try {
       const mk = await mobula.getTokenMarkets('solana', t.tokenAddress);
@@ -125,15 +183,18 @@ async function inCooldown(userId, tokenAddress, cooldownHours) {
   return hours < cooldownHours;
 }
 
-function shouldSellPosition(pos, currentPrice, settings, trendings) {
+// ====================================================
+// Exit logic
+// ====================================================
+function shouldSellPosition(pos, currentPrice, settings) {
   if (!currentPrice || currentPrice <= 0) return { sell: false };
   const entry = pos.entryPrice || 0.0000001;
   const pnlPct = ((currentPrice - entry) / entry) * 100;
   const holdMinutes = (Date.now() - new Date(pos.createdAt).getTime()) / 60000;
-  const maxHold = settings.maxHoldMinutes ?? 60;
-  const tp = settings.tpPercent ?? 15;
-  const sl = settings.slPercent ?? 10;
-  const trail = settings.trailingStopPercent ?? 10;
+  const maxHold = settings.maxHoldMinutes ?? 30;
+  const tp = settings.tpPercent ?? 25;
+  const sl = settings.slPercent ?? 8;
+  const trail = settings.trailingStopPercent ?? 8;
   const useTrail = settings.useTrailingStop !== false;
   const useBreakeven = settings.useBreakevenStop !== false;
   const breakevenAt = settings.breakevenAtPercent ?? 5;
@@ -143,23 +204,23 @@ function shouldSellPosition(pos, currentPrice, settings, trendings) {
   let peakPrice = pos.peakPrice || pos.entryPrice;
   if (currentPrice > peakPrice) peakPrice = currentPrice;
 
-  if (holdMinutes >= maxHold) return { sell: true, reason: 'time_limit' };
-  if (pnlPct <= -sl) return { sell: true, reason: 'stop_loss' };
-  if (pnlPct >= tp) return { sell: true, reason: 'take_profit' };
+  if (holdMinutes >= maxHold) return { sell: true, reason: 'time_limit', pnlPct };
+  if (pnlPct <= -sl) return { sell: true, reason: 'stop_loss', pnlPct };
+  if (pnlPct >= tp) return { sell: true, reason: 'take_profit', pnlPct };
   if (useTrail && pnlPct > 0 && peakPrice > 0) {
     const dropFromPeak = ((peakPrice - currentPrice) / peakPrice) * 100;
-    if (dropFromPeak >= trail) return { sell: true, reason: 'trailing_stop' };
+    if (dropFromPeak >= trail) return { sell: true, reason: 'trailing_stop', pnlPct };
   }
   if (useBreakeven && pnlPct >= breakevenAt && !pos.breakevenTriggered) {
-    return { sell: false, updateBreakeven: true };
+    return { sell: false, updateBreakeven: true, peakPrice };
   }
   if (partialPct > 0 && pnlPct >= partialAt && (pos.partialSoldAmount || 0) === 0) {
-    return { sell: true, reason: 'partial_tp', partialPercent: partialPct };
+    return { sell: true, reason: 'partial_tp', partialPercent: partialPct, pnlPct };
   }
   return { sell: false, peakPrice };
 }
 
-async function executeLiveSell(user, pos, currentPrice, keypair, settings) {
+async function executeLiveSell(user, pos, currentPrice, keypair) {
   const walletAddress = keypair.publicKey.toBase58();
   const amountToSell = (pos.partialSoldAmount || 0) > 0
     ? (pos.tokenAmount || 0) - pos.partialSoldAmount
@@ -167,12 +228,8 @@ async function executeLiveSell(user, pos, currentPrice, keypair, settings) {
   if (amountToSell <= 0) return false;
   try {
     const quote = await mobula.getSwapQuote(
-      'solana',
-      pos.tokenAddress,
-      mobula.SOL_MINT,
-      amountToSell,
-      walletAddress,
-      { slippage: 15 }
+      'solana', pos.tokenAddress, mobula.SOL_MINT,
+      amountToSell, walletAddress, { slippage: 15 }
     );
     const serialized = quote?.data?.solana?.transaction?.serialized;
     if (!serialized) return false;
@@ -188,351 +245,337 @@ async function executeLiveSell(user, pos, currentPrice, keypair, settings) {
       const costBasis = pos.tokenAmount > 0 ? pos.amountIn * (amountToSell / pos.tokenAmount) : pos.amountIn;
       const pnl = valueOut - costBasis;
       const pnlPct = pos.entryPrice > 0 ? ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
-      await ScalpTrade.updateOne(
-        { _id: pos._id },
-        {
-          $set: {
-            exitPrice: currentPrice,
-            amountOut: valueOut,
-            pnl,
-            pnlPercent: pnlPct,
-            status: 'CLOSED',
-            exitTime: new Date(),
-            txHash: data.transactionHash,
-            exitReason: 'auto_sell'
-          }
-        }
-      );
+      await ScalpTrade.updateOne({ _id: pos._id }, {
+        $set: { exitPrice: currentPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), txHash: data.transactionHash, exitReason: 'auto_sell' }
+      });
       return { pnl, pnlPct };
     }
   } catch (e) {
-    console.error('[TrenchAuto] Live sell failed:', e.message);
+    console.error('[TrenchBot] Live sell failed:', e.message);
   }
   return null;
 }
 
+// ====================================================
+// SINGLE BOT TICK - one scan cycle for one user
+// ====================================================
+async function botTick(userId) {
+  const bot = activeBots.get(userId.toString());
+  if (!bot) return;
+  bot.scanCount++;
+
+  const user = await User.findById(userId);
+  if (!user) { stopBot(userId); return; }
+
+  const settings = user.trenchAuto || {};
+  const mode = settings.mode || 'paper';
+  const maxPositions = settings.maxOpenPositions ?? 3;
+  const blacklist = user.trenchBlacklist || [];
+  const minScore = settings.minTrendingScore ?? 0;
+
+  // Risk check
+  resetDailyPnlIfNewDay(user);
+  const riskCheck = shouldPauseForRisk(user, settings);
+  if (riskCheck.pause) {
+    user.trenchAuto.lastPausedAt = new Date();
+    user.trenchAuto.pausedReason = riskCheck.reason;
+    await user.save({ validateBeforeSave: false });
+    botLog(userId, `PAUSED: ${riskCheck.reason}`);
+    stopBot(userId);
+    return;
+  }
+
+  // Fetch trending tokens (cached)
+  const validTrendings = await fetchTrendingsCached();
+  if (validTrendings.length === 0) {
+    botLog(userId, 'No trending tokens found, waiting...');
+    return;
+  }
+
+  const openPaper = await ScalpTrade.find({ userId: user._id, isPaper: true, status: 'OPEN' }).lean();
+  const openLive = await ScalpTrade.find({ userId: user._id, isPaper: false, status: 'OPEN' }).lean();
+  const openPositions = mode === 'paper' ? openPaper : openLive;
+  const allOpen = [...openPaper, ...openLive];
+
+  // ---- PHASE 1: CHECK EXITS ----
+  let sellCount = 0;
+  for (const pos of openPositions) {
+    const t = validTrendings.find(x => x.tokenAddress === pos.tokenAddress);
+    let currentPrice = t ? t.price : 0;
+    if (!currentPrice || currentPrice <= 0) {
+      try {
+        const pairData = await dexscreener.fetchTokenPairs('solana', pos.tokenAddress);
+        if (pairData && pairData.price > 0) currentPrice = pairData.price;
+      } catch (e) { /* ignore */ }
+    }
+    if (!currentPrice || currentPrice <= 0) currentPrice = pos.entryPrice;
+
+    const decision = shouldSellPosition(pos, currentPrice, settings);
+
+    if (decision.updateBreakeven) {
+      await ScalpTrade.updateOne({ _id: pos._id }, { $set: { breakevenTriggered: true } });
+      botLog(userId, `Breakeven triggered on ${pos.tokenSymbol}`);
+      continue;
+    }
+    if (decision.peakPrice) {
+      await ScalpTrade.updateOne({ _id: pos._id }, { $set: { peakPrice: decision.peakPrice } });
+    }
+    if (!decision.sell) continue;
+
+    if (mode === 'paper') {
+      const isPartial = decision.reason === 'partial_tp' && (settings.partialTpPercent ?? 0) > 0;
+      const sellPct = isPartial ? (settings.partialTpPercent ?? 50) / 100 : 1;
+      const tokenAmountToSell = (pos.tokenAmount || 0) * sellPct;
+      const valueOut = tokenAmountToSell * currentPrice;
+      const pnl = valueOut - (pos.amountIn || 0) * sellPct;
+      const pnlPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
+
+      user.trenchPaperBalance = Math.round(((user.trenchPaperBalance ?? 1000) + valueOut) * 100) / 100;
+
+      if (isPartial) {
+        await ScalpTrade.updateOne({ _id: pos._id }, { $set: { partialSoldAmount: (pos.partialSoldAmount || 0) + tokenAmountToSell, peakPrice: currentPrice } });
+        botLog(userId, `PARTIAL SELL ${pos.tokenSymbol} ${pnlPct.toFixed(1)}%`);
+      } else {
+        await ScalpTrade.updateOne({ _id: pos._id }, {
+          $set: { exitPrice: currentPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), exitReason: decision.reason || 'auto' }
+        });
+        botLog(userId, `SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%)`);
+        sellCount++;
+      }
+
+      user.trenchStats = user.trenchStats || {};
+      user.trenchStats.totalPnl = (user.trenchStats.totalPnl || 0) + pnl;
+      if (pnl > 0) {
+        user.trenchStats.wins = (user.trenchStats.wins || 0) + 1;
+        user.trenchStats.consecutiveLosses = 0;
+        user.trenchStats.bestTrade = Math.max(user.trenchStats.bestTrade || 0, pnl);
+      } else {
+        user.trenchStats.losses = (user.trenchStats.losses || 0) + 1;
+        user.trenchStats.consecutiveLosses = (user.trenchStats.consecutiveLosses || 0) + 1;
+        user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, pnl);
+      }
+      await user.save({ validateBeforeSave: false });
+      if (!isPartial) notifyUser(user, `Trench SELL ${pos.tokenSymbol}`, `PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%)`, 'close').catch(() => {});
+    } else {
+      const keypair = getBotKeypair(user);
+      if (!keypair) continue;
+      const result = await executeLiveSell(user, pos, currentPrice, keypair);
+      if (result) {
+        const { pnl, pnlPct } = result;
+        user.trenchStats = user.trenchStats || {};
+        user.trenchStats.totalPnl = (user.trenchStats.totalPnl || 0) + pnl;
+        if (pnl > 0) { user.trenchStats.wins = (user.trenchStats.wins || 0) + 1; user.trenchStats.consecutiveLosses = 0; user.trenchStats.bestTrade = Math.max(user.trenchStats.bestTrade || 0, pnl); }
+        else { user.trenchStats.losses = (user.trenchStats.losses || 0) + 1; user.trenchStats.consecutiveLosses = (user.trenchStats.consecutiveLosses || 0) + 1; user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, pnl); }
+        await user.save({ validateBeforeSave: false });
+        sellCount++;
+        botLog(userId, `LIVE SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)}`);
+        notifyUser(user, `Trench LIVE SELL ${pos.tokenSymbol}`, `PnL: $${pnl.toFixed(2)}`, 'close').catch(() => {});
+      }
+    }
+  }
+
+  // ---- PHASE 2: SCAN FOR NEW ENTRIES ----
+  const openAfterSells = await ScalpTrade.countDocuments({ userId: user._id, status: 'OPEN' });
+  const slotsAvailable = maxPositions - openAfterSells;
+  if (slotsAvailable <= 0) {
+    if (bot.scanCount % 10 === 0) botLog(userId, `Monitoring ${openAfterSells} positions (${validTrendings.length} tokens tracked)`);
+    return;
+  }
+
+  const heldTokens = new Set((await ScalpTrade.find({ userId: user._id, status: 'OPEN' }).lean()).map(p => p.tokenAddress));
+
+  const candidates = validTrendings
+    .filter(t => !heldTokens.has(t.tokenAddress) && !blacklist.includes(t.tokenAddress) && (t.trendingScore || 0) >= minScore)
+    .slice(0, 50);
+
+  if (candidates.length === 0) {
+    botLog(userId, `Scanning... ${validTrendings.length} tokens found, 0 candidates after filters`);
+    return;
+  }
+
+  let buyCount = 0;
+  if (mode === 'paper') {
+    const amountPerTrade = settings.amountPerTradeUsd ?? 50;
+    for (const t of candidates) {
+      if (buyCount >= slotsAvailable) break;
+      if ((user.trenchPaperBalance ?? 0) < amountPerTrade) { botLog(userId, 'Insufficient paper balance'); break; }
+      const pass = await passesEntryFilters(t, settings, blacklist);
+      if (!pass) continue;
+      const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
+      if (cool) continue;
+      try {
+        const amount = Math.min(amountPerTrade, user.trenchPaperBalance);
+        const tokenAmount = amount / (t.price || 1);
+        user.trenchPaperBalance = Math.round((user.trenchPaperBalance - amount) * 100) / 100;
+        await user.save({ validateBeforeSave: false });
+        await ScalpTrade.create({
+          userId: user._id, walletAddress: 'paper', isPaper: true,
+          tokenAddress: t.tokenAddress, tokenSymbol: t.symbol, tokenName: t.name,
+          side: 'BUY', amountIn: amount, tokenAmount, entryPrice: t.price, peakPrice: t.price, status: 'OPEN'
+        });
+        buyCount++;
+        bot.tradesOpened++;
+        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${t.price.toFixed(8)} (24h: ${(t.priceChange24h || 0).toFixed(1)}%)`);
+        notifyUser(user, `Trench BUY ${t.symbol}`, `$${amount} @ $${t.price.toFixed(8)}`, 'open').catch(() => {});
+      } catch (err) {
+        botLog(userId, `Buy failed ${t.symbol}: ${err.message}`);
+      }
+    }
+  } else {
+    if (!user.trenchBot?.connected || !user.trenchBot?.publicKey) { botLog(userId, 'No bot wallet connected'); return; }
+    const keypair = getBotKeypair(user);
+    if (!keypair) { botLog(userId, 'Invalid bot wallet key'); return; }
+    const walletAddress = keypair.publicKey.toBase58();
+    const amountPerTrade = settings.amountPerTradeSol ?? 0.05;
+
+    const minSol = settings.minSolBalance ?? 0.05;
+    let solBalance = 0;
+    try {
+      const { Connection, PublicKey } = require('@solana/web3.js');
+      const conn = new Connection(process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com');
+      const bal = await conn.getBalance(new PublicKey(walletAddress));
+      solBalance = bal / 1e9;
+    } catch (e) { /* ignore */ }
+    if (solBalance < minSol) { botLog(userId, `SOL balance too low: ${solBalance.toFixed(4)}`); return; }
+
+    for (const t of candidates) {
+      if (buyCount >= slotsAvailable) break;
+      const pass = await passesEntryFilters(t, settings, blacklist);
+      if (!pass) continue;
+      const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
+      if (cool) continue;
+      try {
+        const quote = await mobula.getSwapQuote('solana', mobula.SOL_MINT, t.tokenAddress, amountPerTrade, walletAddress, { slippage: 8 });
+        const serialized = quote?.data?.solana?.transaction?.serialized;
+        if (!serialized) continue;
+        const { VersionedTransaction } = require('@solana/web3.js');
+        const txBuf = Buffer.from(serialized, 'base64');
+        const tx = VersionedTransaction.deserialize(txBuf);
+        tx.sign([keypair]);
+        const signedB64 = Buffer.from(tx.serialize()).toString('base64');
+        const result = await mobula.sendSwapTransaction('solana', signedB64);
+        const data = result.data || result;
+        if (data.success && data.transactionHash) {
+          const tokenAmount = (amountPerTrade * 200) / (t.price || 1e-9);
+          await ScalpTrade.create({
+            userId: user._id, walletAddress, isPaper: false,
+            tokenAddress: t.tokenAddress, tokenSymbol: t.symbol, tokenName: t.name,
+            side: 'BUY', amountIn: amountPerTrade, tokenAmount, entryPrice: t.price, peakPrice: t.price, txHash: data.transactionHash, status: 'OPEN'
+          });
+          buyCount++;
+          bot.tradesOpened++;
+          botLog(userId, `LIVE BUY ${t.symbol} ${amountPerTrade} SOL @ $${t.price.toFixed(8)}`);
+          notifyUser(user, `Trench LIVE BUY ${t.symbol}`, `${amountPerTrade} SOL`, 'open').catch(() => {});
+        }
+      } catch (err) {
+        botLog(userId, `Live buy failed ${t.symbol}: ${err.message}`);
+      }
+    }
+  }
+
+  if (buyCount === 0 && slotsAvailable > 0) {
+    botLog(userId, `Scanning... ${candidates.length} candidates checked, ${slotsAvailable} slots open, waiting for entry...`);
+  }
+
+  user.trenchAuto.lastRunAt = new Date();
+  await user.save({ validateBeforeSave: false });
+}
+
+// ====================================================
+// START / STOP / STATUS
+// ====================================================
+function startBot(userId) {
+  const uid = userId.toString();
+  if (activeBots.has(uid)) return { already: true };
+
+  const bot = {
+    startedAt: new Date(),
+    scanCount: 0,
+    tradesOpened: 0,
+    tradesClosed: 0,
+    log: [],
+    lastAction: null,
+    interval: null
+  };
+  activeBots.set(uid, bot);
+
+  botLog(userId, 'Bot STARTED - scanning every 30s');
+
+  // Run first tick immediately
+  botTick(userId).catch(err => botLog(userId, `Error: ${err.message}`));
+
+  bot.interval = setInterval(() => {
+    botTick(userId).catch(err => botLog(userId, `Error: ${err.message}`));
+  }, BOT_SCAN_INTERVAL);
+
+  return { started: true };
+}
+
+function stopBot(userId) {
+  const uid = userId.toString();
+  const bot = activeBots.get(uid);
+  if (!bot) return { already: true };
+  if (bot.interval) clearInterval(bot.interval);
+  botLog(userId, 'Bot STOPPED');
+  activeBots.delete(uid);
+  return { stopped: true, scanCount: bot.scanCount, tradesOpened: bot.tradesOpened };
+}
+
+function getBotStatus(userId) {
+  const uid = userId.toString();
+  const bot = activeBots.get(uid);
+  if (!bot) return { running: false };
+  return {
+    running: true,
+    startedAt: bot.startedAt,
+    scanCount: bot.scanCount,
+    tradesOpened: bot.tradesOpened,
+    uptime: Math.round((Date.now() - bot.startedAt.getTime()) / 1000),
+    lastAction: bot.lastAction,
+    log: bot.log.slice(-20)
+  };
+}
+
+// ====================================================
+// Legacy: background scheduler for users with enabled flag
+// (keeps running for users who enabled auto but haven't clicked Start)
+// ====================================================
 async function runTrenchAutoTrade(opts = {}) {
   const forceRun = !!opts.forceRun;
   const runForUserId = opts.runForUserId;
-  let users;
+
   if (runForUserId) {
-    const u = await User.findById(runForUserId).lean();
-    users = u && (u.trenchAuto?.enabled || opts.forceRun) ? [u] : [];
-  } else {
-    users = await User.find({ 'trenchAuto.enabled': true }).lean();
-  }
-  if (users.length === 0) {
-    console.log('[TrenchAuto] No users with auto trade enabled' + (runForUserId ? ' for user ' + runForUserId : ''));
-    return { users: 0, trades: 0, reason: 'no_users' };
-  }
-
-  let trendings = [];
-  try {
-    trendings = await dexscreener.fetchSolanaTrendings(150);
-  } catch (e) {
-    console.warn('[TrenchAuto] DexScreener failed:', e.message);
-  }
-  let mobulaTokens = [];
-  try {
-    mobulaTokens = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)('solana');
-  } catch (e) {
-    console.warn('[TrenchAuto] Mobula fetch failed:', e.message);
-  }
-  const seen = new Map();
-  for (const t of trendings) {
-    if (t.tokenAddress && t.price > 0) seen.set(t.tokenAddress, t);
-  }
-  for (const t of mobulaTokens) {
-    if (t.tokenAddress && t.price > 0 && !seen.has(t.tokenAddress)) {
-      seen.set(t.tokenAddress, { ...t, trendingScore: t.trendingScore || 1 });
+    // If called for a specific user, just run a single tick via the bot system
+    const uid = runForUserId.toString();
+    if (!activeBots.has(uid)) {
+      startBot(runForUserId);
     }
+    return { started: true };
   }
-  let validTrendings = Array.from(seen.values());
-  validTrendings = validTrendings.sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0));
-  if (validTrendings.length === 0) {
-    console.log('[TrenchAuto] No valid Solana trendings from DexScreener or Mobula.');
-    return { users: users.length, trendings: 0, trades: 0, reason: 'no_trendings' };
-  }
-  console.log(`[TrenchAuto] ${validTrendings.length} valid trendings, top: ${validTrendings[0]?.symbol} $${validTrendings[0]?.price} ${validTrendings[0]?.priceChange24h || 0}%`);
 
-  let tradesCount = 0;
+  // Background: check all users with enabled flag who don't have an active bot
+  const users = await User.find({ 'trenchAuto.enabled': true }).lean();
+  let started = 0;
   for (const u of users) {
-    const user = await User.findById(u._id);
-    if (!user || !user.trenchAuto?.enabled) continue;
-
-    const settings = user.trenchAuto;
-    if (!forceRun) {
-      const intervalMin = settings?.checkIntervalMinutes ?? 15;
-      const lastRun = settings?.lastRunAt;
+    const uid = u._id.toString();
+    if (!activeBots.has(uid)) {
+      const settings = u.trenchAuto || {};
+      const intervalMin = settings.checkIntervalMinutes ?? 15;
+      const lastRun = settings.lastRunAt;
       if (lastRun && intervalMin > 0) {
         const elapsed = (Date.now() - new Date(lastRun).getTime()) / 60000;
         if (elapsed < intervalMin) continue;
       }
-    }
-    const minScore = settings.minTrendingScore ?? 0;
-    const maxPositions = settings.maxOpenPositions ?? 3;
-    const mode = settings.mode || 'paper';
-    const blacklist = user.trenchBlacklist || [];
-
-    if (user.trenchAuto.lastPausedAt) {
-      const pauseHours = 24;
-      const elapsed = (Date.now() - new Date(user.trenchAuto.lastPausedAt).getTime()) / 3600000;
-      if (elapsed < pauseHours) continue;
-      user.trenchAuto.lastPausedAt = null;
-      user.trenchAuto.pausedReason = '';
-      user.trenchStats = user.trenchStats || {};
-      user.trenchStats.consecutiveLosses = 0;
-      await user.save({ validateBeforeSave: false });
-    }
-
-    const riskCheck = shouldPauseForRisk(user, settings);
-    if (riskCheck.pause) {
-      user.trenchAuto.lastPausedAt = new Date();
-      user.trenchAuto.pausedReason = riskCheck.reason;
-      await user.save({ validateBeforeSave: false });
-      console.log(`[TrenchAuto] Paused for user ${user.username}: ${riskCheck.reason}`);
-      continue;
-    }
-
-    resetDailyPnlIfNewDay(user);
-
-    const openPaper = await ScalpTrade.find({ userId: user._id, isPaper: true, status: 'OPEN' }).lean();
-    const openLive = await ScalpTrade.find({ userId: user._id, isPaper: false, status: 'OPEN' }).lean();
-    const openPositions = mode === 'paper' ? openPaper : openLive;
-    const openCount = openPaper.length + openLive.length;
-    const heldTokens = new Set([...openPaper, ...openLive].map(p => p.tokenAddress));
-
-    for (const pos of openPositions) {
-      const t = validTrendings.find(x => x.tokenAddress === pos.tokenAddress);
-      let currentPrice = t ? t.price : 0;
-      if (!currentPrice || currentPrice <= 0) {
-        try {
-          const pairData = await dexscreener.fetchTokenPairs('solana', pos.tokenAddress);
-          if (pairData && pairData.price > 0) currentPrice = pairData.price;
-        } catch (e) { /* ignore */ }
-      }
-      if (!currentPrice || currentPrice <= 0) currentPrice = pos.entryPrice;
-      const decision = shouldSellPosition(pos, currentPrice, settings, validTrendings);
-
-      if (decision.updateBreakeven) {
-        await ScalpTrade.updateOne({ _id: pos._id }, { $set: { breakevenTriggered: true } });
-        continue;
-      }
-
-      if (decision.peakPrice) {
-        await ScalpTrade.updateOne({ _id: pos._id }, { $set: { peakPrice: decision.peakPrice } });
-      }
-
-      if (!decision.sell) continue;
-
-      if (mode === 'paper') {
-        const isPartial = decision.reason === 'partial_tp' && (settings.partialTpPercent ?? 0) > 0;
-        const sellPct = isPartial ? (settings.partialTpPercent ?? 50) / 100 : 1;
-        const tokenAmountToSell = (pos.tokenAmount || 0) * sellPct;
-        const valueOut = tokenAmountToSell * currentPrice;
-        const pnl = valueOut - (pos.amountIn || 0) * sellPct;
-        const pnlPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
-
-        user.trenchPaperBalance = Math.round(((user.trenchPaperBalance ?? 1000) + valueOut) * 100) / 100;
-
-        if (isPartial) {
-          await ScalpTrade.updateOne(
-            { _id: pos._id },
-            { $set: { partialSoldAmount: (pos.partialSoldAmount || 0) + tokenAmountToSell, peakPrice: currentPrice } }
-          );
-        } else {
-          await ScalpTrade.updateOne(
-            { _id: pos._id },
-            {
-              $set: {
-                exitPrice: currentPrice,
-                amountOut: valueOut,
-                pnl,
-                pnlPercent: pnlPct,
-                status: 'CLOSED',
-                exitTime: new Date(),
-                exitReason: decision.reason || 'auto'
-              }
-            }
-          );
-        }
-
-        user.trenchStats = user.trenchStats || {};
-        user.trenchStats.totalPnl = (user.trenchStats.totalPnl || 0) + pnl;
-        if (pnl > 0) {
-          user.trenchStats.wins = (user.trenchStats.wins || 0) + 1;
-          user.trenchStats.consecutiveLosses = 0;
-          user.trenchStats.bestTrade = Math.max(user.trenchStats.bestTrade || 0, pnl);
-        } else {
-          user.trenchStats.losses = (user.trenchStats.losses || 0) + 1;
-          user.trenchStats.consecutiveLosses = (user.trenchStats.consecutiveLosses || 0) + 1;
-          user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, pnl);
-        }
-        user.trenchAuto.lastRunAt = new Date();
-        await user.save({ validateBeforeSave: false });
-        if (!isPartial) {
-          notifyUser(user, `Trench SELL ${pos.tokenSymbol}`, `PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%)`, 'close').catch(() => {});
-        }
-        tradesCount++;
-        console.log(`[TrenchAuto] Paper SELL ${pos.tokenSymbol} ${decision.reason} PnL $${pnl.toFixed(2)} for user ${user.username}`);
-      } else {
-        const keypair = getBotKeypair(user);
-        if (!keypair) continue;
-        const result = await executeLiveSell(user, pos, currentPrice, keypair, settings);
-        if (result) {
-          const { pnl } = result;
-          user.trenchStats = user.trenchStats || {};
-          user.trenchStats.totalPnl = (user.trenchStats.totalPnl || 0) + pnl;
-          if (pnl > 0) {
-            user.trenchStats.wins = (user.trenchStats.wins || 0) + 1;
-            user.trenchStats.consecutiveLosses = 0;
-            user.trenchStats.bestTrade = Math.max(user.trenchStats.bestTrade || 0, pnl);
-          } else {
-            user.trenchStats.losses = (user.trenchStats.losses || 0) + 1;
-            user.trenchStats.consecutiveLosses = (user.trenchStats.consecutiveLosses || 0) + 1;
-            user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, pnl);
-          }
-          user.trenchAuto.lastRunAt = new Date();
-          await user.save({ validateBeforeSave: false });
-          tradesCount++;
-          notifyUser(user, `Trench LIVE SELL ${pos.tokenSymbol}`, `PnL: $${pnl.toFixed(2)}`, 'close').catch(() => {});
-          console.log(`[TrenchAuto] Live SELL ${pos.tokenSymbol} PnL $${pnl.toFixed(2)} for user ${user.username}`);
-        }
-      }
-    }
-
-    const openPaperAfter = await ScalpTrade.find({ userId: user._id, isPaper: true, status: 'OPEN' }).lean();
-    const openLiveAfter = await ScalpTrade.find({ userId: user._id, isPaper: false, status: 'OPEN' }).lean();
-    const heldAfter = new Set([...openPaperAfter, ...openLiveAfter].map(p => p.tokenAddress));
-
-    if (mode === 'paper') {
-      const balance = user.trenchPaperBalance ?? 1000;
-      const amountPerTrade = settings.amountPerTradeUsd ?? 20;
-      const slotsLeft = maxPositions - openPaperAfter.length - openLiveAfter.length;
-      if (balance < amountPerTrade || slotsLeft <= 0) continue;
-
-      let candidates = validTrendings
-        .filter(t => !heldAfter.has(t.tokenAddress) && (t.trendingScore || 0) >= minScore)
-        .sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0))
-        .slice(0, Math.min(30, validTrendings.length));
-
-      if (candidates.length === 0 && validTrendings.length > 0) {
-        console.log(`[TrenchAuto] ${user.username}: no buy candidates (${validTrendings.length} trendings, minScore=${minScore}, held=${heldAfter.size}, maxPos=${maxPositions})`);
-      }
-
-      for (const t of candidates) {
-        const openNow = await ScalpTrade.countDocuments({ userId: user._id, status: 'OPEN' });
-        if (openNow >= maxPositions) break;
-        if (user.trenchPaperBalance < amountPerTrade) break;
-        const pass = await passesEntryFilters(t, settings, blacklist);
-        if (!pass) continue;
-        const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 4);
-        if (cool) continue;
-        try {
-          const amount = Math.min(amountPerTrade, user.trenchPaperBalance);
-          const tokenAmount = amount / (t.price || 1);
-          user.trenchPaperBalance = Math.round((user.trenchPaperBalance - amount) * 100) / 100;
-          await user.save();
-          await ScalpTrade.create({
-            userId: user._id,
-            walletAddress: 'paper',
-            isPaper: true,
-            tokenAddress: t.tokenAddress,
-            tokenSymbol: t.symbol,
-            tokenName: t.name,
-            side: 'BUY',
-            amountIn: amount,
-            tokenAmount,
-            entryPrice: t.price,
-            peakPrice: t.price,
-            status: 'OPEN'
-          });
-          user.trenchAuto.lastRunAt = new Date();
-          await user.save({ validateBeforeSave: false });
-          tradesCount++;
-          notifyUser(user, `Trench BUY ${t.symbol}`, `$${amount} @ $${t.price.toFixed(8)}`, 'open').catch(() => {});
-          console.log(`[TrenchAuto] Paper BUY ${t.symbol} $${amount} for user ${user.username}`);
-        } catch (err) {
-          console.error(`[TrenchAuto] Paper buy failed:`, err.message);
-        }
-      }
-    } else {
-      if (!user.trenchBot?.connected || !user.trenchBot?.publicKey) continue;
-      const keypair = getBotKeypair(user);
-      if (!keypair) continue;
-      const walletAddress = keypair.publicKey.toBase58();
-      const amountPerTrade = settings.amountPerTradeSol ?? 0.05;
-      if (openLiveAfter.length >= maxPositions) continue;
-
-      const minSol = settings.minSolBalance ?? 0.05;
-      let solBalance = 0;
+      // Run a single tick for this user without starting persistent bot
       try {
-        const { Connection, PublicKey } = require('@solana/web3.js');
-        const conn = new Connection(process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com');
-        const bal = await conn.getBalance(new PublicKey(walletAddress));
-        solBalance = bal / 1e9;
-      } catch (e) { /* ignore */ }
-      if (solBalance < minSol) continue;
-
-      let candidates = validTrendings
-        .filter(t => !heldAfter.has(t.tokenAddress) && (t.trendingScore || 0) >= minScore)
-        .sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0))
-        .slice(0, Math.min(30, validTrendings.length));
-
-      if (candidates.length === 0 && validTrendings.length > 0) {
-        console.log(`[TrenchAuto] ${user.username} (live): no buy candidates`);
-      }
-
-      for (const t of candidates) {
-        const openNow = await ScalpTrade.countDocuments({ userId: user._id, status: 'OPEN' });
-        if (openNow >= maxPositions) break;
-        const pass = await passesEntryFilters(t, settings, blacklist);
-        if (!pass) continue;
-        const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 4);
-        if (cool) continue;
-        try {
-          const quote = await mobula.getSwapQuote('solana', mobula.SOL_MINT, t.tokenAddress, amountPerTrade, walletAddress, { slippage: 8 });
-          const serialized = quote?.data?.solana?.transaction?.serialized;
-          if (!serialized) continue;
-          const { Keypair, VersionedTransaction } = require('@solana/web3.js');
-          const txBuf = Buffer.from(serialized, 'base64');
-          const tx = VersionedTransaction.deserialize(txBuf);
-          tx.sign([keypair]);
-          const signedB64 = Buffer.from(tx.serialize()).toString('base64');
-          const result = await mobula.sendSwapTransaction('solana', signedB64);
-          const data = result.data || result;
-          if (data.success && data.transactionHash) {
-            const tokenAmount = (amountPerTrade * 200) / (t.price || 1e-9);
-            await ScalpTrade.create({
-              userId: user._id,
-              walletAddress,
-              isPaper: false,
-              tokenAddress: t.tokenAddress,
-              tokenSymbol: t.symbol,
-              tokenName: t.name,
-              side: 'BUY',
-              amountIn: amountPerTrade,
-              tokenAmount,
-              entryPrice: t.price,
-              peakPrice: t.price,
-              txHash: data.transactionHash,
-              status: 'OPEN'
-            });
-            user.trenchAuto.lastRunAt = new Date();
-            await user.save({ validateBeforeSave: false });
-            tradesCount++;
-            notifyUser(user, `Trench LIVE BUY ${t.symbol}`, `${amountPerTrade} SOL`, 'open').catch(() => {});
-            console.log(`[TrenchAuto] Live BUY ${t.symbol} ${amountPerTrade} SOL for user ${user.username}`);
-          }
-        } catch (err) {
-          console.error(`[TrenchAuto] Live buy failed for ${t.symbol}:`, err.message);
-        }
+        await botTick(u._id);
+        started++;
+      } catch (e) {
+        console.error(`[TrenchBot] Background tick error for ${u.username}:`, e.message);
       }
     }
   }
-  const out = { users: users.length, trendings: validTrendings.length, trades: tradesCount };
-  if (tradesCount === 0 && validTrendings.length > 0 && !out.reason) out.reason = 'no_opportunities';
-  return out;
+  return { users: users.length, ticked: started };
 }
 
-module.exports = { runTrenchAutoTrade, encrypt, decrypt, getBotKeypair };
+module.exports = { runTrenchAutoTrade, startBot, stopBot, getBotStatus, encrypt, decrypt, getBotKeypair };

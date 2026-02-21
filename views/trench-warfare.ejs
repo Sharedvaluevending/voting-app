@@ -80,19 +80,26 @@
 </div>
 <% } %>
 
-<!-- Auto Trade -->
+<!-- Auto Trade Bot -->
 <% if (typeof user !== 'undefined' && user) { %>
 <div class="section" style="margin-bottom:24px;">
-  <h3 style="color:#e5e7eb;margin-bottom:12px;">Auto Trade</h3>
-  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Test with paper first, then connect a bot wallet for live. Runs every 5 min. Uses Dexscreener + LamboTrendings + CoinGecko. Set MOBULA_API_KEY for full data.</p>
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+    <h3 style="color:#e5e7eb;margin:0;">Auto Trade Bot</h3>
+    <div id="bot-status-badge" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;<%= botRunning ? 'background:rgba(16,185,129,0.2);color:#10b981;border:1px solid rgba(16,185,129,0.3);' : 'background:rgba(107,114,128,0.2);color:#6b7280;border:1px solid rgba(107,114,128,0.3);' %>">
+      <span id="bot-status-dot" style="width:8px;height:8px;border-radius:50%;<%= botRunning ? 'background:#10b981;box-shadow:0 0 6px #10b981;' : 'background:#6b7280;' %>"></span>
+      <span id="bot-status-text"><%= botRunning ? 'RUNNING' : 'STOPPED' %></span>
+    </div>
+    <span id="bot-uptime" style="font-size:11px;color:#6b7280;"></span>
+  </div>
+
   <% if (trenchAuto && trenchAuto.lastPausedAt) { %>
   <div id="paused-banner" style="margin-bottom:12px;padding:10px;background:rgba(239,68,68,0.2);border-radius:8px;color:#ef4444;font-size:13px;">Paused: <%= trenchAuto.pausedReason || 'Risk limit' %>. <button type="button" id="btn-unpause-banner" class="nav-btn" style="padding:4px 10px;font-size:12px;">Resume</button></div>
   <% } %>
-  <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-bottom:16px;">
-    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-      <input type="checkbox" id="auto-enabled" <%= (trenchAuto && trenchAuto.enabled) ? 'checked' : '' %>>
-      <span style="color:#e5e7eb;">Enable Auto Trade</span>
-    </label>
+
+  <!-- Start/Stop Controls -->
+  <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:16px;">
+    <button type="button" id="btn-start-bot" class="nav-btn primary" style="padding:10px 24px;font-size:14px;font-weight:600;<%= botRunning ? 'display:none;' : '' %>">Start Bot</button>
+    <button type="button" id="btn-stop-bot" class="nav-btn" style="padding:10px 24px;font-size:14px;font-weight:600;background:rgba(239,68,68,0.2);border-color:#ef4444;color:#ef4444;<%= botRunning ? '' : 'display:none;' %>">Stop Bot</button>
     <select id="auto-mode" style="padding:8px 12px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;">
       <option value="paper" <%= (trenchAuto && trenchAuto.mode === 'live') ? '' : 'selected' %>>Paper (test)</option>
       <option value="live" <%= (trenchAuto && trenchAuto.mode === 'live') ? 'selected' : '' %>>Live (bot wallet)</option>
@@ -101,10 +108,22 @@
     <button type="button" id="btn-connect-bot" class="nav-btn" style="padding:6px 12px;font-size:12px;display:<%= (trenchBot && trenchBot.connected) ? 'none' : 'inline-block' %>;">Connect Bot Wallet</button>
     <button type="button" id="btn-disconnect-bot" class="nav-btn" style="padding:6px 12px;font-size:12px;display:<%= (trenchBot && trenchBot.connected) ? 'inline-block' : 'none' %>;">Disconnect</button>
   </div>
+
+  <!-- Bot Activity Log -->
+  <div id="bot-activity-section" style="margin-bottom:16px;<%= botRunning ? '' : 'display:none;' %>">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+      <span style="font-size:13px;color:#9ca3af;font-weight:600;">Live Activity</span>
+      <span id="bot-scan-count" style="font-size:11px;color:#6b7280;"></span>
+    </div>
+    <div id="bot-activity-log" style="max-height:200px;overflow-y:auto;background:rgba(0,0,0,0.3);border:1px solid #1e2a3a;border-radius:8px;padding:8px 12px;font-family:monospace;font-size:12px;line-height:1.6;">
+      <div style="color:#6b7280;">Waiting for bot activity...</div>
+    </div>
+  </div>
+
   <div id="bot-key-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;padding:20px;">
     <div style="background:#111827;border:1px solid #1e2a3a;border-radius:12px;padding:24px;max-width:480px;width:100%;">
       <h3 style="color:#fff;margin:0 0 12px 0;">Connect Bot Wallet</h3>
-      <p style="color:#eab308;font-size:12px;margin:0 0 12px 0;">Use a dedicated wallet with limited funds. Export private key from Phantom (Settings → Security → Export Private Key).</p>
+      <p style="color:#eab308;font-size:12px;margin:0 0 12px 0;">Use a dedicated wallet with limited funds. Export private key from Phantom (Settings > Security > Export Private Key).</p>
       <textarea id="bot-private-key" placeholder="Paste base58 private key" rows="3" style="width:100%;padding:10px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;font-size:12px;resize:vertical;"></textarea>
       <div style="margin-top:12px;display:flex;gap:10px;">
         <button type="button" id="bot-key-cancel" class="nav-btn" style="flex:1;">Cancel</button>
@@ -112,58 +131,58 @@
       </div>
     </div>
   </div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:12px;">
-    <div><label style="font-size:11px;color:#6b7280;">Min Score</label><input type="number" id="auto-min-score" value="<%= (trenchAuto && trenchAuto.minTrendingScore) != null ? trenchAuto.minTrendingScore : 0 %>" min="0" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-    <div><label style="font-size:11px;color:#6b7280;">Max Positions</label><input type="number" id="auto-max-pos" value="<%= (trenchAuto && trenchAuto.maxOpenPositions) != null ? trenchAuto.maxOpenPositions : 3 %>" min="1" max="10" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-    <div><label style="font-size:11px;color:#6b7280;">$ per Trade (Paper)</label><input type="number" id="auto-amount-usd" value="<%= (trenchAuto && trenchAuto.amountPerTradeUsd) != null ? trenchAuto.amountPerTradeUsd : 20 %>" min="5" max="500" step="5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-    <div><label style="font-size:11px;color:#6b7280;">SOL per Trade (Live)</label><input type="number" id="auto-amount-sol" value="<%= (trenchAuto && trenchAuto.amountPerTradeSol) != null ? trenchAuto.amountPerTradeSol : 0.05 %>" min="0.01" max="1" step="0.01" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-    <div><label style="font-size:11px;color:#6b7280;">Check (min)</label><input type="number" id="auto-check-min" value="<%= (trenchAuto && trenchAuto.checkIntervalMinutes) != null ? trenchAuto.checkIntervalMinutes : 15 %>" min="5" max="60" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-  </div>
-  <details style="margin-top:16px;padding:12px;background:rgba(15,23,42,0.4);border-radius:8px;border:1px solid #1e2a3a;">
-    <summary style="cursor:pointer;color:#e5e7eb;font-weight:600;">Profit Locking</summary>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
-      <div><label style="font-size:11px;color:#6b7280;">TP %</label><input type="number" id="auto-tp" value="<%= (trenchAuto && trenchAuto.tpPercent) != null ? trenchAuto.tpPercent : 15 %>" min="5" max="100" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">SL %</label><input type="number" id="auto-sl" value="<%= (trenchAuto && trenchAuto.slPercent) != null ? trenchAuto.slPercent : 10 %>" min="3" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">Trailing %</label><input type="number" id="auto-trailing" value="<%= (trenchAuto && trenchAuto.trailingStopPercent) != null ? trenchAuto.trailingStopPercent : 10 %>" min="3" max="30" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">Partial TP %</label><input type="number" id="auto-partial-tp" value="<%= (trenchAuto && trenchAuto.partialTpPercent) != null ? trenchAuto.partialTpPercent : 50 %>" min="0" max="100" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">Partial at %</label><input type="number" id="auto-partial-at" value="<%= (trenchAuto && trenchAuto.partialTpAtPercent) != null ? trenchAuto.partialTpAtPercent : 15 %>" min="5" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">Breakeven at %</label><input type="number" id="auto-breakeven-at" value="<%= (trenchAuto && trenchAuto.breakevenAtPercent) != null ? trenchAuto.breakevenAtPercent : 5 %>" min="2" max="20" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">Max hold (min)</label><input type="number" id="auto-max-hold" value="<%= (trenchAuto && trenchAuto.maxHoldMinutes) != null ? trenchAuto.maxHoldMinutes : 60 %>" min="15" max="480" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-trailing" <%= (trenchAuto && trenchAuto.useTrailingStop !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Trailing stop</span></label>
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-breakeven" <%= (trenchAuto && trenchAuto.useBreakevenStop !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Breakeven stop</span></label>
-    </div>
-  </details>
+
+  <!-- Settings (collapsible) -->
   <details style="margin-top:8px;padding:12px;background:rgba(15,23,42,0.4);border-radius:8px;border:1px solid #1e2a3a;">
-    <summary style="cursor:pointer;color:#e5e7eb;font-weight:600;">Entry Filters</summary>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
-      <div><label style="font-size:11px;color:#6b7280;">Min Liq $</label><input type="number" id="auto-min-liq" value="<%= (trenchAuto && trenchAuto.minLiquidityUsd) != null ? trenchAuto.minLiquidityUsd : 0 %>" min="0" max="1000000" title="0 = no filter" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">Max Top10 %</label><input type="number" id="auto-max-top10" value="<%= (trenchAuto && trenchAuto.maxTop10HoldersPercent) != null ? trenchAuto.maxTop10HoldersPercent : 100 %>" min="50" max="100" title="100 = no filter" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">Max 24h %</label><input type="number" id="auto-max-24h" value="<%= (trenchAuto && trenchAuto.maxPriceChange24hPercent) != null ? trenchAuto.maxPriceChange24hPercent : 5000 %>" min="200" max="10000" title="Reject tokens that pumped more than this (default 5000 for memecoins)" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">Cooldown (hr)</label><input type="number" id="auto-cooldown" value="<%= (trenchAuto && trenchAuto.cooldownHours) != null ? trenchAuto.cooldownHours : 4 %>" min="0" max="48" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-filters" <%= (trenchAuto && trenchAuto.useEntryFilters !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Use entry filters</span></label>
+    <summary style="cursor:pointer;color:#e5e7eb;font-weight:600;">Bot Settings</summary>
+    <p style="font-size:12px;color:#6b7280;margin:8px 0;">Save settings before starting. Bot scans every 30s when running.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:12px;">
+      <div><label style="font-size:11px;color:#6b7280;">Min Score</label><input type="number" id="auto-min-score" value="<%= (trenchAuto && trenchAuto.minTrendingScore) != null ? trenchAuto.minTrendingScore : 0 %>" min="0" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+      <div><label style="font-size:11px;color:#6b7280;">Max Positions</label><input type="number" id="auto-max-pos" value="<%= (trenchAuto && trenchAuto.maxOpenPositions) != null ? trenchAuto.maxOpenPositions : 3 %>" min="1" max="10" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+      <div><label style="font-size:11px;color:#6b7280;">$ per Trade (Paper)</label><input type="number" id="auto-amount-usd" value="<%= (trenchAuto && trenchAuto.amountPerTradeUsd) != null ? trenchAuto.amountPerTradeUsd : 50 %>" min="5" max="500" step="5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+      <div><label style="font-size:11px;color:#6b7280;">SOL per Trade (Live)</label><input type="number" id="auto-amount-sol" value="<%= (trenchAuto && trenchAuto.amountPerTradeSol) != null ? trenchAuto.amountPerTradeSol : 0.05 %>" min="0.01" max="1" step="0.01" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
     </div>
+    <details style="margin-top:12px;padding:10px;background:rgba(15,23,42,0.3);border-radius:6px;border:1px solid rgba(30,42,58,0.5);">
+      <summary style="cursor:pointer;color:#9ca3af;font-size:13px;font-weight:600;">Profit Locking</summary>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
+        <div><label style="font-size:11px;color:#6b7280;">TP %</label><input type="number" id="auto-tp" value="<%= (trenchAuto && trenchAuto.tpPercent) != null ? trenchAuto.tpPercent : 25 %>" min="5" max="100" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">SL %</label><input type="number" id="auto-sl" value="<%= (trenchAuto && trenchAuto.slPercent) != null ? trenchAuto.slPercent : 8 %>" min="3" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Trailing %</label><input type="number" id="auto-trailing" value="<%= (trenchAuto && trenchAuto.trailingStopPercent) != null ? trenchAuto.trailingStopPercent : 8 %>" min="3" max="30" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Max hold (min)</label><input type="number" id="auto-max-hold" value="<%= (trenchAuto && trenchAuto.maxHoldMinutes) != null ? trenchAuto.maxHoldMinutes : 30 %>" min="15" max="480" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Partial TP %</label><input type="number" id="auto-partial-tp" value="<%= (trenchAuto && trenchAuto.partialTpPercent) != null ? trenchAuto.partialTpPercent : 50 %>" min="0" max="100" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Partial at %</label><input type="number" id="auto-partial-at" value="<%= (trenchAuto && trenchAuto.partialTpAtPercent) != null ? trenchAuto.partialTpAtPercent : 15 %>" min="5" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Breakeven at %</label><input type="number" id="auto-breakeven-at" value="<%= (trenchAuto && trenchAuto.breakevenAtPercent) != null ? trenchAuto.breakevenAtPercent : 5 %>" min="2" max="20" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-trailing" <%= (trenchAuto && trenchAuto.useTrailingStop !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Trailing stop</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-breakeven" <%= (trenchAuto && trenchAuto.useBreakevenStop !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Breakeven stop</span></label>
+      </div>
+    </details>
+    <details style="margin-top:8px;padding:10px;background:rgba(15,23,42,0.3);border-radius:6px;border:1px solid rgba(30,42,58,0.5);">
+      <summary style="cursor:pointer;color:#9ca3af;font-size:13px;font-weight:600;">Entry Filters</summary>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
+        <div><label style="font-size:11px;color:#6b7280;">Min Liq $</label><input type="number" id="auto-min-liq" value="<%= (trenchAuto && trenchAuto.minLiquidityUsd) != null ? trenchAuto.minLiquidityUsd : 0 %>" min="0" max="1000000" title="0 = no filter" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Max Top10 %</label><input type="number" id="auto-max-top10" value="<%= (trenchAuto && trenchAuto.maxTop10HoldersPercent) != null ? trenchAuto.maxTop10HoldersPercent : 100 %>" min="50" max="100" title="100 = no filter" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Max 24h %</label><input type="number" id="auto-max-24h" value="<%= (trenchAuto && trenchAuto.maxPriceChange24hPercent) != null ? trenchAuto.maxPriceChange24hPercent : 5000 %>" min="200" max="10000" title="5000 = no filter" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Cooldown (hr)</label><input type="number" id="auto-cooldown" value="<%= (trenchAuto && trenchAuto.cooldownHours) != null ? trenchAuto.cooldownHours : 1 %>" min="0" max="48" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-filters" <%= (trenchAuto && trenchAuto.useEntryFilters) ? 'checked' : '' %>><span style="color:#e5e7eb;">Use entry filters</span></label>
+      </div>
+    </details>
+    <details style="margin-top:8px;padding:10px;background:rgba(15,23,42,0.3);border-radius:6px;border:1px solid rgba(30,42,58,0.5);">
+      <summary style="cursor:pointer;color:#9ca3af;font-size:13px;font-weight:600;">Risk Controls</summary>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
+        <div><label style="font-size:11px;color:#6b7280;">Max daily loss %</label><input type="number" id="auto-max-daily-loss" value="<%= (trenchAuto && trenchAuto.maxDailyLossPercent) != null ? trenchAuto.maxDailyLossPercent : 15 %>" min="0" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Pause after losses</label><input type="number" id="auto-consec-losses" value="<%= (trenchAuto && trenchAuto.consecutiveLossesToPause) != null ? trenchAuto.consecutiveLossesToPause : 5 %>" min="0" max="10" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Min SOL (live)</label><input type="number" id="auto-min-sol" value="<%= (trenchAuto && trenchAuto.minSolBalance) != null ? trenchAuto.minSolBalance : 0.05 %>" min="0.01" max="1" step="0.01" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+      </div>
+    </details>
+    <details style="margin-top:8px;padding:10px;background:rgba(15,23,42,0.3);border-radius:6px;border:1px solid rgba(30,42,58,0.5);">
+      <summary style="cursor:pointer;color:#9ca3af;font-size:13px;font-weight:600;">Notifications</summary>
+      <div style="margin-top:12px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="auto-notify-open" <%= (trenchAuto && trenchAuto.trenchNotifyTradeOpen !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Notify on buy</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:8px;"><input type="checkbox" id="auto-notify-close" <%= (trenchAuto && trenchAuto.trenchNotifyTradeClose !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Notify on sell</span></label>
+      </div>
+    </details>
+    <button type="button" id="btn-save-auto" class="nav-btn primary" style="margin-top:12px;padding:8px 16px;">Save Settings</button>
   </details>
-  <details style="margin-top:8px;padding:12px;background:rgba(15,23,42,0.4);border-radius:8px;border:1px solid #1e2a3a;">
-    <summary style="cursor:pointer;color:#e5e7eb;font-weight:600;">Risk Controls</summary>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
-      <div><label style="font-size:11px;color:#6b7280;">Max daily loss %</label><input type="number" id="auto-max-daily-loss" value="<%= (trenchAuto && trenchAuto.maxDailyLossPercent) != null ? trenchAuto.maxDailyLossPercent : 15 %>" min="0" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">Pause after losses</label><input type="number" id="auto-consec-losses" value="<%= (trenchAuto && trenchAuto.consecutiveLossesToPause) != null ? trenchAuto.consecutiveLossesToPause : 3 %>" min="0" max="10" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">Min SOL (live)</label><input type="number" id="auto-min-sol" value="<%= (trenchAuto && trenchAuto.minSolBalance) != null ? trenchAuto.minSolBalance : 0.05 %>" min="0.01" max="1" step="0.01" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-    </div>
-  </details>
-  <details style="margin-top:8px;padding:12px;background:rgba(15,23,42,0.4);border-radius:8px;border:1px solid #1e2a3a;">
-    <summary style="cursor:pointer;color:#e5e7eb;font-weight:600;">Notifications</summary>
-    <div style="margin-top:12px;">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="auto-notify-open" <%= (trenchAuto && trenchAuto.trenchNotifyTradeOpen !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Notify on buy</span></label>
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:8px;"><input type="checkbox" id="auto-notify-close" <%= (trenchAuto && trenchAuto.trenchNotifyTradeClose !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Notify on sell</span></label>
-    </div>
-  </details>
-  <button type="button" id="btn-save-auto" class="nav-btn primary" style="margin-top:12px;padding:8px 16px;">Save Auto Settings</button>
-  <button type="button" id="btn-run-now" class="nav-btn" style="margin-top:12px;margin-left:8px;padding:8px 16px;" title="Trigger auto trade run immediately">Run Now</button>
-  <button type="button" id="btn-debug" class="nav-btn" style="margin-top:12px;margin-left:8px;padding:8px 16px;font-size:12px;">Debug</button>
-  <% if (trenchAuto && trenchAuto.lastRunAt) { %>
-  <p style="font-size:12px;color:#6b7280;margin-top:12px;">Last run: <%= new Date(trenchAuto.lastRunAt).toLocaleString() %></p>
-  <% } %>
 </div>
 <% } %>
 
@@ -527,29 +546,27 @@
   if (btnSaveAuto) {
     btnSaveAuto.addEventListener('click', function() {
       var payload = {
-        enabled: document.getElementById('auto-enabled').checked,
         mode: document.getElementById('auto-mode').value,
         minTrendingScore: parseInt(document.getElementById('auto-min-score').value, 10),
         maxOpenPositions: parseInt(document.getElementById('auto-max-pos').value, 10),
         amountPerTradeUsd: parseFloat(document.getElementById('auto-amount-usd').value),
         amountPerTradeSol: parseFloat(document.getElementById('auto-amount-sol').value),
-        checkIntervalMinutes: parseInt(document.getElementById('auto-check-min')?.value || 15, 10),
-        tpPercent: parseFloat(document.getElementById('auto-tp')?.value || 15),
-        slPercent: parseFloat(document.getElementById('auto-sl')?.value || 10),
-        trailingStopPercent: parseFloat(document.getElementById('auto-trailing')?.value || 10),
+        tpPercent: parseFloat(document.getElementById('auto-tp')?.value || 25),
+        slPercent: parseFloat(document.getElementById('auto-sl')?.value || 8),
+        trailingStopPercent: parseFloat(document.getElementById('auto-trailing')?.value || 8),
         useTrailingStop: document.getElementById('auto-use-trailing')?.checked !== false,
         partialTpPercent: parseFloat(document.getElementById('auto-partial-tp')?.value || 50),
         partialTpAtPercent: parseFloat(document.getElementById('auto-partial-at')?.value || 15),
         breakevenAtPercent: parseFloat(document.getElementById('auto-breakeven-at')?.value || 5),
         useBreakevenStop: document.getElementById('auto-use-breakeven')?.checked !== false,
-        maxHoldMinutes: parseInt(document.getElementById('auto-max-hold')?.value || 60, 10),
-        minLiquidityUsd: parseFloat(document.getElementById('auto-min-liq')?.value || 10000),
-        maxTop10HoldersPercent: parseFloat(document.getElementById('auto-max-top10')?.value || 80),
+        maxHoldMinutes: parseInt(document.getElementById('auto-max-hold')?.value || 30, 10),
+        minLiquidityUsd: parseFloat(document.getElementById('auto-min-liq')?.value || 0),
+        maxTop10HoldersPercent: parseFloat(document.getElementById('auto-max-top10')?.value || 100),
         maxPriceChange24hPercent: parseFloat(document.getElementById('auto-max-24h')?.value || 5000),
-        cooldownHours: parseFloat(document.getElementById('auto-cooldown')?.value || 4),
-        useEntryFilters: document.getElementById('auto-use-filters')?.checked !== false,
+        cooldownHours: parseFloat(document.getElementById('auto-cooldown')?.value || 1),
+        useEntryFilters: document.getElementById('auto-use-filters')?.checked === true,
         maxDailyLossPercent: parseFloat(document.getElementById('auto-max-daily-loss')?.value || 15),
-        consecutiveLossesToPause: parseInt(document.getElementById('auto-consec-losses')?.value || 3, 10),
+        consecutiveLossesToPause: parseInt(document.getElementById('auto-consec-losses')?.value || 5, 10),
         minSolBalance: parseFloat(document.getElementById('auto-min-sol')?.value || 0.05),
         trenchNotifyTradeOpen: document.getElementById('auto-notify-open')?.checked !== false,
         trenchNotifyTradeClose: document.getElementById('auto-notify-close')?.checked !== false
@@ -561,11 +578,110 @@
         body: JSON.stringify(payload)
       }).then(function(r) { return r.json(); }).then(function(d) {
         if (d.error) alert(d.error);
-        else alert('Auto settings saved.');
+        else alert('Settings saved.');
       });
     });
   }
 
+  // ---- BOT START / STOP ----
+  var btnStart = document.getElementById('btn-start-bot');
+  var btnStop = document.getElementById('btn-stop-bot');
+  var botStatusBadge = document.getElementById('bot-status-badge');
+  var botStatusDot = document.getElementById('bot-status-dot');
+  var botStatusText = document.getElementById('bot-status-text');
+  var botUptime = document.getElementById('bot-uptime');
+  var botActivitySection = document.getElementById('bot-activity-section');
+  var botActivityLog = document.getElementById('bot-activity-log');
+  var botScanCount = document.getElementById('bot-scan-count');
+  var botPolling = null;
+
+  function updateBotUI(running) {
+    if (btnStart) btnStart.style.display = running ? 'none' : '';
+    if (btnStop) btnStop.style.display = running ? '' : 'none';
+    if (botActivitySection) botActivitySection.style.display = running ? '' : 'none';
+    if (botStatusDot) {
+      botStatusDot.style.background = running ? '#10b981' : '#6b7280';
+      botStatusDot.style.boxShadow = running ? '0 0 6px #10b981' : 'none';
+    }
+    if (botStatusText) botStatusText.textContent = running ? 'RUNNING' : 'STOPPED';
+    if (botStatusBadge) {
+      botStatusBadge.style.background = running ? 'rgba(16,185,129,0.2)' : 'rgba(107,114,128,0.2)';
+      botStatusBadge.style.color = running ? '#10b981' : '#6b7280';
+      botStatusBadge.style.borderColor = running ? 'rgba(16,185,129,0.3)' : 'rgba(107,114,128,0.3)';
+    }
+  }
+
+  function formatUptime(seconds) {
+    if (seconds < 60) return seconds + 's';
+    if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's';
+    return Math.floor(seconds / 3600) + 'h ' + Math.floor((seconds % 3600) / 60) + 'm';
+  }
+
+  function colorLogLine(msg) {
+    if (msg.indexOf('BUY') !== -1) return '#10b981';
+    if (msg.indexOf('SELL') !== -1) return '#f59e0b';
+    if (msg.indexOf('PAUSED') !== -1 || msg.indexOf('Error') !== -1 || msg.indexOf('failed') !== -1) return '#ef4444';
+    if (msg.indexOf('STARTED') !== -1 || msg.indexOf('STOPPED') !== -1) return '#3b82f6';
+    return '#9ca3af';
+  }
+
+  function pollBotStatus() {
+    fetch('/api/trench-warfare/auto/status', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        updateBotUI(d.running);
+        if (!d.running) {
+          if (botPolling) { clearInterval(botPolling); botPolling = null; }
+          return;
+        }
+        if (botUptime) botUptime.textContent = 'Uptime: ' + formatUptime(d.uptime || 0);
+        if (botScanCount) botScanCount.textContent = 'Scans: ' + (d.scanCount || 0) + ' | Trades: ' + (d.tradesOpened || 0);
+        if (botActivityLog && d.log && d.log.length > 0) {
+          botActivityLog.innerHTML = d.log.map(function(entry) {
+            var t = entry.time ? new Date(entry.time).toLocaleTimeString() : '';
+            return '<div style="color:' + colorLogLine(entry.msg) + ';"><span style="color:#4b5563;">[' + t + ']</span> ' + entry.msg + '</div>';
+          }).join('');
+          botActivityLog.scrollTop = botActivityLog.scrollHeight;
+        }
+      }).catch(function() {});
+  }
+
+  if (btnStart) btnStart.addEventListener('click', function() {
+    btnStart.disabled = true;
+    btnStart.textContent = 'Starting...';
+    var mode = document.getElementById('auto-mode').value;
+    fetch('/api/trench-warfare/auto/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ mode: mode })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      btnStart.disabled = false;
+      btnStart.textContent = 'Start Bot';
+      if (d.error) { alert(d.error); return; }
+      updateBotUI(true);
+      if (!botPolling) botPolling = setInterval(pollBotStatus, 5000);
+      pollBotStatus();
+    }).catch(function(e) { alert('Error: ' + (e.message || e)); btnStart.disabled = false; btnStart.textContent = 'Start Bot'; });
+  });
+
+  if (btnStop) btnStop.addEventListener('click', function() {
+    fetch('/api/trench-warfare/auto/stop', { method: 'POST', credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        updateBotUI(false);
+        if (botPolling) { clearInterval(botPolling); botPolling = null; }
+        loadAnalytics();
+      });
+  });
+
+  // Start polling if bot is already running
+  if (<%= botRunning ? 'true' : 'false' %>) {
+    botPolling = setInterval(pollBotStatus, 5000);
+    pollBotStatus();
+  }
+
+  // ---- ANALYTICS ----
   function loadAnalytics() {
     fetch('/api/trench-warfare/analytics', { credentials: 'same-origin' })
       .then(function(r) { return r.json(); })
@@ -596,37 +712,8 @@
   }
   if (document.getElementById('trench-analytics')) {
     loadAnalytics();
-    setInterval(loadAnalytics, 20000);
+    setInterval(loadAnalytics, 15000);
   }
-
-  var btnRunNow = document.getElementById('btn-run-now');
-  var btnDebug = document.getElementById('btn-debug');
-  if (btnDebug) btnDebug.addEventListener('click', function() {
-    fetch('/api/trench-warfare/auto/debug', { credentials: 'same-origin' })
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (d.error) alert(d.error);
-        else alert('Trendings: ' + d.trendings + '\nBalance: $' + d.balance + '\nOpen: ' + d.openCount + '/' + d.maxPositions + '\nCan buy: ' + d.canBuy + '\nAuto: ' + (d.autoEnabled ? 'ON' : 'OFF') + ' (' + (d.mode || 'paper') + ')\nSample: ' + (d.sample ? d.sample.symbol + ' $' + d.sample.price : 'none'));
-      });
-  });
-
-  if (btnRunNow) btnRunNow.addEventListener('click', function() {
-    btnRunNow.disabled = true;
-    btnRunNow.textContent = 'Running...';
-    var payload = { enabled: true, mode: (document.getElementById('auto-mode') || {}).value || 'paper' };
-    fetch('/api/trench-warfare/auto/run-now', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(payload) })
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (d.error) { alert(d.error); btnRunNow.disabled = false; btnRunNow.textContent = 'Run Now'; return; }
-        var trades = d.trades || 0;
-        var msg = 'Done. ' + (trades === 0 ? 'No trades executed.' : trades + ' trade' + (trades === 1 ? '' : 's') + ' executed.') + ' ' + (d.trendings || 0) + ' tokens scanned.';
-        if (d.reason) msg += ' (' + d.reason + ')';
-        alert(msg);
-        location.reload();
-      })
-      .catch(function(e) { alert('Error: ' + (e.message || e)); btnRunNow.disabled = false; btnRunNow.textContent = 'Run Now'; });
-    return;
-  });
 
   ['btn-unpause', 'btn-unpause-banner'].forEach(function(id) {
     var btn = document.getElementById(id);
