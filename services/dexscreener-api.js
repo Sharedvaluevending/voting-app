@@ -4,7 +4,7 @@
 // DexScreener: 5 endpoints (boosts, top boosts, profiles, takeovers, ads)
 // GeckoTerminal: trending, new, top pools (multiple sort options)
 // Jupiter: trending, top traded, organic score, recent tokens
-// No API keys needed, all free endpoints
+// Jupiter requires JUPITER_API_KEY (free at https://portal.jup.ag/api-keys)
 // ====================================================
 
 const fetch = require('node-fetch');
@@ -142,9 +142,10 @@ async function fetchTokenPairsBatch(chainId, tokenAddresses, opts = {}) {
 
 async function fetchGeckoTerminalPools(endpoint, maxPages = 3) {
   const tokens = [];
+  const sep = endpoint.includes('?') ? '&' : '?';
   for (let page = 1; page <= maxPages; page++) {
     try {
-      const url = `${GT_BASE}/networks/solana/${endpoint}?page=${page}`;
+      const url = `${GT_BASE}/networks/solana/${endpoint}${sep}page=${page}`;
       const res = await fetch(url, { timeout: 10000 });
       if (!res.ok) break;
       const json = await res.json();
@@ -204,10 +205,15 @@ function jupiterTokenToStandard(t) {
   };
 }
 
+function getJupiterHeaders() {
+  const key = process.env.JUPITER_API_KEY;
+  return key ? { 'x-api-key': key } : {};
+}
+
 async function fetchJupiterCategory(category, interval, limit = 100) {
   try {
     const url = `${JUP_BASE}/${category}/${interval}?limit=${limit}`;
-    const res = await fetch(url, { timeout: 12000 });
+    const res = await fetch(url, { timeout: 12000, headers: getJupiterHeaders() });
     if (!res.ok) return [];
     const data = await res.json();
     if (!Array.isArray(data)) return [];
@@ -221,7 +227,7 @@ async function fetchJupiterCategory(category, interval, limit = 100) {
 async function fetchJupiterRecent(limit = 100) {
   try {
     const url = `${JUP_BASE}/recent?limit=${limit}`;
-    const res = await fetch(url, { timeout: 12000 });
+    const res = await fetch(url, { timeout: 12000, headers: getJupiterHeaders() });
     if (!res.ok) return [];
     const data = await res.json();
     if (!Array.isArray(data)) return [];
@@ -261,8 +267,8 @@ async function fetchSolanaTrendings(limit = 500) {
   const [gtTrending, gtNew, gtTopTx, gtTopVol] = await Promise.all([
     fetchGeckoTerminalPools('trending_pools', 4).catch(() => []),
     fetchGeckoTerminalPools('new_pools', 4).catch(() => []),
-    fetchGeckoTerminalPools('pools?sort=h24_tx_count_desc', 3).catch(() => []),
-    fetchGeckoTerminalPools('pools?sort=h24_volume_usd_desc', 3).catch(() => [])
+    fetchGeckoTerminalPools('pools?order=h24_tx_count_desc', 3).catch(() => []),
+    fetchGeckoTerminalPools('pools?order=h24_volume_usd_desc', 3).catch(() => [])
   ]);
 
   const gtTokens = [...gtTrending, ...gtNew, ...gtTopTx, ...gtTopVol];
@@ -279,6 +285,9 @@ async function fetchSolanaTrendings(limit = 500) {
 
   const jupTokens = [...jupTrending1h, ...jupTrending6h, ...jupTraded, ...jupOrganic, ...jupRecent];
   console.log(`[Jupiter] ${jupTokens.length} tokens (trend1h:${jupTrending1h.length} trend6h:${jupTrending6h.length} traded:${jupTraded.length} organic:${jupOrganic.length} recent:${jupRecent.length})`);
+  if (jupTokens.length === 0 && !process.env.JUPITER_API_KEY) {
+    console.warn('[Jupiter] Add JUPITER_API_KEY to .env for 200+ more tokens (free at https://portal.jup.ag/api-keys)');
+  }
 
   // Phase 4: Bulk fetch prices for DexScreener tokens
   const toFetch = dexAddresses.slice(0, Math.min(limit, 500));
