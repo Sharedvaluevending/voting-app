@@ -102,6 +102,9 @@ function scoreCandidate(t) {
   const buyPressure = t.buyPressure || 0.5;
   const organicScore = t.organicScore || 0;
   const numBuyers1h = t.numBuyers1h || 0;
+  const holderCount = t.holderCount || 0;
+  const volLiqRatio = liq > 0 ? vol / liq : 0;
+  const sourceCount = t._sourceCount || 1;
 
   // Hard rejects
   if (change > 500) return -1;
@@ -109,16 +112,18 @@ function scoreCandidate(t) {
   if (vol < 15000) return -1;
   if (liq < 8000) return -1;
   if (buyPressure < 0.35) return -1;
-  if (change1h < -10) return -1;  // dumping in the last hour = avoid
+  if (change1h < -10) return -1;
+  if (holderCount > 0 && holderCount < 50) return -1;  // too few holders = rug risk
+  if (volLiqRatio > 25) return -1;  // extreme ratio = likely wash trading
 
   let score = 0;
 
-  // 1h momentum is the strongest signal for scalping -- is it moving NOW?
-  if (change1h >= 5 && change1h <= 30) score += 25;      // actively pumping, not parabolic
-  else if (change1h > 30 && change1h <= 60) score += 15;  // strong move, higher risk
-  else if (change1h >= 1 && change1h < 5) score += 12;    // gentle uptrend
-  else if (change1h >= -2 && change1h < 1) score += 5;    // flat/consolidating
-  else if (change1h >= -10 && change1h < -2) score += 0;  // cooling off, no bonus
+  // 1h momentum -- strongest signal for scalping
+  if (change1h >= 5 && change1h <= 30) score += 25;
+  else if (change1h > 30 && change1h <= 60) score += 15;
+  else if (change1h >= 1 && change1h < 5) score += 12;
+  else if (change1h >= -2 && change1h < 1) score += 5;
+  else if (change1h >= -10 && change1h < -2) score += 0;
 
   // 24h price change context
   if (change >= 5 && change <= 50) score += 20;
@@ -141,6 +146,11 @@ function scoreCandidate(t) {
   else if (liq >= 8000) score += 8;
   else score += 2;
 
+  // Volume/liquidity ratio -- healthy trading activity relative to pool size
+  if (volLiqRatio >= 3 && volLiqRatio <= 15) score += 10;  // sweet spot
+  else if (volLiqRatio >= 1.5 && volLiqRatio < 3) score += 6;
+  else if (volLiqRatio >= 0.5 && volLiqRatio < 1.5) score += 3;
+
   // Buy pressure bonus
   if (buyPressure >= 0.6) score += 15;
   else if (buyPressure >= 0.55) score += 10;
@@ -151,10 +161,23 @@ function scoreCandidate(t) {
   else if (organicScore >= 50) score += 10;
   else if (organicScore >= 20) score += 5;
 
-  // Recent organic buyers -- tokens people are actually buying right now
+  // Recent organic buyers
   if (numBuyers1h >= 50) score += 10;
   else if (numBuyers1h >= 20) score += 6;
   else if (numBuyers1h >= 5) score += 3;
+
+  // Holder count -- more holders = more established, harder to rug
+  if (holderCount >= 1000) score += 10;
+  else if (holderCount >= 500) score += 7;
+  else if (holderCount >= 200) score += 4;
+  else if (holderCount >= 50) score += 1;
+
+  // Verified token bonus (Jupiter verification)
+  if (t.isVerified) score += 5;
+
+  // Cross-source bonus -- found by multiple scanners = more legit
+  if (sourceCount >= 3) score += 8;
+  else if (sourceCount >= 2) score += 4;
 
   return score;
 }
@@ -196,7 +219,7 @@ async function fetchTrendingsCached() {
   scored.sort((a, b) => b._qualityScore - a._qualityScore);
 
   const all = Array.from(seen.values());
-  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$15k, liq>$8k, 24h<500%, 1h>-10%, buyP>35%)`);
+  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$15k, liq>$8k, 24h<500%, 1h>-10%, buyP>35%, holders>50)`);
 
   trendingCache = { data: scored, fetchedAt: Date.now() };
   return scored;
@@ -708,8 +731,9 @@ async function _entryTickInner(userId) {
         const bp = t.buyPressure ? ` bp:${(t.buyPressure * 100).toFixed(0)}%` : '';
         const os = t.organicScore ? ` org:${Math.round(t.organicScore)}` : '';
         const h1 = t.priceChange1h ? ` 1h:${(t.priceChange1h).toFixed(1)}%` : '';
-        const buyers = t.numBuyers1h ? ` buy1h:${t.numBuyers1h}` : '';
-        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${slippedEntry.toFixed(8)} (24h: ${(t.priceChange24h || 0).toFixed(1)}%${h1}, vol: ${vol}, liq: ${liq}, score: ${t._qualityScore || 0}${bp}${os}${buyers}, mom: +${(momentum.changeSinceFirstSight || 0).toFixed(1)}%)`);
+        const holders = t.holderCount ? ` hldr:${t.holderCount}` : '';
+        const src = (t._sourceCount || 1) > 1 ? ` src:${t._sourceCount}` : '';
+        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${slippedEntry.toFixed(8)} (24h:${(t.priceChange24h || 0).toFixed(1)}%${h1} vol:${vol} liq:${liq} score:${t._qualityScore || 0}${bp}${os}${holders}${src} mom:+${(momentum.changeSinceFirstSight || 0).toFixed(1)}%)`);
         notifyUser(user, `Trench BUY ${t.symbol}`, `$${amount} @ $${slippedEntry.toFixed(8)}`, 'open').catch(() => {});
       } catch (err) {
         botLog(userId, `Buy failed ${t.symbol}: ${err.message}`);

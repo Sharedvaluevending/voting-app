@@ -303,28 +303,43 @@ async function fetchSolanaTrendings(limit = 500) {
   const toFetch = dexAddresses.slice(0, Math.min(limit, 500));
   const dexTokens = await fetchTokensBulk('solana', toFetch);
 
-  // Phase 5: Merge all sources, dedup by address
+  // Phase 5: Count which sources found each token address
+  const sourceCounts = new Map();
+  const jupAddrs = new Set(jupTokens.filter(t => t.tokenAddress && t.price > 0).map(t => t.tokenAddress));
+  const dexAddrs = new Set(dexTokens.filter(t => t.tokenAddress && t.price > 0).map(t => t.tokenAddress));
+  const gtAddrs = new Set(gtTokens.filter(t => t.tokenAddress && t.price > 0).map(t => t.tokenAddress));
+  for (const addr of new Set([...jupAddrs, ...dexAddrs, ...gtAddrs])) {
+    sourceCounts.set(addr, (jupAddrs.has(addr) ? 1 : 0) + (dexAddrs.has(addr) ? 1 : 0) + (gtAddrs.has(addr) ? 1 : 0));
+  }
+
+  // Phase 6: Merge all sources, dedup by address
   // Jupiter first (richest data: organic score, buy pressure, holder count)
   // Then DexScreener (reliable pricing), then GeckoTerminal (pool data)
   const merged = new Map();
   for (const t of jupTokens) {
-    if (t.tokenAddress && t.price > 0) merged.set(t.tokenAddress, t);
+    if (t.tokenAddress && t.price > 0) {
+      t._sourceCount = sourceCounts.get(t.tokenAddress) || 1;
+      merged.set(t.tokenAddress, t);
+    }
   }
   for (const t of dexTokens) {
     if (t.tokenAddress && t.price > 0 && !merged.has(t.tokenAddress)) {
+      t._sourceCount = sourceCounts.get(t.tokenAddress) || 1;
       merged.set(t.tokenAddress, t);
     }
   }
   for (const t of gtTokens) {
     if (t.tokenAddress && t.price > 0 && !merged.has(t.tokenAddress)) {
+      t._sourceCount = sourceCounts.get(t.tokenAddress) || 1;
       merged.set(t.tokenAddress, t);
     }
   }
 
+  const multiSource = Array.from(sourceCounts.values()).filter(c => c >= 2).length;
   const result = Array.from(merged.values())
     .sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0));
 
-  console.log(`[Scanner] Total unique tokens with prices: ${result.length}`);
+  console.log(`[Scanner] Total unique tokens: ${result.length} (${multiSource} multi-source)`);
   return result;
 }
 
