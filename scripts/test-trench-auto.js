@@ -41,6 +41,12 @@ async function main() {
     console.log('   Would consider:', merged.slice(0, 5).map((t) => t.symbol).join(', '));
     const lowCap = merged.filter((t) => t.price > 0 && t.price < 0.01);
     console.log('   Sub-$0.01 (dev/memecoins):', lowCap.length, 'tokens');
+    const withFiltersOff = merged.length;
+    const withMax24h200 = merged.filter((t) => (t.priceChange24h || 0) < 200).length;
+    const withMax24h5000 = merged.filter((t) => (t.priceChange24h || 0) < 5000).length;
+    console.log('   With filters OFF: all', withFiltersOff, 'pass');
+    console.log('   With max24h=200 (old): only', withMax24h200, 'would pass');
+    console.log('   With max24h=5000 (new):', withMax24h5000, 'would pass');
   }
 
   console.log('\n=== Test OK ===');

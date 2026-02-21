@@ -97,12 +97,16 @@ async function passesEntryFilters(t, settings, blacklist) {
   let max24h = settings.maxPriceChange24hPercent ?? 5000;
   if (max24h === 200) max24h = 5000;
   if (max24h < 10000 && (t.priceChange24h || 0) >= max24h) return false;
-  if ((settings.minLiquidityUsd ?? 0) > 0 || (settings.maxTop10HoldersPercent ?? 100) < 100) {
+  let minLiq = settings.minLiquidityUsd ?? 0;
+  let maxTop10 = settings.maxTop10HoldersPercent ?? 100;
+  if (minLiq === 10000) minLiq = 0;
+  if (maxTop10 === 80) maxTop10 = 100;
+  if (minLiq > 0 || maxTop10 < 100) {
     try {
       const mk = await mobula.getTokenMarkets('solana', t.tokenAddress);
       if (mk) {
-        if ((settings.minLiquidityUsd ?? 0) > 0 && (mk.liquidityUSD || 0) < settings.minLiquidityUsd) return false;
-        if ((settings.maxTop10HoldersPercent ?? 100) < 100 && (mk.top10HoldingsPercentage || 100) > settings.maxTop10HoldersPercent) return false;
+        if (minLiq > 0 && (mk.liquidityUSD || 0) < minLiq) return false;
+        if (maxTop10 < 100 && (mk.top10HoldingsPercentage || 100) > maxTop10) return false;
       }
     } catch (e) { /* skip filter on API error */ }
   }
@@ -397,18 +401,21 @@ async function runTrenchAutoTrade(opts = {}) {
     if (mode === 'paper') {
       const balance = user.trenchPaperBalance ?? 1000;
       const amountPerTrade = settings.amountPerTradeUsd ?? 20;
-      if (balance < amountPerTrade || (openPaperAfter.length + openLiveAfter.length) >= maxPositions) continue;
+      const slotsLeft = maxPositions - openPaperAfter.length - openLiveAfter.length;
+      if (balance < amountPerTrade || slotsLeft <= 0) continue;
 
       let candidates = validTrendings
         .filter(t => !heldAfter.has(t.tokenAddress) && (t.trendingScore || 0) >= minScore)
-        .sort((a, b) => (b.trendingScore || 0) - (a.trendingScore || 0))
-        .slice(0, maxPositions - openPaperAfter.length - openLiveAfter.length);
+        .sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0))
+        .slice(0, Math.min(30, validTrendings.length));
 
       if (candidates.length === 0 && validTrendings.length > 0) {
         console.log(`[TrenchAuto] ${user.username}: no buy candidates (${validTrendings.length} trendings, minScore=${minScore}, held=${heldAfter.size}, maxPos=${maxPositions})`);
       }
 
       for (const t of candidates) {
+        const openNow = await ScalpTrade.countDocuments({ userId: user._id, status: 'OPEN' });
+        if (openNow >= maxPositions) break;
         if (user.trenchPaperBalance < amountPerTrade) break;
         const pass = await passesEntryFilters(t, settings, blacklist);
         if (!pass) continue;
@@ -462,14 +469,16 @@ async function runTrenchAutoTrade(opts = {}) {
 
       let candidates = validTrendings
         .filter(t => !heldAfter.has(t.tokenAddress) && (t.trendingScore || 0) >= minScore)
-        .sort((a, b) => (b.trendingScore || 0) - (a.trendingScore || 0))
-        .slice(0, maxPositions - openLiveAfter.length);
+        .sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0))
+        .slice(0, Math.min(30, validTrendings.length));
 
       if (candidates.length === 0 && validTrendings.length > 0) {
         console.log(`[TrenchAuto] ${user.username} (live): no buy candidates`);
       }
 
       for (const t of candidates) {
+        const openNow = await ScalpTrade.countDocuments({ userId: user._id, status: 'OPEN' });
+        if (openNow >= maxPositions) break;
         const pass = await passesEntryFilters(t, settings, blacklist);
         if (!pass) continue;
         const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 4);
