@@ -21,7 +21,8 @@ const TRENDING_CACHE_TTL = 60 * 1000;
 const MAX_LOG_ENTRIES = 50;
 const PAPER_SLIPPAGE = 0.008; // 0.8% simulated slippage each way (~1.6% round trip)
 const MAX_BUYS_PER_SCAN = 2;  // stagger entries across scans
-const MIN_QUALITY_SCORE = 50; // skip marginal candidates, focus on actively pumping coins
+const MIN_QUALITY_SCORE = 60; // skip marginal candidates, focus on actively pumping coins
+const FRESH_PRICE_DROP_SKIP_PCT = 2; // skip buy if price dropped >2% since momentum confirmed
 
 // ====================================================
 // In-memory state
@@ -113,6 +114,8 @@ function scoreCandidate(t) {
   if (vol < 15000) return -1;
   if (liq < 25000) return -1;
   if (holderCount > 0 && holderCount < 500) return -1;
+  // Reject unknown holder count when Jupiter is source (we expect holder data from Jupiter)
+  if (t.source === 'jupiter' && holderCount === 0) return -1;
   if (volLiqRatio > 25) return -1;
 
   // Must be actively pumping
@@ -259,8 +262,8 @@ async function fetchTrendingsCached() {
 // ====================================================
 function sanitizeSettings(raw) {
   const s = { ...raw };
-  s.slPercent = Math.min(Math.max(s.slPercent ?? 12, 3), 30);
-  s.tpPercent = Math.min(Math.max(s.tpPercent ?? 18, 5), 50);
+  s.slPercent = Math.min(Math.max(s.slPercent ?? 10, 3), 30);
+  s.tpPercent = Math.min(Math.max(s.tpPercent ?? 22, 5), 50);
   s.maxHoldMinutes = Math.min(Math.max(s.maxHoldMinutes ?? 20, 5), 60);
   s.maxOpenPositions = Math.min(Math.max(s.maxOpenPositions ?? 6, 1), 15);
   s.consecutiveLossesToPause = Math.min(Math.max(s.consecutiveLossesToPause ?? 3, 2), 10);
@@ -319,17 +322,29 @@ async function passesEntryFilters(t, settings, blacklist) {
   if (blacklist && blacklist.includes(t.tokenAddress)) return false;
   const max24h = settings.maxPriceChange24hPercent ?? 500;
   if ((t.priceChange24h || 0) >= max24h) return false;
-  const minLiq = settings.minLiquidityUsd ?? 10000;
+  const minLiq = settings.minLiquidityUsd ?? 25000;
   const maxTop10 = settings.maxTop10HoldersPercent ?? 80;
-  if (minLiq > 0 || maxTop10 < 100) {
-    try {
-      const mk = await mobula.getTokenMarkets('solana', t.tokenAddress);
-      if (mk) {
-        if (minLiq > 0 && (mk.liquidityUSD || 0) < minLiq) return false;
-        if (maxTop10 < 100 && (mk.top10HoldingsPercentage || 100) > maxTop10) return false;
+  try {
+    const mk = await mobula.getTokenMarkets('solana', t.tokenAddress);
+    if (mk) {
+      if (minLiq > 0 && (mk.liquidityUSD || 0) < minLiq) return false;
+      if (maxTop10 < 100 && (mk.top10HoldingsPercentage || 100) > maxTop10) return false;
+      // Rug protection: reject high insider/sniper/bundler concentration
+      if ((mk.insidersCount || 0) > 5) return false;
+      if ((mk.bundlersCount || 0) > 10) return false;
+      if ((mk.snipersCount || 0) > 15) return false;
+      if ((mk.devHoldingsPercentage || 0) > 15) return false;
+      if ((mk.insidersHoldingsPercentage || 0) > 20) return false;
+      // Enrich token with Mobula 1h data when missing (e.g. DexScreener-only tokens)
+      if (t.priceChange1h == null && typeof mk.priceChange1hPercentage === 'number') {
+        t.priceChange1h = mk.priceChange1hPercentage;
       }
-    } catch (e) { /* skip filter on API error */ }
-  }
+      if (!t.buyVolume1h && !t.sellVolume1h && (mk.volumeBuy1hUSD || mk.volumeSell1hUSD)) {
+        t.buyVolume1h = mk.volumeBuy1hUSD || 0;
+        t.sellVolume1h = mk.volumeSell1hUSD || 0;
+      }
+    }
+  } catch (e) { /* skip filter on API error */ }
   return true;
 }
 
@@ -403,6 +418,16 @@ function checkMomentum(tokenAddress, currentPrice) {
 
   momentumCache.delete(tokenAddress);
   return { ready: true, changeSinceFirstSight };
+}
+
+// Fetch fresh price for a token (used before buy to avoid stale price)
+async function fetchFreshPrice(tokenAddress) {
+  try {
+    const pair = await dexscreener.fetchTokenPairs('solana', tokenAddress);
+    return pair?.price > 0 ? pair.price : null;
+  } catch (e) {
+    return null;
+  }
 }
 
 // Clean stale momentum entries (older than 10 minutes)
@@ -761,6 +786,21 @@ async function _entryTickInner(userId) {
   // Clean stale momentum entries
   cleanMomentumCache();
 
+  // Fetch live prices for tokens in momentum window (use live data instead of cache)
+  const momentumAddrs = [];
+  for (const [addr, entry] of momentumCache) {
+    if (Date.now() - entry.seenAt < 120000) momentumAddrs.push(addr);
+  }
+  let momentumFreshPrices = {};
+  if (momentumAddrs.length > 0) {
+    try {
+      const pairs = await dexscreener.fetchTokensBulk('solana', momentumAddrs.slice(0, 30));
+      for (const p of pairs) {
+        if (p.tokenAddress && p.price > 0) momentumFreshPrices[p.tokenAddress] = p.price;
+      }
+    } catch (e) { /* ignore */ }
+  }
+
   let buyCount = 0;
   let momentumWaiting = 0;
   let filteredOut = 0;
@@ -776,15 +816,28 @@ async function _entryTickInner(userId) {
       const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
       if (cool) { cooldownBlocked++; continue; }
 
-      const momentum = checkMomentum(t.tokenAddress, t.price);
+      const priceForMomentum = momentumFreshPrices[t.tokenAddress] ?? t.price;
+      const momentum = checkMomentum(t.tokenAddress, priceForMomentum);
       if (!momentum.ready) { momentumWaiting++; continue; }
 
       const pass = await passesEntryFilters(t, settings, blacklist);
       if (!pass) { filteredOut++; continue; }
 
+      // Fetch fresh price right before buy - skip if pump has reversed
+      const freshPrice = await fetchFreshPrice(t.tokenAddress);
+      const refPrice = momentumFreshPrices[t.tokenAddress] ?? t.price;
+      if (freshPrice && refPrice > 0) {
+        const dropPct = ((refPrice - freshPrice) / refPrice) * 100;
+        if (dropPct > FRESH_PRICE_DROP_SKIP_PCT) {
+          botLog(userId, `SKIP ${t.symbol} price dropped ${dropPct.toFixed(1)}% since confirm`);
+          continue;
+        }
+      }
+      const entryPrice = (freshPrice && freshPrice > 0) ? freshPrice : t.price;
+
       try {
-        // Apply slippage: entry price is 2% worse than listed
-        const slippedEntry = t.price * (1 + PAPER_SLIPPAGE);
+        // Apply slippage: entry price is worse than listed
+        const slippedEntry = entryPrice * (1 + PAPER_SLIPPAGE);
         const amount = Math.min(amountPerTrade, user.trenchPaperBalance);
         const tokenAmount = amount / slippedEntry;
         user.trenchPaperBalance = Math.round((user.trenchPaperBalance - amount) * 100) / 100;
@@ -832,11 +885,23 @@ async function _entryTickInner(userId) {
       const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
       if (cool) { cooldownBlocked++; continue; }
 
-      const momentum = checkMomentum(t.tokenAddress, t.price);
+      const priceForMomentum = momentumFreshPrices[t.tokenAddress] ?? t.price;
+      const momentum = checkMomentum(t.tokenAddress, priceForMomentum);
       if (!momentum.ready) { momentumWaiting++; continue; }
 
       const pass = await passesEntryFilters(t, settings, blacklist);
       if (!pass) { filteredOut++; continue; }
+
+      const freshPrice = await fetchFreshPrice(t.tokenAddress);
+      const refPrice = momentumFreshPrices[t.tokenAddress] ?? t.price;
+      if (freshPrice && refPrice > 0) {
+        const dropPct = ((refPrice - freshPrice) / refPrice) * 100;
+        if (dropPct > FRESH_PRICE_DROP_SKIP_PCT) {
+          botLog(userId, `SKIP ${t.symbol} price dropped ${dropPct.toFixed(1)}% since confirm`);
+          continue;
+        }
+      }
+      const entryPrice = (freshPrice && freshPrice > 0) ? freshPrice : t.price;
 
       try {
         const quote = await mobula.getSwapQuote('solana', mobula.SOL_MINT, t.tokenAddress, amountPerTrade, walletAddress, { slippage: 8 });
@@ -851,11 +916,11 @@ async function _entryTickInner(userId) {
         const data = result.data || result;
         if (data.success && data.transactionHash) {
           const solPrice = 150;
-          const tokenAmount = (amountPerTrade * solPrice) / (t.price || 1e-9);
+          const tokenAmount = (amountPerTrade * solPrice) / (entryPrice || 1e-9);
           await ScalpTrade.create({
             userId: user._id, walletAddress, isPaper: false,
             tokenAddress: t.tokenAddress, tokenSymbol: t.symbol, tokenName: t.name,
-            side: 'BUY', amountIn: amountPerTrade, tokenAmount, entryPrice: t.price, peakPrice: t.price, txHash: data.transactionHash, status: 'OPEN'
+            side: 'BUY', amountIn: amountPerTrade, tokenAmount, entryPrice, peakPrice: entryPrice, txHash: data.transactionHash, status: 'OPEN'
           });
           buyCount++;
           bot.tradesOpened++;
@@ -902,7 +967,7 @@ function startBot(userId) {
   // Log sanitized settings on start so we can verify
   User.findById(userId).lean().then(u => {
     const s = sanitizeSettings(u?.trenchAuto || {});
-    botLog(userId, `Bot STARTED — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m(bail@${Math.round(s.maxHoldMinutes/2)}m/-2%) slots:${s.maxOpenPositions} (${MAX_BUYS_PER_SCAN}/scan) cool:${s.cooldownHours}h(4x losers) minScore:${MIN_QUALITY_SCORE} | ONLY buying: 1h>+1% bp>50% momentum>+0.5%/120s trail:7/8/12%`);
+    botLog(userId, `Bot STARTED — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m(bail@${Math.round(s.maxHoldMinutes/2)}m/-2%) slots:${s.maxOpenPositions} (${MAX_BUYS_PER_SCAN}/scan) cool:${s.cooldownHours}h(4x losers) minScore:${MIN_QUALITY_SCORE} freshPrice:skip>${FRESH_PRICE_DROP_SKIP_PCT}% | 1h>+1% bp>50% momentum>+1%/120s trail:7/8/12%`);
   }).catch(() => {
     botLog(userId, 'Bot STARTED — exits 10s, entries 60s');
   });

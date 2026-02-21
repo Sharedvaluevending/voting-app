@@ -3460,7 +3460,7 @@ app.get('/api/health', async (req, res) => {
   const candleCount = Object.keys(candles || {}).length;
   res.json({
     status: prices.length > 0 ? 'ok' : 'loading',
-    version: 'trench-v7-indicators',
+    version: 'trench-v8-plan',
     uptime: Math.round(process.uptime()),
     timestamp: new Date().toISOString(),
     coins: prices.length,

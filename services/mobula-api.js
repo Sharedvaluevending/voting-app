@@ -130,11 +130,27 @@ async function getTokenMarkets(blockchain, tokenAddress) {
   if (!Array.isArray(arr) || arr.length === 0) return null;
   const m = arr[0];
   const base = m.base || m;
+  const top10 = (() => { const v = base.top10HoldingsPercentage ?? base.top_10_holdings_percentage ?? 100; return v <= 1 ? v * 100 : v; })();
+  const devPct = base.devHoldingsPercentage ?? base.dev_holdings_percentage ?? 0;
+  const insidersPct = base.insidersHoldingsPercentage ?? base.insiders_holdings_percentage ?? 0;
+  const devPctNorm = (typeof devPct === 'number' && devPct <= 1) ? devPct * 100 : devPct;
+  const insidersPctNorm = (typeof insidersPct === 'number' && insidersPct <= 1) ? insidersPct * 100 : insidersPct;
+  const buy1h = m.volumeBuy1hUSD ?? m.volumeBuy1h ?? 0;
+  const sell1h = m.volumeSell1hUSD ?? m.volumeSell1h ?? 0;
   return {
-    liquidityUSD: base.liquidityUSD || base.liquidity || 0,
-    top10HoldingsPercentage: (() => { const v = base.top10HoldingsPercentage ?? base.top_10_holdings_percentage ?? 100; return v <= 1 ? v * 100 : v; })(),
-    volume24h: base.volume24h || m.volume24h || 0,
-    marketCap: base.marketCapUSD || base.market_cap || 0
+    liquidityUSD: base.liquidityUSD || base.liquidity || m.liquidityUSD || 0,
+    top10HoldingsPercentage: top10,
+    volume24h: base.volume24h || m.volume24hUSD || m.volume24h || 0,
+    marketCap: base.marketCapUSD || base.market_cap || 0,
+    priceChange1hPercentage: m.priceChange1hPercentage ?? m.priceChange1h ?? 0,
+    volumeBuy1hUSD: buy1h,
+    volumeSell1hUSD: sell1h,
+    volume1hUSD: (buy1h + sell1h) || m.volume1hUSD || 0,
+    insidersCount: base.insidersCount ?? base.insiders_count ?? 0,
+    bundlersCount: base.bundlersCount ?? base.bundlers_count ?? 0,
+    snipersCount: base.snipersCount ?? base.snipers_count ?? 0,
+    devHoldingsPercentage: devPctNorm,
+    insidersHoldingsPercentage: insidersPctNorm
   };
 }
 

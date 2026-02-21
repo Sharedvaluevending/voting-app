@@ -77,14 +77,19 @@ async function fetchTokenPairs(chainId, tokenAddress) {
   const pair = data[0];
   const base = pair.baseToken || {};
   const priceUsd = parseFloat(pair.priceUsd);
-  const priceChange = pair.priceChange?.h24 ?? pair.priceChange?.h6 ?? 0;
+  const priceChange24 = pair.priceChange?.h24 ?? pair.priceChange?.h6 ?? 0;
+  const priceChange1h = pair.priceChange?.h1;
+  const vol24 = parseFloat(pair.volume?.h24) || 0;
+  const vol1h = parseFloat(pair.volume?.h1) || 0;
   return {
     tokenAddress: base.address || tokenAddress,
     symbol: base.symbol || '?',
     name: base.name || '',
     price: priceUsd > 0 ? priceUsd : 0,
-    priceChange24h: typeof priceChange === 'number' ? priceChange : 0,
-    volume24h: parseFloat(pair.volume?.h24) || 0,
+    priceChange24h: typeof priceChange24 === 'number' ? priceChange24 : 0,
+    priceChange1h: typeof priceChange1h === 'number' ? priceChange1h : undefined,
+    volume24h: vol24,
+    volume1h: vol1h > 0 ? vol1h : undefined,
     liquidity: parseFloat(pair.liquidity?.usd) || 0,
     trendingScore: 1,
     logo: pair.info?.imageUrl || ''
@@ -112,13 +117,17 @@ async function fetchTokensBulk(chainId, tokenAddresses) {
         seen.add(addr);
         const priceUsd = parseFloat(pair.priceUsd);
         if (!priceUsd || priceUsd <= 0) continue;
+        const priceChange1h = pair.priceChange?.h1;
+        const vol1h = parseFloat(pair.volume?.h1) || 0;
         results.push({
           tokenAddress: addr,
           symbol: base.symbol || '?',
           name: base.name || '',
           price: priceUsd,
           priceChange24h: pair.priceChange?.h24 ?? pair.priceChange?.h6 ?? 0,
+          priceChange1h: typeof priceChange1h === 'number' ? priceChange1h : undefined,
           volume24h: parseFloat(pair.volume?.h24) || 0,
+          volume1h: vol1h > 0 ? vol1h : undefined,
           liquidity: parseFloat(pair.liquidity?.usd) || 0,
           trendingScore: 1,
           logo: pair.info?.imageUrl || ''
@@ -160,13 +169,17 @@ async function fetchGeckoTerminalPools(endpoint, maxPages = 3) {
         if (!addr) continue;
         const price = parseFloat(a.base_token_price_usd);
         if (!price || price <= 0) continue;
+        const priceChange1h = parseFloat(a.price_change_percentage?.h1);
+        const volume1h = parseFloat(a.volume_usd?.h1) || 0;
         tokens.push({
           tokenAddress: addr,
           symbol: a.name ? a.name.split(' / ')[0] || '?' : '?',
           name: a.name || '',
           price,
           priceChange24h: parseFloat(a.price_change_percentage?.h24) || 0,
+          priceChange1h: typeof priceChange1h === 'number' && !isNaN(priceChange1h) ? priceChange1h : undefined,
           volume24h: parseFloat(a.volume_usd?.h24) || 0,
+          volume1h: volume1h > 0 ? volume1h : undefined,
           liquidity: parseFloat(a.reserve_in_usd) || 0,
           trendingScore: 1,
           source: 'geckoterminal'

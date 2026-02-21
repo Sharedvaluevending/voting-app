@@ -148,8 +148,8 @@
     <details style="margin-top:12px;padding:10px;background:rgba(15,23,42,0.3);border-radius:6px;border:1px solid rgba(30,42,58,0.5);">
       <summary style="cursor:pointer;color:#9ca3af;font-size:13px;font-weight:600;">Profit Locking</summary>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
-        <div><label style="font-size:11px;color:#6b7280;">TP %</label><input type="number" id="auto-tp" value="<%= (trenchAuto && trenchAuto.tpPercent) != null ? trenchAuto.tpPercent : 18 %>" min="5" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-        <div><label style="font-size:11px;color:#6b7280;">SL %</label><input type="number" id="auto-sl" value="<%= (trenchAuto && trenchAuto.slPercent) != null ? trenchAuto.slPercent : 12 %>" min="3" max="30" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">TP %</label><input type="number" id="auto-tp" value="<%= (trenchAuto && trenchAuto.tpPercent) != null ? trenchAuto.tpPercent : 22 %>" min="5" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">SL %</label><input type="number" id="auto-sl" value="<%= (trenchAuto && trenchAuto.slPercent) != null ? trenchAuto.slPercent : 10 %>" min="3" max="30" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <div><label style="font-size:11px;color:#6b7280;">Trailing %</label><input type="number" id="auto-trailing" value="<%= (trenchAuto && trenchAuto.trailingStopPercent) != null ? trenchAuto.trailingStopPercent : 8 %>" min="3" max="20" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <div><label style="font-size:11px;color:#6b7280;">Max hold (min)</label><input type="number" id="auto-max-hold" value="<%= (trenchAuto && trenchAuto.maxHoldMinutes) != null ? trenchAuto.maxHoldMinutes : 20 %>" min="5" max="60" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <div><label style="font-size:11px;color:#6b7280;">Breakeven at %</label><input type="number" id="auto-breakeven-at" value="<%= (trenchAuto && trenchAuto.breakevenAtPercent) != null ? trenchAuto.breakevenAtPercent : 5 %>" min="2" max="15" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
@@ -577,8 +577,8 @@
         maxOpenPositions: parseInt(document.getElementById('auto-max-pos').value, 10),
         amountPerTradeUsd: parseFloat(document.getElementById('auto-amount-usd').value),
         amountPerTradeSol: parseFloat(document.getElementById('auto-amount-sol').value),
-        tpPercent: parseFloat(document.getElementById('auto-tp')?.value || 18),
-        slPercent: parseFloat(document.getElementById('auto-sl')?.value || 12),
+        tpPercent: parseFloat(document.getElementById('auto-tp')?.value || 22),
+        slPercent: parseFloat(document.getElementById('auto-sl')?.value || 10),
         trailingStopPercent: parseFloat(document.getElementById('auto-trailing')?.value || 8),
         useTrailingStop: document.getElementById('auto-use-trailing')?.checked !== false,
         breakevenAtPercent: parseFloat(document.getElementById('auto-breakeven-at')?.value || 5),
