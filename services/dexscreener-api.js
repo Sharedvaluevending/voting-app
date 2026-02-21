@@ -205,9 +205,9 @@ async function fetchSolanaTrendings(limit = 300) {
 
   // Phase 2: Fetch GeckoTerminal trending + new pools in parallel
   const [gtTrending, gtNew, gtTop] = await Promise.all([
-    fetchGeckoTerminalPools('trending_pools', 2).catch(() => []),
-    fetchGeckoTerminalPools('new_pools', 2).catch(() => []),
-    fetchGeckoTerminalPools('pools?sort=h24_tx_count_desc', 1).catch(() => [])
+    fetchGeckoTerminalPools('trending_pools', 3).catch(() => []),
+    fetchGeckoTerminalPools('new_pools', 3).catch(() => []),
+    fetchGeckoTerminalPools('pools?sort=h24_tx_count_desc', 2).catch(() => [])
   ]);
 
   const gtTokens = [...gtTrending, ...gtNew, ...gtTop];

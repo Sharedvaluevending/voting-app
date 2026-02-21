@@ -97,28 +97,34 @@ function scoreCandidate(t) {
   const vol = t.volume24h || 0;
   const liq = t.liquidity || 0;
 
-  if (change > 200) return -1;
-  if (change < -15) return -1;
-  if (vol < 20000) return -1;
-  if (liq < 10000) return -1;
+  // Hard rejects: extreme pumps, crashing, or no real activity
+  if (change > 500) return -1;
+  if (change < -25) return -1;
+  if (vol < 5000) return -1;
+  if (liq < 3000) return -1;
 
   let score = 0;
 
   // Sweet spot: 5-100% gains are early enough to still have upside
   if (change >= 5 && change <= 50) score += 35;
   else if (change > 50 && change <= 100) score += 30;
-  else if (change > 100 && change <= 200) score += 20;
+  else if (change > 100 && change <= 200) score += 25;
+  else if (change > 200 && change <= 500) score += 15;
   else if (change >= 0 && change < 5) score += 10;
 
+  // Higher volume = safer to enter/exit
   if (vol >= 200000) score += 30;
   else if (vol >= 100000) score += 25;
   else if (vol >= 50000) score += 20;
-  else score += 10;
+  else if (vol >= 20000) score += 15;
+  else score += 8;
 
+  // Higher liquidity = less slippage
   if (liq >= 100000) score += 25;
   else if (liq >= 50000) score += 20;
   else if (liq >= 25000) score += 15;
-  else score += 10;
+  else if (liq >= 10000) score += 12;
+  else score += 5;
 
   return score;
 }
@@ -160,7 +166,7 @@ async function fetchTrendingsCached() {
   scored.sort((a, b) => b._qualityScore - a._qualityScore);
 
   const all = Array.from(seen.values());
-  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$20k, liq>$10k, 24h<200%)`);
+  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$5k, liq>$3k, 24h<500%)`);
 
   trendingCache = { data: scored, fetchedAt: Date.now() };
   return scored;
