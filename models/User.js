@@ -17,7 +17,7 @@ const userSchema = new mongoose.Schema({
   trenchAuto: {
     enabled: { type: Boolean, default: false },
     mode: { type: String, enum: ['paper', 'live'], default: 'paper' },
-    minTrendingScore: { type: Number, default: 15, min: 0, max: 50 },
+    minTrendingScore: { type: Number, default: 3, min: 0, max: 50 },
     maxOpenPositions: { type: Number, default: 3, min: 1, max: 10 },
     amountPerTradeUsd: { type: Number, default: 20, min: 5, max: 500 },
     amountPerTradeSol: { type: Number, default: 0.05, min: 0.01, max: 1 },
@@ -34,11 +34,11 @@ const userSchema = new mongoose.Schema({
     useBreakevenStop: { type: Boolean, default: true },
     maxHoldMinutes: { type: Number, default: 60, min: 15, max: 480 },
     // Entry filters
-    minLiquidityUsd: { type: Number, default: 10000, min: 0, max: 1000000 },
+    minLiquidityUsd: { type: Number, default: 0, min: 0, max: 1000000 },
     maxTop10HoldersPercent: { type: Number, default: 80, min: 50, max: 100 },
     maxPriceChange24hPercent: { type: Number, default: 200, min: 50, max: 1000 },
     cooldownHours: { type: Number, default: 4, min: 0, max: 48 },
-    useEntryFilters: { type: Boolean, default: true },
+    useEntryFilters: { type: Boolean, default: false },
     // Risk controls
     maxDailyLossPercent: { type: Number, default: 15, min: 0, max: 50 },
     consecutiveLossesToPause: { type: Number, default: 3, min: 0, max: 10 },

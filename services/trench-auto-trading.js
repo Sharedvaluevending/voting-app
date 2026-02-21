@@ -211,13 +211,16 @@ async function runTrenchAutoTrade() {
 
   let trendings = [];
   try {
-    trendings = await mobula.fetchMetaTrendings('solana');
+    trendings = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)('solana');
   } catch (e) {
     console.error('[TrenchAuto] Mobula fetch failed:', e.message);
     return;
   }
 
-  const validTrendings = trendings.filter(t => t.tokenAddress && t.price > 0 && (t.trendingScore || 0) > 0);
+  const validTrendings = trendings.filter(t => t.tokenAddress && t.price > 0 && (t.trendingScore || 0) >= 0);
+  if (validTrendings.length === 0) {
+    console.log('[TrenchAuto] No valid Solana trendings (need tokenAddress + price). Try MOBULA_API_KEY for full data.');
+  }
 
   for (const u of users) {
     const user = await User.findById(u._id);
@@ -230,7 +233,7 @@ async function runTrenchAutoTrade() {
       const elapsed = (Date.now() - new Date(lastRun).getTime()) / 60000;
       if (elapsed < intervalMin) continue;
     }
-    const minScore = settings.minTrendingScore ?? 15;
+    const minScore = settings.minTrendingScore ?? 3;
     const maxPositions = settings.maxOpenPositions ?? 3;
     const mode = settings.mode || 'paper';
     const blacklist = user.trenchBlacklist || [];
@@ -367,6 +370,10 @@ async function runTrenchAutoTrade() {
         .sort((a, b) => (b.trendingScore || 0) - (a.trendingScore || 0))
         .slice(0, maxPositions - openPaperAfter.length - openLiveAfter.length);
 
+      if (candidates.length === 0 && validTrendings.length > 0) {
+        console.log(`[TrenchAuto] ${user.username}: no buy candidates (${validTrendings.length} trendings, minScore=${minScore}, held=${heldAfter.size}, maxPos=${maxPositions})`);
+      }
+
       for (const t of candidates) {
         if (user.trenchPaperBalance < amountPerTrade) break;
         const pass = await passesEntryFilters(t, settings, blacklist);
@@ -422,6 +429,10 @@ async function runTrenchAutoTrade() {
         .filter(t => !heldAfter.has(t.tokenAddress) && (t.trendingScore || 0) >= minScore)
         .sort((a, b) => (b.trendingScore || 0) - (a.trendingScore || 0))
         .slice(0, maxPositions - openLiveAfter.length);
+
+      if (candidates.length === 0 && validTrendings.length > 0) {
+        console.log(`[TrenchAuto] ${user.username} (live): no buy candidates`);
+      }
 
       for (const t of candidates) {
         const pass = await passesEntryFilters(t, settings, blacklist);

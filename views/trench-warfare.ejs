@@ -84,7 +84,7 @@
 <% if (typeof user !== 'undefined' && user) { %>
 <div class="section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Auto Trade</h3>
-  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Test with paper first, then connect a bot wallet for live. Runs every 5 min (check interval configurable).</p>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Test with paper first, then connect a bot wallet for live. Runs every 5 min. Uses Dexscreener + LamboTrendings + CoinGecko. Set MOBULA_API_KEY for full data.</p>
   <% if (trenchAuto && trenchAuto.lastPausedAt) { %>
   <div id="paused-banner" style="margin-bottom:12px;padding:10px;background:rgba(239,68,68,0.2);border-radius:8px;color:#ef4444;font-size:13px;">Paused: <%= trenchAuto.pausedReason || 'Risk limit' %>. <button type="button" id="btn-unpause-banner" class="nav-btn" style="padding:4px 10px;font-size:12px;">Resume</button></div>
   <% } %>
@@ -113,7 +113,7 @@
     </div>
   </div>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:12px;">
-    <div><label style="font-size:11px;color:#6b7280;">Min Score</label><input type="number" id="auto-min-score" value="<%= (trenchAuto && trenchAuto.minTrendingScore) != null ? trenchAuto.minTrendingScore : 15 %>" min="0" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+    <div><label style="font-size:11px;color:#6b7280;">Min Score</label><input type="number" id="auto-min-score" value="<%= (trenchAuto && trenchAuto.minTrendingScore) != null ? trenchAuto.minTrendingScore : 3 %>" min="0" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
     <div><label style="font-size:11px;color:#6b7280;">Max Positions</label><input type="number" id="auto-max-pos" value="<%= (trenchAuto && trenchAuto.maxOpenPositions) != null ? trenchAuto.maxOpenPositions : 3 %>" min="1" max="10" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
     <div><label style="font-size:11px;color:#6b7280;">$ per Trade (Paper)</label><input type="number" id="auto-amount-usd" value="<%= (trenchAuto && trenchAuto.amountPerTradeUsd) != null ? trenchAuto.amountPerTradeUsd : 20 %>" min="5" max="500" step="5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
     <div><label style="font-size:11px;color:#6b7280;">SOL per Trade (Live)</label><input type="number" id="auto-amount-sol" value="<%= (trenchAuto && trenchAuto.amountPerTradeSol) != null ? trenchAuto.amountPerTradeSol : 0.05 %>" min="0.01" max="1" step="0.01" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
@@ -159,6 +159,7 @@
     </div>
   </details>
   <button type="button" id="btn-save-auto" class="nav-btn primary" style="margin-top:12px;padding:8px 16px;">Save Auto Settings</button>
+  <button type="button" id="btn-run-now" class="nav-btn" style="margin-top:12px;margin-left:8px;padding:8px 16px;" title="Trigger auto trade run immediately">Run Now</button>
   <% if (trenchAuto && trenchAuto.lastRunAt) { %>
   <p style="font-size:12px;color:#6b7280;margin-top:12px;">Last run: <%= new Date(trenchAuto.lastRunAt).toLocaleString() %></p>
   <% } %>
@@ -593,6 +594,14 @@
       }).catch(function() {});
   }
   if (document.getElementById('trench-analytics')) loadAnalytics();
+
+  var btnRunNow = document.getElementById('btn-run-now');
+  if (btnRunNow) btnRunNow.addEventListener('click', function() {
+    fetch('/api/trench-warfare/auto/run-now', { method: 'POST', credentials: 'same-origin' })
+      .then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) { btnRunNow.textContent = 'Running...'; setTimeout(function(){ btnRunNow.textContent = 'Run Now'; location.reload(); }, 3000); }
+      });
+  });
 
   ['btn-unpause', 'btn-unpause-banner'].forEach(function(id) {
     var btn = document.getElementById(id);

@@ -22,38 +22,65 @@ function getHeaders() {
 }
 
 // ====================================================
-// META TRENDINGS
+// META TRENDINGS - CoinGecko, CMC, LamboTrendings
 // ====================================================
-async function fetchMetaTrendings(blockchain = 'solana') {
-  const url = `${BASE_URL}/1/metadata/trendings?blockchain=${encodeURIComponent(blockchain)}`;
-  const res = await fetch(url, {
-    headers: getHeaders(),
-    timeout: 15000
-  });
+function mapTrendingItem(item) {
+  const solanaContract = (item.contracts || []).find((c) =>
+    (c.blockchain || '').toLowerCase() === 'solana'
+  );
+  return {
+    id: item.id,
+    name: item.name || '',
+    symbol: item.symbol || '',
+    price: typeof item.price === 'number' ? item.price : 0,
+    priceChange24h: typeof item.price_change_24h === 'number' ? item.price_change_24h : 0,
+    trendingScore: typeof item.trending_score === 'number' ? item.trending_score : 0,
+    logo: item.logo || '',
+    platforms: item.platforms || [],
+    contracts: item.contracts || [],
+    tokenAddress: solanaContract ? solanaContract.address : null,
+    pair: item.pair || null
+  };
+}
+
+async function fetchMetaTrendings(blockchain = 'solana', platform) {
+  const params = new URLSearchParams({ blockchain });
+  if (platform) params.set('platform', platform);
+  const url = `${BASE_URL}/1/metadata/trendings?${params.toString()}`;
+  const res = await fetch(url, { headers: getHeaders(), timeout: 15000 });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Mobula trendings: HTTP ${res.status} ${text.slice(0, 200)}`);
   }
   const data = await res.json();
   if (!Array.isArray(data)) return [];
-  return data.map((item) => {
-    const solanaContract = (item.contracts || []).find((c) =>
-      (c.blockchain || '').toLowerCase() === 'solana'
-    );
-    return {
-      id: item.id,
-      name: item.name || '',
-      symbol: item.symbol || '',
-      price: typeof item.price === 'number' ? item.price : 0,
-      priceChange24h: typeof item.price_change_24h === 'number' ? item.price_change_24h : 0,
-      trendingScore: typeof item.trending_score === 'number' ? item.trending_score : 0,
-      logo: item.logo || '',
-      platforms: item.platforms || [],
-      contracts: item.contracts || [],
-      tokenAddress: solanaContract ? solanaContract.address : null,
-      pair: item.pair || null
-    };
-  });
+  return data.map(mapTrendingItem);
+}
+
+// Fetch from multiple platforms and merge (Dexscreener = DEX gainers, LamboTrendings = memecoins)
+async function fetchMetaTrendingsMulti(blockchain = 'solana') {
+  const platforms = ['Dexscreener', 'LamboTrendings', 'CoinGecko'];
+  const seen = new Map();
+  const merged = [];
+  for (const platform of platforms) {
+    try {
+      const data = await fetchMetaTrendings(blockchain, platform);
+      for (const t of data) {
+        if (t.tokenAddress && !seen.has(t.tokenAddress)) {
+          seen.set(t.tokenAddress, true);
+          merged.push(t);
+        }
+      }
+      if (!process.env.MOBULA_API_KEY) await new Promise(r => setTimeout(r, 800));
+    } catch (e) {
+      console.warn(`[Mobula] ${platform} trendings failed:`, e.message);
+    }
+  }
+  if (merged.length === 0) {
+    const fallback = await fetchMetaTrendings(blockchain);
+    return fallback;
+  }
+  return merged.sort((a, b) => (b.trendingScore || 0) - (a.trendingScore || 0));
 }
 
 // ====================================================
@@ -135,6 +162,7 @@ async function sendSwapTransaction(chainId, signedTransactionBase64) {
 
 module.exports = {
   fetchMetaTrendings,
+  fetchMetaTrendingsMulti,
   getSwapQuote,
   sendSwapTransaction,
   getTokenMarkets,

@@ -1826,7 +1826,7 @@ app.get('/trench-warfare', async (req, res) => {
   const ScalpTrade = require('./models/ScalpTrade');
   let trendings = [];
   try {
-    trendings = await mobula.fetchMetaTrendings('solana');
+    trendings = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)('solana');
   } catch (e) {
     console.error('[TrenchWarfare] Mobula fetch failed:', e.message);
   }
@@ -1850,7 +1850,7 @@ app.get('/trench-warfare', async (req, res) => {
 app.get('/api/trench-warfare/trendings', async (req, res) => {
   const mobula = require('./services/mobula-api');
   try {
-    const data = await mobula.fetchMetaTrendings(req.query.blockchain || 'solana');
+    const data = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)(req.query.blockchain || 'solana');
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -2130,6 +2130,16 @@ app.post('/api/trench-warfare/unpause', requireLogin, async (req, res) => {
     user.trenchStats.consecutiveLosses = 0;
     await user.save();
     res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/auto/run-now', requireLogin, async (req, res) => {
+  try {
+    const trenchAuto = require('./services/trench-auto-trading');
+    trenchAuto.runTrenchAutoTrade().catch(e => console.error('[TrenchAuto] Run-now error:', e.message));
+    res.json({ success: true, message: 'Auto trade run triggered' });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
