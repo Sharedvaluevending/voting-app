@@ -186,6 +186,27 @@ async function fetchTrendingsCached() {
 }
 
 // ====================================================
+// Settings sanitizer - clamps wild DB values to sane ranges
+// ====================================================
+function sanitizeSettings(raw) {
+  const s = { ...raw };
+  s.slPercent = Math.min(Math.max(s.slPercent ?? 12, 3), 30);
+  s.tpPercent = Math.min(Math.max(s.tpPercent ?? 18, 5), 50);
+  s.maxHoldMinutes = Math.min(Math.max(s.maxHoldMinutes ?? 20, 5), 60);
+  s.maxOpenPositions = Math.min(Math.max(s.maxOpenPositions ?? 6, 1), 15);
+  s.consecutiveLossesToPause = Math.min(Math.max(s.consecutiveLossesToPause ?? 3, 2), 10);
+  s.cooldownHours = Math.min(Math.max(s.cooldownHours ?? 1, 0.25), 4);
+  s.maxPriceChange24hPercent = Math.min(Math.max(s.maxPriceChange24hPercent ?? 500, 100), 1000);
+  s.minLiquidityUsd = Math.min(Math.max(s.minLiquidityUsd ?? 10000, 5000), 100000);
+  s.maxTop10HoldersPercent = Math.min(Math.max(s.maxTop10HoldersPercent ?? 80, 50), 100);
+  s.maxDailyLossPercent = Math.min(Math.max(s.maxDailyLossPercent ?? 15, 5), 50);
+  s.trailingStopPercent = Math.min(Math.max(s.trailingStopPercent ?? 8, 3), 20);
+  s.breakevenAtPercent = Math.min(Math.max(s.breakevenAtPercent ?? 5, 2), 15);
+  s.minTrendingScore = 1;
+  return s;
+}
+
+// ====================================================
 // Risk checks
 // ====================================================
 function shouldPauseForRisk(user, settings) {
@@ -201,7 +222,7 @@ function shouldPauseForRisk(user, settings) {
       if (lossPct >= maxDaily) return { pause: true, reason: `Daily loss limit (${lossPct.toFixed(1)}%)` };
     }
   }
-  const consecLoss = settings.consecutiveLossesToPause ?? 5;
+  const consecLoss = settings.consecutiveLossesToPause ?? 3;
   if (consecLoss > 0 && (stats.consecutiveLosses || 0) >= consecLoss) {
     return { pause: true, reason: `${consecLoss} consecutive losses` };
   }
@@ -225,11 +246,10 @@ function resetDailyPnlIfNewDay(user) {
 async function passesEntryFilters(t, settings, blacklist) {
   if (!settings.useEntryFilters) return true;
   if (blacklist && blacklist.includes(t.tokenAddress)) return false;
-  let max24h = settings.maxPriceChange24hPercent ?? 5000;
-  if (max24h < 500) max24h = 5000;
-  if (max24h < 10000 && (t.priceChange24h || 0) >= max24h) return false;
-  let minLiq = settings.minLiquidityUsd ?? 0;
-  let maxTop10 = settings.maxTop10HoldersPercent ?? 100;
+  const max24h = settings.maxPriceChange24hPercent ?? 500;
+  if ((t.priceChange24h || 0) >= max24h) return false;
+  const minLiq = settings.minLiquidityUsd ?? 10000;
+  const maxTop10 = settings.maxTop10HoldersPercent ?? 80;
   if (minLiq > 0 || maxTop10 < 100) {
     try {
       const mk = await mobula.getTokenMarkets('solana', t.tokenAddress);
@@ -433,8 +453,9 @@ async function exitTick(userId) {
   const user = await User.findById(userId);
   if (!user) { stopBot(userId); return; }
 
-  const settings = user.trenchAuto || {};
-  const mode = settings.mode || 'paper';
+  const rawSettings = user.trenchAuto || {};
+  const settings = sanitizeSettings(rawSettings);
+  const mode = rawSettings.mode || 'paper';
 
   const openPositions = await ScalpTrade.find({
     userId: user._id,
@@ -559,9 +580,10 @@ async function entryTick(userId) {
   const user = await User.findById(userId);
   if (!user) { stopBot(userId); return; }
 
-  const settings = user.trenchAuto || {};
-  const mode = settings.mode || 'paper';
-  const maxPositions = settings.maxOpenPositions ?? 6;
+  const rawSettings = user.trenchAuto || {};
+  const settings = sanitizeSettings(rawSettings);
+  const mode = rawSettings.mode || 'paper';
+  const maxPositions = settings.maxOpenPositions;
   const blacklist = user.trenchBlacklist || [];
 
   // Risk check
@@ -737,7 +759,13 @@ function startBot(userId) {
   };
   activeBots.set(uid, bot);
 
-  botLog(userId, 'Bot STARTED — exits 10s, entries 60s, slip 2%, momentum 60s, vol>$15k, liq>$8k, max24h 500%');
+  // Log sanitized settings on start so we can verify
+  User.findById(userId).lean().then(u => {
+    const s = sanitizeSettings(u?.trenchAuto || {});
+    botLog(userId, `Bot STARTED — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m slots:${s.maxOpenPositions} cool:${s.cooldownHours}h pause@${s.consecutiveLossesToPause}losses max24h:${s.maxPriceChange24hPercent}% minLiq:$${s.minLiquidityUsd} trail:${s.trailingStopPercent}%`);
+  }).catch(() => {
+    botLog(userId, 'Bot STARTED — exits 10s, entries 60s');
+  });
 
   // First tick: run entry scan immediately (which also seeds momentum cache)
   entryTick(userId).catch(err => botLog(userId, `Entry error: ${err.message}`));
