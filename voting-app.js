@@ -2138,9 +2138,10 @@ app.post('/api/trench-warfare/unpause', requireLogin, async (req, res) => {
 app.post('/api/trench-warfare/auto/run-now', requireLogin, async (req, res) => {
   try {
     const trenchAuto = require('./services/trench-auto-trading');
-    trenchAuto.runTrenchAutoTrade().catch(e => console.error('[TrenchAuto] Run-now error:', e.message));
-    res.json({ success: true, message: 'Auto trade run triggered' });
+    await trenchAuto.runTrenchAutoTrade({ forceRun: true });
+    res.json({ success: true, message: 'Auto trade run completed' });
   } catch (e) {
+    console.error('[TrenchAuto] Run-now error:', e);
     res.status(500).json({ error: e.message });
   }
 });

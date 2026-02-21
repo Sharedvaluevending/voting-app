@@ -205,35 +205,43 @@ async function executeLiveSell(user, pos, currentPrice, keypair, settings) {
   return null;
 }
 
-async function runTrenchAutoTrade() {
+async function runTrenchAutoTrade(opts = {}) {
+  const forceRun = !!opts.forceRun;
   const users = await User.find({ 'trenchAuto.enabled': true }).lean();
-  if (users.length === 0) return;
+  if (users.length === 0) {
+    console.log('[TrenchAuto] No users with auto trade enabled');
+    return { users: 0, trades: 0 };
+  }
 
   let trendings = [];
   try {
     trendings = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)('solana');
   } catch (e) {
     console.error('[TrenchAuto] Mobula fetch failed:', e.message);
-    return;
+    throw e;
   }
 
-  const validTrendings = trendings.filter(t => t.tokenAddress && t.price > 0 && (t.trendingScore || 0) >= 0);
+  const validTrendings = trendings.filter(t => t.tokenAddress && t.price > 0);
   if (validTrendings.length === 0) {
     console.log('[TrenchAuto] No valid Solana trendings (need tokenAddress + price). Try MOBULA_API_KEY for full data.');
+    return { users: users.length, trendings: 0, trades: 0 };
   }
+  console.log(`[TrenchAuto] ${validTrendings.length} valid trendings, top: ${validTrendings[0]?.symbol} score=${validTrendings[0]?.trendingScore}`);
 
   for (const u of users) {
     const user = await User.findById(u._id);
     if (!user || !user.trenchAuto?.enabled) continue;
 
     const settings = user.trenchAuto;
-    const intervalMin = settings?.checkIntervalMinutes ?? 15;
-    const lastRun = settings?.lastRunAt;
-    if (lastRun && intervalMin > 0) {
-      const elapsed = (Date.now() - new Date(lastRun).getTime()) / 60000;
-      if (elapsed < intervalMin) continue;
+    if (!forceRun) {
+      const intervalMin = settings?.checkIntervalMinutes ?? 15;
+      const lastRun = settings?.lastRunAt;
+      if (lastRun && intervalMin > 0) {
+        const elapsed = (Date.now() - new Date(lastRun).getTime()) / 60000;
+        if (elapsed < intervalMin) continue;
+      }
     }
-    const minScore = settings.minTrendingScore ?? 3;
+    const minScore = settings.minTrendingScore ?? 0;
     const maxPositions = settings.maxOpenPositions ?? 3;
     const mode = settings.mode || 'paper';
     const blacklist = user.trenchBlacklist || [];
