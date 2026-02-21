@@ -19,7 +19,7 @@ const EXIT_CHECK_INTERVAL = 10 * 1000;  // 10s - fast exit monitoring
 const ENTRY_SCAN_INTERVAL = 60 * 1000;  // 60s - entry scanning
 const TRENDING_CACHE_TTL = 60 * 1000;
 const MAX_LOG_ENTRIES = 50;
-const PAPER_SLIPPAGE = 0.02; // 2% simulated slippage each way
+const PAPER_SLIPPAGE = 0.008; // 0.8% simulated slippage each way (~1.6% round trip)
 const MAX_BUYS_PER_SCAN = 2;  // stagger entries across scans
 const MIN_QUALITY_SCORE = 50; // skip marginal candidates, focus on actively pumping coins
 
@@ -344,11 +344,11 @@ function checkMomentum(tokenAddress, currentPrice) {
     return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / 120s)` };
   }
   const changeSinceFirstSight = ((currentPrice - prev.price) / prev.price) * 100;
-  // Price must be actively rising -- require at least +0.5% gain over 120s
-  // This confirms the pump is still going, not fading out
-  if (changeSinceFirstSight < 0.5) {
+  // Price must be clearly rising -- require at least +1% gain over 120s
+  // This confirms genuine momentum, not just noise
+  if (changeSinceFirstSight < 1.0) {
     momentumCache.set(tokenAddress, { price: currentPrice, seenAt: Date.now(), checks: 1 });
-    return { ready: false, reason: `momentum_weak (${changeSinceFirstSight.toFixed(1)}%, need +0.5%)` };
+    return { ready: false, reason: `momentum_weak (${changeSinceFirstSight.toFixed(1)}%, need +1%)` };
   }
   momentumCache.delete(tokenAddress);
   return { ready: true, changeSinceFirstSight };
