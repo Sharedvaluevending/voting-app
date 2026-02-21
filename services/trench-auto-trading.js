@@ -338,11 +338,11 @@ function checkMomentum(tokenAddress, currentPrice) {
     return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / 120s)` };
   }
   const changeSinceFirstSight = ((currentPrice - prev.price) / prev.price) * 100;
-  // Price must be flat or rising -- reject if dropped more than 2% (was -5%)
-  // Coins that drop in the 2-min observation window are not in a real uptrend
-  if (changeSinceFirstSight < -2) {
+  // Price must be rising -- only buy if price went UP during 120s observation
+  // Coins that are flat or dropping are not in a real uptrend
+  if (changeSinceFirstSight < 0) {
     momentumCache.set(tokenAddress, { price: currentPrice, seenAt: Date.now(), checks: 1 });
-    return { ready: false, reason: `momentum_lost (${changeSinceFirstSight.toFixed(1)}%)` };
+    return { ready: false, reason: `momentum_flat (${changeSinceFirstSight.toFixed(1)}%)` };
   }
   momentumCache.delete(tokenAddress);
   return { ready: true, changeSinceFirstSight };
@@ -358,14 +358,14 @@ function cleanMomentumCache() {
 
 // ====================================================
 // Adaptive trailing stop
-// Small profit (<15%): tight 5% trail to protect gains
-// Medium profit (15-30%): normal 8% trail
+// Small profit (<15%): 7% trail (wide enough to avoid noise)
+// Medium profit (15-30%): normal base trail (8%)
 // Big profit (>30%): wide 12% trail to let winners run
 // ====================================================
 function getAdaptiveTrail(pnlPct, baseTrail) {
   if (pnlPct >= 30) return Math.max(baseTrail, 12);
   if (pnlPct >= 15) return baseTrail;
-  return Math.min(baseTrail, 5);
+  return Math.min(baseTrail, 7);
 }
 
 // ====================================================
@@ -394,10 +394,10 @@ function shouldSellPosition(pos, currentPrice, settings) {
     return { sell: true, reason: 'breakeven_stop', pnlPct };
   }
 
-  // Early bail: if down more than 3% at the halfway mark, cut losses early
-  // instead of waiting the full hold period for a time_limit exit
+  // Early bail: if down more than 2% at the halfway mark, cut losses early
+  // Data shows coins that are red at 10min almost never recover by 20min
   const halfHold = maxHold / 2;
-  if (holdMinutes >= halfHold && holdMinutes < maxHold && pnlPct <= -3) {
+  if (holdMinutes >= halfHold && holdMinutes < maxHold && pnlPct <= -2) {
     return { sell: true, reason: 'early_bail', pnlPct };
   }
 
@@ -845,7 +845,7 @@ function startBot(userId) {
   // Log sanitized settings on start so we can verify
   User.findById(userId).lean().then(u => {
     const s = sanitizeSettings(u?.trenchAuto || {});
-    botLog(userId, `Bot STARTED — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m(bail@${Math.round(s.maxHoldMinutes/2)}m) slots:${s.maxOpenPositions} (max ${MAX_BUYS_PER_SCAN}/scan) cool:${s.cooldownHours}h(4x for losers) minScore:${MIN_QUALITY_SCORE} momentum:120s(-2%) trail:${s.trailingStopPercent}%`);
+    botLog(userId, `Bot STARTED — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m(bail@${Math.round(s.maxHoldMinutes/2)}m/-2%) slots:${s.maxOpenPositions} (max ${MAX_BUYS_PER_SCAN}/scan) cool:${s.cooldownHours}h(4x losers) minScore:${MIN_QUALITY_SCORE} momentum:120s(must be UP) trail:7/8/12%`);
   }).catch(() => {
     botLog(userId, 'Bot STARTED — exits 10s, entries 60s');
   });
