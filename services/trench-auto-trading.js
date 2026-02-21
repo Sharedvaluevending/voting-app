@@ -21,6 +21,7 @@ const TRENDING_CACHE_TTL = 60 * 1000;
 const MAX_LOG_ENTRIES = 50;
 const PAPER_SLIPPAGE = 0.02; // 2% simulated slippage each way
 const MAX_BUYS_PER_SCAN = 2;  // stagger entries across scans
+const MIN_QUALITY_SCORE = 60; // skip marginal candidates, focus on strong setups
 
 // ====================================================
 // In-memory state
@@ -214,12 +215,13 @@ async function fetchTrendingsCached() {
   const scored = Array.from(seen.values()).map(t => {
     t._qualityScore = scoreCandidate(t);
     return t;
-  }).filter(t => t._qualityScore > 0);
+  }).filter(t => t._qualityScore >= MIN_QUALITY_SCORE);
 
   scored.sort((a, b) => b._qualityScore - a._qualityScore);
 
   const all = Array.from(seen.values());
-  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$15k, liq>$8k, 24h<500%, 1h>-10%, buyP>35%, holders>50)`);
+  const softPass = all.filter(t => (t._qualityScore || 0) > 0).length;
+  console.log(`[TrenchBot] ${all.length} total tokens, ${softPass} pass basic filter, ${scored.length} pass quality threshold (score>=${MIN_QUALITY_SCORE})`);
 
   trendingCache = { data: scored, fetchedAt: Date.now() };
   return scored;
@@ -313,7 +315,10 @@ async function inCooldown(userId, tokenAddress, cooldownHours) {
   ).lean();
   if (!closed || !closed.exitTime) return false;
   const hours = (Date.now() - new Date(closed.exitTime).getTime()) / 3600000;
-  return hours < cooldownHours;
+  // Losers get 4x longer cooldown to avoid re-entering the same bad coin
+  const wasLoss = (closed.pnlPercent || 0) <= 0;
+  const effectiveCooldown = wasLoss ? cooldownHours * 4 : cooldownHours;
+  return hours < effectiveCooldown;
 }
 
 // ====================================================
@@ -333,8 +338,9 @@ function checkMomentum(tokenAddress, currentPrice) {
     return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / 120s)` };
   }
   const changeSinceFirstSight = ((currentPrice - prev.price) / prev.price) * 100;
-  // Price must have held (allow up to 5% drop for normal memecoin noise)
-  if (changeSinceFirstSight < -5) {
+  // Price must be flat or rising -- reject if dropped more than 2% (was -5%)
+  // Coins that drop in the 2-min observation window are not in a real uptrend
+  if (changeSinceFirstSight < -2) {
     momentumCache.set(tokenAddress, { price: currentPrice, seenAt: Date.now(), checks: 1 });
     return { ready: false, reason: `momentum_lost (${changeSinceFirstSight.toFixed(1)}%)` };
   }
@@ -386,6 +392,13 @@ function shouldSellPosition(pos, currentPrice, settings) {
   // Breakeven enforcement: once triggered, sell if price drops back to entry
   if (useBreakeven && pos.breakevenTriggered && pnlPct <= 0) {
     return { sell: true, reason: 'breakeven_stop', pnlPct };
+  }
+
+  // Early bail: if down more than 3% at the halfway mark, cut losses early
+  // instead of waiting the full hold period for a time_limit exit
+  const halfHold = maxHold / 2;
+  if (holdMinutes >= halfHold && holdMinutes < maxHold && pnlPct <= -3) {
+    return { sell: true, reason: 'early_bail', pnlPct };
   }
 
   // Time limit: only force-close if flat or losing
@@ -832,7 +845,7 @@ function startBot(userId) {
   // Log sanitized settings on start so we can verify
   User.findById(userId).lean().then(u => {
     const s = sanitizeSettings(u?.trenchAuto || {});
-    botLog(userId, `Bot STARTED — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m slots:${s.maxOpenPositions} (max ${MAX_BUYS_PER_SCAN}/scan) cool:${s.cooldownHours}h pause@${s.consecutiveLossesToPause}losses momentum:120s trail:${s.trailingStopPercent}%`);
+    botLog(userId, `Bot STARTED — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m(bail@${Math.round(s.maxHoldMinutes/2)}m) slots:${s.maxOpenPositions} (max ${MAX_BUYS_PER_SCAN}/scan) cool:${s.cooldownHours}h(4x for losers) minScore:${MIN_QUALITY_SCORE} momentum:120s(-2%) trail:${s.trailingStopPercent}%`);
   }).catch(() => {
     botLog(userId, 'Bot STARTED — exits 10s, entries 60s');
   });
