@@ -1,7 +1,8 @@
 // services/trench-auto-trading.js
 // ====================================================
 // TRENCH AUTO TRADING - Persistent bot per user
-// Scans every 30s, enters trades, monitors exits, repeats
+// Split loop: 10s exit monitoring, 90s entry scanning
+// Slippage simulation, momentum confirmation, adaptive trailing
 // ====================================================
 
 const User = require('../models/User');
@@ -14,17 +15,24 @@ const push = require('./push-notifications');
 const ENCRYPT_KEY = process.env.TRENCH_SECRET || process.env.SESSION_SECRET || 'trench-default-key-change-me';
 const ALGO = 'aes-256-gcm';
 
-const BOT_SCAN_INTERVAL = 30 * 1000; // 30 seconds between scans
-const TRENDING_CACHE_TTL = 90 * 1000; // cache trending data for 90s
+const EXIT_CHECK_INTERVAL = 10 * 1000;  // 10s - fast exit monitoring
+const ENTRY_SCAN_INTERVAL = 90 * 1000;  // 90s - slower entry scanning
+const TRENDING_CACHE_TTL = 90 * 1000;
 const MAX_LOG_ENTRIES = 50;
+const PAPER_SLIPPAGE = 0.02; // 2% simulated slippage each way
 
 // ====================================================
-// In-memory bot state per user
+// In-memory state
 // ====================================================
 const activeBots = new Map();
-
 let trendingCache = { data: [], fetchedAt: 0 };
 
+// Momentum tracking: tokenAddress -> { price, seenAt }
+const momentumCache = new Map();
+
+// ====================================================
+// Crypto helpers
+// ====================================================
 function encrypt(text) {
   const iv = crypto.randomBytes(16);
   const key = crypto.scryptSync(ENCRYPT_KEY, 'salt', 32);
@@ -82,17 +90,13 @@ function botLog(userId, msg) {
 }
 
 // ====================================================
-// Trending data fetcher with cache
+// Quality scoring for candidate tokens
 // ====================================================
-
-// Quality score: prefer tokens with real volume, liquidity, and moderate gains
-// Avoids pump-and-dump tokens (>1000% 24h) and dead tokens (<0%)
 function scoreCandidate(t) {
   const change = t.priceChange24h || 0;
   const vol = t.volume24h || 0;
   const liq = t.liquidity || 0;
 
-  // Hard reject: extreme pumps (likely rug/dump) or tokens already crashing
   if (change > 2000) return -1;
   if (change < -30) return -1;
   if (vol < 5000) return -1;
@@ -100,7 +104,6 @@ function scoreCandidate(t) {
 
   let score = 0;
 
-  // Sweet spot: moderate gainers (5-500%) are ideal for scalping
   if (change >= 5 && change <= 50) score += 30;
   else if (change > 50 && change <= 200) score += 25;
   else if (change > 200 && change <= 500) score += 15;
@@ -108,14 +111,12 @@ function scoreCandidate(t) {
   else if (change > 1000) score += 0;
   else if (change >= 0 && change < 5) score += 10;
 
-  // Volume matters: tokens with real trading activity
   if (vol >= 100000) score += 30;
   else if (vol >= 50000) score += 25;
   else if (vol >= 20000) score += 20;
   else if (vol >= 10000) score += 15;
   else score += 5;
 
-  // Liquidity: need enough to actually exit the trade
   if (liq >= 50000) score += 25;
   else if (liq >= 20000) score += 20;
   else if (liq >= 10000) score += 15;
@@ -125,6 +126,9 @@ function scoreCandidate(t) {
   return score;
 }
 
+// ====================================================
+// Trending data fetcher with cache
+// ====================================================
 async function fetchTrendingsCached() {
   if (Date.now() - trendingCache.fetchedAt < TRENDING_CACHE_TTL && trendingCache.data.length > 0) {
     return trendingCache.data;
@@ -151,7 +155,6 @@ async function fetchTrendingsCached() {
     }
   }
 
-  // Score and sort by quality, not raw pump percentage
   const scored = Array.from(seen.values()).map(t => {
     t._qualityScore = scoreCandidate(t);
     return t;
@@ -160,7 +163,7 @@ async function fetchTrendingsCached() {
   scored.sort((a, b) => b._qualityScore - a._qualityScore);
 
   const all = Array.from(seen.values());
-  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$5k, liq>$3k, change -30% to +2000%)`);
+  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter`);
 
   trendingCache = { data: scored, fetchedAt: Date.now() };
   return scored;
@@ -236,7 +239,53 @@ async function inCooldown(userId, tokenAddress, cooldownHours) {
 }
 
 // ====================================================
-// Exit logic
+// Momentum confirmation
+// Records price on first sight, only allows buy if price
+// held or went up on the next scan (90s later)
+// ====================================================
+function checkMomentum(tokenAddress, currentPrice) {
+  const prev = momentumCache.get(tokenAddress);
+  if (!prev) {
+    momentumCache.set(tokenAddress, { price: currentPrice, seenAt: Date.now() });
+    return { ready: false, reason: 'first_sight' };
+  }
+  const elapsed = Date.now() - prev.seenAt;
+  if (elapsed < 30000) {
+    return { ready: false, reason: 'too_soon' };
+  }
+  const changeSinceFirstSight = ((currentPrice - prev.price) / prev.price) * 100;
+  // Price must not have dropped more than 3% since first sighting
+  if (changeSinceFirstSight < -3) {
+    momentumCache.set(tokenAddress, { price: currentPrice, seenAt: Date.now() });
+    return { ready: false, reason: `momentum_lost (${changeSinceFirstSight.toFixed(1)}%)` };
+  }
+  // Passed momentum check, clear cache entry
+  momentumCache.delete(tokenAddress);
+  return { ready: true, changeSinceFirstSight };
+}
+
+// Clean stale momentum entries (older than 10 minutes)
+function cleanMomentumCache() {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [addr, entry] of momentumCache) {
+    if (entry.seenAt < cutoff) momentumCache.delete(addr);
+  }
+}
+
+// ====================================================
+// Adaptive trailing stop
+// Small profit (<15%): tight 5% trail to protect gains
+// Medium profit (15-30%): normal 8% trail
+// Big profit (>30%): wide 12% trail to let winners run
+// ====================================================
+function getAdaptiveTrail(pnlPct, baseTrail) {
+  if (pnlPct >= 30) return Math.max(baseTrail, 12);
+  if (pnlPct >= 15) return baseTrail;
+  return Math.min(baseTrail, 5);
+}
+
+// ====================================================
+// Exit logic (with adaptive trailing stop)
 // ====================================================
 function shouldSellPosition(pos, currentPrice, settings) {
   if (!currentPrice || currentPrice <= 0) return { sell: false };
@@ -246,7 +295,7 @@ function shouldSellPosition(pos, currentPrice, settings) {
   const maxHold = settings.maxHoldMinutes ?? 30;
   const tp = settings.tpPercent ?? 25;
   const sl = settings.slPercent ?? 8;
-  const trail = settings.trailingStopPercent ?? 8;
+  const baseTrail = settings.trailingStopPercent ?? 8;
   const useTrail = settings.useTrailingStop !== false;
   const useBreakeven = settings.useBreakevenStop !== false;
   const breakevenAt = settings.breakevenAtPercent ?? 5;
@@ -259,10 +308,15 @@ function shouldSellPosition(pos, currentPrice, settings) {
   if (holdMinutes >= maxHold) return { sell: true, reason: 'time_limit', pnlPct };
   if (pnlPct <= -sl) return { sell: true, reason: 'stop_loss', pnlPct };
   if (pnlPct >= tp) return { sell: true, reason: 'take_profit', pnlPct };
+
   if (useTrail && pnlPct > 0 && peakPrice > 0) {
+    const adaptiveTrail = getAdaptiveTrail(pnlPct, baseTrail);
     const dropFromPeak = ((peakPrice - currentPrice) / peakPrice) * 100;
-    if (dropFromPeak >= trail) return { sell: true, reason: 'trailing_stop', pnlPct };
+    if (dropFromPeak >= adaptiveTrail) {
+      return { sell: true, reason: `trailing_stop(${adaptiveTrail}%)`, pnlPct };
+    }
   }
+
   if (useBreakeven && pnlPct >= breakevenAt && !pos.breakevenTriggered) {
     return { sell: false, updateBreakeven: true, peakPrice };
   }
@@ -272,6 +326,9 @@ function shouldSellPosition(pos, currentPrice, settings) {
   return { sell: false, peakPrice };
 }
 
+// ====================================================
+// Live sell execution
+// ====================================================
 async function executeLiveSell(user, pos, currentPrice, keypair) {
   const walletAddress = keypair.publicKey.toBase58();
   const amountToSell = (pos.partialSoldAmount || 0) > 0
@@ -309,64 +366,63 @@ async function executeLiveSell(user, pos, currentPrice, keypair) {
 }
 
 // ====================================================
-// SINGLE BOT TICK - one scan cycle for one user
+// EXIT TICK - Fast loop (every 10s) to monitor open positions
+// Only fetches fresh prices for held tokens, no scanning
 // ====================================================
-async function botTick(userId) {
+async function exitTick(userId) {
   const bot = activeBots.get(userId.toString());
   if (!bot) return;
-  bot.scanCount++;
 
   const user = await User.findById(userId);
   if (!user) { stopBot(userId); return; }
 
   const settings = user.trenchAuto || {};
   const mode = settings.mode || 'paper';
-  const maxPositions = settings.maxOpenPositions ?? 3;
-  const blacklist = user.trenchBlacklist || [];
-  const minScore = settings.minTrendingScore ?? 0;
 
-  // Risk check
-  resetDailyPnlIfNewDay(user);
-  const riskCheck = shouldPauseForRisk(user, settings);
-  if (riskCheck.pause) {
-    user.trenchAuto.lastPausedAt = new Date();
-    user.trenchAuto.pausedReason = riskCheck.reason;
-    await user.save({ validateBeforeSave: false });
-    botLog(userId, `PAUSED: ${riskCheck.reason}`);
-    stopBot(userId);
-    return;
+  const openPositions = await ScalpTrade.find({
+    userId: user._id,
+    isPaper: mode === 'paper',
+    status: 'OPEN'
+  }).lean();
+
+  if (openPositions.length === 0) return;
+
+  // Fetch fresh prices only for held tokens
+  const heldAddresses = openPositions.map(p => p.tokenAddress);
+  let freshPrices = {};
+  try {
+    const pairs = await dexscreener.fetchTokensBulk('solana', heldAddresses);
+    for (const p of pairs) {
+      if (p.tokenAddress && p.price > 0) freshPrices[p.tokenAddress] = p.price;
+    }
+  } catch (e) {
+    // Fallback to cached trending data
+    const cached = trendingCache.data || [];
+    for (const t of cached) {
+      if (heldAddresses.includes(t.tokenAddress) && t.price > 0) {
+        freshPrices[t.tokenAddress] = t.price;
+      }
+    }
   }
 
-  // Fetch trending tokens (cached)
-  const validTrendings = await fetchTrendingsCached();
-  if (validTrendings.length === 0) {
-    botLog(userId, 'No trending tokens found, waiting...');
-    return;
-  }
-
-  const openPaper = await ScalpTrade.find({ userId: user._id, isPaper: true, status: 'OPEN' }).lean();
-  const openLive = await ScalpTrade.find({ userId: user._id, isPaper: false, status: 'OPEN' }).lean();
-  const openPositions = mode === 'paper' ? openPaper : openLive;
-  const allOpen = [...openPaper, ...openLive];
-
-  // ---- PHASE 1: CHECK EXITS ----
   let sellCount = 0;
   for (const pos of openPositions) {
-    const t = validTrendings.find(x => x.tokenAddress === pos.tokenAddress);
-    let currentPrice = t ? t.price : 0;
+    let currentPrice = freshPrices[pos.tokenAddress] || 0;
+
+    // If bulk fetch missed it, try individual lookup
     if (!currentPrice || currentPrice <= 0) {
       try {
         const pairData = await dexscreener.fetchTokenPairs('solana', pos.tokenAddress);
         if (pairData && pairData.price > 0) currentPrice = pairData.price;
       } catch (e) { /* ignore */ }
     }
-    if (!currentPrice || currentPrice <= 0) currentPrice = pos.entryPrice;
+    if (!currentPrice || currentPrice <= 0) continue;
 
     const decision = shouldSellPosition(pos, currentPrice, settings);
 
     if (decision.updateBreakeven) {
       await ScalpTrade.updateOne({ _id: pos._id }, { $set: { breakevenTriggered: true } });
-      botLog(userId, `Breakeven triggered on ${pos.tokenSymbol}`);
+      botLog(userId, `Breakeven set on ${pos.tokenSymbol} (up ${((currentPrice - pos.entryPrice) / pos.entryPrice * 100).toFixed(1)}%)`);
       continue;
     }
     if (decision.peakPrice) {
@@ -375,23 +431,25 @@ async function botTick(userId) {
     if (!decision.sell) continue;
 
     if (mode === 'paper') {
+      // Apply slippage: exit price is 2% worse than listed
+      const slippedPrice = currentPrice * (1 - PAPER_SLIPPAGE);
       const isPartial = decision.reason === 'partial_tp' && (settings.partialTpPercent ?? 0) > 0;
       const sellPct = isPartial ? (settings.partialTpPercent ?? 50) / 100 : 1;
       const tokenAmountToSell = (pos.tokenAmount || 0) * sellPct;
-      const valueOut = tokenAmountToSell * currentPrice;
+      const valueOut = tokenAmountToSell * slippedPrice;
       const pnl = valueOut - (pos.amountIn || 0) * sellPct;
-      const pnlPct = ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100;
+      const pnlPct = ((slippedPrice - pos.entryPrice) / pos.entryPrice) * 100;
 
       user.trenchPaperBalance = Math.round(((user.trenchPaperBalance ?? 1000) + valueOut) * 100) / 100;
 
       if (isPartial) {
         await ScalpTrade.updateOne({ _id: pos._id }, { $set: { partialSoldAmount: (pos.partialSoldAmount || 0) + tokenAmountToSell, peakPrice: currentPrice } });
-        botLog(userId, `PARTIAL SELL ${pos.tokenSymbol} ${pnlPct.toFixed(1)}%`);
+        botLog(userId, `PARTIAL SELL ${pos.tokenSymbol} ${pnlPct.toFixed(1)}% (slip applied)`);
       } else {
         await ScalpTrade.updateOne({ _id: pos._id }, {
-          $set: { exitPrice: currentPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), exitReason: decision.reason || 'auto' }
+          $set: { exitPrice: slippedPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), exitReason: decision.reason || 'auto' }
         });
-        botLog(userId, `SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%)`);
+        botLog(userId, `SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%) [slip: -${(PAPER_SLIPPAGE * 100).toFixed(0)}%]`);
         sellCount++;
       }
 
@@ -426,11 +484,50 @@ async function botTick(userId) {
     }
   }
 
-  // ---- PHASE 2: SCAN FOR NEW ENTRIES ----
-  const openAfterSells = await ScalpTrade.countDocuments({ userId: user._id, status: 'OPEN' });
-  const slotsAvailable = maxPositions - openAfterSells;
+  if (sellCount > 0) {
+    bot.tradesClosed += sellCount;
+  }
+}
+
+// ====================================================
+// ENTRY TICK - Slower loop (every 90s) to find new trades
+// Scans trending tokens, applies momentum check, opens positions
+// ====================================================
+async function entryTick(userId) {
+  const bot = activeBots.get(userId.toString());
+  if (!bot) return;
+  bot.scanCount++;
+
+  const user = await User.findById(userId);
+  if (!user) { stopBot(userId); return; }
+
+  const settings = user.trenchAuto || {};
+  const mode = settings.mode || 'paper';
+  const maxPositions = settings.maxOpenPositions ?? 3;
+  const blacklist = user.trenchBlacklist || [];
+
+  // Risk check
+  resetDailyPnlIfNewDay(user);
+  const riskCheck = shouldPauseForRisk(user, settings);
+  if (riskCheck.pause) {
+    user.trenchAuto.lastPausedAt = new Date();
+    user.trenchAuto.pausedReason = riskCheck.reason;
+    await user.save({ validateBeforeSave: false });
+    botLog(userId, `PAUSED: ${riskCheck.reason}`);
+    stopBot(userId);
+    return;
+  }
+
+  const validTrendings = await fetchTrendingsCached();
+  if (validTrendings.length === 0) {
+    botLog(userId, 'No trending tokens found, waiting...');
+    return;
+  }
+
+  const openCount = await ScalpTrade.countDocuments({ userId: user._id, status: 'OPEN' });
+  const slotsAvailable = maxPositions - openCount;
   if (slotsAvailable <= 0) {
-    if (bot.scanCount % 10 === 0) botLog(userId, `Monitoring ${openAfterSells} positions (${validTrendings.length} tokens tracked)`);
+    if (bot.scanCount % 6 === 0) botLog(userId, `Monitoring ${openCount} positions (${validTrendings.length} tokens tracked)`);
     return;
   }
 
@@ -441,11 +538,15 @@ async function botTick(userId) {
     .slice(0, 200);
 
   if (candidates.length === 0) {
-    botLog(userId, `Scanning... ${validTrendings.length} tokens found, 0 candidates after filters`);
+    botLog(userId, `Scanning... ${validTrendings.length} tokens, 0 candidates after filters`);
     return;
   }
 
+  // Clean stale momentum entries
+  cleanMomentumCache();
+
   let buyCount = 0;
+  let momentumWaiting = 0;
   if (mode === 'paper') {
     const amountPerTrade = settings.amountPerTradeUsd ?? 50;
     for (const t of candidates) {
@@ -455,22 +556,32 @@ async function botTick(userId) {
       if (!pass) continue;
       const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
       if (cool) continue;
+
+      // Momentum confirmation: must see price hold/rise across 2 scans
+      const momentum = checkMomentum(t.tokenAddress, t.price);
+      if (!momentum.ready) {
+        momentumWaiting++;
+        continue;
+      }
+
       try {
+        // Apply slippage: entry price is 2% worse than listed
+        const slippedEntry = t.price * (1 + PAPER_SLIPPAGE);
         const amount = Math.min(amountPerTrade, user.trenchPaperBalance);
-        const tokenAmount = amount / (t.price || 1);
+        const tokenAmount = amount / slippedEntry;
         user.trenchPaperBalance = Math.round((user.trenchPaperBalance - amount) * 100) / 100;
         await user.save({ validateBeforeSave: false });
         await ScalpTrade.create({
           userId: user._id, walletAddress: 'paper', isPaper: true,
           tokenAddress: t.tokenAddress, tokenSymbol: t.symbol, tokenName: t.name,
-          side: 'BUY', amountIn: amount, tokenAmount, entryPrice: t.price, peakPrice: t.price, status: 'OPEN'
+          side: 'BUY', amountIn: amount, tokenAmount, entryPrice: slippedEntry, peakPrice: slippedEntry, status: 'OPEN'
         });
         buyCount++;
         bot.tradesOpened++;
         const vol = (t.volume24h || 0) >= 1000 ? '$' + Math.round((t.volume24h || 0) / 1000) + 'k' : '$' + Math.round(t.volume24h || 0);
         const liq = (t.liquidity || 0) >= 1000 ? '$' + Math.round((t.liquidity || 0) / 1000) + 'k' : '$' + Math.round(t.liquidity || 0);
-        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${t.price.toFixed(8)} (24h: ${(t.priceChange24h || 0).toFixed(1)}%, vol: ${vol}, liq: ${liq}, score: ${t._qualityScore || 0})`);
-        notifyUser(user, `Trench BUY ${t.symbol}`, `$${amount} @ $${t.price.toFixed(8)}`, 'open').catch(() => {});
+        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${slippedEntry.toFixed(8)} (listed: $${t.price.toFixed(8)}, slip: +${(PAPER_SLIPPAGE * 100).toFixed(0)}%, 24h: ${(t.priceChange24h || 0).toFixed(1)}%, vol: ${vol}, liq: ${liq}, score: ${t._qualityScore || 0}, momentum: +${(momentum.changeSinceFirstSight || 0).toFixed(1)}%)`);
+        notifyUser(user, `Trench BUY ${t.symbol}`, `$${amount} @ $${slippedEntry.toFixed(8)}`, 'open').catch(() => {});
       } catch (err) {
         botLog(userId, `Buy failed ${t.symbol}: ${err.message}`);
       }
@@ -498,6 +609,13 @@ async function botTick(userId) {
       if (!pass) continue;
       const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
       if (cool) continue;
+
+      const momentum = checkMomentum(t.tokenAddress, t.price);
+      if (!momentum.ready) {
+        momentumWaiting++;
+        continue;
+      }
+
       try {
         const quote = await mobula.getSwapQuote('solana', mobula.SOL_MINT, t.tokenAddress, amountPerTrade, walletAddress, { slippage: 8 });
         const serialized = quote?.data?.solana?.transaction?.serialized;
@@ -528,7 +646,8 @@ async function botTick(userId) {
   }
 
   if (buyCount === 0 && slotsAvailable > 0) {
-    botLog(userId, `Scanning... ${candidates.length} candidates checked, ${slotsAvailable} slots open, waiting for entry...`);
+    const waitMsg = momentumWaiting > 0 ? ` (${momentumWaiting} awaiting momentum confirmation)` : '';
+    botLog(userId, `Scanning... ${candidates.length} candidates, ${slotsAvailable} slots open${waitMsg}`);
   }
 
   user.trenchAuto.lastRunAt = new Date();
@@ -549,18 +668,25 @@ function startBot(userId) {
     tradesClosed: 0,
     log: [],
     lastAction: null,
-    interval: null
+    exitInterval: null,
+    entryInterval: null
   };
   activeBots.set(uid, bot);
 
-  botLog(userId, 'Bot STARTED - scanning every 30s');
+  botLog(userId, 'Bot STARTED — exits every 10s, entries every 90s, slippage 2%, momentum check ON');
 
-  // Run first tick immediately
-  botTick(userId).catch(err => botLog(userId, `Error: ${err.message}`));
+  // First tick: run entry scan immediately (which also seeds momentum cache)
+  entryTick(userId).catch(err => botLog(userId, `Entry error: ${err.message}`));
 
-  bot.interval = setInterval(() => {
-    botTick(userId).catch(err => botLog(userId, `Error: ${err.message}`));
-  }, BOT_SCAN_INTERVAL);
+  // Fast exit monitoring loop (10 seconds)
+  bot.exitInterval = setInterval(() => {
+    exitTick(userId).catch(err => botLog(userId, `Exit error: ${err.message}`));
+  }, EXIT_CHECK_INTERVAL);
+
+  // Slower entry scanning loop (90 seconds)
+  bot.entryInterval = setInterval(() => {
+    entryTick(userId).catch(err => botLog(userId, `Entry error: ${err.message}`));
+  }, ENTRY_SCAN_INTERVAL);
 
   return { started: true };
 }
@@ -569,10 +695,11 @@ function stopBot(userId) {
   const uid = userId.toString();
   const bot = activeBots.get(uid);
   if (!bot) return { already: true };
-  if (bot.interval) clearInterval(bot.interval);
+  if (bot.exitInterval) clearInterval(bot.exitInterval);
+  if (bot.entryInterval) clearInterval(bot.entryInterval);
   botLog(userId, 'Bot STOPPED');
   activeBots.delete(uid);
-  return { stopped: true, scanCount: bot.scanCount, tradesOpened: bot.tradesOpened };
+  return { stopped: true, scanCount: bot.scanCount, tradesOpened: bot.tradesOpened, tradesClosed: bot.tradesClosed };
 }
 
 function getBotStatus(userId) {
@@ -584,6 +711,7 @@ function getBotStatus(userId) {
     startedAt: bot.startedAt,
     scanCount: bot.scanCount,
     tradesOpened: bot.tradesOpened,
+    tradesClosed: bot.tradesClosed,
     uptime: Math.round((Date.now() - bot.startedAt.getTime()) / 1000),
     lastAction: bot.lastAction,
     log: bot.log.slice(-20)
@@ -591,15 +719,12 @@ function getBotStatus(userId) {
 }
 
 // ====================================================
-// Legacy: background scheduler for users with enabled flag
-// (keeps running for users who enabled auto but haven't clicked Start)
+// Legacy: background scheduler
 // ====================================================
 async function runTrenchAutoTrade(opts = {}) {
-  const forceRun = !!opts.forceRun;
   const runForUserId = opts.runForUserId;
 
   if (runForUserId) {
-    // If called for a specific user, just run a single tick via the bot system
     const uid = runForUserId.toString();
     if (!activeBots.has(uid)) {
       startBot(runForUserId);
@@ -607,7 +732,6 @@ async function runTrenchAutoTrade(opts = {}) {
     return { started: true };
   }
 
-  // Background: check all users with enabled flag who don't have an active bot
   const users = await User.find({ 'trenchAuto.enabled': true }).lean();
   let started = 0;
   for (const u of users) {
@@ -620,9 +744,8 @@ async function runTrenchAutoTrade(opts = {}) {
         const elapsed = (Date.now() - new Date(lastRun).getTime()) / 60000;
         if (elapsed < intervalMin) continue;
       }
-      // Run a single tick for this user without starting persistent bot
       try {
-        await botTick(u._id);
+        await entryTick(u._id);
         started++;
       } catch (e) {
         console.error(`[TrenchBot] Background tick error for ${u.username}:`, e.message);
