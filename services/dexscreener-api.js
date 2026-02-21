@@ -263,16 +263,15 @@ async function fetchSolanaTrendings(limit = 500) {
 
   console.log(`[DexScreener] ${dexAddresses.length} unique tokens (boosts:${boosts.length} top:${topBoosts.length} profiles:${profiles.length} takeovers:${takeovers.length} ads:${ads.length})`);
 
-  // Phase 2: GeckoTerminal (4 sort options, more pages)
-  const [gtTrending, gtNew, gtTopTx, gtTopVol] = await Promise.all([
+  // Phase 2: GeckoTerminal (trending + new only; skip topTx/topVol to avoid dump-heavy tokens)
+  const [gtTrending, gtNew, gtTopVol] = await Promise.all([
     fetchGeckoTerminalPools('trending_pools', 4).catch(() => []),
     fetchGeckoTerminalPools('new_pools', 4).catch(() => []),
-    fetchGeckoTerminalPools('pools?order=h24_tx_count_desc', 3).catch(() => []),
-    fetchGeckoTerminalPools('pools?order=h24_volume_usd_desc', 3).catch(() => [])
+    fetchGeckoTerminalPools('pools?order=h24_volume_usd_desc', 2).catch(() => [])
   ]);
 
-  const gtTokens = [...gtTrending, ...gtNew, ...gtTopTx, ...gtTopVol];
-  console.log(`[GeckoTerminal] ${gtTokens.length} pools (trending:${gtTrending.length} new:${gtNew.length} topTx:${gtTopTx.length} topVol:${gtTopVol.length})`);
+  const gtTokens = [...gtTrending, ...gtNew, ...gtTopVol];
+  console.log(`[GeckoTerminal] ${gtTokens.length} pools (trending:${gtTrending.length} new:${gtNew.length} topVol:${gtTopVol.length})`);
 
   // Phase 3: Jupiter (trending, top traded, organic score, recent)
   const [jupTrending1h, jupTrending6h, jupTraded, jupOrganic, jupRecent] = await Promise.all([

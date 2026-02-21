@@ -100,8 +100,8 @@ function scoreCandidate(t) {
   // Hard rejects: extreme pumps, crashing, or no real activity
   if (change > 500) return -1;
   if (change < -25) return -1;
-  if (vol < 5000) return -1;
-  if (liq < 3000) return -1;
+  if (vol < 15000) return -1;
+  if (liq < 8000) return -1;
 
   let score = 0;
 
@@ -116,15 +116,15 @@ function scoreCandidate(t) {
   if (vol >= 200000) score += 30;
   else if (vol >= 100000) score += 25;
   else if (vol >= 50000) score += 20;
-  else if (vol >= 20000) score += 15;
-  else score += 8;
+  else if (vol >= 15000) score += 12;
+  else score += 5;
 
   // Higher liquidity = less slippage
   if (liq >= 100000) score += 25;
   else if (liq >= 50000) score += 20;
   else if (liq >= 25000) score += 15;
-  else if (liq >= 10000) score += 12;
-  else score += 5;
+  else if (liq >= 8000) score += 10;
+  else score += 3;
 
   return score;
 }
@@ -166,7 +166,7 @@ async function fetchTrendingsCached() {
   scored.sort((a, b) => b._qualityScore - a._qualityScore);
 
   const all = Array.from(seen.values());
-  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$5k, liq>$3k, 24h<500%)`);
+  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$15k, liq>$8k, 24h<500%)`);
 
   trendingCache = { data: scored, fetchedAt: Date.now() };
   return scored;
@@ -553,7 +553,7 @@ async function entryTick(userId) {
       if ((user.trenchPaperBalance ?? 0) < amountPerTrade) { botLog(userId, 'Insufficient paper balance'); break; }
       const pass = await passesEntryFilters(t, settings, blacklist);
       if (!pass) { filteredOut++; continue; }
-      const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 0.5);
+      const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
       if (cool) { cooldownBlocked++; continue; }
 
       const momentum = checkMomentum(t.tokenAddress, t.price);
@@ -605,7 +605,7 @@ async function entryTick(userId) {
       if (buyCount >= slotsAvailable) break;
       const pass = await passesEntryFilters(t, settings, blacklist);
       if (!pass) { filteredOut++; continue; }
-      const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 0.5);
+      const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
       if (cool) { cooldownBlocked++; continue; }
 
       const momentum = checkMomentum(t.tokenAddress, t.price);
