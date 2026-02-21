@@ -223,20 +223,26 @@ async function runTrenchAutoTrade(opts = {}) {
 
   let trendings = [];
   try {
-    trendings = await dexscreener.fetchSolanaTrendings(50);
+    trendings = await dexscreener.fetchSolanaTrendings(150);
   } catch (e) {
     console.warn('[TrenchAuto] DexScreener failed:', e.message);
   }
-  if (trendings.length === 0) {
-    try {
-      trendings = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)('solana');
-    } catch (e) {
-      console.error('[TrenchAuto] Mobula fetch failed:', e.message);
-      throw e;
+  let mobulaTokens = [];
+  try {
+    mobulaTokens = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)('solana');
+  } catch (e) {
+    console.warn('[TrenchAuto] Mobula fetch failed:', e.message);
+  }
+  const seen = new Map();
+  for (const t of trendings) {
+    if (t.tokenAddress && t.price > 0) seen.set(t.tokenAddress, t);
+  }
+  for (const t of mobulaTokens) {
+    if (t.tokenAddress && t.price > 0 && !seen.has(t.tokenAddress)) {
+      seen.set(t.tokenAddress, { ...t, trendingScore: t.trendingScore || 1 });
     }
   }
-
-  let validTrendings = trendings.filter(t => t.tokenAddress && t.price > 0);
+  let validTrendings = Array.from(seen.values());
   validTrendings = validTrendings.sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0));
   if (validTrendings.length === 0) {
     console.log('[TrenchAuto] No valid Solana trendings from DexScreener or Mobula.');

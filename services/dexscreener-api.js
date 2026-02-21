@@ -44,46 +44,56 @@ async function fetchCommunityTakeovers(chainId = 'solana') {
   return data.filter((t) => (t.chainId || '').toLowerCase() === chainId.toLowerCase());
 }
 
-async function fetchTokenPairsBatch(chainId, tokenAddresses) {
+async function fetchAds(chainId = 'solana') {
+  try {
+    const res = await fetch(`${BASE}/ads/latest/v1`, { timeout: 10000 });
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!Array.isArray(data)) return [];
+    return data.filter((t) => (t.chainId || '').toLowerCase() === chainId.toLowerCase());
+  } catch (e) {
+    return [];
+  }
+}
+
+async function fetchTokenPairsBatch(chainId, tokenAddresses, opts = {}) {
   const results = [];
-  const batch = 5;
-  for (let i = 0; i < tokenAddresses.length; i += batch) {
-    const chunk = tokenAddresses.slice(i, i + batch);
+  const batchSize = opts.batchSize ?? 5;
+  const delayMs = opts.delayMs ?? 200;
+  for (let i = 0; i < tokenAddresses.length; i += batchSize) {
+    const chunk = tokenAddresses.slice(i, i + batchSize);
     const pairs = await Promise.all(chunk.map((addr) => fetchTokenPairs(chainId, addr)));
     for (const p of pairs) {
       if (p && p.price > 0) results.push(p);
     }
-    if (i + batch < tokenAddresses.length) await new Promise((r) => setTimeout(r, 200));
+    if (i + batchSize < tokenAddresses.length) await new Promise((r) => setTimeout(r, delayMs));
   }
   return results;
 }
 
-async function fetchSolanaTrendings(limit = 50) {
-  const [boosts, takeovers] = await Promise.all([
+async function fetchSolanaTrendings(limit = 150) {
+  const [boosts, takeovers, ads] = await Promise.all([
     fetchTokenBoosts('solana'),
-    fetchCommunityTakeovers('solana')
+    fetchCommunityTakeovers('solana'),
+    fetchAds('solana')
   ]);
   const seen = new Map();
   const tokens = [];
-  for (const t of boosts) {
+  for (const t of [...boosts, ...takeovers, ...ads]) {
     if (t.tokenAddress && !seen.has(t.tokenAddress)) {
       seen.set(t.tokenAddress, true);
       tokens.push(t);
     }
   }
-  for (const t of takeovers) {
-    if (t.tokenAddress && !seen.has(t.tokenAddress)) {
-      seen.set(t.tokenAddress, true);
-      tokens.push(t);
-    }
-  }
-  const toFetch = tokens.slice(0, Math.min(limit, 50));
-  return fetchTokenPairsBatch('solana', toFetch.map((t) => t.tokenAddress));
+  const toFetch = tokens.slice(0, Math.min(limit, 200));
+  const withPrices = await fetchTokenPairsBatch('solana', toFetch.map((t) => t.tokenAddress));
+  return withPrices.sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0));
 }
 
 module.exports = {
   fetchTokenBoosts,
   fetchTokenPairs,
   fetchCommunityTakeovers,
+  fetchAds,
   fetchSolanaTrendings
 };
