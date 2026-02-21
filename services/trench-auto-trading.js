@@ -507,7 +507,9 @@ async function runTrenchAutoTrade(opts = {}) {
       }
     }
   }
-  return { users: users.length, trendings: validTrendings.length, trades: tradesCount };
+  const out = { users: users.length, trendings: validTrendings.length, trades: tradesCount };
+  if (tradesCount === 0 && validTrendings.length > 0 && !out.reason) out.reason = 'no_opportunities';
+  return out;
 }
 
 module.exports = { runTrenchAutoTrade, encrypt, decrypt, getBotKeypair };

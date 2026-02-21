@@ -618,7 +618,8 @@
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.error) { alert(d.error); btnRunNow.disabled = false; btnRunNow.textContent = 'Run Now'; return; }
-        var msg = 'Done. ' + (d.trades || 0) + ' trades. ' + (d.trendings || 0) + ' tokens scanned.';
+        var trades = d.trades || 0;
+        var msg = 'Done. ' + (trades === 0 ? 'No trades executed.' : trades + ' trade' + (trades === 1 ? '' : 's') + ' executed.') + ' ' + (d.trendings || 0) + ' tokens scanned.';
         if (d.reason) msg += ' (' + d.reason + ')';
         alert(msg);
         location.reload();
