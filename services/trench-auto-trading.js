@@ -297,15 +297,20 @@ function shouldSellPosition(pos, currentPrice, settings) {
   const useTrail = settings.useTrailingStop !== false;
   const useBreakeven = settings.useBreakevenStop !== false;
   const breakevenAt = settings.breakevenAtPercent ?? 5;
-  const partialAt = settings.partialTpAtPercent ?? 15;
-  const partialPct = settings.partialTpPercent ?? 50;
-
   let peakPrice = pos.peakPrice || pos.entryPrice;
   if (currentPrice > peakPrice) peakPrice = currentPrice;
 
-  if (holdMinutes >= maxHold) return { sell: true, reason: 'time_limit', pnlPct };
   if (pnlPct <= -sl) return { sell: true, reason: 'stop_loss', pnlPct };
   if (pnlPct >= tp) return { sell: true, reason: 'take_profit', pnlPct };
+
+  // Time limit: only force-close if flat or losing. If in profit, let trailing stop manage.
+  if (holdMinutes >= maxHold && pnlPct <= 2) {
+    return { sell: true, reason: 'time_limit', pnlPct };
+  }
+  // Extended time: if held 2x max hold, close regardless (safety valve)
+  if (holdMinutes >= maxHold * 2) {
+    return { sell: true, reason: 'time_limit_hard', pnlPct };
+  }
 
   if (useTrail && pnlPct > 0 && peakPrice > 0) {
     const adaptiveTrail = getAdaptiveTrail(pnlPct, baseTrail);
@@ -317,9 +322,6 @@ function shouldSellPosition(pos, currentPrice, settings) {
 
   if (useBreakeven && pnlPct >= breakevenAt && !pos.breakevenTriggered) {
     return { sell: false, updateBreakeven: true, peakPrice };
-  }
-  if (partialPct > 0 && pnlPct >= partialAt && (pos.partialSoldAmount || 0) === 0) {
-    return { sell: true, reason: 'partial_tp', partialPercent: partialPct, pnlPct };
   }
   return { sell: false, peakPrice };
 }
@@ -429,27 +431,19 @@ async function exitTick(userId) {
     if (!decision.sell) continue;
 
     if (mode === 'paper') {
-      // Apply slippage: exit price is 2% worse than listed
       const slippedPrice = currentPrice * (1 - PAPER_SLIPPAGE);
-      const isPartial = decision.reason === 'partial_tp' && (settings.partialTpPercent ?? 0) > 0;
-      const sellPct = isPartial ? (settings.partialTpPercent ?? 50) / 100 : 1;
-      const tokenAmountToSell = (pos.tokenAmount || 0) * sellPct;
+      const tokenAmountToSell = pos.tokenAmount || 0;
       const valueOut = tokenAmountToSell * slippedPrice;
-      const pnl = valueOut - (pos.amountIn || 0) * sellPct;
+      const pnl = valueOut - (pos.amountIn || 0);
       const pnlPct = ((slippedPrice - pos.entryPrice) / pos.entryPrice) * 100;
 
       user.trenchPaperBalance = Math.round(((user.trenchPaperBalance ?? 1000) + valueOut) * 100) / 100;
 
-      if (isPartial) {
-        await ScalpTrade.updateOne({ _id: pos._id }, { $set: { partialSoldAmount: (pos.partialSoldAmount || 0) + tokenAmountToSell, peakPrice: currentPrice } });
-        botLog(userId, `PARTIAL SELL ${pos.tokenSymbol} ${pnlPct.toFixed(1)}% (slip applied)`);
-      } else {
-        await ScalpTrade.updateOne({ _id: pos._id }, {
-          $set: { exitPrice: slippedPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), exitReason: decision.reason || 'auto' }
-        });
-        botLog(userId, `SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%) [slip: -${(PAPER_SLIPPAGE * 100).toFixed(0)}%]`);
-        sellCount++;
-      }
+      await ScalpTrade.updateOne({ _id: pos._id }, {
+        $set: { exitPrice: slippedPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), exitReason: decision.reason || 'auto' }
+      });
+      botLog(userId, `SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%) [slip: -${(PAPER_SLIPPAGE * 100).toFixed(0)}%]`);
+      sellCount++;
 
       user.trenchStats = user.trenchStats || {};
       user.trenchStats.totalPnl = (user.trenchStats.totalPnl || 0) + pnl;
@@ -463,7 +457,7 @@ async function exitTick(userId) {
         user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, pnl);
       }
       await user.save({ validateBeforeSave: false });
-      if (!isPartial) notifyUser(user, `Trench SELL ${pos.tokenSymbol}`, `PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%)`, 'close').catch(() => {});
+      notifyUser(user, `Trench SELL ${pos.tokenSymbol}`, `PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%)`, 'close').catch(() => {});
     } else {
       const keypair = getBotKeypair(user);
       if (!keypair) continue;
