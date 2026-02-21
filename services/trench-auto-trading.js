@@ -84,6 +84,47 @@ function botLog(userId, msg) {
 // ====================================================
 // Trending data fetcher with cache
 // ====================================================
+
+// Quality score: prefer tokens with real volume, liquidity, and moderate gains
+// Avoids pump-and-dump tokens (>1000% 24h) and dead tokens (<0%)
+function scoreCandidate(t) {
+  const change = t.priceChange24h || 0;
+  const vol = t.volume24h || 0;
+  const liq = t.liquidity || 0;
+
+  // Hard reject: extreme pumps (likely rug/dump) or tokens already crashing
+  if (change > 2000) return -1;
+  if (change < -30) return -1;
+  if (vol < 5000) return -1;
+  if (liq < 3000) return -1;
+
+  let score = 0;
+
+  // Sweet spot: moderate gainers (5-500%) are ideal for scalping
+  if (change >= 5 && change <= 50) score += 30;
+  else if (change > 50 && change <= 200) score += 25;
+  else if (change > 200 && change <= 500) score += 15;
+  else if (change > 500 && change <= 1000) score += 5;
+  else if (change > 1000) score += 0;
+  else if (change >= 0 && change < 5) score += 10;
+
+  // Volume matters: tokens with real trading activity
+  if (vol >= 100000) score += 30;
+  else if (vol >= 50000) score += 25;
+  else if (vol >= 20000) score += 20;
+  else if (vol >= 10000) score += 15;
+  else score += 5;
+
+  // Liquidity: need enough to actually exit the trade
+  if (liq >= 50000) score += 25;
+  else if (liq >= 20000) score += 20;
+  else if (liq >= 10000) score += 15;
+  else if (liq >= 5000) score += 10;
+  else score += 3;
+
+  return score;
+}
+
 async function fetchTrendingsCached() {
   if (Date.now() - trendingCache.fetchedAt < TRENDING_CACHE_TTL && trendingCache.data.length > 0) {
     return trendingCache.data;
@@ -106,12 +147,23 @@ async function fetchTrendingsCached() {
   }
   for (const t of mobulaTokens) {
     if (t.tokenAddress && t.price > 0 && !seen.has(t.tokenAddress)) {
-      seen.set(t.tokenAddress, { ...t, trendingScore: t.trendingScore || 1 });
+      seen.set(t.tokenAddress, t);
     }
   }
-  const result = Array.from(seen.values()).sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0));
-  trendingCache = { data: result, fetchedAt: Date.now() };
-  return result;
+
+  // Score and sort by quality, not raw pump percentage
+  const scored = Array.from(seen.values()).map(t => {
+    t._qualityScore = scoreCandidate(t);
+    return t;
+  }).filter(t => t._qualityScore > 0);
+
+  scored.sort((a, b) => b._qualityScore - a._qualityScore);
+
+  const all = Array.from(seen.values());
+  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$5k, liq>$3k, change -30% to +2000%)`);
+
+  trendingCache = { data: scored, fetchedAt: Date.now() };
+  return scored;
 }
 
 // ====================================================
@@ -415,7 +467,9 @@ async function botTick(userId) {
         });
         buyCount++;
         bot.tradesOpened++;
-        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${t.price.toFixed(8)} (24h: ${(t.priceChange24h || 0).toFixed(1)}%)`);
+        const vol = (t.volume24h || 0) >= 1000 ? '$' + Math.round((t.volume24h || 0) / 1000) + 'k' : '$' + Math.round(t.volume24h || 0);
+        const liq = (t.liquidity || 0) >= 1000 ? '$' + Math.round((t.liquidity || 0) / 1000) + 'k' : '$' + Math.round(t.liquidity || 0);
+        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${t.price.toFixed(8)} (24h: ${(t.priceChange24h || 0).toFixed(1)}%, vol: ${vol}, liq: ${liq}, score: ${t._qualityScore || 0})`);
         notifyUser(user, `Trench BUY ${t.symbol}`, `$${amount} @ $${t.price.toFixed(8)}`, 'open').catch(() => {});
       } catch (err) {
         botLog(userId, `Buy failed ${t.symbol}: ${err.message}`);
