@@ -111,8 +111,8 @@ function scoreCandidate(t) {
   if (change > 500) return -1;
   if (change < -25) return -1;
   if (vol < 15000) return -1;
-  if (liq < 8000) return -1;
-  if (holderCount > 0 && holderCount < 50) return -1;
+  if (liq < 25000) return -1;                          // $25k min liquidity (was $8k) -- rug protection
+  if (holderCount > 0 && holderCount < 500) return -1;  // 500 min holders (was 50) -- rug protection
   if (volLiqRatio > 25) return -1;
 
   // CRITICAL: only buy coins that are ACTIVELY pumping right now
@@ -245,7 +245,7 @@ function sanitizeSettings(raw) {
   s.consecutiveLossesToPause = Math.min(Math.max(s.consecutiveLossesToPause ?? 3, 2), 10);
   s.cooldownHours = Math.min(Math.max(s.cooldownHours ?? 1, 0.25), 4);
   s.maxPriceChange24hPercent = Math.min(Math.max(s.maxPriceChange24hPercent ?? 500, 100), 1000);
-  s.minLiquidityUsd = Math.min(Math.max(s.minLiquidityUsd ?? 10000, 5000), 100000);
+  s.minLiquidityUsd = Math.min(Math.max(s.minLiquidityUsd ?? 25000, 25000), 100000);
   s.maxTop10HoldersPercent = Math.min(Math.max(s.maxTop10HoldersPercent ?? 80, 50), 100);
   s.maxDailyLossPercent = Math.min(Math.max(s.maxDailyLossPercent ?? 15, 5), 50);
   s.trailingStopPercent = Math.min(Math.max(s.trailingStopPercent ?? 8, 3), 20);
