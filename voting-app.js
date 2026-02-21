@@ -3292,22 +3292,30 @@ wss.on('connection', (ws) => {
 });
 
 // ====================================================
+// TRENCH AUTO-TRADE SCHEDULER - runs regardless of environment
+// ====================================================
+function startTrenchAutoTradeScheduler() {
+  const trenchAuto = require('./services/trench-auto-trading');
+  console.log('[TrenchAuto] Scheduler started — checking every 5 minutes');
+  setInterval(() => {
+    trenchAuto.runTrenchAutoTrade().catch(err => console.error('[TrenchAuto] Error:', err.message));
+  }, 5 * 60 * 1000);
+  setTimeout(() => trenchAuto.runTrenchAutoTrade().catch(() => {}), 60000);
+}
+
+// ====================================================
 // KEEP-ALIVE: Prevent Render free tier from sleeping (15 min inactivity timeout)
 // Self-pings every 14 minutes. Only runs when RENDER_EXTERNAL_URL is set.
 // ====================================================
 const KEEP_ALIVE_INTERVAL = 14 * 60 * 1000; // 14 minutes
 function startKeepAlive() {
+  startTrenchAutoTradeScheduler();
   const url = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
   if (!url) {
     console.log('[KeepAlive] No RENDER_EXTERNAL_URL or APP_URL set — skipping keep-alive (local dev)');
     return;
   }
   console.log(`[KeepAlive] Self-ping enabled: ${url}/api/health every 14 minutes`);
-  const trenchAuto = require('./services/trench-auto-trading');
-  setInterval(() => {
-    trenchAuto.runTrenchAutoTrade().catch(err => console.error('[TrenchAuto] Error:', err.message));
-  }, 5 * 60 * 1000);
-  setTimeout(() => trenchAuto.runTrenchAutoTrade().catch(() => {}), 60000);
   setInterval(async () => {
     try {
       const res = await fetch(`${url}/api/health`, { timeout: 10000 });

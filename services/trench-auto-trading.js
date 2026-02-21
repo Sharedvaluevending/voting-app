@@ -304,7 +304,14 @@ async function runTrenchAutoTrade(opts = {}) {
 
     for (const pos of openPositions) {
       const t = validTrendings.find(x => x.tokenAddress === pos.tokenAddress);
-      const currentPrice = t ? t.price : pos.entryPrice;
+      let currentPrice = t ? t.price : 0;
+      if (!currentPrice || currentPrice <= 0) {
+        try {
+          const pairData = await dexscreener.fetchTokenPairs('solana', pos.tokenAddress);
+          if (pairData && pairData.price > 0) currentPrice = pairData.price;
+        } catch (e) { /* ignore */ }
+      }
+      if (!currentPrice || currentPrice <= 0) currentPrice = pos.entryPrice;
       const decision = shouldSellPosition(pos, currentPrice, settings, validTrendings);
 
       if (decision.updateBreakeven) {
