@@ -16,8 +16,8 @@ const ENCRYPT_KEY = process.env.TRENCH_SECRET || process.env.SESSION_SECRET || '
 const ALGO = 'aes-256-gcm';
 
 const EXIT_CHECK_INTERVAL = 10 * 1000;  // 10s - fast exit monitoring
-const ENTRY_SCAN_INTERVAL = 90 * 1000;  // 90s - slower entry scanning
-const TRENDING_CACHE_TTL = 90 * 1000;
+const ENTRY_SCAN_INTERVAL = 60 * 1000;  // 60s - entry scanning
+const TRENDING_CACHE_TTL = 60 * 1000;
 const MAX_LOG_ENTRIES = 50;
 const PAPER_SLIPPAGE = 0.02; // 2% simulated slippage each way
 
@@ -253,10 +253,9 @@ function checkMomentum(tokenAddress, currentPrice) {
     return { ready: false, reason: 'first_sight' };
   }
   const elapsed = Date.now() - prev.seenAt;
-  // Need at least 90 seconds of observation
-  if (elapsed < 90000) {
+  if (elapsed < 60000) {
     prev.checks++;
-    return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / 90s)` };
+    return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / 60s)` };
   }
   const changeSinceFirstSight = ((currentPrice - prev.price) / prev.price) * 100;
   // Price must have held (allow up to 5% drop for normal memecoin noise)
@@ -545,17 +544,18 @@ async function entryTick(userId) {
 
   let buyCount = 0;
   let momentumWaiting = 0;
+  let filteredOut = 0;
+  let cooldownBlocked = 0;
   if (mode === 'paper') {
     const amountPerTrade = settings.amountPerTradeUsd ?? 50;
     for (const t of candidates) {
       if (buyCount >= slotsAvailable) break;
       if ((user.trenchPaperBalance ?? 0) < amountPerTrade) { botLog(userId, 'Insufficient paper balance'); break; }
       const pass = await passesEntryFilters(t, settings, blacklist);
-      if (!pass) continue;
+      if (!pass) { filteredOut++; continue; }
       const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
-      if (cool) continue;
+      if (cool) { cooldownBlocked++; continue; }
 
-      // Momentum confirmation: must see price hold/rise across 2 scans
       const momentum = checkMomentum(t.tokenAddress, t.price);
       if (!momentum.ready) {
         momentumWaiting++;
@@ -604,9 +604,9 @@ async function entryTick(userId) {
     for (const t of candidates) {
       if (buyCount >= slotsAvailable) break;
       const pass = await passesEntryFilters(t, settings, blacklist);
-      if (!pass) continue;
+      if (!pass) { filteredOut++; continue; }
       const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
-      if (cool) continue;
+      if (cool) { cooldownBlocked++; continue; }
 
       const momentum = checkMomentum(t.tokenAddress, t.price);
       if (!momentum.ready) {
@@ -644,8 +644,11 @@ async function entryTick(userId) {
   }
 
   if (buyCount === 0 && slotsAvailable > 0) {
-    const waitMsg = momentumWaiting > 0 ? ` (${momentumWaiting} awaiting momentum confirmation)` : '';
-    botLog(userId, `Scanning... ${candidates.length} candidates, ${slotsAvailable} slots open${waitMsg}`);
+    const parts = [`${candidates.length} candidates`, `${slotsAvailable} slots`];
+    if (filteredOut > 0) parts.push(`${filteredOut} filtered`);
+    if (cooldownBlocked > 0) parts.push(`${cooldownBlocked} cooldown`);
+    if (momentumWaiting > 0) parts.push(`${momentumWaiting} momentum`);
+    botLog(userId, `Scan: ${parts.join(' | ')}`);
   }
 
   user.trenchAuto.lastRunAt = new Date();

@@ -18,7 +18,7 @@ const userSchema = new mongoose.Schema({
     enabled: { type: Boolean, default: false },
     mode: { type: String, enum: ['paper', 'live'], default: 'paper' },
     minTrendingScore: { type: Number, default: 0, min: 0, max: 50 },
-    maxOpenPositions: { type: Number, default: 3, min: 1, max: 10 },
+    maxOpenPositions: { type: Number, default: 6, min: 1, max: 15 },
     amountPerTradeUsd: { type: Number, default: 50, min: 5, max: 500 },
     amountPerTradeSol: { type: Number, default: 0.05, min: 0.01, max: 1 },
     checkIntervalMinutes: { type: Number, default: 15, min: 5, max: 60 },
