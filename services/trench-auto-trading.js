@@ -247,14 +247,14 @@ function checkMomentum(tokenAddress, currentPrice) {
     return { ready: false, reason: 'first_sight' };
   }
   const elapsed = Date.now() - prev.seenAt;
-  // Need at least 2 minutes of observation
-  if (elapsed < 120000) {
+  // Need at least 90 seconds of observation
+  if (elapsed < 90000) {
     prev.checks++;
-    return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / 120s)` };
+    return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / 90s)` };
   }
   const changeSinceFirstSight = ((currentPrice - prev.price) / prev.price) * 100;
-  // Price must have held or risen (no more than 2% drop allowed)
-  if (changeSinceFirstSight < -2) {
+  // Price must have held (allow up to 5% drop for normal memecoin noise)
+  if (changeSinceFirstSight < -5) {
     momentumCache.set(tokenAddress, { price: currentPrice, seenAt: Date.now(), checks: 1 });
     return { ready: false, reason: `momentum_lost (${changeSinceFirstSight.toFixed(1)}%)` };
   }
@@ -671,7 +671,7 @@ function startBot(userId) {
   };
   activeBots.set(uid, bot);
 
-  botLog(userId, 'Bot STARTED — exits 10s, entries 90s, slip 2%, momentum 2min, vol>$20k, liq>$10k, max24h 200%');
+  botLog(userId, 'Bot STARTED — exits 10s, entries 90s, slip 2%, momentum 90s, vol>$20k, liq>$10k, max24h 200%');
 
   // First tick: run entry scan immediately (which also seeds momentum cache)
   entryTick(userId).catch(err => botLog(userId, `Entry error: ${err.message}`));
