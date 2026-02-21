@@ -36,26 +36,54 @@ async function fetchTokenPairs(chainId, tokenAddress) {
   };
 }
 
-async function fetchSolanaTrendings(limit = 10) {
-  const boosts = await fetchTokenBoosts('solana');
-  const tokens = boosts.slice(0, limit);
+async function fetchCommunityTakeovers(chainId = 'solana') {
+  const res = await fetch(`${BASE}/community-takeovers/latest/v1`, { timeout: 10000 });
+  if (!res.ok) return [];
+  const data = await res.json();
+  if (!Array.isArray(data)) return [];
+  return data.filter((t) => (t.chainId || '').toLowerCase() === chainId.toLowerCase());
+}
+
+async function fetchTokenPairsBatch(chainId, tokenAddresses) {
   const results = [];
-  for (const t of tokens) {
-    try {
-      const pair = await fetchTokenPairs('solana', t.tokenAddress);
-      if (pair && pair.price > 0) {
-        results.push(pair);
-      }
-    } catch (e) {
-      /* skip */
+  const batch = 5;
+  for (let i = 0; i < tokenAddresses.length; i += batch) {
+    const chunk = tokenAddresses.slice(i, i + batch);
+    const pairs = await Promise.all(chunk.map((addr) => fetchTokenPairs(chainId, addr)));
+    for (const p of pairs) {
+      if (p && p.price > 0) results.push(p);
     }
-    await new Promise((r) => setTimeout(r, 150));
+    if (i + batch < tokenAddresses.length) await new Promise((r) => setTimeout(r, 200));
   }
   return results;
+}
+
+async function fetchSolanaTrendings(limit = 50) {
+  const [boosts, takeovers] = await Promise.all([
+    fetchTokenBoosts('solana'),
+    fetchCommunityTakeovers('solana')
+  ]);
+  const seen = new Map();
+  const tokens = [];
+  for (const t of boosts) {
+    if (t.tokenAddress && !seen.has(t.tokenAddress)) {
+      seen.set(t.tokenAddress, true);
+      tokens.push(t);
+    }
+  }
+  for (const t of takeovers) {
+    if (t.tokenAddress && !seen.has(t.tokenAddress)) {
+      seen.set(t.tokenAddress, true);
+      tokens.push(t);
+    }
+  }
+  const toFetch = tokens.slice(0, Math.min(limit, 50));
+  return fetchTokenPairsBatch('solana', toFetch.map((t) => t.tokenAddress));
 }
 
 module.exports = {
   fetchTokenBoosts,
   fetchTokenPairs,
+  fetchCommunityTakeovers,
   fetchSolanaTrendings
 };

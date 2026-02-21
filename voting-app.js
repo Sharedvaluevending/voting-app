@@ -1827,7 +1827,7 @@ app.get('/trench-warfare', async (req, res) => {
   let trendings = [];
   try {
     const dexscreener = require('./services/dexscreener-api');
-    trendings = await dexscreener.fetchSolanaTrendings(15);
+    trendings = await dexscreener.fetchSolanaTrendings(30);
   } catch (e) {
     console.warn('[TrenchWarfare] DexScreener failed:', e.message);
   }
@@ -2145,8 +2145,16 @@ app.post('/api/trench-warfare/unpause', requireLogin, async (req, res) => {
 
 app.post('/api/trench-warfare/auto/run-now', requireLogin, async (req, res) => {
   try {
+    const userId = req.session.userId;
+    if (!userId) return res.status(401).json({ error: 'Not logged in' });
+    const user = await User.findById(userId);
+    if (!user) return res.status(401).json({ error: 'User not found' });
+    if (!user.trenchAuto) user.trenchAuto = {};
+    user.trenchAuto.enabled = true;
+    user.trenchAuto.mode = (req.body?.mode || user.trenchAuto.mode || 'paper');
+    await user.save({ validateBeforeSave: false });
     const trenchAuto = require('./services/trench-auto-trading');
-    const result = await trenchAuto.runTrenchAutoTrade({ forceRun: true });
+    const result = await trenchAuto.runTrenchAutoTrade({ forceRun: true, runForUserId: userId });
     res.json({ success: true, message: 'Auto trade run completed', ...result });
   } catch (e) {
     console.error('[TrenchAuto] Run-now error:', e);
@@ -2161,7 +2169,7 @@ app.get('/api/trench-warfare/auto/debug', requireLogin, async (req, res) => {
     const ScalpTrade = require('./models/ScalpTrade');
     const user = await User.findById(req.session.userId);
     if (!user) return res.status(401).json({ error: 'Not logged in' });
-    const trendings = await dexscreener.fetchSolanaTrendings(5);
+    const trendings = await dexscreener.fetchSolanaTrendings(20);
     const openCount = await ScalpTrade.countDocuments({ userId: user._id, status: 'OPEN' });
     const balance = user.trenchPaperBalance ?? 1000;
     const settings = user.trenchAuto || {};

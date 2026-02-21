@@ -10,7 +10,7 @@ async function main() {
   console.log('=== Trench Auto Test ===\n');
 
   console.log('1. DexScreener trendings...');
-  const dex = await dexscreener.fetchSolanaTrendings(5);
+  const dex = await dexscreener.fetchSolanaTrendings(50);
   console.log('   Got', dex.length, 'tokens');
   if (dex.length > 0) {
     console.log('   Top:', dex[0].symbol, 'price=$' + dex[0].price);

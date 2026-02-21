@@ -208,15 +208,22 @@ async function executeLiveSell(user, pos, currentPrice, keypair, settings) {
 
 async function runTrenchAutoTrade(opts = {}) {
   const forceRun = !!opts.forceRun;
-  const users = await User.find({ 'trenchAuto.enabled': true }).lean();
+  const runForUserId = opts.runForUserId;
+  let users;
+  if (runForUserId) {
+    const u = await User.findById(runForUserId).lean();
+    users = u && (u.trenchAuto?.enabled || opts.forceRun) ? [u] : [];
+  } else {
+    users = await User.find({ 'trenchAuto.enabled': true }).lean();
+  }
   if (users.length === 0) {
-    console.log('[TrenchAuto] No users with auto trade enabled');
-    return { users: 0, trades: 0 };
+    console.log('[TrenchAuto] No users with auto trade enabled' + (runForUserId ? ' for user ' + runForUserId : ''));
+    return { users: 0, trades: 0, reason: 'no_users' };
   }
 
   let trendings = [];
   try {
-    trendings = await dexscreener.fetchSolanaTrendings(10);
+    trendings = await dexscreener.fetchSolanaTrendings(50);
   } catch (e) {
     console.warn('[TrenchAuto] DexScreener failed:', e.message);
   }
@@ -229,13 +236,15 @@ async function runTrenchAutoTrade(opts = {}) {
     }
   }
 
-  const validTrendings = trendings.filter(t => t.tokenAddress && t.price > 0);
+  let validTrendings = trendings.filter(t => t.tokenAddress && t.price > 0);
+  validTrendings = validTrendings.sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0));
   if (validTrendings.length === 0) {
     console.log('[TrenchAuto] No valid Solana trendings from DexScreener or Mobula.');
-    return { users: users.length, trendings: 0, trades: 0 };
+    return { users: users.length, trendings: 0, trades: 0, reason: 'no_trendings' };
   }
-  console.log(`[TrenchAuto] ${validTrendings.length} valid trendings, top: ${validTrendings[0]?.symbol} $${validTrendings[0]?.price}`);
+  console.log(`[TrenchAuto] ${validTrendings.length} valid trendings, top: ${validTrendings[0]?.symbol} $${validTrendings[0]?.price} ${validTrendings[0]?.priceChange24h || 0}%`);
 
+  let tradesCount = 0;
   for (const u of users) {
     const user = await User.findById(u._id);
     if (!user || !user.trenchAuto?.enabled) continue;
@@ -346,6 +355,7 @@ async function runTrenchAutoTrade(opts = {}) {
         if (!isPartial) {
           notifyUser(user, `Trench SELL ${pos.tokenSymbol}`, `PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%)`, 'close').catch(() => {});
         }
+        tradesCount++;
         console.log(`[TrenchAuto] Paper SELL ${pos.tokenSymbol} ${decision.reason} PnL $${pnl.toFixed(2)} for user ${user.username}`);
       } else {
         const keypair = getBotKeypair(user);
@@ -366,6 +376,7 @@ async function runTrenchAutoTrade(opts = {}) {
           }
           user.trenchAuto.lastRunAt = new Date();
           await user.save({ validateBeforeSave: false });
+          tradesCount++;
           notifyUser(user, `Trench LIVE SELL ${pos.tokenSymbol}`, `PnL: $${pnl.toFixed(2)}`, 'close').catch(() => {});
           console.log(`[TrenchAuto] Live SELL ${pos.tokenSymbol} PnL $${pnl.toFixed(2)} for user ${user.username}`);
         }
@@ -417,6 +428,7 @@ async function runTrenchAutoTrade(opts = {}) {
           });
           user.trenchAuto.lastRunAt = new Date();
           await user.save({ validateBeforeSave: false });
+          tradesCount++;
           notifyUser(user, `Trench BUY ${t.symbol}`, `$${amount} @ $${t.price.toFixed(8)}`, 'open').catch(() => {});
           console.log(`[TrenchAuto] Paper BUY ${t.symbol} $${amount} for user ${user.username}`);
         } catch (err) {
@@ -485,6 +497,7 @@ async function runTrenchAutoTrade(opts = {}) {
             });
             user.trenchAuto.lastRunAt = new Date();
             await user.save({ validateBeforeSave: false });
+            tradesCount++;
             notifyUser(user, `Trench LIVE BUY ${t.symbol}`, `${amountPerTrade} SOL`, 'open').catch(() => {});
             console.log(`[TrenchAuto] Live BUY ${t.symbol} ${amountPerTrade} SOL for user ${user.username}`);
           }
@@ -494,6 +507,7 @@ async function runTrenchAutoTrade(opts = {}) {
       }
     }
   }
+  return { users: users.length, trendings: validTrendings.length, trades: tradesCount };
 }
 
 module.exports = { runTrenchAutoTrade, encrypt, decrypt, getBotKeypair };
