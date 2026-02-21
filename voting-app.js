@@ -1833,7 +1833,7 @@ app.get('/trench-warfare', async (req, res) => {
   let openPositions = [];
   const user = req.session?.userId ? await User.findById(req.session.userId).lean() : null;
   if (user) {
-    openPositions = await ScalpTrade.find({ userId: user._id, isPaper: true, status: 'OPEN' }).sort({ createdAt: -1 }).lean();
+    openPositions = await ScalpTrade.find({ userId: user._id, status: 'OPEN' }).sort({ createdAt: -1 }).lean();
   }
   res.render('trench-warfare', {
     activePage: 'trench-warfare',
@@ -1841,7 +1841,9 @@ app.get('/trench-warfare', async (req, res) => {
     trendings,
     user,
     trenchPaperBalance: user ? (user.trenchPaperBalance ?? 1000) : 0,
-    openPositions
+    openPositions,
+    trenchBot: user?.trenchBot || {},
+    trenchAuto: user?.trenchAuto || {}
   });
 });
 
@@ -1934,14 +1936,28 @@ app.post('/api/trench-warfare/paper/sell', requireLogin, async (req, res) => {
     if (!user) return res.status(401).json({ error: 'Not logged in' });
     const exitPrice = parseFloat(currentPrice);
     const valueOut = pos.tokenAmount * exitPrice;
-    const pnl = valueOut - pos.amountIn;
+    const pnl = Math.round((valueOut - pos.amountIn) * 100) / 100;
+    const pnlPct = pos.entryPrice > 0 ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
     user.trenchPaperBalance = Math.round(((user.trenchPaperBalance ?? 1000) + valueOut) * 100) / 100;
+    user.trenchStats = user.trenchStats || {};
+    user.trenchStats.totalPnl = (user.trenchStats.totalPnl || 0) + pnl;
+    if (pnl > 0) {
+      user.trenchStats.wins = (user.trenchStats.wins || 0) + 1;
+      user.trenchStats.consecutiveLosses = 0;
+      user.trenchStats.bestTrade = Math.max(user.trenchStats.bestTrade || 0, pnl);
+    } else {
+      user.trenchStats.losses = (user.trenchStats.losses || 0) + 1;
+      user.trenchStats.consecutiveLosses = (user.trenchStats.consecutiveLosses || 0) + 1;
+      user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, pnl);
+    }
     await user.save();
     pos.exitPrice = exitPrice;
     pos.amountOut = valueOut;
-    pos.pnl = Math.round(pnl * 100) / 100;
+    pos.pnl = pnl;
+    pos.pnlPercent = pnlPct;
     pos.status = 'CLOSED';
     pos.exitTime = new Date();
+    pos.exitReason = 'manual';
     await pos.save();
     res.json({ success: true, trenchPaperBalance: user.trenchPaperBalance, pnl });
   } catch (e) {
@@ -1963,6 +1979,157 @@ app.post('/api/trench-warfare/paper/reset', requireLogin, async (req, res) => {
     user.trenchPaperBalanceInitial = 1000;
     await user.save();
     res.json({ success: true, trenchPaperBalance: 1000 });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/bot/connect', requireLogin, async (req, res) => {
+  const { encrypt } = require('./services/trench-auto-trading');
+  try {
+    const { privateKeyBase58 } = req.body || {};
+    if (!privateKeyBase58 || typeof privateKeyBase58 !== 'string') {
+      return res.status(400).json({ error: 'Provide privateKeyBase58 (export from Phantom)' });
+    }
+    const bs58 = require('bs58');
+    const { Keypair } = require('@solana/web3.js');
+    const secretKey = bs58.decode(privateKeyBase58.trim());
+    const kp = Keypair.fromSecretKey(secretKey);
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    user.trenchBot = {
+      privateKeyEncrypted: encrypt(privateKeyBase58.trim()),
+      publicKey: kp.publicKey.toBase58(),
+      connected: true
+    };
+    await user.save();
+    res.json({ success: true, publicKey: user.trenchBot.publicKey });
+  } catch (e) {
+    console.error('[TrenchWarfare] Bot connect failed:', e.message);
+    res.status(400).json({ error: 'Invalid private key. Export base58 from Phantom.' });
+  }
+});
+
+app.post('/api/trench-warfare/bot/disconnect', requireLogin, async (req, res) => {
+  const user = await User.findById(req.session.userId);
+  if (!user) return res.status(401).json({ error: 'Not logged in' });
+  user.trenchBot = { privateKeyEncrypted: '', publicKey: '', connected: false };
+  await user.save();
+  res.json({ success: true });
+});
+
+app.post('/api/trench-warfare/auto/settings', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const b = req.body || {};
+    if (b.enabled !== undefined) user.trenchAuto.enabled = !!b.enabled;
+    if (b.mode !== undefined) user.trenchAuto.mode = b.mode === 'live' ? 'live' : 'paper';
+    if (b.minTrendingScore !== undefined) user.trenchAuto.minTrendingScore = Math.max(0, Math.min(50, Number(b.minTrendingScore)));
+    if (b.maxOpenPositions !== undefined) user.trenchAuto.maxOpenPositions = Math.max(1, Math.min(10, Number(b.maxOpenPositions)));
+    if (b.amountPerTradeUsd !== undefined) user.trenchAuto.amountPerTradeUsd = Math.max(5, Math.min(500, Number(b.amountPerTradeUsd)));
+    if (b.amountPerTradeSol !== undefined) user.trenchAuto.amountPerTradeSol = Math.max(0.01, Math.min(1, Number(b.amountPerTradeSol)));
+    if (b.checkIntervalMinutes !== undefined) user.trenchAuto.checkIntervalMinutes = Math.max(5, Math.min(60, Number(b.checkIntervalMinutes)));
+    if (b.tpPercent !== undefined) user.trenchAuto.tpPercent = Math.max(5, Math.min(100, Number(b.tpPercent)));
+    if (b.slPercent !== undefined) user.trenchAuto.slPercent = Math.max(3, Math.min(50, Number(b.slPercent)));
+    if (b.trailingStopPercent !== undefined) user.trenchAuto.trailingStopPercent = Math.max(3, Math.min(30, Number(b.trailingStopPercent)));
+    if (b.useTrailingStop !== undefined) user.trenchAuto.useTrailingStop = !!b.useTrailingStop;
+    if (b.partialTpPercent !== undefined) user.trenchAuto.partialTpPercent = Math.max(0, Math.min(100, Number(b.partialTpPercent)));
+    if (b.partialTpAtPercent !== undefined) user.trenchAuto.partialTpAtPercent = Math.max(5, Math.min(50, Number(b.partialTpAtPercent)));
+    if (b.breakevenAtPercent !== undefined) user.trenchAuto.breakevenAtPercent = Math.max(2, Math.min(20, Number(b.breakevenAtPercent)));
+    if (b.useBreakevenStop !== undefined) user.trenchAuto.useBreakevenStop = !!b.useBreakevenStop;
+    if (b.maxHoldMinutes !== undefined) user.trenchAuto.maxHoldMinutes = Math.max(15, Math.min(480, Number(b.maxHoldMinutes)));
+    if (b.minLiquidityUsd !== undefined) user.trenchAuto.minLiquidityUsd = Math.max(0, Math.min(1000000, Number(b.minLiquidityUsd)));
+    if (b.maxTop10HoldersPercent !== undefined) user.trenchAuto.maxTop10HoldersPercent = Math.max(50, Math.min(100, Number(b.maxTop10HoldersPercent)));
+    if (b.maxPriceChange24hPercent !== undefined) user.trenchAuto.maxPriceChange24hPercent = Math.max(50, Math.min(1000, Number(b.maxPriceChange24hPercent)));
+    if (b.cooldownHours !== undefined) user.trenchAuto.cooldownHours = Math.max(0, Math.min(48, Number(b.cooldownHours)));
+    if (b.useEntryFilters !== undefined) user.trenchAuto.useEntryFilters = !!b.useEntryFilters;
+    if (b.maxDailyLossPercent !== undefined) user.trenchAuto.maxDailyLossPercent = Math.max(0, Math.min(50, Number(b.maxDailyLossPercent)));
+    if (b.consecutiveLossesToPause !== undefined) user.trenchAuto.consecutiveLossesToPause = Math.max(0, Math.min(10, Number(b.consecutiveLossesToPause)));
+    if (b.minSolBalance !== undefined) user.trenchAuto.minSolBalance = Math.max(0.01, Math.min(1, Number(b.minSolBalance)));
+    if (b.trenchNotifyTradeOpen !== undefined) user.trenchAuto.trenchNotifyTradeOpen = !!b.trenchNotifyTradeOpen;
+    if (b.trenchNotifyTradeClose !== undefined) user.trenchAuto.trenchNotifyTradeClose = !!b.trenchNotifyTradeClose;
+    await user.save();
+    res.json({ success: true, trenchAuto: user.trenchAuto });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/blacklist/add', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const { tokenAddress } = req.body || {};
+    if (!tokenAddress || typeof tokenAddress !== 'string') return res.status(400).json({ error: 'Missing tokenAddress' });
+    const addr = tokenAddress.trim();
+    if (!user.trenchBlacklist) user.trenchBlacklist = [];
+    if (!user.trenchBlacklist.includes(addr)) {
+      user.trenchBlacklist.push(addr);
+      await user.save();
+    }
+    res.json({ success: true, trenchBlacklist: user.trenchBlacklist });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/blacklist/remove', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const { tokenAddress } = req.body || {};
+    if (!tokenAddress || typeof tokenAddress !== 'string') return res.status(400).json({ error: 'Missing tokenAddress' });
+    if (user.trenchBlacklist) {
+      user.trenchBlacklist = user.trenchBlacklist.filter(a => a !== tokenAddress.trim());
+      await user.save();
+    }
+    res.json({ success: true, trenchBlacklist: user.trenchBlacklist || [] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/trench-warfare/analytics', requireLogin, async (req, res) => {
+  try {
+    const ScalpTrade = require('./models/ScalpTrade');
+    const user = await User.findById(req.session.userId).lean();
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const closed = await ScalpTrade.find({ userId: user._id, status: 'CLOSED' }).sort({ exitTime: -1 }).limit(100).lean();
+    const stats = user.trenchStats || {};
+    const totalTrades = (stats.wins || 0) + (stats.losses || 0);
+    const winRate = totalTrades > 0 ? ((stats.wins || 0) / totalTrades * 100).toFixed(1) : 0;
+    const initial = user.trenchPaperBalanceInitial ?? 1000;
+    const current = user.trenchPaperBalance ?? 1000;
+    const pnlPercent = initial > 0 ? (((current - initial) / initial) * 100).toFixed(2) : 0;
+    res.json({
+      trenchStats: stats,
+      winRate: parseFloat(winRate),
+      totalTrades,
+      totalPnl: stats.totalPnl || 0,
+      pnlPercent: parseFloat(pnlPercent),
+      bestTrade: stats.bestTrade || 0,
+      worstTrade: stats.worstTrade || 0,
+      consecutiveLosses: stats.consecutiveLosses || 0,
+      closedTrades: closed,
+      paused: !!user.trenchAuto?.lastPausedAt,
+      pausedReason: user.trenchAuto?.pausedReason || ''
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/unpause', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    user.trenchAuto.lastPausedAt = null;
+    user.trenchAuto.pausedReason = '';
+    user.trenchStats = user.trenchStats || {};
+    user.trenchStats.consecutiveLosses = 0;
+    await user.save();
+    res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -3079,6 +3246,11 @@ function startKeepAlive() {
     return;
   }
   console.log(`[KeepAlive] Self-ping enabled: ${url}/api/health every 14 minutes`);
+  const trenchAuto = require('./services/trench-auto-trading');
+  setInterval(() => {
+    trenchAuto.runTrenchAutoTrade().catch(err => console.error('[TrenchAuto] Error:', err.message));
+  }, 5 * 60 * 1000);
+  setTimeout(() => trenchAuto.runTrenchAutoTrade().catch(() => {}), 60000);
   setInterval(async () => {
     try {
       const res = await fetch(`${url}/api/health`, { timeout: 10000 });

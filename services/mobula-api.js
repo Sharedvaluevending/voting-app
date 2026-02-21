@@ -87,6 +87,31 @@ async function getSwapQuote(chainId, tokenIn, tokenOut, amount, walletAddress, o
 }
 
 // ====================================================
+// TOKEN MARKETS (liquidity, holder distribution)
+// ====================================================
+async function getTokenMarkets(blockchain, tokenAddress) {
+  const params = new URLSearchParams({
+    blockchain: blockchain || 'solana',
+    address: tokenAddress,
+    limit: '1'
+  });
+  const url = `${BASE_URL}/2/token/markets?${params.toString()}`;
+  const res = await fetch(url, { headers: getHeaders(), timeout: 10000 });
+  const json = await res.json();
+  if (!res.ok) return null;
+  const arr = json.data;
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  const m = arr[0];
+  const base = m.base || m;
+  return {
+    liquidityUSD: base.liquidityUSD || base.liquidity || 0,
+    top10HoldingsPercentage: (() => { const v = base.top10HoldingsPercentage ?? base.top_10_holdings_percentage ?? 100; return v <= 1 ? v * 100 : v; })(),
+    volume24h: base.volume24h || m.volume24h || 0,
+    marketCap: base.marketCapUSD || base.market_cap || 0
+  };
+}
+
+// ====================================================
 // SWAP SEND (broadcast signed tx)
 // ====================================================
 async function sendSwapTransaction(chainId, signedTransactionBase64) {
@@ -112,5 +137,6 @@ module.exports = {
   fetchMetaTrendings,
   getSwapQuote,
   sendSwapTransaction,
+  getTokenMarkets,
   SOL_MINT
 };
