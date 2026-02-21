@@ -107,78 +107,72 @@ function scoreCandidate(t) {
   const volLiqRatio = liq > 0 ? vol / liq : 0;
   const sourceCount = t._sourceCount || 1;
 
-  // Hard rejects
+  // Hard rejects -- safety filters
   if (change > 500) return -1;
   if (change < -25) return -1;
   if (vol < 15000) return -1;
   if (liq < 8000) return -1;
-  if (buyPressure < 0.35) return -1;
-  if (change1h < -10) return -1;
-  if (holderCount > 0 && holderCount < 50) return -1;  // too few holders = rug risk
-  if (volLiqRatio > 25) return -1;  // extreme ratio = likely wash trading
+  if (holderCount > 0 && holderCount < 50) return -1;
+  if (volLiqRatio > 25) return -1;
+
+  // CRITICAL: only buy coins that are ACTIVELY pumping right now
+  if (change1h < 1) return -1;       // must be green in last hour
+  if (buyPressure < 0.50) return -1;  // must have more buyers than sellers
 
   let score = 0;
 
-  // 1h momentum -- strongest signal for scalping
-  if (change1h >= 5 && change1h <= 30) score += 25;
-  else if (change1h > 30 && change1h <= 60) score += 15;
-  else if (change1h >= 1 && change1h < 5) score += 12;
-  else if (change1h >= -2 && change1h < 1) score += 5;
-  else if (change1h >= -10 && change1h < -2) score += 0;
+  // 1h momentum -- THE dominant signal (max 40 pts)
+  // This tells us if the coin is pumping RIGHT NOW
+  if (change1h >= 10 && change1h <= 40) score += 40;
+  else if (change1h >= 5 && change1h < 10) score += 35;
+  else if (change1h > 40 && change1h <= 80) score += 25;
+  else if (change1h >= 2 && change1h < 5) score += 20;
+  else if (change1h >= 1 && change1h < 2) score += 10;
 
-  // 24h price change context
-  if (change >= 5 && change <= 50) score += 20;
-  else if (change > 50 && change <= 100) score += 18;
-  else if (change > 100 && change <= 200) score += 12;
-  else if (change > 200 && change <= 500) score += 5;
-  else if (change >= 0 && change < 5) score += 3;
+  // Buy pressure -- are people buying right now? (max 25 pts)
+  if (buyPressure >= 0.65) score += 25;
+  else if (buyPressure >= 0.60) score += 20;
+  else if (buyPressure >= 0.55) score += 15;
+  else if (buyPressure >= 0.50) score += 8;
 
-  // Volume tiers
-  if (vol >= 200000) score += 25;
-  else if (vol >= 100000) score += 20;
-  else if (vol >= 50000) score += 15;
-  else if (vol >= 15000) score += 10;
-  else score += 3;
+  // Recent organic buyers -- real demand right now (max 15 pts)
+  if (numBuyers1h >= 50) score += 15;
+  else if (numBuyers1h >= 20) score += 10;
+  else if (numBuyers1h >= 5) score += 5;
 
-  // Liquidity tiers
-  if (liq >= 100000) score += 20;
-  else if (liq >= 50000) score += 16;
-  else if (liq >= 25000) score += 12;
-  else if (liq >= 8000) score += 8;
-  else score += 2;
+  // Volume tiers -- proof of activity (max 15 pts)
+  if (vol >= 200000) score += 15;
+  else if (vol >= 100000) score += 12;
+  else if (vol >= 50000) score += 10;
+  else if (vol >= 15000) score += 6;
 
-  // Volume/liquidity ratio -- healthy trading activity relative to pool size
-  if (volLiqRatio >= 3 && volLiqRatio <= 15) score += 10;  // sweet spot
-  else if (volLiqRatio >= 1.5 && volLiqRatio < 3) score += 6;
-  else if (volLiqRatio >= 0.5 && volLiqRatio < 1.5) score += 3;
+  // Liquidity -- safety floor (max 10 pts)
+  if (liq >= 100000) score += 10;
+  else if (liq >= 50000) score += 8;
+  else if (liq >= 25000) score += 6;
+  else if (liq >= 8000) score += 3;
 
-  // Buy pressure bonus
-  if (buyPressure >= 0.6) score += 15;
-  else if (buyPressure >= 0.55) score += 10;
-  else if (buyPressure >= 0.5) score += 5;
+  // 24h context -- moderate pumps are better entries than exhausted ones (max 10 pts)
+  if (change >= 5 && change <= 50) score += 10;
+  else if (change > 50 && change <= 150) score += 7;
+  else if (change > 150 && change <= 500) score += 3;
+  else if (change >= 0 && change < 5) score += 5;
 
-  // Organic score (real activity vs wash trading)
-  if (organicScore >= 80) score += 15;
-  else if (organicScore >= 50) score += 10;
-  else if (organicScore >= 20) score += 5;
+  // Organic score (max 8 pts)
+  if (organicScore >= 80) score += 8;
+  else if (organicScore >= 50) score += 5;
+  else if (organicScore >= 20) score += 3;
 
-  // Recent organic buyers
-  if (numBuyers1h >= 50) score += 10;
-  else if (numBuyers1h >= 20) score += 6;
-  else if (numBuyers1h >= 5) score += 3;
+  // Vol/liq ratio -- healthy activity (max 5 pts)
+  if (volLiqRatio >= 3 && volLiqRatio <= 15) score += 5;
+  else if (volLiqRatio >= 1.5 && volLiqRatio < 3) score += 3;
 
-  // Holder count -- more holders = more established, harder to rug
-  if (holderCount >= 1000) score += 10;
-  else if (holderCount >= 500) score += 7;
-  else if (holderCount >= 200) score += 4;
-  else if (holderCount >= 50) score += 1;
-
-  // Verified token bonus (Jupiter verification)
-  if (t.isVerified) score += 5;
-
-  // Cross-source bonus -- found by multiple scanners = more legit
-  if (sourceCount >= 3) score += 8;
-  else if (sourceCount >= 2) score += 4;
+  // Safety bonuses (max 13 pts combined)
+  if (holderCount >= 1000) score += 5;
+  else if (holderCount >= 200) score += 2;
+  if (t.isVerified) score += 3;
+  if (sourceCount >= 3) score += 5;
+  else if (sourceCount >= 2) score += 3;
 
   return score;
 }
@@ -221,7 +215,7 @@ async function fetchTrendingsCached() {
 
   const all = Array.from(seen.values());
   const softPass = all.filter(t => (t._qualityScore || 0) > 0).length;
-  console.log(`[TrenchBot] ${all.length} total tokens, ${softPass} pass basic filter, ${scored.length} pass quality threshold (score>=${MIN_QUALITY_SCORE})`);
+  console.log(`[TrenchBot] ${all.length} total tokens, ${softPass} pass filters (1h>1%, bp>50%), ${scored.length} pass quality threshold (score>=${MIN_QUALITY_SCORE})`);
 
   trendingCache = { data: scored, fetchedAt: Date.now() };
   return scored;
@@ -338,11 +332,11 @@ function checkMomentum(tokenAddress, currentPrice) {
     return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / 120s)` };
   }
   const changeSinceFirstSight = ((currentPrice - prev.price) / prev.price) * 100;
-  // Price must be rising -- only buy if price went UP during 120s observation
-  // Coins that are flat or dropping are not in a real uptrend
-  if (changeSinceFirstSight < 0) {
+  // Price must be actively rising -- require at least +0.5% gain over 120s
+  // This confirms the pump is still going, not fading out
+  if (changeSinceFirstSight < 0.5) {
     momentumCache.set(tokenAddress, { price: currentPrice, seenAt: Date.now(), checks: 1 });
-    return { ready: false, reason: `momentum_flat (${changeSinceFirstSight.toFixed(1)}%)` };
+    return { ready: false, reason: `momentum_weak (${changeSinceFirstSight.toFixed(1)}%, need +0.5%)` };
   }
   momentumCache.delete(tokenAddress);
   return { ready: true, changeSinceFirstSight };
@@ -845,7 +839,7 @@ function startBot(userId) {
   // Log sanitized settings on start so we can verify
   User.findById(userId).lean().then(u => {
     const s = sanitizeSettings(u?.trenchAuto || {});
-    botLog(userId, `Bot STARTED — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m(bail@${Math.round(s.maxHoldMinutes/2)}m/-2%) slots:${s.maxOpenPositions} (max ${MAX_BUYS_PER_SCAN}/scan) cool:${s.cooldownHours}h(4x losers) minScore:${MIN_QUALITY_SCORE} momentum:120s(must be UP) trail:7/8/12%`);
+    botLog(userId, `Bot STARTED — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m(bail@${Math.round(s.maxHoldMinutes/2)}m/-2%) slots:${s.maxOpenPositions} (${MAX_BUYS_PER_SCAN}/scan) cool:${s.cooldownHours}h(4x losers) minScore:${MIN_QUALITY_SCORE} | ONLY buying: 1h>+1% bp>50% momentum>+0.5%/120s trail:7/8/12%`);
   }).catch(() => {
     botLog(userId, 'Bot STARTED — exits 10s, entries 60s');
   });
