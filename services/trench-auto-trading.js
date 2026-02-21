@@ -111,22 +111,29 @@ function scoreCandidate(t) {
   if (change > 500) return -1;
   if (change < -25) return -1;
   if (vol < 15000) return -1;
-  if (liq < 25000) return -1;                          // $25k min liquidity (was $8k) -- rug protection
-  if (holderCount > 0 && holderCount < 500) return -1;  // 500 min holders (was 50) -- rug protection
+  if (liq < 25000) return -1;
+  if (holderCount > 0 && holderCount < 500) return -1;
   if (volLiqRatio > 25) return -1;
 
-  // CRITICAL: only buy coins that are ACTIVELY pumping right now
-  if (change1h < 1) return -1;       // must be green in last hour
-  if (buyPressure < 0.50) return -1;  // must have more buyers than sellers
+  // Must be actively pumping
+  if (change1h < 1) return -1;
+  if (buyPressure < 0.50) return -1;
 
   const buyVol1h = t.buyVolume1h || 0;
   const sellVol1h = t.sellVolume1h || 0;
   const vol1h = buyVol1h + sellVol1h;
-
-  // Breakout detection: 1h volume relative to liquidity shows explosive activity
-  // vol1h/liq > 1 means the entire pool turned over in the last hour = breakout
   const volVelocity = liq > 0 ? vol1h / liq : 0;
   const buyDominance = vol1h > 0 ? buyVol1h / vol1h : buyPressure;
+
+  // --- OVERBOUGHT REJECTION ---
+  // If 1h is extremely high AND 24h is extremely high, the pump is exhausted
+  // Like RSI > 90 -- too extended, will snap back
+  if (change1h > 80 && change > 300) return -1;
+
+  // --- VOLUME DIVERGENCE REJECTION ---
+  // Price going up but sellers dominate = pump being sold into (bearish divergence)
+  // Like OBV divergence from the main platform
+  if (change1h > 5 && buyDominance < 0.45 && vol1h > 0) return -1;
 
   let score = 0;
 
@@ -138,11 +145,19 @@ function scoreCandidate(t) {
   else if (change1h >= 1 && change1h < 2) score += 10;
 
   // BREAKOUT: volume velocity (max 20 pts)
-  // How fast money is flowing in relative to pool size
-  if (volVelocity >= 2) score += 20;       // 2x pool turnover in 1h = major breakout
-  else if (volVelocity >= 1) score += 15;   // full pool turnover = strong breakout
-  else if (volVelocity >= 0.5) score += 10; // half pool = active pump
+  if (volVelocity >= 2) score += 20;
+  else if (volVelocity >= 1) score += 15;
+  else if (volVelocity >= 0.5) score += 10;
   else if (volVelocity >= 0.2) score += 5;
+
+  // --- VOLUME SURGE BONUS (max 15 pts) ---
+  // 1h volume vs 24h average hourly volume
+  // If 1h vol is way above the 24h avg, activity is spiking RIGHT NOW
+  const avgHourlyVol = vol / 24;
+  const volSurge = avgHourlyVol > 0 ? vol1h / avgHourlyVol : 0;
+  if (volSurge >= 3) score += 15;       // 3x normal hourly volume = massive surge
+  else if (volSurge >= 2) score += 10;   // 2x normal = strong surge
+  else if (volSurge >= 1.5) score += 5;  // 1.5x normal = above average
 
   // Buy pressure + buy dominance (max 25 pts)
   const effectiveBP = Math.max(buyPressure, buyDominance);
@@ -151,7 +166,14 @@ function scoreCandidate(t) {
   else if (effectiveBP >= 0.55) score += 15;
   else if (effectiveBP >= 0.50) score += 8;
 
-  // Buyer surge -- lots of unique buyers = organic demand (max 15 pts)
+  // --- BUY/SELL VOLUME CONFIRMATION (max 10 pts) ---
+  // Buy volume should dominate sell volume for a healthy pump
+  // This is an OBV-inspired check: confirms volume backs the price move
+  if (buyDominance >= 0.65) score += 10;
+  else if (buyDominance >= 0.55) score += 6;
+  else if (buyDominance >= 0.50) score += 3;
+
+  // Buyer surge -- lots of unique buyers (max 15 pts)
   if (numBuyers1h >= 50) score += 15;
   else if (numBuyers1h >= 20) score += 10;
   else if (numBuyers1h >= 5) score += 5;
@@ -162,16 +184,15 @@ function scoreCandidate(t) {
   else if (vol >= 50000) score += 6;
   else if (vol >= 15000) score += 4;
 
-  // Liquidity -- safety floor (max 8 pts)
+  // Liquidity (max 8 pts)
   if (liq >= 100000) score += 8;
   else if (liq >= 50000) score += 6;
   else if (liq >= 25000) score += 4;
-  else if (liq >= 8000) score += 2;
 
-  // 24h context -- moderate pumps are better entries than exhausted ones (max 8 pts)
+  // 24h context -- moderate pumps are better entries (max 8 pts)
   if (change >= 5 && change <= 50) score += 8;
   else if (change > 50 && change <= 150) score += 5;
-  else if (change > 150 && change <= 500) score += 2;
+  else if (change > 150 && change <= 300) score += 2;
   else if (change >= 0 && change < 5) score += 4;
 
   // Organic score (max 6 pts)
@@ -179,9 +200,9 @@ function scoreCandidate(t) {
   else if (organicScore >= 50) score += 4;
   else if (organicScore >= 20) score += 2;
 
-  // Safety bonuses (max 13 pts combined)
+  // Safety bonuses (max 13 pts)
   if (holderCount >= 1000) score += 5;
-  else if (holderCount >= 200) score += 2;
+  else if (holderCount >= 500) score += 2;
   if (t.isVerified) score += 3;
   if (sourceCount >= 3) score += 5;
   else if (sourceCount >= 2) score += 3;
@@ -328,28 +349,58 @@ async function inCooldown(userId, tokenAddress, cooldownHours) {
 }
 
 // ====================================================
-// Momentum confirmation
-// Records price on first sight, only allows buy if price
-// held or went up on the next scan (90s later)
+// Momentum confirmation with price acceleration tracking
+// Tracks multiple snapshots over 120s to detect if the
+// pump is accelerating (good) or decelerating (bad)
 // ====================================================
 function checkMomentum(tokenAddress, currentPrice) {
   const prev = momentumCache.get(tokenAddress);
   if (!prev) {
-    momentumCache.set(tokenAddress, { price: currentPrice, seenAt: Date.now(), checks: 1 });
+    momentumCache.set(tokenAddress, {
+      price: currentPrice, seenAt: Date.now(), checks: 1,
+      snapshots: [{ price: currentPrice, time: Date.now() }]
+    });
     return { ready: false, reason: 'first_sight' };
   }
   const elapsed = Date.now() - prev.seenAt;
+
+  // During observation: record price snapshots for acceleration analysis
   if (elapsed < 120000) {
     prev.checks++;
+    if (!prev.snapshots) prev.snapshots = [{ price: prev.price, time: prev.seenAt }];
+    prev.snapshots.push({ price: currentPrice, time: Date.now() });
     return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / 120s)` };
   }
+
   const changeSinceFirstSight = ((currentPrice - prev.price) / prev.price) * 100;
-  // Price must be clearly rising -- require at least +1% gain over 120s
-  // This confirms genuine momentum, not just noise
+
+  // Must be rising at least +1%
   if (changeSinceFirstSight < 1.0) {
-    momentumCache.set(tokenAddress, { price: currentPrice, seenAt: Date.now(), checks: 1 });
+    momentumCache.set(tokenAddress, {
+      price: currentPrice, seenAt: Date.now(), checks: 1,
+      snapshots: [{ price: currentPrice, time: Date.now() }]
+    });
     return { ready: false, reason: `momentum_weak (${changeSinceFirstSight.toFixed(1)}%, need +1%)` };
   }
+
+  // Price acceleration check: compare first half vs second half of observation
+  // If the pump is decelerating (slowing down), it's fading -- don't buy the top
+  const snaps = prev.snapshots || [];
+  if (snaps.length >= 4) {
+    const mid = Math.floor(snaps.length / 2);
+    const firstHalfChange = ((snaps[mid].price - snaps[0].price) / snaps[0].price) * 100;
+    const secondHalfChange = ((currentPrice - snaps[mid].price) / snaps[mid].price) * 100;
+
+    if (secondHalfChange < 0 && firstHalfChange > 1) {
+      // Pumped in first half, now dropping -- fading pump
+      momentumCache.set(tokenAddress, {
+        price: currentPrice, seenAt: Date.now(), checks: 1,
+        snapshots: [{ price: currentPrice, time: Date.now() }]
+      });
+      return { ready: false, reason: `pump_fading (1st:+${firstHalfChange.toFixed(1)}% 2nd:${secondHalfChange.toFixed(1)}%)` };
+    }
+  }
+
   momentumCache.delete(tokenAddress);
   return { ready: true, changeSinceFirstSight };
 }
