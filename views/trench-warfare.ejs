@@ -136,9 +136,9 @@
   <details style="margin-top:8px;padding:12px;background:rgba(15,23,42,0.4);border-radius:8px;border:1px solid #1e2a3a;">
     <summary style="cursor:pointer;color:#e5e7eb;font-weight:600;">Entry Filters</summary>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
-      <div><label style="font-size:11px;color:#6b7280;">Min Liq $</label><input type="number" id="auto-min-liq" value="<%= (trenchAuto && trenchAuto.minLiquidityUsd) != null ? trenchAuto.minLiquidityUsd : 10000 %>" min="0" max="1000000" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">Max Top10 %</label><input type="number" id="auto-max-top10" value="<%= (trenchAuto && trenchAuto.maxTop10HoldersPercent) != null ? trenchAuto.maxTop10HoldersPercent : 80 %>" min="50" max="100" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">Max 24h %</label><input type="number" id="auto-max-24h" value="<%= (trenchAuto && trenchAuto.maxPriceChange24hPercent) != null ? trenchAuto.maxPriceChange24hPercent : 200 %>" min="50" max="1000" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+      <div><label style="font-size:11px;color:#6b7280;">Min Liq $</label><input type="number" id="auto-min-liq" value="<%= (trenchAuto && trenchAuto.minLiquidityUsd) != null ? trenchAuto.minLiquidityUsd : 0 %>" min="0" max="1000000" title="0 = no filter" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+      <div><label style="font-size:11px;color:#6b7280;">Max Top10 %</label><input type="number" id="auto-max-top10" value="<%= (trenchAuto && trenchAuto.maxTop10HoldersPercent) != null ? trenchAuto.maxTop10HoldersPercent : 100 %>" min="50" max="100" title="100 = no filter" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+      <div><label style="font-size:11px;color:#6b7280;">Max 24h %</label><input type="number" id="auto-max-24h" value="<%= (trenchAuto && trenchAuto.maxPriceChange24hPercent) != null ? trenchAuto.maxPriceChange24hPercent : 5000 %>" min="200" max="10000" title="Reject tokens that pumped more than this (default 5000 for memecoins)" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
       <div><label style="font-size:11px;color:#6b7280;">Cooldown (hr)</label><input type="number" id="auto-cooldown" value="<%= (trenchAuto && trenchAuto.cooldownHours) != null ? trenchAuto.cooldownHours : 4 %>" min="0" max="48" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-filters" <%= (trenchAuto && trenchAuto.useEntryFilters !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Use entry filters</span></label>
     </div>
@@ -545,7 +545,7 @@
         maxHoldMinutes: parseInt(document.getElementById('auto-max-hold')?.value || 60, 10),
         minLiquidityUsd: parseFloat(document.getElementById('auto-min-liq')?.value || 10000),
         maxTop10HoldersPercent: parseFloat(document.getElementById('auto-max-top10')?.value || 80),
-        maxPriceChange24hPercent: parseFloat(document.getElementById('auto-max-24h')?.value || 200),
+        maxPriceChange24hPercent: parseFloat(document.getElementById('auto-max-24h')?.value || 5000),
         cooldownHours: parseFloat(document.getElementById('auto-cooldown')?.value || 4),
         useEntryFilters: document.getElementById('auto-use-filters')?.checked !== false,
         maxDailyLossPercent: parseFloat(document.getElementById('auto-max-daily-loss')?.value || 15),

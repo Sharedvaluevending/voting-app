@@ -94,8 +94,9 @@ function resetDailyPnlIfNewDay(user) {
 async function passesEntryFilters(t, settings, blacklist) {
   if (!settings.useEntryFilters) return true;
   if (blacklist && blacklist.includes(t.tokenAddress)) return false;
-  const max24h = settings.maxPriceChange24hPercent ?? 200;
-  if (max24h < 1000 && (t.priceChange24h || 0) >= max24h) return false;
+  let max24h = settings.maxPriceChange24hPercent ?? 5000;
+  if (max24h === 200) max24h = 5000;
+  if (max24h < 10000 && (t.priceChange24h || 0) >= max24h) return false;
   if ((settings.minLiquidityUsd ?? 0) > 0 || (settings.maxTop10HoldersPercent ?? 100) < 100) {
     try {
       const mk = await mobula.getTokenMarkets('solana', t.tokenAddress);

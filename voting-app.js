@@ -2049,7 +2049,7 @@ app.post('/api/trench-warfare/auto/settings', requireLogin, async (req, res) => 
     if (b.maxHoldMinutes !== undefined) user.trenchAuto.maxHoldMinutes = Math.max(15, Math.min(480, Number(b.maxHoldMinutes)));
     if (b.minLiquidityUsd !== undefined) user.trenchAuto.minLiquidityUsd = Math.max(0, Math.min(1000000, Number(b.minLiquidityUsd)));
     if (b.maxTop10HoldersPercent !== undefined) user.trenchAuto.maxTop10HoldersPercent = Math.max(50, Math.min(100, Number(b.maxTop10HoldersPercent)));
-    if (b.maxPriceChange24hPercent !== undefined) user.trenchAuto.maxPriceChange24hPercent = Math.max(50, Math.min(1000, Number(b.maxPriceChange24hPercent)));
+    if (b.maxPriceChange24hPercent !== undefined) user.trenchAuto.maxPriceChange24hPercent = Math.max(200, Math.min(10000, Number(b.maxPriceChange24hPercent)));
     if (b.cooldownHours !== undefined) user.trenchAuto.cooldownHours = Math.max(0, Math.min(48, Number(b.cooldownHours)));
     if (b.useEntryFilters !== undefined) user.trenchAuto.useEntryFilters = !!b.useEntryFilters;
     if (b.maxDailyLossPercent !== undefined) user.trenchAuto.maxDailyLossPercent = Math.max(0, Math.min(50, Number(b.maxDailyLossPercent)));
