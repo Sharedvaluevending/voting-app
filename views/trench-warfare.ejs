@@ -160,6 +160,7 @@
   </details>
   <button type="button" id="btn-save-auto" class="nav-btn primary" style="margin-top:12px;padding:8px 16px;">Save Auto Settings</button>
   <button type="button" id="btn-run-now" class="nav-btn" style="margin-top:12px;margin-left:8px;padding:8px 16px;" title="Trigger auto trade run immediately">Run Now</button>
+  <button type="button" id="btn-debug" class="nav-btn" style="margin-top:12px;margin-left:8px;padding:8px 16px;font-size:12px;">Debug</button>
   <% if (trenchAuto && trenchAuto.lastRunAt) { %>
   <p style="font-size:12px;color:#6b7280;margin-top:12px;">Last run: <%= new Date(trenchAuto.lastRunAt).toLocaleString() %></p>
   <% } %>
@@ -596,16 +597,38 @@
   if (document.getElementById('trench-analytics')) loadAnalytics();
 
   var btnRunNow = document.getElementById('btn-run-now');
-  if (btnRunNow) btnRunNow.addEventListener('click', function() {
-    btnRunNow.disabled = true;
-    btnRunNow.textContent = 'Running...';
-    fetch('/api/trench-warfare/auto/run-now', { method: 'POST', credentials: 'same-origin' })
+  var btnDebug = document.getElementById('btn-debug');
+  if (btnDebug) btnDebug.addEventListener('click', function() {
+    fetch('/api/trench-warfare/auto/debug', { credentials: 'same-origin' })
       .then(function(r) { return r.json(); })
       .then(function(d) {
         if (d.error) alert(d.error);
-        else location.reload();
-      })
-      .catch(function(e) { alert('Error: ' + (e.message || e)); btnRunNow.disabled = false; btnRunNow.textContent = 'Run Now'; });
+        else alert('Trendings: ' + d.trendings + '\nBalance: $' + d.balance + '\nOpen: ' + d.openCount + '/' + d.maxPositions + '\nCan buy: ' + d.canBuy + '\nAuto: ' + (d.autoEnabled ? 'ON' : 'OFF') + ' (' + (d.mode || 'paper') + ')\nSample: ' + (d.sample ? d.sample.symbol + ' $' + d.sample.price : 'none'));
+      });
+  });
+
+  if (btnRunNow) btnRunNow.addEventListener('click', function() {
+    btnRunNow.disabled = true;
+    btnRunNow.textContent = 'Running...';
+    function doRun() {
+      fetch('/api/trench-warfare/auto/run-now', { method: 'POST', credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.error) alert(d.error);
+          else location.reload();
+        })
+        .catch(function(e) { alert('Error: ' + (e.message || e)); btnRunNow.disabled = false; btnRunNow.textContent = 'Run Now'; });
+    }
+    var enabledEl = document.getElementById('auto-enabled');
+    if (enabledEl && !enabledEl.checked) {
+      alert('Enable Auto Trade first (check the box), then click Run Now.');
+      btnRunNow.disabled = false;
+      btnRunNow.textContent = 'Run Now';
+      return;
+    }
+    var payload = { enabled: true, mode: (document.getElementById('auto-mode') || {}).value || 'paper' };
+    fetch('/api/trench-warfare/auto/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(payload) })
+      .then(function() { doRun(); }).catch(function() { doRun(); });
   });
 
   ['btn-unpause', 'btn-unpause-banner'].forEach(function(id) {

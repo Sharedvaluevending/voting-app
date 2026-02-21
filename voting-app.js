@@ -1826,9 +1826,17 @@ app.get('/trench-warfare', async (req, res) => {
   const ScalpTrade = require('./models/ScalpTrade');
   let trendings = [];
   try {
-    trendings = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)('solana');
+    const dexscreener = require('./services/dexscreener-api');
+    trendings = await dexscreener.fetchSolanaTrendings(15);
   } catch (e) {
-    console.error('[TrenchWarfare] Mobula fetch failed:', e.message);
+    console.warn('[TrenchWarfare] DexScreener failed:', e.message);
+  }
+  if (!trendings || trendings.length === 0) {
+    try {
+      trendings = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)('solana');
+    } catch (e) {
+      console.error('[TrenchWarfare] Mobula fetch failed:', e.message);
+    }
   }
   let openPositions = [];
   const user = req.session?.userId ? await User.findById(req.session.userId).lean() : null;
@@ -2138,10 +2146,40 @@ app.post('/api/trench-warfare/unpause', requireLogin, async (req, res) => {
 app.post('/api/trench-warfare/auto/run-now', requireLogin, async (req, res) => {
   try {
     const trenchAuto = require('./services/trench-auto-trading');
-    await trenchAuto.runTrenchAutoTrade({ forceRun: true });
-    res.json({ success: true, message: 'Auto trade run completed' });
+    const result = await trenchAuto.runTrenchAutoTrade({ forceRun: true });
+    res.json({ success: true, message: 'Auto trade run completed', ...result });
   } catch (e) {
     console.error('[TrenchAuto] Run-now error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/trench-warfare/auto/debug', requireLogin, async (req, res) => {
+  try {
+    const dexscreener = require('./services/dexscreener-api');
+    const User = require('./models/User');
+    const ScalpTrade = require('./models/ScalpTrade');
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const trendings = await dexscreener.fetchSolanaTrendings(5);
+    const openCount = await ScalpTrade.countDocuments({ userId: user._id, status: 'OPEN' });
+    const balance = user.trenchPaperBalance ?? 1000;
+    const settings = user.trenchAuto || {};
+    const amountPerTrade = settings.amountPerTradeUsd ?? 20;
+    const maxPos = settings.maxOpenPositions ?? 3;
+    const canBuy = balance >= amountPerTrade && openCount < maxPos;
+    res.json({
+      trendings: trendings.length,
+      sample: trendings[0],
+      balance,
+      openCount,
+      maxPositions: maxPos,
+      amountPerTrade,
+      canBuy,
+      autoEnabled: !!settings.enabled,
+      mode: settings.mode
+    });
+  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });

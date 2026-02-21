@@ -7,6 +7,7 @@
 const User = require('../models/User');
 const ScalpTrade = require('../models/ScalpTrade');
 const mobula = require('./mobula-api');
+const dexscreener = require('./dexscreener-api');
 const crypto = require('crypto');
 const push = require('./push-notifications');
 
@@ -215,18 +216,25 @@ async function runTrenchAutoTrade(opts = {}) {
 
   let trendings = [];
   try {
-    trendings = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)('solana');
+    trendings = await dexscreener.fetchSolanaTrendings(10);
   } catch (e) {
-    console.error('[TrenchAuto] Mobula fetch failed:', e.message);
-    throw e;
+    console.warn('[TrenchAuto] DexScreener failed:', e.message);
+  }
+  if (trendings.length === 0) {
+    try {
+      trendings = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)('solana');
+    } catch (e) {
+      console.error('[TrenchAuto] Mobula fetch failed:', e.message);
+      throw e;
+    }
   }
 
   const validTrendings = trendings.filter(t => t.tokenAddress && t.price > 0);
   if (validTrendings.length === 0) {
-    console.log('[TrenchAuto] No valid Solana trendings (need tokenAddress + price). Try MOBULA_API_KEY for full data.');
+    console.log('[TrenchAuto] No valid Solana trendings from DexScreener or Mobula.');
     return { users: users.length, trendings: 0, trades: 0 };
   }
-  console.log(`[TrenchAuto] ${validTrendings.length} valid trendings, top: ${validTrendings[0]?.symbol} score=${validTrendings[0]?.trendingScore}`);
+  console.log(`[TrenchAuto] ${validTrendings.length} valid trendings, top: ${validTrendings[0]?.symbol} $${validTrendings[0]?.price}`);
 
   for (const u of users) {
     const user = await User.findById(u._id);
