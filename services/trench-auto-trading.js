@@ -20,6 +20,7 @@ const ENTRY_SCAN_INTERVAL = 60 * 1000;  // 60s - entry scanning
 const TRENDING_CACHE_TTL = 60 * 1000;
 const MAX_LOG_ENTRIES = 50;
 const PAPER_SLIPPAGE = 0.02; // 2% simulated slippage each way
+const MAX_BUYS_PER_SCAN = 2;  // stagger entries across scans
 
 // ====================================================
 // In-memory state
@@ -95,26 +96,36 @@ function botLog(userId, msg) {
 // ====================================================
 function scoreCandidate(t) {
   const change = t.priceChange24h || 0;
+  const change1h = t.priceChange1h || 0;
   const vol = t.volume24h || 0;
   const liq = t.liquidity || 0;
   const buyPressure = t.buyPressure || 0.5;
   const organicScore = t.organicScore || 0;
+  const numBuyers1h = t.numBuyers1h || 0;
 
   // Hard rejects
   if (change > 500) return -1;
   if (change < -25) return -1;
   if (vol < 15000) return -1;
   if (liq < 8000) return -1;
-  if (buyPressure < 0.35) return -1;  // heavy selling = avoid
+  if (buyPressure < 0.35) return -1;
+  if (change1h < -10) return -1;  // dumping in the last hour = avoid
 
   let score = 0;
 
-  // Price change sweet spot: 5-100% gains
-  if (change >= 5 && change <= 50) score += 30;
-  else if (change > 50 && change <= 100) score += 25;
-  else if (change > 100 && change <= 200) score += 20;
-  else if (change > 200 && change <= 500) score += 10;
-  else if (change >= 0 && change < 5) score += 8;
+  // 1h momentum is the strongest signal for scalping -- is it moving NOW?
+  if (change1h >= 5 && change1h <= 30) score += 25;      // actively pumping, not parabolic
+  else if (change1h > 30 && change1h <= 60) score += 15;  // strong move, higher risk
+  else if (change1h >= 1 && change1h < 5) score += 12;    // gentle uptrend
+  else if (change1h >= -2 && change1h < 1) score += 5;    // flat/consolidating
+  else if (change1h >= -10 && change1h < -2) score += 0;  // cooling off, no bonus
+
+  // 24h price change context
+  if (change >= 5 && change <= 50) score += 20;
+  else if (change > 50 && change <= 100) score += 18;
+  else if (change > 100 && change <= 200) score += 12;
+  else if (change > 200 && change <= 500) score += 5;
+  else if (change >= 0 && change < 5) score += 3;
 
   // Volume tiers
   if (vol >= 200000) score += 25;
@@ -130,15 +141,20 @@ function scoreCandidate(t) {
   else if (liq >= 8000) score += 8;
   else score += 2;
 
-  // Buy pressure bonus (from Jupiter data)
+  // Buy pressure bonus
   if (buyPressure >= 0.6) score += 15;
   else if (buyPressure >= 0.55) score += 10;
   else if (buyPressure >= 0.5) score += 5;
 
-  // Jupiter organic score bonus (real activity vs wash trading)
+  // Organic score (real activity vs wash trading)
   if (organicScore >= 80) score += 15;
   else if (organicScore >= 50) score += 10;
   else if (organicScore >= 20) score += 5;
+
+  // Recent organic buyers -- tokens people are actually buying right now
+  if (numBuyers1h >= 50) score += 10;
+  else if (numBuyers1h >= 20) score += 6;
+  else if (numBuyers1h >= 5) score += 3;
 
   return score;
 }
@@ -180,7 +196,7 @@ async function fetchTrendingsCached() {
   scored.sort((a, b) => b._qualityScore - a._qualityScore);
 
   const all = Array.from(seen.values());
-  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$15k, liq>$8k, 24h<500%, buyP>35%)`);
+  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass quality filter (vol>$15k, liq>$8k, 24h<500%, 1h>-10%, buyP>35%)`);
 
   trendingCache = { data: scored, fetchedAt: Date.now() };
   return scored;
@@ -289,9 +305,9 @@ function checkMomentum(tokenAddress, currentPrice) {
     return { ready: false, reason: 'first_sight' };
   }
   const elapsed = Date.now() - prev.seenAt;
-  if (elapsed < 60000) {
+  if (elapsed < 120000) {
     prev.checks++;
-    return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / 60s)` };
+    return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / 120s)` };
   }
   const changeSinceFirstSight = ((currentPrice - prev.price) / prev.price) * 100;
   // Price must have held (allow up to 5% drop for normal memecoin noise)
@@ -656,10 +672,11 @@ async function _entryTickInner(userId) {
   let momentumWaiting = 0;
   let filteredOut = 0;
   let cooldownBlocked = 0;
+  const maxBuysThisScan = Math.min(MAX_BUYS_PER_SCAN, slotsAvailable);
   if (mode === 'paper') {
     const amountPerTrade = settings.amountPerTradeUsd ?? 50;
     for (const t of candidates) {
-      if (buyCount >= slotsAvailable) break;
+      if (buyCount >= maxBuysThisScan) break;
       if ((user.trenchPaperBalance ?? 0) < amountPerTrade) { botLog(userId, 'Insufficient paper balance'); break; }
 
       // Cheap checks first, expensive API calls last
@@ -690,7 +707,9 @@ async function _entryTickInner(userId) {
         const liq = (t.liquidity || 0) >= 1000 ? '$' + Math.round((t.liquidity || 0) / 1000) + 'k' : '$' + Math.round(t.liquidity || 0);
         const bp = t.buyPressure ? ` bp:${(t.buyPressure * 100).toFixed(0)}%` : '';
         const os = t.organicScore ? ` org:${Math.round(t.organicScore)}` : '';
-        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${slippedEntry.toFixed(8)} (24h: ${(t.priceChange24h || 0).toFixed(1)}%, vol: ${vol}, liq: ${liq}, score: ${t._qualityScore || 0}${bp}${os}, mom: +${(momentum.changeSinceFirstSight || 0).toFixed(1)}%)`);
+        const h1 = t.priceChange1h ? ` 1h:${(t.priceChange1h).toFixed(1)}%` : '';
+        const buyers = t.numBuyers1h ? ` buy1h:${t.numBuyers1h}` : '';
+        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${slippedEntry.toFixed(8)} (24h: ${(t.priceChange24h || 0).toFixed(1)}%${h1}, vol: ${vol}, liq: ${liq}, score: ${t._qualityScore || 0}${bp}${os}${buyers}, mom: +${(momentum.changeSinceFirstSight || 0).toFixed(1)}%)`);
         notifyUser(user, `Trench BUY ${t.symbol}`, `$${amount} @ $${slippedEntry.toFixed(8)}`, 'open').catch(() => {});
       } catch (err) {
         botLog(userId, `Buy failed ${t.symbol}: ${err.message}`);
@@ -714,7 +733,7 @@ async function _entryTickInner(userId) {
     if (solBalance < minSol) { botLog(userId, `SOL balance too low: ${solBalance.toFixed(4)}`); return; }
 
     for (const t of candidates) {
-      if (buyCount >= slotsAvailable) break;
+      if (buyCount >= maxBuysThisScan) break;
 
       const cool = await inCooldown(user._id, t.tokenAddress, settings.cooldownHours ?? 1);
       if (cool) { cooldownBlocked++; continue; }
@@ -789,7 +808,7 @@ function startBot(userId) {
   // Log sanitized settings on start so we can verify
   User.findById(userId).lean().then(u => {
     const s = sanitizeSettings(u?.trenchAuto || {});
-    botLog(userId, `Bot STARTED — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m slots:${s.maxOpenPositions} cool:${s.cooldownHours}h pause@${s.consecutiveLossesToPause}losses max24h:${s.maxPriceChange24hPercent}% minLiq:$${s.minLiquidityUsd} trail:${s.trailingStopPercent}%`);
+    botLog(userId, `Bot STARTED — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m slots:${s.maxOpenPositions} (max ${MAX_BUYS_PER_SCAN}/scan) cool:${s.cooldownHours}h pause@${s.consecutiveLossesToPause}losses momentum:120s trail:${s.trailingStopPercent}%`);
   }).catch(() => {
     botLog(userId, 'Bot STARTED — exits 10s, entries 60s');
   });
