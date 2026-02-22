@@ -25,7 +25,7 @@ const MEMECOIN_ENTRY_INTERVAL = 25 * 1000; // 25s - scan often
 const MEMECOIN_CACHE_TTL = 25 * 1000;      // 25s
 const MEMECOIN_MOMENTUM_MS = 20 * 1000;    // 20s - quick confirm
 const MEMECOIN_MOMENTUM_MIN_PCT = 0.3;    // require slight positive momentum (was 0)
-const MEMECOIN_MIN_SCORE = 15;   // filter weak candidates (was 5)
+const MEMECOIN_MIN_SCORE = 25;   // filter weak candidates (target 20%+ win rate)
 const MEMECOIN_FRESH_DROP_SKIP = 1.0;      // skip if dropped >1% since confirm
 
 // Scalping: traditional (current behavior)
@@ -302,6 +302,9 @@ function scoreCandidatePumpStart(t) {
   if (changeShort > 15) return -1;  // memecoin: hard reject >15% 5m (already pumped)
   if (changeShort < 0.5) return -1;  // memecoin: require positive pump signal (reject flat/down)
   if (changeShort > 0 && buyDominance < 0.4) return -1;  // require buy pressure when pumping
+  if (avgHourlyVol > 0 && vol1h > 0 && volSurge < 1.0) return -1;  // require volume surge when we have data
+  const numBuyers = numBuyers5m > 0 ? numBuyers5m : numBuyers1h;
+  if (numBuyers > 0 && numBuyers < 8) return -1;         // require 8+ buyers (organic activity)
 
   const isNewOrRecent = source === 'geckoterminal' || (t._sourceCount || 1) <= 1;
 
@@ -331,8 +334,9 @@ function scoreCandidatePumpStart(t) {
   else if (volVelocity >= 0.2) score += 5;
 
   if (isNewOrRecent) score += 5;
-  const numBuyers = numBuyers5m > 0 ? numBuyers5m : numBuyers1h;
-  if (numBuyers >= 5) score += 5;
+  if (numBuyers >= 15) score += 10;
+  else if (numBuyers >= 8) score += 5;
+  if ((t.organicScore || 0) >= 50) score += 10;         // Jupiter: prefer organic pumps
   if (liq >= 50000) score += 5;
 
   return score;
@@ -534,11 +538,12 @@ async function inCooldown(userId, tokenAddress, cooldownHours) {
   ).lean();
   if (!closed || !closed.exitTime) return false;
   const hours = (Date.now() - new Date(closed.exitTime).getTime()) / 3600000;
-  // Losers get 4x longer cooldown; big losers (-30%+) get 8x
+  // Losers: 4x cooldown; big losers (-30%+): 8x; Winners: 2x (don't chase)
   const pnlPct = closed.pnlPercent || 0;
   const wasLoss = pnlPct <= 0;
   const bigLoss = pnlPct <= -30;
-  const multiplier = bigLoss ? 8 : (wasLoss ? 4 : 1);
+  const wasWin = pnlPct > 0;
+  const multiplier = bigLoss ? 8 : (wasLoss ? 4 : (wasWin ? 2 : 1));
   const effectiveCooldown = cooldownHours * multiplier;
   return hours < effectiveCooldown;
 }
