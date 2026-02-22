@@ -1,7 +1,7 @@
 // services/trench-auto-trading.js
 // ====================================================
 // TRENCH SCALPING - 100% scalping: fast in, fast out
-// 5m signals, 60s momentum, tight TP/SL, short holds
+// 5m signals, 45s momentum, tight TP/SL, short holds
 // ====================================================
 
 const User = require('../models/User');
@@ -17,11 +17,11 @@ const ALGO = 'aes-256-gcm';
 const EXIT_CHECK_INTERVAL = 5 * 1000;   // 5s - scalping: check exits every 5s
 const ENTRY_SCAN_INTERVAL = 45 * 1000;  // 45s - scalping: scan for entries more often
 const TRENDING_CACHE_TTL = 45 * 1000;   // 45s - fresher data for scalping
-const MOMENTUM_WINDOW_MS = 60 * 1000;   // 60s - scalping: faster confirmation (was 120s)
+const MOMENTUM_WINDOW_MS = 45 * 1000;   // 45s - enter earlier in pump (was 60s)
 const MAX_LOG_ENTRIES = 50;
 const PAPER_SLIPPAGE = 0.008; // 0.8% simulated slippage each way (~1.6% round trip)
 const MAX_BUYS_PER_SCAN = 2;  // stagger entries across scans
-const MIN_QUALITY_SCORE = 65; // scalping: fewer losers - only top-tier candidates
+const MIN_QUALITY_SCORE = 75; // scalping: only best setups (was 65)
 const FRESH_PRICE_DROP_SKIP_PCT = 1.0; // scalping: skip if dropped >1% since confirm (tighter)
 
 // ====================================================
@@ -302,9 +302,9 @@ async function fetchTrendingsCached() {
 function sanitizeSettings(raw) {
   const s = { ...raw };
   s.slPercent = Math.min(Math.max(s.slPercent ?? 8, 3), 30);
-  s.tpPercent = Math.min(Math.max(s.tpPercent ?? 12, 5), 50);
-  s.maxHoldMinutes = Math.min(Math.max(s.maxHoldMinutes ?? 12, 5), 30);
-  s.maxOpenPositions = Math.min(Math.max(s.maxOpenPositions ?? 6, 1), 15);
+  s.tpPercent = Math.min(Math.max(s.tpPercent ?? 10, 5), 50);   // 10% - lock gains faster (was 12)
+  s.maxHoldMinutes = Math.min(Math.max(s.maxHoldMinutes ?? 10, 5), 15);  // 10min default, 15max (was 12/30)
+  s.maxOpenPositions = Math.min(Math.max(s.maxOpenPositions ?? 3, 1), 15);  // 3 default - fewer bags (was 6)
   s.consecutiveLossesToPause = Math.min(Math.max(s.consecutiveLossesToPause ?? 3, 2), 10);
   s.cooldownHours = Math.min(Math.max(s.cooldownHours ?? 1, 0.25), 4);
   s.maxPriceChange24hPercent = Math.min(Math.max(s.maxPriceChange24hPercent ?? 500, 100), 1000);
@@ -418,7 +418,7 @@ function checkMomentum(tokenAddress, currentPrice) {
   }
   const elapsed = Date.now() - prev.seenAt;
 
-  // SCALPING: 60s momentum window (was 120s)
+  // SCALPING: 45s momentum window - enter earlier in pump
   if (elapsed < MOMENTUM_WINDOW_MS) {
     prev.checks++;
     if (!prev.snapshots) prev.snapshots = [{ price: prev.price, time: prev.seenAt }];
@@ -428,7 +428,7 @@ function checkMomentum(tokenAddress, currentPrice) {
 
   const changeSinceFirstSight = ((currentPrice - prev.price) / prev.price) * 100;
 
-  // SCALPING: +0.5% rise over 60s (faster confirmation)
+  // SCALPING: +0.5% rise over 45s
   if (changeSinceFirstSight < 0.5) {
     momentumCache.set(tokenAddress, {
       price: currentPrice, seenAt: Date.now(), checks: 1,
@@ -515,10 +515,10 @@ function shouldSellPosition(pos, currentPrice, settings) {
     return { sell: true, reason: 'breakeven_stop', pnlPct };
   }
 
-  // Early bail: if down more than 2% at the halfway mark, cut losses early
+  // Early bail: if down more than 1.5% at the halfway mark, cut losses early
   // Data shows coins that are red at 10min almost never recover by 20min
   const halfHold = maxHold / 2;
-  if (holdMinutes >= halfHold && holdMinutes < maxHold && pnlPct <= -2) {
+  if (holdMinutes >= halfHold && holdMinutes < maxHold && pnlPct <= -1.5) {
     return { sell: true, reason: 'early_bail', pnlPct };
   }
 
@@ -1006,7 +1006,7 @@ function startBot(userId) {
   // Log sanitized settings on start so we can verify
   User.findById(userId).lean().then(u => {
     const s = sanitizeSettings(u?.trenchAuto || {});
-    botLog(userId, `SCALP Bot — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m trail:${s.trailingStopPercent}% | 5m/1h pump 60s mom +0.5% skip>${FRESH_PRICE_DROP_SKIP_PCT}%`);
+    botLog(userId, `SCALP Bot — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m trail:${s.trailingStopPercent}% | 5m/1h pump 45s mom +0.5% skip>${FRESH_PRICE_DROP_SKIP_PCT}%`);
   }).catch(() => {
     botLog(userId, 'SCALP Bot — exits 5s, entries 45s');
   });

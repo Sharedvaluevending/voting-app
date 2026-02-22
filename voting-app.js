@@ -2050,7 +2050,7 @@ app.post('/api/trench-warfare/auto/settings', requireLogin, async (req, res) => 
     if (b.useTrailingStop !== undefined) user.trenchAuto.useTrailingStop = !!b.useTrailingStop;
     if (b.breakevenAtPercent !== undefined) user.trenchAuto.breakevenAtPercent = Math.max(2, Math.min(15, Number(b.breakevenAtPercent)));
     if (b.useBreakevenStop !== undefined) user.trenchAuto.useBreakevenStop = !!b.useBreakevenStop;
-    if (b.maxHoldMinutes !== undefined) user.trenchAuto.maxHoldMinutes = Math.max(5, Math.min(30, Number(b.maxHoldMinutes)));
+    if (b.maxHoldMinutes !== undefined) user.trenchAuto.maxHoldMinutes = Math.max(5, Math.min(15, Number(b.maxHoldMinutes)));
     if (b.minLiquidityUsd !== undefined) user.trenchAuto.minLiquidityUsd = Math.max(5000, Math.min(100000, Number(b.minLiquidityUsd)));
     if (b.maxTop10HoldersPercent !== undefined) user.trenchAuto.maxTop10HoldersPercent = Math.max(50, Math.min(100, Number(b.maxTop10HoldersPercent)));
     if (b.maxPriceChange24hPercent !== undefined) user.trenchAuto.maxPriceChange24hPercent = Math.max(100, Math.min(1000, Number(b.maxPriceChange24hPercent)));
