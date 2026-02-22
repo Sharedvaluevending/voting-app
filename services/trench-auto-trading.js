@@ -48,7 +48,7 @@ const tickLocks = new Map();
 const momentumCache = new Map();
 
 function isMemecoinMode(settings) {
-  return (settings?.strategy || 'scalping') === 'memecoin';
+  return (settings?.strategy ?? 'memecoin') === 'memecoin';  // memecoin default
 }
 
 function getIntervals(settings) {
@@ -411,7 +411,7 @@ async function fetchTrendingsCached(settings = {}) {
 // ====================================================
 function sanitizeSettings(raw) {
   const s = { ...raw };
-  const memecoin = (s.strategy || 'scalping') === 'memecoin';
+  const memecoin = (s.strategy ?? 'memecoin') === 'memecoin';
   const defTp = memecoin ? 2 : 10;
   const defSl = memecoin ? 2 : 8;
   const defHold = memecoin ? 4 : 10;
