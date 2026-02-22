@@ -55,11 +55,11 @@
 </div>
 <% } %>
 
-<!-- Analytics -->
+<!-- Analytics + Equity Curve -->
 <% if (typeof user !== 'undefined' && user) { %>
 <div class="section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Trench Analytics</h3>
-  <div id="trench-analytics" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;">
+  <div id="trench-analytics" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;">
     <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
       <div style="font-size:11px;color:#6b7280;">Total PnL</div>
       <div id="stat-total-pnl" style="font-size:18px;font-weight:600;color:#e5e7eb;">$0</div>
@@ -75,6 +75,34 @@
     <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
       <div style="font-size:11px;color:#6b7280;">Best / Worst</div>
       <div id="stat-best-worst" style="font-size:14px;font-weight:600;color:#10b981;">$0 / $0</div>
+    </div>
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Profit Factor</div>
+      <div id="stat-profit-factor" style="font-size:18px;font-weight:600;color:#e5e7eb;">—</div>
+    </div>
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Avg Win</div>
+      <div id="stat-avg-win" style="font-size:16px;font-weight:600;color:#10b981;">$0</div>
+    </div>
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Avg Loss</div>
+      <div id="stat-avg-loss" style="font-size:16px;font-weight:600;color:#ef4444;">$0</div>
+    </div>
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Expectancy</div>
+      <div id="stat-expectancy" style="font-size:16px;font-weight:600;color:#e5e7eb;">$0</div>
+    </div>
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Max Drawdown</div>
+      <div id="stat-max-dd" style="font-size:16px;font-weight:600;color:#ef4444;">0%</div>
+    </div>
+  </div>
+  <div id="equity-curve-section" style="margin-top:16px;display:none;">
+    <h4 style="color:#e5e7eb;font-size:14px;margin:0 0 8px 0;">Equity Curve</h4>
+    <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">Account balance over time. Drawdown shaded in red.</p>
+    <div style="position:relative;background:#0d1320;border-radius:8px;padding:12px;border:1px solid #1e2a3a;overflow:hidden;">
+      <canvas id="trench-equity-curve" style="width:100%;height:260px;display:block;"></canvas>
+      <div id="trench-equity-legend" style="font-size:11px;color:#6b7280;margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;"></div>
     </div>
   </div>
   <div id="trench-paused" style="display:none;margin-top:12px;padding:12px;background:rgba(239,68,68,0.15);border:1px solid #ef4444;border-radius:8px;">
@@ -206,75 +234,6 @@
 </div>
 <% } %>
 
-<!-- Trending Now -->
-<div class="section" style="margin-bottom:24px;">
-  <h3 style="color:#e5e7eb;margin-bottom:12px;">Trending Now (Solana)</h3>
-  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Updated every 15 min. Click Buy to swap SOL for token (requires Phantom).</p>
-  <% if (trendings && trendings.length > 0) { %>
-  <div style="overflow-x:auto;">
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>Token</th>
-          <th>Price</th>
-          <th>1h %</th>
-          <th>24h %</th>
-          <th>Buy Press</th>
-          <th>Vol</th>
-          <th>Liq</th>
-          <th>Score</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% trendings.forEach(function(t, i) {
-          var chg24 = (t.priceChange24h || 0);
-          var chg1h = (t.priceChange1h || 0);
-          var chg24Class = chg24 >= 0 ? 'up' : 'down';
-          var chg1hClass = chg1h >= 0 ? 'up' : 'down';
-          var bp = ((t.buyPressure || 0) * 100);
-          var bpClass = bp >= 55 ? 'up' : bp >= 50 ? '' : 'down';
-          var qs = t._qualityScore || 0;
-          var qsColor = qs >= 80 ? '#22c55e' : qs >= 60 ? '#eab308' : qs > 0 ? '#f97316' : '#ef4444';
-          var volK = (t.volume24h || 0) >= 1000 ? '$' + Math.round((t.volume24h || 0) / 1000) + 'k' : '$' + Math.round(t.volume24h || 0);
-          var liqK = (t.liquidity || 0) >= 1000 ? '$' + Math.round((t.liquidity || 0) / 1000) + 'k' : '$' + Math.round(t.liquidity || 0);
-        %>
-        <tr style="<%= qs <= 0 ? 'opacity:0.4;' : '' %>">
-          <td><%= i + 1 %></td>
-          <td>
-            <% if (t.logo) { %><img src="<%= t.logo %>" alt="" style="width:24px;height:24px;border-radius:50%;vertical-align:middle;margin-right:8px;"><% } %>
-            <strong style="color:#e5e7eb;"><%= t.symbol %></strong>
-            <span style="color:#6b7280;font-size:11px;"><%= t.name %></span>
-            <% if (t.isVerified) { %><span style="color:#3b82f6;font-size:10px;" title="Jupiter Verified">&#10003;</span><% } %>
-          </td>
-          <td>$<%= (t.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 }) %></td>
-          <td class="<%= chg1hClass %>" style="font-weight:600;"><%= chg1h >= 0 ? '+' : '' %><%= Number(chg1h).toFixed(1) %>%</td>
-          <td class="<%= chg24Class %>"><%= chg24 >= 0 ? '+' : '' %><%= Number(chg24).toFixed(1) %>%</td>
-          <td class="<%= bpClass %>"><%= bp.toFixed(0) %>%</td>
-          <td style="font-size:12px;"><%= volK %></td>
-          <td style="font-size:12px;"><%= liqK %></td>
-          <td style="color:<%= qsColor %>;font-weight:700;"><%= qs > 0 ? qs : 'SKIP' %></td>
-          <td>
-            <% if (t.tokenAddress) { %>
-            <button type="button" class="btn-buy-token nav-btn" style="padding:4px 10px;font-size:12px;" data-token-address="<%= t.tokenAddress %>" data-symbol="<%= t.symbol %>" data-name="<%= t.name %>" data-price="<%= t.price || 0 %>">Buy</button>
-            <% if (typeof user !== 'undefined' && user) { %>
-            <button type="button" class="btn-block-token nav-btn" style="padding:4px 8px;font-size:11px;margin-left:4px;" data-token-address="<%= t.tokenAddress %>" data-symbol="<%= t.symbol %>" title="Block from auto-trade">Block</button>
-            <% } %>
-            <% } else { %>
-            <span style="color:#6b7280;font-size:11px;">—</span>
-            <% } %>
-          </td>
-        </tr>
-        <% }); %>
-      </tbody>
-    </table>
-  </div>
-  <% } else { %>
-  <p style="color:#6b7280;font-size:13px;">No trending data. Check Mobula API or try again later.</p>
-  <% } %>
-</div>
-
 <!-- Quick Links -->
 <div class="section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Quick Links</h3>
@@ -392,39 +351,6 @@
       .then(function(d) {
         if (d.success) { document.getElementById('paper-balance').textContent = 'Paper: $' + d.trenchPaperBalance.toFixed(2); location.reload(); }
       });
-  });
-
-  document.querySelectorAll('.btn-buy-token').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      var tokenAddress = this.getAttribute('data-token-address');
-      var symbol = this.getAttribute('data-symbol');
-      var name = this.getAttribute('data-name');
-      var price = parseFloat(this.getAttribute('data-price')) || 0;
-      if (isPaperMode) {
-        if (!<%= typeof user !== 'undefined' && user ? 'true' : 'false' %>) { alert('Login to paper trade.'); return; }
-        if (!price || price <= 0) { alert('Token price not available.'); return; }
-        showModal({ tokenAddress: tokenAddress, symbol: symbol, name: name, price: price });
-      } else {
-        if (!walletPubkey) { alert('Connect Phantom first (click Live).'); return; }
-        showModal({ tokenAddress: tokenAddress, symbol: symbol, name: name, price: price });
-      }
-    });
-  });
-
-  document.querySelectorAll('.btn-block-token').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      var addr = this.getAttribute('data-token-address');
-      var sym = this.getAttribute('data-symbol');
-      if (!addr || !confirm('Block ' + sym + ' from auto-trade?')) return;
-      fetch('/api/trench-warfare/blacklist/add', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ tokenAddress: addr })
-      }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.success) { btn.style.opacity = '0.5'; btn.disabled = true; btn.textContent = 'Blocked'; }
-      });
-    });
   });
 
   // Event delegation for sell buttons (works with dynamically added rows)
@@ -714,7 +640,8 @@
     pollBotStatus();
   }
 
-  // ---- ANALYTICS ----
+  // ---- ANALYTICS + EQUITY CURVE ----
+  var trenchEquityData = null;
   function loadAnalytics() {
     fetch('/api/trench-warfare/analytics', { credentials: 'same-origin' })
       .then(function(r) { return r.json(); })
@@ -728,6 +655,16 @@
         if (el) el.textContent = d.totalTrades || 0;
         el = document.getElementById('stat-best-worst');
         if (el) { el.innerHTML = '<span style="color:#10b981">$' + (d.bestTrade || 0).toFixed(2) + '</span> / <span style="color:#ef4444">$' + (d.worstTrade || 0).toFixed(2) + '</span>'; }
+        el = document.getElementById('stat-profit-factor');
+        if (el) el.textContent = d.profitFactor != null ? d.profitFactor : '—';
+        el = document.getElementById('stat-avg-win');
+        if (el) { el.textContent = '$' + (d.avgWin || 0).toFixed(2); el.style.color = '#10b981'; }
+        el = document.getElementById('stat-avg-loss');
+        if (el) { el.textContent = '$' + (d.avgLoss || 0).toFixed(2); el.style.color = '#ef4444'; }
+        el = document.getElementById('stat-expectancy');
+        if (el) { el.textContent = '$' + (d.expectancy || 0).toFixed(2); el.style.color = (d.expectancy || 0) >= 0 ? '#10b981' : '#ef4444'; }
+        el = document.getElementById('stat-max-dd');
+        if (el) { el.textContent = (d.maxDrawdownPct || 0) + '%'; el.style.color = '#ef4444'; }
         var paused = document.getElementById('trench-paused');
         if (paused) {
           if (d.paused) { paused.style.display = 'block'; document.getElementById('paused-reason').textContent = d.pausedReason || ''; }
@@ -746,7 +683,120 @@
         } else if (hist) {
           hist.innerHTML = '<p style="color:#6b7280;font-size:13px;">No closed trades yet.</p>';
         }
+        // Equity curve
+        var eqSection = document.getElementById('equity-curve-section');
+        var canvas = document.getElementById('trench-equity-curve');
+        if (eqSection && canvas && d.equityCurve && d.equityCurve.length > 1) {
+          eqSection.style.display = 'block';
+          drawTrenchEquityCurve(canvas, d.equityCurve);
+          var legend = document.getElementById('trench-equity-legend');
+          if (legend) {
+            var last = d.equityCurve[d.equityCurve.length - 1];
+            legend.innerHTML = '<span>Current: <strong style="color:#fff">$' + (last.equity || 0).toLocaleString() + '</strong></span><span>Max DD: <strong style="color:#ef4444">' + (last.drawdownPct || 0) + '%</strong></span>';
+          }
+        } else if (eqSection) {
+          eqSection.style.display = 'none';
+        }
       }).catch(function() {});
+  }
+
+  function drawTrenchEquityCurve(canvas, data) {
+    if (!canvas || !data || data.length < 2) return;
+    trenchEquityData = data;
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    function resize() {
+      var rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+      draw();
+    }
+    function draw() {
+      var d = trenchEquityData || data;
+      if (!d || d.length < 2) return;
+      var rect = canvas.getBoundingClientRect();
+      var w = rect.width, h = rect.height;
+      var pad = { top: 14, right: 14, bottom: 28, left: 54 };
+      var plotW = w - pad.left - pad.right, plotH = h - pad.top - pad.bottom;
+      var eq = d.map(function(x) { return x.equity; });
+      var minE = Math.min.apply(null, eq);
+      var maxE = Math.max.apply(null, eq);
+      var range = maxE - minE || 1;
+      minE = Math.max(0, minE - range * 0.08);
+      maxE = maxE + range * 0.08;
+      range = maxE - minE || 1;
+      ctx.clearRect(0, 0, w, h);
+      ctx.strokeStyle = '#1e2a3a';
+      ctx.lineWidth = 0.5;
+      for (var g = 0; g <= 4; g++) {
+        var gy = pad.top + (plotH * g / 4);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, gy);
+        ctx.lineTo(pad.left + plotW, gy);
+        ctx.stroke();
+        ctx.fillStyle = '#4b5563';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText('$' + Math.round(maxE - (range * g / 4)).toLocaleString(), pad.left - 4, gy + 3);
+      }
+      var pts = [];
+      for (var i = 0; i < d.length; i++) {
+        var x = pad.left + (i / (d.length - 1)) * plotW;
+        var y = pad.top + plotH - ((d[i].equity - minE) / range) * plotH;
+        pts.push({ x: x, y: y });
+      }
+      var peak = d[0].equity;
+      ctx.beginPath();
+      var inDrawdown = false;
+      for (var i = 0; i < d.length; i++) {
+        if (d[i].equity > peak) peak = d[i].equity;
+        var peakY = pad.top + plotH - ((peak - minE) / range) * plotH;
+        if (d[i].drawdown > 0) {
+          if (!inDrawdown) { ctx.moveTo(pts[i].x, peakY); inDrawdown = true; }
+          ctx.lineTo(pts[i].x, pts[i].y);
+        } else {
+          if (inDrawdown) { ctx.lineTo(pts[i].x, peakY); ctx.closePath(); inDrawdown = false; }
+          ctx.moveTo(pts[i].x, pts[i].y);
+        }
+      }
+      if (inDrawdown) {
+        var lastPeakY = pad.top + plotH - ((peak - minE) / range) * plotH;
+        ctx.lineTo(pts[pts.length - 1].x, lastPeakY);
+        ctx.closePath();
+      }
+      ctx.fillStyle = 'rgba(239,68,68,0.12)';
+      ctx.fill();
+      ctx.beginPath();
+      for (var i = 0; i < pts.length; i++) {
+        if (i === 0) ctx.moveTo(pts[i].x, pts[i].y);
+        else ctx.lineTo(pts[i].x, pts[i].y);
+      }
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.lineTo(pts[pts.length - 1].x, pad.top + plotH);
+      ctx.lineTo(pts[0].x, pad.top + plotH);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(16,185,129,0.1)';
+      ctx.fill();
+      ctx.fillStyle = '#4b5563';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'left';
+      if (d[0].date) ctx.fillText(new Date(d[0].date).toLocaleDateString(), pad.left, h - 4);
+      ctx.textAlign = 'center';
+      var midIdx = Math.floor(d.length / 2);
+      if (d[midIdx] && d[midIdx].date && d.length > 4) ctx.fillText(new Date(d[midIdx].date).toLocaleDateString(), pts[midIdx].x, h - 4);
+      ctx.textAlign = 'right';
+      if (d[d.length - 1].date) ctx.fillText(new Date(d[d.length - 1].date).toLocaleDateString(), pad.left + plotW, h - 4);
+    }
+    resize();
+    if (!window._trenchEquityResize) {
+      window._trenchEquityResize = function() {
+        if (trenchEquityData && canvas) resize();
+      };
+      window.addEventListener('resize', window._trenchEquityResize);
+    }
   }
   if (document.getElementById('trench-analytics')) {
     loadAnalytics();

@@ -21,7 +21,7 @@ const MOMENTUM_WINDOW_MS = 60 * 1000;   // 60s - scalping: faster confirmation (
 const MAX_LOG_ENTRIES = 50;
 const PAPER_SLIPPAGE = 0.008; // 0.8% simulated slippage each way (~1.6% round trip)
 const MAX_BUYS_PER_SCAN = 2;  // stagger entries across scans
-const MIN_QUALITY_SCORE = 55; // scalping: slightly lower to catch more fast movers
+const MIN_QUALITY_SCORE = 50; // scalping: allow more candidates (was 55)
 const FRESH_PRICE_DROP_SKIP_PCT = 1.5; // scalping: skip if dropped >1.5% (tighter)
 
 // ====================================================
@@ -232,7 +232,7 @@ async function fetchTrendingsCached() {
   }
   let trendings = [];
   try {
-    trendings = await dexscreener.fetchSolanaTrendings(500);
+    trendings = await dexscreener.fetchSolanaTrendings(800);
   } catch (e) {
     console.warn('[TrenchBot] DexScreener failed:', e.message);
   }
@@ -249,6 +249,31 @@ async function fetchTrendingsCached() {
   for (const t of mobulaTokens) {
     if (t.tokenAddress && t.price > 0 && !seen.has(t.tokenAddress)) {
       seen.set(t.tokenAddress, t);
+    }
+  }
+
+  // Enrich non-Jupiter tokens missing buyVolume1h with Mobula (helps them score)
+  const toEnrich = Array.from(seen.values()).filter(t =>
+    t.source !== 'jupiter' && !t.buyVolume1h && !t.sellVolume1h &&
+    t.tokenAddress && t.priceChange1h != null && (t.volume24h || 0) >= 15000
+  ).slice(0, 25);
+  if (toEnrich.length > 0) {
+    const chunkSize = 5;
+    for (let i = 0; i < toEnrich.length; i += chunkSize) {
+      const chunk = toEnrich.slice(i, i + chunkSize);
+      await Promise.all(chunk.map(async (t) => {
+        try {
+          const mk = await mobula.getTokenMarkets('solana', t.tokenAddress);
+          if (mk && (mk.volumeBuy1hUSD || mk.volumeSell1hUSD)) {
+            t.buyVolume1h = mk.volumeBuy1hUSD || 0;
+            t.sellVolume1h = mk.volumeSell1hUSD || 0;
+            if (t.priceChange1h == null && typeof mk.priceChange1hPercentage === 'number') {
+              t.priceChange1h = mk.priceChange1hPercentage;
+            }
+          }
+        } catch (e) { /* skip */ }
+      }));
+      if (i + chunkSize < toEnrich.length) await new Promise(r => setTimeout(r, 150));
     }
   }
 

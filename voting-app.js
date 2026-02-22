@@ -1824,42 +1824,21 @@ app.get('/backtest-results', (req, res) => {
 // TRENCH WARFARE - Shitcoin scalping hub (Solana memecoins)
 // ====================================================
 app.get('/trench-warfare', async (req, res) => {
-  const mobula = require('./services/mobula-api');
   const ScalpTrade = require('./models/ScalpTrade');
-  let trendings = [];
-  try {
-    const dexscreener = require('./services/dexscreener-api');
-    trendings = await dexscreener.fetchSolanaTrendings(500);
-  } catch (e) {
-    console.warn('[TrenchWarfare] DexScreener failed:', e.message);
-  }
-  if (!trendings || trendings.length === 0) {
-    try {
-      trendings = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)('solana');
-    } catch (e) {
-      console.error('[TrenchWarfare] Mobula fetch failed:', e.message);
-    }
-  }
   let openPositions = [];
   const user = req.session?.userId ? await User.findById(req.session.userId).lean() : null;
   if (user) {
     openPositions = await ScalpTrade.find({ userId: user._id, status: 'OPEN' }).sort({ createdAt: -1 }).lean();
   }
   let botRunning = false;
-  const trenchAutoService = require('./services/trench-auto-trading');
   if (user) {
+    const trenchAutoService = require('./services/trench-auto-trading');
     botRunning = trenchAutoService.getBotStatus(user._id).running;
   }
-  // Score coins with the real quality scorer so the page shows accurate data
-  for (const t of trendings) {
-    t._qualityScore = trenchAutoService.scoreCandidate(t);
-  }
-  // Sort by quality score descending, pumping coins first
-  trendings.sort((a, b) => (b._qualityScore || 0) - (a._qualityScore || 0));
   res.render('trench-warfare', {
     activePage: 'trench-warfare',
     pageTitle: 'Trench Warfare',
-    trendings,
+    trendings: [],
     user,
     trenchPaperBalance: user ? (user.trenchPaperBalance ?? 1000) : 0,
     openPositions,
@@ -2138,6 +2117,41 @@ app.get('/api/trench-warfare/analytics', requireLogin, async (req, res) => {
     const initial = user.trenchPaperBalanceInitial ?? 1000;
     const current = user.trenchPaperBalance ?? 1000;
     const pnlPercent = initial > 0 ? (((current - initial) / initial) * 100).toFixed(2) : 0;
+
+    // Build equity curve from closed trades (oldest first for cumulative)
+    const closedAsc = [...closed].reverse().filter(t => t.exitTime);
+    const startDate = closedAsc.length > 0 ? new Date(closedAsc[0].createdAt || closedAsc[0].exitTime).toISOString() : new Date().toISOString();
+    const equityCurve = [{ equity: initial, date: startDate, drawdown: 0, drawdownPct: 0 }];
+    let peak = initial;
+    let maxDrawdownPct = 0;
+    for (const t of closedAsc) {
+      const prev = equityCurve[equityCurve.length - 1].equity;
+      const next = prev + (t.pnl || 0);
+      if (next > peak) peak = next;
+      const dd = Math.max(0, peak - next);
+      const ddPct = peak > 0 ? (dd / peak * 100) : 0;
+      if (ddPct > maxDrawdownPct) maxDrawdownPct = ddPct;
+      equityCurve.push({
+        equity: next,
+        date: t.exitTime,
+        drawdown: dd,
+        drawdownPct: Math.round(ddPct * 10) / 10
+      });
+    }
+    if (equityCurve.length > 1) {
+      equityCurve[equityCurve.length - 1].drawdownPct = Math.round(maxDrawdownPct * 10) / 10;
+    }
+
+    // Detailed analytics
+    const wins = closed.filter(t => (t.pnl || 0) > 0);
+    const losses = closed.filter(t => (t.pnl || 0) < 0);
+    const grossProfit = wins.reduce((s, t) => s + (t.pnl || 0), 0);
+    const grossLoss = Math.abs(losses.reduce((s, t) => s + (t.pnl || 0), 0));
+    const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : (grossProfit > 0 ? '∞' : '0');
+    const avgWin = wins.length > 0 ? (grossProfit / wins.length).toFixed(2) : 0;
+    const avgLoss = losses.length > 0 ? (grossLoss / losses.length).toFixed(2) : 0;
+    const expectancy = totalTrades > 0 ? ((stats.wins || 0) * parseFloat(avgWin) - (stats.losses || 0) * parseFloat(avgLoss)) / totalTrades : 0;
+
     res.json({
       trenchStats: stats,
       winRate: parseFloat(winRate),
@@ -2148,6 +2162,12 @@ app.get('/api/trench-warfare/analytics', requireLogin, async (req, res) => {
       worstTrade: stats.worstTrade || 0,
       consecutiveLosses: stats.consecutiveLosses || 0,
       closedTrades: closed,
+      equityCurve: equityCurve.length > 1 ? equityCurve : [],
+      profitFactor,
+      avgWin: parseFloat(avgWin),
+      avgLoss: parseFloat(avgLoss),
+      expectancy: Math.round(expectancy * 100) / 100,
+      maxDrawdownPct: equityCurve.length > 1 ? (equityCurve[equityCurve.length - 1].drawdownPct || 0) : 0,
       paused: !!user.trenchAuto?.lastPausedAt,
       pausedReason: user.trenchAuto?.pausedReason || ''
     });
