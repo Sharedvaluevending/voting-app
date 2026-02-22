@@ -25,9 +25,9 @@
   </div>
 </div>
 
-<!-- Open Positions -->
+<!-- Open Positions - Always visible when logged in, real-time updates every 2s -->
 <% if (typeof user !== 'undefined' && user) { %>
-<div class="section" style="margin-bottom:24px;" id="open-positions-section" <%= (openPositions && openPositions.length > 0) ? '' : 'style="display:none;"' %>>
+<div class="section" style="margin-bottom:24px;" id="open-positions-section">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
     <h3 style="color:#e5e7eb;margin:0;">Open Positions</h3>
     <span id="positions-total-pnl" style="font-size:14px;font-weight:600;color:#6b7280;"></span>
@@ -38,7 +38,7 @@
         <tr><th>Token</th><th>Entry</th><th>Now</th><th>PnL</th><th>Hold</th><th>Cost</th><th>Action</th></tr>
       </thead>
       <tbody id="positions-tbody">
-        <% if (openPositions) { openPositions.forEach(function(p) { %>
+        <% if (openPositions && openPositions.length > 0) { openPositions.forEach(function(p) { %>
         <tr data-position-id="<%= p._id %>" data-token-address="<%= p.tokenAddress %>" data-entry-price="<%= p.entryPrice || 0 %>" data-amount-in="<%= p.amountIn || 0 %>" data-token-amount="<%= p.tokenAmount || 0 %>" data-is-paper="<%= p.isPaper ? '1' : '0' %>" data-created="<%= p.createdAt %>">
           <td><strong><%= p.tokenSymbol %></strong></td>
           <td style="font-size:12px;">$<%= (p.entryPrice || 0).toFixed(8) %></td>
@@ -48,7 +48,9 @@
           <td style="font-size:12px;"><%= p.isPaper ? '$' + (p.amountIn || 0).toFixed(2) : (p.amountIn || 0) + ' SOL' %></td>
           <td><% if (p.isPaper) { %><button type="button" class="btn-sell-paper nav-btn" style="padding:4px 10px;font-size:12px;">Sell</button><% } else { %><span style="color:#6b7280;font-size:11px;">—</span><% } %></td>
         </tr>
-        <% }); } %>
+        <% }); } else { %>
+        <tr id="positions-empty-row"><td colspan="7" style="text-align:center;color:#6b7280;font-size:13px;padding:16px;">No open positions. Start the bot or trade manually.</td></tr>
+        <% } %>
       </tbody>
     </table>
   </div>
@@ -822,11 +824,11 @@
         if (!section || !tbody) return;
 
         if (d.positions.length === 0) {
-          section.style.display = 'none';
-          tbody.innerHTML = '';
+          tbody.innerHTML = '<tr id="positions-empty-row"><td colspan="7" style="text-align:center;color:#6b7280;font-size:13px;padding:16px;">No open positions. Start the bot or trade manually.</td></tr>';
+          var totalEl = document.getElementById('positions-total-pnl');
+          if (totalEl) totalEl.textContent = '';
           return;
         }
-        section.style.display = '';
 
         // Rebuild table from API (instant add/remove of positions)
         var totalPnl = 0;
