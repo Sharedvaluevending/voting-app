@@ -3,6 +3,8 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 
 const LAST_HOUR = process.argv.includes('--last-hour') || process.argv.includes('-1h');
+const hoursMatch = process.argv.find(a => a.startsWith('--hours='));
+const HOURS = hoursMatch ? parseInt(hoursMatch.split('=')[1], 10) : null;
 
 async function main() {
   await mongoose.connect(process.env.MONGODB_URI);
@@ -12,19 +14,21 @@ async function main() {
   const users = await User.find({ 'trenchStats.wins': { $gt: 0 } }).lean();
   if (users.length === 0) { console.log('No users with trades found'); process.exit(0); }
 
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  const sinceMs = LAST_HOUR ? 60 * 60 * 1000 : (HOURS ? HOURS * 60 * 60 * 1000 : null);
+  const sinceDate = sinceMs ? new Date(Date.now() - sinceMs) : null;
 
-  // For last-hour mode: get users who have closed trades in last hour
+  // For time-filtered mode: get users who have closed trades in window
   let usersToShow = users;
-  if (LAST_HOUR) {
+  if (sinceDate) {
     const userIdsWithRecent = await ScalpTrade.distinct('userId', {
       status: 'CLOSED',
-      exitTime: { $gte: oneHourAgo }
+      exitTime: { $gte: sinceDate }
     });
     if (userIdsWithRecent.length > 0) {
       usersToShow = await User.find({ _id: { $in: userIdsWithRecent } }).lean();
     } else {
-      console.log('No closed trades in the last hour. Try without --last-hour for recent trades.');
+      const label = HOURS ? `last ${HOURS}h` : 'last hour';
+      console.log(`No closed trades in ${label}. Try without --last-hour or --hours=N for recent trades.`);
       await mongoose.disconnect();
       process.exit(0);
     }
@@ -40,13 +44,14 @@ async function main() {
     console.log(`Balance: $${(user.trenchPaperBalance || 0).toFixed(2)} | Consec losses: ${stats.consecutiveLosses || 0}`);
 
     const closedQuery = { userId: user._id, status: 'CLOSED' };
-    if (LAST_HOUR) closedQuery.exitTime = { $gte: oneHourAgo };
+    if (sinceDate) closedQuery.exitTime = { $gte: sinceDate };
     const closed = await ScalpTrade.find(closedQuery)
-      .sort({ exitTime: -1 }).limit(LAST_HOUR ? 200 : 20).lean();
+      .sort({ exitTime: -1 }).limit(sinceDate ? 200 : 20).lean();
 
-    if (closed.length === 0) { console.log(LAST_HOUR ? 'No closed trades in last hour' : 'No closed trades'); continue; }
+    const timeLabel = HOURS ? `Last ${HOURS}h` : (LAST_HOUR ? 'Last hour' : 'Last');
+    if (closed.length === 0) { console.log(sinceDate ? `No closed trades in ${timeLabel.toLowerCase()}` : 'No closed trades'); continue; }
 
-    console.log(`\n${LAST_HOUR ? 'Last hour' : 'Last'} ${closed.length} trades (newest first):`);
+    console.log(`\n${timeLabel} ${closed.length} trades (newest first):`);
     console.log('Symbol'.padEnd(12) + 'PnL%'.padStart(8) + 'PnL$'.padStart(10) + 'Exit Reason'.padStart(22) + 'Held'.padStart(8) + '  Entry Time');
     console.log('-'.repeat(85));
 
@@ -62,7 +67,7 @@ async function main() {
       console.log(`${sym}${pnlPct}${pnlUsd}${reason}${heldStr}  ${time}${marker}`);
     }
 
-    if (LAST_HOUR && closed.length > 0) {
+    if (sinceDate && closed.length > 0) {
       const hourWins = closed.filter(t => (t.pnl || 0) > 0).length;
       const hourLosses = closed.filter(t => (t.pnl || 0) < 0).length;
       const hourPnl = closed.reduce((s, t) => s + (t.pnl || 0), 0);
@@ -71,7 +76,8 @@ async function main() {
         const r = t.exitReason || 'unknown';
         byReason[r] = (byReason[r] || 0) + 1;
       }
-      console.log(`\n--- LAST HOUR SUMMARY ---`);
+      const label = HOURS ? `${HOURS}h` : '1h';
+      console.log(`\n--- LAST ${label.toUpperCase()} SUMMARY ---`);
       console.log(`Trades: ${closed.length} | Wins: ${hourWins} | Losses: ${hourLosses} | Win rate: ${closed.length > 0 ? (hourWins/closed.length*100).toFixed(1) : 0}%`);
       console.log(`Total PnL: $${hourPnl.toFixed(2)}`);
       console.log(`Exit reasons: ${Object.entries(byReason).map(([k,v])=>`${k}:${v}`).join(', ')}`);

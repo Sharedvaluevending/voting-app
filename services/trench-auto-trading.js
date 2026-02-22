@@ -285,7 +285,7 @@ function scoreCandidatePumpStart(t) {
 
   // Bare minimum - only reject obvious rugs (want 100s of candidates)
   if (vol < 1000) return -1;
-  if (liq < 3000) return -1;
+  if (liq < 10000) return -1;  // was 3k - rugs often have thin liquidity
   if (liq > 0 && vol / liq > 150) return -1;
   if (volShort > 0 && buyDominance < 0.25) return -1;  // only reject extreme dumps
 
@@ -425,13 +425,14 @@ function sanitizeSettings(raw) {
   s.maxOpenPositions = Math.min(Math.max(s.maxOpenPositions ?? 3, 1), 15);  // 3 default - fewer bags (was 6)
   s.consecutiveLossesToPause = Math.min(Math.max(s.consecutiveLossesToPause ?? 3, 2), 10);
   s.cooldownHours = Math.min(Math.max(s.cooldownHours ?? 1, 0.25), 4);
+  s.bigLossPauseMinutes = Math.min(Math.max(s.bigLossPauseMinutes ?? 20, 5), 60);
   s.maxPriceChange24hPercent = Math.min(Math.max(s.maxPriceChange24hPercent ?? 500, 100), 1000);
   s.minLiquidityUsd = Math.min(Math.max(s.minLiquidityUsd ?? 25000, 25000), 100000);
   s.maxTop10HoldersPercent = Math.min(Math.max(s.maxTop10HoldersPercent ?? 80, 50), 100);
   s.maxDailyLossPercent = Math.min(Math.max(s.maxDailyLossPercent ?? 15, 5), 50);
   s.trailingStopPercent = Math.min(Math.max(s.trailingStopPercent ?? (memecoin ? 2 : 5), 1), 20);
   s.breakevenAtPercent = Math.min(Math.max(s.breakevenAtPercent ?? (memecoin ? 1 : 3), 1), 15);
-  s.amountPerTradeUsd = Math.min(Math.max(s.amountPerTradeUsd ?? 50, 5), 500);
+  s.amountPerTradeUsd = Math.min(Math.max(s.amountPerTradeUsd ?? (memecoin ? 25 : 50), 5), 500);
   s.amountPerTradeSol = Math.min(Math.max(s.amountPerTradeSol ?? 0.05, 0.01), 1);
   s.minTrendingScore = 1;
   return s;
@@ -456,6 +457,16 @@ function shouldPauseForRisk(user, settings) {
   const consecLoss = settings.consecutiveLossesToPause ?? 3;
   if (consecLoss > 0 && (stats.consecutiveLosses || 0) >= consecLoss) {
     return { pause: true, reason: `${consecLoss} consecutive losses` };
+  }
+  // Big loss cooldown: pause 20 min after a -$25+ loss
+  const bigLossPauseMin = settings.bigLossPauseMinutes ?? 20;
+  const lastBigLoss = user.trenchAuto?.lastBigLossAt;
+  if (bigLossPauseMin > 0 && lastBigLoss) {
+    const elapsed = Date.now() - new Date(lastBigLoss).getTime();
+    if (elapsed < bigLossPauseMin * 60 * 1000) {
+      const amt = Math.abs(user.trenchAuto?.lastBigLossAmount || 0).toFixed(0);
+      return { pause: true, reason: `Big loss cooldown ($${amt} lost, ${Math.ceil((bigLossPauseMin * 60 - elapsed / 1000) / 60)}m left)` };
+    }
   }
   return { pause: false };
 }
@@ -514,9 +525,12 @@ async function inCooldown(userId, tokenAddress, cooldownHours) {
   ).lean();
   if (!closed || !closed.exitTime) return false;
   const hours = (Date.now() - new Date(closed.exitTime).getTime()) / 3600000;
-  // Losers get 4x longer cooldown to avoid re-entering the same bad coin
-  const wasLoss = (closed.pnlPercent || 0) <= 0;
-  const effectiveCooldown = wasLoss ? cooldownHours * 4 : cooldownHours;
+  // Losers get 4x longer cooldown; big losers (-30%+) get 8x
+  const pnlPct = closed.pnlPercent || 0;
+  const wasLoss = pnlPct <= 0;
+  const bigLoss = pnlPct <= -30;
+  const multiplier = bigLoss ? 8 : (wasLoss ? 4 : 1);
+  const effectiveCooldown = cooldownHours * multiplier;
   return hours < effectiveCooldown;
 }
 
@@ -633,10 +647,12 @@ function shouldSellPosition(pos, currentPrice, settings) {
     return { sell: true, reason: 'breakeven_stop', pnlPct };
   }
 
-  // Early bail: if down more than 1.5% at the halfway mark, cut losses early
-  // Data shows coins that are red at 10min almost never recover by 20min
-  const halfHold = maxHold / 2;
-  if (holdMinutes >= halfHold && holdMinutes < maxHold && pnlPct <= -1.5) {
+  // Early bail: if down at the halfway mark, cut losses early
+  // Memecoin: 1% down at 40% of hold; Scalping: 1.5% down at 50% of hold
+  const memecoin = (settings.strategy ?? 'memecoin') === 'memecoin';
+  const earlyBailThreshold = memecoin ? 1.0 : 1.5;
+  const earlyBailAt = memecoin ? maxHold * 0.4 : maxHold / 2;
+  if (holdMinutes >= earlyBailAt && holdMinutes < maxHold && pnlPct <= -earlyBailThreshold) {
     return { sell: true, reason: 'early_bail', pnlPct };
   }
 
@@ -784,8 +800,10 @@ async function _exitTickInner(userId) {
       if (p.tokenAddress && p.price > 0) freshPrices[p.tokenAddress] = p.price;
     }
   } catch (e) {
-    // Fallback to cached trending data
-    const cached = trendingCache.data || [];
+    // Fallback to cached trending data (either strategy)
+    const cacheKey = isMemecoinMode(rawSettings) ? 'memecoin' : 'scalping';
+    let cached = (trendingCacheByStrategy[cacheKey] || {}).data || [];
+    if (cached.length === 0) cached = (trendingCacheByStrategy[cacheKey === 'memecoin' ? 'scalping' : 'memecoin'] || {}).data || [];
     for (const t of cached) {
       if (heldAddresses.includes(t.tokenAddress) && t.price > 0) {
         freshPrices[t.tokenAddress] = t.price;
@@ -843,6 +861,20 @@ async function _exitTickInner(userId) {
         user.trenchStats.losses = (user.trenchStats.losses || 0) + 1;
         user.trenchStats.consecutiveLosses = (user.trenchStats.consecutiveLosses || 0) + 1;
         user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, pnl);
+        // Big loss cooldown: pause after -$25+ to avoid tilt
+        if (pnl <= -25) {
+          user.trenchAuto = user.trenchAuto || {};
+          user.trenchAuto.lastBigLossAt = new Date();
+          user.trenchAuto.lastBigLossAmount = pnl;
+        }
+        // Auto-blacklist tokens that rugged (-50%+)
+        if (pnlPct <= -50) {
+          if (!user.trenchBlacklist) user.trenchBlacklist = [];
+          if (!user.trenchBlacklist.includes(pos.tokenAddress)) {
+            user.trenchBlacklist.push(pos.tokenAddress);
+            botLog(userId, `BLACKLIST ${pos.tokenSymbol} (rug: ${pnlPct.toFixed(0)}%)`);
+          }
+        }
       }
       await user.save({ validateBeforeSave: false });
       notifyUser(user, `Trench SELL ${pos.tokenSymbol}`, `PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%)`, 'close').catch(() => {});
@@ -855,7 +887,23 @@ async function _exitTickInner(userId) {
         user.trenchStats = user.trenchStats || {};
         user.trenchStats.totalPnl = (user.trenchStats.totalPnl || 0) + pnl;
         if (pnl > 0) { user.trenchStats.wins = (user.trenchStats.wins || 0) + 1; user.trenchStats.consecutiveLosses = 0; user.trenchStats.bestTrade = Math.max(user.trenchStats.bestTrade || 0, pnl); }
-        else { user.trenchStats.losses = (user.trenchStats.losses || 0) + 1; user.trenchStats.consecutiveLosses = (user.trenchStats.consecutiveLosses || 0) + 1; user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, pnl); }
+        else {
+          user.trenchStats.losses = (user.trenchStats.losses || 0) + 1;
+          user.trenchStats.consecutiveLosses = (user.trenchStats.consecutiveLosses || 0) + 1;
+          user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, pnl);
+          if (pnl <= -25) {
+            user.trenchAuto = user.trenchAuto || {};
+            user.trenchAuto.lastBigLossAt = new Date();
+            user.trenchAuto.lastBigLossAmount = pnl;
+          }
+          if (pnlPct <= -50) {
+            if (!user.trenchBlacklist) user.trenchBlacklist = [];
+            if (!user.trenchBlacklist.includes(pos.tokenAddress)) {
+              user.trenchBlacklist.push(pos.tokenAddress);
+              botLog(userId, `BLACKLIST ${pos.tokenSymbol} (rug: ${pnlPct.toFixed(0)}%)`);
+            }
+          }
+        }
         await user.save({ validateBeforeSave: false });
         sellCount++;
         botLog(userId, `LIVE SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)}`);
