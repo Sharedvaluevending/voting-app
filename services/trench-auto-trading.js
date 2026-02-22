@@ -24,8 +24,8 @@ const MEMECOIN_EXIT_INTERVAL = 3 * 1000;   // 3s - check exits very fast
 const MEMECOIN_ENTRY_INTERVAL = 25 * 1000; // 25s - scan often
 const MEMECOIN_CACHE_TTL = 25 * 1000;      // 25s
 const MEMECOIN_MOMENTUM_MS = 20 * 1000;    // 20s - quick confirm
-const MEMECOIN_MOMENTUM_MIN_PCT = 0;      // flat or up = in. Loose.
-const MEMECOIN_MIN_SCORE = 5;    // very loose - 100s of candidates, filter by exits
+const MEMECOIN_MOMENTUM_MIN_PCT = 0.3;    // require slight positive momentum (was 0)
+const MEMECOIN_MIN_SCORE = 15;   // filter weak candidates (was 5)
 const MEMECOIN_FRESH_DROP_SKIP = 1.0;      // skip if dropped >1% since confirm
 
 // Scalping: traditional (current behavior)
@@ -300,6 +300,8 @@ function scoreCandidatePumpStart(t) {
     if (ratio > 0.85 && change5m > 10) return -1;  // 85%+ of 1h pump in 5m = late
   }
   if (changeShort > 15) return -1;  // memecoin: hard reject >15% 5m (already pumped)
+  if (changeShort < 0.5) return -1;  // memecoin: require positive pump signal (reject flat/down)
+  if (changeShort > 0 && buyDominance < 0.4) return -1;  // require buy pressure when pumping
 
   const isNewOrRecent = source === 'geckoterminal' || (t._sourceCount || 1) <= 1;
 
