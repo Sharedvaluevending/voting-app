@@ -283,17 +283,17 @@ function scoreCandidatePumpStart(t) {
   const numBuyers5m = t.numBuyers5m || 0;
   const numBuyers1h = t.numBuyers1h || 0;
 
-  // Minimal hard rejects only - rug/obvious trash
-  if (vol < 10000) return -1;
-  if (liq < 20000) return -1;
-  if (liq > 0 && vol / liq > 40) return -1;
-  if (volShort > 0 && buyDominance < 0.40) return -1;  // not actively dumping
+  // Minimal hard rejects only - rug/obvious trash (very loose for more candidates)
+  if (vol < 5000) return -1;
+  if (liq < 15000) return -1;
+  if (liq > 0 && vol / liq > 80) return -1;   // memecoins often 50-100x vol/liq
+  if (volShort > 0 && buyDominance < 0.32) return -1;  // only reject heavy dumps
 
-  // Loose: allow -5% to 40% 5m - catch pumps early or mid
+  // Loose: allow -10% to 80% 5m - catch pumps early or mid
   const changeShort = (typeof change5m === 'number' && change5m !== undefined) ? change5m
     : (typeof change1h === 'number' && change1h !== undefined) ? change1h / 12 : 0;
-  if (changeShort > 60) return -1;   // parabolic dump risk
-  if (changeShort < -15) return -1;  // actively dumping
+  if (changeShort > 100) return -1;  // parabolic
+  if (changeShort < -25) return -1;  // heavy dump
 
   const isNewOrRecent = source === 'geckoterminal' || (t._sourceCount || 1) <= 1;
 
@@ -396,7 +396,7 @@ async function fetchTrendingsCached(settings = {}) {
   const all = Array.from(seen.values());
   const softPass = all.filter(t => (t._qualityScore || 0) > 0).length;
   const modeLabel = memecoin ? 'memecoin pump-start' : 'scalping';
-  console.log(`[TrenchBot] ${all.length} total tokens, ${softPass} pass filters, ${scored.length} pass ${modeLabel} (score>=${minScore})`);
+  console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass ${modeLabel} (score>=${minScore})`);
 
   trendingCache = { data: scored, fetchedAt: Date.now() };
   return scored;
