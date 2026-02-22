@@ -21,7 +21,7 @@ const MOMENTUM_WINDOW_MS = 60 * 1000;   // 60s - scalping: faster confirmation (
 const MAX_LOG_ENTRIES = 50;
 const PAPER_SLIPPAGE = 0.008; // 0.8% simulated slippage each way (~1.6% round trip)
 const MAX_BUYS_PER_SCAN = 2;  // stagger entries across scans
-const MIN_QUALITY_SCORE = 40; // scalping: allow more candidates (was 50)
+const MIN_QUALITY_SCORE = 50; // scalping: quality over quantity - only high-scoring candidates
 const FRESH_PRICE_DROP_SKIP_PCT = 1.5; // scalping: skip if dropped >1.5% (tighter)
 
 // ====================================================
@@ -127,7 +127,7 @@ function scoreCandidate(t) {
 
   // Must be actively pumping (scalping: 5m or 1h or 24h proxy)
   if (changeShort < minChangeShort) return -1;
-  if (buyPressure < 0.45) return -1; // relaxed from 0.50 for tokens without bp data
+  if (buyPressure < 0.45) return -1;
 
   const buyVol5m = t.buyVolume5m || 0;
   const sellVol5m = t.sellVolume5m || 0;
@@ -147,7 +147,7 @@ function scoreCandidate(t) {
   if (changeHigh > 80 && change > 300) return -1;
 
   // --- VOLUME DIVERGENCE REJECTION ---
-  if (changeHigh > 5 && buyDominance < 0.40 && volShort > 0) return -1; // relaxed from 0.45
+  if (changeHigh > 5 && buyDominance < 0.40 && volShort > 0) return -1;
 
   let score = 0;
 

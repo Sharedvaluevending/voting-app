@@ -294,12 +294,12 @@ async function fetchSolanaTrendings(limit = 500) {
 
   // Phase 2: GeckoTerminal - SCALPING: trending (24h/5m/1h), new, top vol, top tx (more pages + durations = more candidates)
   const [gtTrending24h, gtTrending5m, gtTrending1h, gtNew, gtTopVol, gtTopTx] = await Promise.all([
-    fetchGeckoTerminalPools('trending_pools', 6).catch(() => []),
-    fetchGeckoTerminalPools('trending_pools?duration=5m', 6).catch(() => []),
-    fetchGeckoTerminalPools('trending_pools?duration=1h', 6).catch(() => []),
-    fetchGeckoTerminalPools('new_pools', 6).catch(() => []),
-    fetchGeckoTerminalPools('pools?order=h24_volume_usd_desc', 4).catch(() => []),
-    fetchGeckoTerminalPools('pools?order=h24_tx_count_desc', 4).catch(() => [])
+    fetchGeckoTerminalPools('trending_pools', 8).catch(() => []),
+    fetchGeckoTerminalPools('trending_pools?duration=5m', 8).catch(() => []),
+    fetchGeckoTerminalPools('trending_pools?duration=1h', 8).catch(() => []),
+    fetchGeckoTerminalPools('new_pools', 8).catch(() => []),
+    fetchGeckoTerminalPools('pools?order=h24_volume_usd_desc', 6).catch(() => []),
+    fetchGeckoTerminalPools('pools?order=h24_tx_count_desc', 6).catch(() => [])
   ]);
 
   const gtTokens = [...gtTrending24h, ...gtTrending5m, ...gtTrending1h, ...gtNew, ...gtTopVol, ...gtTopTx];
@@ -307,15 +307,15 @@ async function fetchSolanaTrendings(limit = 500) {
 
   // Phase 3: Jupiter - SCALPING: 5m first (earliest pumps), then 1h, 6h, 24h (more feeds = more candidates)
   const [jupTrending5m, jupTraded5m, jupTrending1h, jupTraded1h, jupTraded6h, jupTrending24h, jupTraded24h, jupOrganic, jupRecent] = await Promise.all([
-    fetchJupiterCategory('toptrending', '5m', 100).catch(() => []),
-    fetchJupiterCategory('toptraded', '5m', 100).catch(() => []),
-    fetchJupiterCategory('toptrending', '1h', 100).catch(() => []),
-    fetchJupiterCategory('toptraded', '1h', 100).catch(() => []),
-    fetchJupiterCategory('toptraded', '6h', 100).catch(() => []),
-    fetchJupiterCategory('toptrending', '24h', 100).catch(() => []),
-    fetchJupiterCategory('toptraded', '24h', 100).catch(() => []),
-    fetchJupiterCategory('toporganicscore', '1h', 100).catch(() => []),
-    fetchJupiterRecent(100).catch(() => [])
+    fetchJupiterCategory('toptrending', '5m', 200).catch(() => []),
+    fetchJupiterCategory('toptraded', '5m', 200).catch(() => []),
+    fetchJupiterCategory('toptrending', '1h', 200).catch(() => []),
+    fetchJupiterCategory('toptraded', '1h', 200).catch(() => []),
+    fetchJupiterCategory('toptraded', '6h', 200).catch(() => []),
+    fetchJupiterCategory('toptrending', '24h', 200).catch(() => []),
+    fetchJupiterCategory('toptraded', '24h', 200).catch(() => []),
+    fetchJupiterCategory('toporganicscore', '1h', 200).catch(() => []),
+    fetchJupiterRecent(200).catch(() => [])
   ]);
 
   const jupTokens = [...jupTrending5m, ...jupTraded5m, ...jupTrending1h, ...jupTraded1h, ...jupTraded6h, ...jupTrending24h, ...jupTraded24h, ...jupOrganic, ...jupRecent];
