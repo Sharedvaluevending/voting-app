@@ -294,6 +294,13 @@ function scoreCandidatePumpStart(t) {
   if (changeShort > 150) return -1;
   if (changeShort < -40) return -1;
 
+  // Already pumped: 5m is most of 1h move = we're late (bought the top)
+  if (typeof change5m === 'number' && typeof change1h === 'number' && change1h > 5) {
+    const ratio = change5m / change1h;
+    if (ratio > 0.85 && change5m > 10) return -1;  // 85%+ of 1h pump in 5m = late
+  }
+  if (changeShort > 15) return -1;  // memecoin: hard reject >15% 5m (already pumped)
+
   const isNewOrRecent = source === 'geckoterminal' || (t._sourceCount || 1) <= 1;
 
   let score = 25;  // base - almost everything passes
