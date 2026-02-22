@@ -292,36 +292,40 @@ async function fetchSolanaTrendings(limit = 500) {
 
   console.log(`[DexScreener] ${dexAddresses.length} unique tokens (boosts:${boosts.length} top:${topBoosts.length} profiles:${profiles.length} takeovers:${takeovers.length} ads:${ads.length})`);
 
-  // Phase 2: GeckoTerminal - SCALPING: trending, new, top vol, top tx (activity spike)
-  const [gtTrending, gtNew, gtTopVol, gtTopTx] = await Promise.all([
-    fetchGeckoTerminalPools('trending_pools', 4).catch(() => []),
-    fetchGeckoTerminalPools('new_pools', 4).catch(() => []),
-    fetchGeckoTerminalPools('pools?order=h24_volume_usd_desc', 2).catch(() => []),
-    fetchGeckoTerminalPools('pools?order=h24_tx_count_desc', 2).catch(() => [])
+  // Phase 2: GeckoTerminal - SCALPING: trending (24h/5m/1h), new, top vol, top tx (more pages + durations = more candidates)
+  const [gtTrending24h, gtTrending5m, gtTrending1h, gtNew, gtTopVol, gtTopTx] = await Promise.all([
+    fetchGeckoTerminalPools('trending_pools', 6).catch(() => []),
+    fetchGeckoTerminalPools('trending_pools?duration=5m', 6).catch(() => []),
+    fetchGeckoTerminalPools('trending_pools?duration=1h', 6).catch(() => []),
+    fetchGeckoTerminalPools('new_pools', 6).catch(() => []),
+    fetchGeckoTerminalPools('pools?order=h24_volume_usd_desc', 4).catch(() => []),
+    fetchGeckoTerminalPools('pools?order=h24_tx_count_desc', 4).catch(() => [])
   ]);
 
-  const gtTokens = [...gtTrending, ...gtNew, ...gtTopVol, ...gtTopTx];
-  console.log(`[GeckoTerminal] ${gtTokens.length} pools (trend:${gtTrending.length} new:${gtNew.length} vol:${gtTopVol.length} tx:${gtTopTx.length})`);
+  const gtTokens = [...gtTrending24h, ...gtTrending5m, ...gtTrending1h, ...gtNew, ...gtTopVol, ...gtTopTx];
+  console.log(`[GeckoTerminal] ${gtTokens.length} pools (trend24:${gtTrending24h.length} trend5m:${gtTrending5m.length} trend1h:${gtTrending1h.length} new:${gtNew.length} vol:${gtTopVol.length} tx:${gtTopTx.length})`);
 
-  // Phase 3: Jupiter - SCALPING: 5m first (earliest pumps), then 1h, 6h, 24h
-  const [jupTrending5m, jupTraded5m, jupTrending1h, jupTraded1h, jupTraded6h, jupOrganic, jupRecent] = await Promise.all([
+  // Phase 3: Jupiter - SCALPING: 5m first (earliest pumps), then 1h, 6h, 24h (more feeds = more candidates)
+  const [jupTrending5m, jupTraded5m, jupTrending1h, jupTraded1h, jupTraded6h, jupTrending24h, jupTraded24h, jupOrganic, jupRecent] = await Promise.all([
     fetchJupiterCategory('toptrending', '5m', 100).catch(() => []),
     fetchJupiterCategory('toptraded', '5m', 100).catch(() => []),
     fetchJupiterCategory('toptrending', '1h', 100).catch(() => []),
     fetchJupiterCategory('toptraded', '1h', 100).catch(() => []),
     fetchJupiterCategory('toptraded', '6h', 100).catch(() => []),
+    fetchJupiterCategory('toptrending', '24h', 100).catch(() => []),
+    fetchJupiterCategory('toptraded', '24h', 100).catch(() => []),
     fetchJupiterCategory('toporganicscore', '1h', 100).catch(() => []),
     fetchJupiterRecent(100).catch(() => [])
   ]);
 
-  const jupTokens = [...jupTrending5m, ...jupTraded5m, ...jupTrending1h, ...jupTraded1h, ...jupTraded6h, ...jupOrganic, ...jupRecent];
-  console.log(`[Jupiter] ${jupTokens.length} tokens (5m:${jupTrending5m.length + jupTraded5m.length} 1h:${jupTrending1h.length + jupTraded1h.length} 6h:${jupTraded6h.length} organic:${jupOrganic.length} recent:${jupRecent.length})`);
+  const jupTokens = [...jupTrending5m, ...jupTraded5m, ...jupTrending1h, ...jupTraded1h, ...jupTraded6h, ...jupTrending24h, ...jupTraded24h, ...jupOrganic, ...jupRecent];
+  console.log(`[Jupiter] ${jupTokens.length} tokens (5m:${jupTrending5m.length + jupTraded5m.length} 1h:${jupTrending1h.length + jupTraded1h.length} 6h:${jupTraded6h.length} 24h:${jupTrending24h.length + jupTraded24h.length} organic:${jupOrganic.length} recent:${jupRecent.length})`);
   if (jupTokens.length === 0 && !process.env.JUPITER_API_KEY) {
     console.warn('[Jupiter] Add JUPITER_API_KEY to .env for 200+ more tokens (free at https://portal.jup.ag/api-keys)');
   }
 
-  // Phase 4: Bulk fetch prices for DexScreener tokens
-  const toFetch = dexAddresses.slice(0, Math.min(limit, 500));
+  // Phase 4: Bulk fetch prices for DexScreener tokens (800 max for larger candidate pool)
+  const toFetch = dexAddresses.slice(0, Math.min(limit, 800));
   const dexTokens = await fetchTokensBulk('solana', toFetch);
 
   // Phase 5: Count which sources found each token address

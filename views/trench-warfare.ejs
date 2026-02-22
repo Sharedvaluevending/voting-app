@@ -427,24 +427,30 @@
     });
   });
 
-  document.querySelectorAll('.btn-sell-paper').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      var row = this.closest('tr');
+  // Event delegation for sell buttons (works with dynamically added rows)
+  var positionsTbody = document.getElementById('positions-tbody');
+  if (positionsTbody) {
+    positionsTbody.addEventListener('click', function(e) {
+      var btn = e.target.closest('.btn-sell-paper');
+      if (!btn) return;
+      var row = btn.closest('tr');
       var posId = row.getAttribute('data-position-id');
       var tokenAddr = row.getAttribute('data-token-address');
-      var price = getPriceForToken(tokenAddr);
+      var price = parseFloat(row.getAttribute('data-current-price')) || getPriceForToken(tokenAddr);
       if (!price || price <= 0) { alert('Price not found. Refresh page to update.'); return; }
+      btn.disabled = true;
+      btn.textContent = 'Selling...';
       fetch('/api/trench-warfare/paper/sell', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
         body: JSON.stringify({ positionId: posId, currentPrice: price })
       }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.error) alert(d.error);
-        else location.reload();
-      });
+        if (d.error) { alert(d.error); btn.disabled = false; btn.textContent = 'Sell'; }
+        else { if (typeof loadPositions === 'function') loadPositions(); if (typeof loadAnalytics === 'function') loadAnalytics(); }
+      }).catch(function() { btn.disabled = false; btn.textContent = 'Sell'; });
     });
-  });
+  }
 
   document.getElementById('modal-cancel').addEventListener('click', hideModal);
 
@@ -472,7 +478,7 @@
         })
       }).then(function(r) { return r.json();       }).then(function(d) {
         if (d.error) statusEl.textContent = d.error;
-        else { statusEl.textContent = 'Done!'; document.getElementById('paper-balance').textContent = 'Paper: $' + d.trenchPaperBalance.toFixed(2); if (typeof loadAnalytics === 'function') loadAnalytics(); setTimeout(function(){ hideModal(); location.reload(); }, 500); }
+        else { statusEl.textContent = 'Done!'; document.getElementById('paper-balance').textContent = 'Paper: $' + d.trenchPaperBalance.toFixed(2); hideModal(); if (typeof loadPositions === 'function') loadPositions(); if (typeof loadAnalytics === 'function') loadAnalytics(); }
       }).catch(function(e) { statusEl.textContent = 'Error: ' + e.message; });
       return;
     }
@@ -744,7 +750,7 @@
   }
   if (document.getElementById('trench-analytics')) {
     loadAnalytics();
-    setInterval(loadAnalytics, 15000);
+    setInterval(loadAnalytics, 5000);
   }
 
   ['btn-unpause', 'btn-unpause-banner'].forEach(function(id) {
@@ -755,7 +761,7 @@
     });
   });
 
-  // ---- LIVE POSITIONS PNL ----
+  // ---- LIVE POSITIONS PNL - Real-time sync: rebuild table, poll every 2s ----
   function loadPositions() {
     fetch('/api/trench-warfare/positions', { credentials: 'same-origin' })
       .then(function(r) { return r.json(); })
@@ -767,34 +773,36 @@
 
         if (d.positions.length === 0) {
           section.style.display = 'none';
+          tbody.innerHTML = '';
           return;
         }
         section.style.display = '';
 
-        // Update existing rows or rebuild
+        // Rebuild table from API (instant add/remove of positions)
         var totalPnl = 0;
+        var html = '';
         d.positions.forEach(function(p) {
-          var row = tbody.querySelector('[data-position-id="' + p._id + '"]');
-          if (!row) return;
-          var priceEl = row.querySelector('.pos-current-price');
-          var pnlEl = row.querySelector('.pos-pnl');
-          var holdEl = row.querySelector('.pos-hold');
-
-          if (priceEl && p.currentPrice > 0) {
-            priceEl.textContent = '$' + p.currentPrice.toFixed(8);
-            priceEl.style.color = p.currentPrice >= p.entryPrice ? '#10b981' : '#ef4444';
-          }
-          if (pnlEl) {
-            var sign = p.pnl >= 0 ? '+' : '';
-            pnlEl.textContent = sign + '$' + p.pnl.toFixed(2) + ' (' + sign + p.pnlPct.toFixed(1) + '%)';
-            pnlEl.style.color = p.pnl >= 0 ? '#10b981' : '#ef4444';
-          }
-          if (holdEl) {
-            holdEl.textContent = p.holdMinutes + 'm';
-            holdEl.style.color = p.holdMinutes > 15 ? '#eab308' : '#6b7280';
-          }
+          var ep = p.entryPrice || 0;
+          var amt = p.amountIn || 0;
+          var costStr = p.isPaper ? '$' + amt.toFixed(2) : amt + ' SOL';
+          var priceStr = p.currentPrice > 0 ? '$' + p.currentPrice.toFixed(8) : '—';
+          var priceClr = p.currentPrice > 0 ? (p.currentPrice >= ep ? '#10b981' : '#ef4444') : '#6b7280';
+          var sign = p.pnl >= 0 ? '+' : '';
+          var pnlStr = p.currentPrice > 0 ? (sign + '$' + p.pnl.toFixed(2) + ' (' + sign + p.pnlPct.toFixed(1) + '%)') : '—';
+          var pnlClr = p.pnl >= 0 ? '#10b981' : '#ef4444';
+          var holdClr = p.holdMinutes > 15 ? '#eab308' : '#6b7280';
+          var sellBtn = p.isPaper ? '<button type="button" class="btn-sell-paper nav-btn" style="padding:4px 10px;font-size:12px;">Sell</button>' : '<span style="color:#6b7280;font-size:11px;">—</span>';
           totalPnl += p.pnl;
+          html += '<tr data-position-id="' + p._id + '" data-token-address="' + (p.tokenAddress || '') + '" data-entry-price="' + ep + '" data-amount-in="' + amt + '" data-token-amount="' + (p.tokenAmount || 0) + '" data-is-paper="' + (p.isPaper ? '1' : '0') + '" data-current-price="' + (p.currentPrice || 0) + '">';
+          html += '<td><strong>' + (p.tokenSymbol || '') + '</strong></td>';
+          html += '<td style="font-size:12px;">$' + ep.toFixed(8) + '</td>';
+          html += '<td class="pos-current-price" style="font-size:12px;color:' + priceClr + '">' + priceStr + '</td>';
+          html += '<td class="pos-pnl" style="font-size:13px;font-weight:600;color:' + pnlClr + '">' + pnlStr + '</td>';
+          html += '<td class="pos-hold" style="font-size:12px;color:' + holdClr + '">' + p.holdMinutes + 'm</td>';
+          html += '<td style="font-size:12px;">' + costStr + '</td>';
+          html += '<td>' + sellBtn + '</td></tr>';
         });
+        tbody.innerHTML = html;
 
         var totalEl = document.getElementById('positions-total-pnl');
         if (totalEl) {
@@ -803,7 +811,6 @@
           totalEl.style.color = totalPnl >= 0 ? '#10b981' : '#ef4444';
         }
 
-        // Update paper balance
         if (d.paperBalance !== undefined) {
           var balEl = document.getElementById('paper-balance');
           if (balEl) balEl.textContent = 'Paper: $' + d.paperBalance.toFixed(2);
@@ -812,7 +819,7 @@
   }
   if (document.getElementById('positions-tbody')) {
     loadPositions();
-    setInterval(loadPositions, 10000);
+    setInterval(loadPositions, 2000);
   }
 })();
 </script>
