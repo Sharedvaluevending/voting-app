@@ -597,12 +597,16 @@
         }
         if (botUptime) botUptime.textContent = 'Uptime: ' + formatUptime(d.uptime || 0);
         if (botScanCount) botScanCount.textContent = 'Scans: ' + (d.scanCount || 0) + ' | Trades: ' + (d.tradesOpened || 0);
-        if (botActivityLog && d.log && d.log.length > 0) {
-          botActivityLog.innerHTML = d.log.map(function(entry) {
-            var t = entry.time ? new Date(entry.time).toLocaleTimeString() : '';
-            return '<div style="color:' + colorLogLine(entry.msg) + ';"><span style="color:#4b5563;">[' + t + ']</span> ' + entry.msg + '</div>';
-          }).join('');
-          botActivityLog.scrollTop = botActivityLog.scrollHeight;
+        if (botActivityLog) {
+          if (d.log && d.log.length > 0) {
+            botActivityLog.innerHTML = d.log.map(function(entry) {
+              var t = entry.time ? new Date(entry.time).toLocaleTimeString() : '';
+              return '<div style="color:' + colorLogLine(entry.msg) + ';"><span style="color:#4b5563;">[' + t + ']</span> ' + entry.msg + '</div>';
+            }).join('');
+            botActivityLog.scrollTop = botActivityLog.scrollHeight;
+          } else {
+            botActivityLog.innerHTML = '<div style="color:#6b7280;">Waiting for first scan...</div>';
+          }
         }
       }).catch(function() {});
   }

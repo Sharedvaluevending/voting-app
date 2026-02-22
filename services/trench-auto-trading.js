@@ -805,7 +805,7 @@ async function _entryTickInner(userId) {
   const openCount = await ScalpTrade.countDocuments({ userId: user._id, status: 'OPEN' });
   const slotsAvailable = maxPositions - openCount;
   if (slotsAvailable <= 0) {
-    if (bot.scanCount % 6 === 0) botLog(userId, `Monitoring ${openCount} positions (${validTrendings.length} tokens tracked)`);
+    if (bot.scanCount % 3 === 0) botLog(userId, `Monitoring ${openCount} positions (${validTrendings.length} tokens tracked)`);
     return;
   }
 
@@ -970,13 +970,13 @@ async function _entryTickInner(userId) {
     }
   }
 
-  if (buyCount === 0 && slotsAvailable > 0) {
-    const parts = [`${candidates.length} candidates`, `${slotsAvailable} slots`];
-    if (filteredOut > 0) parts.push(`${filteredOut} filtered`);
-    if (cooldownBlocked > 0) parts.push(`${cooldownBlocked} cooldown`);
-    if (momentumWaiting > 0) parts.push(`${momentumWaiting} momentum`);
-    botLog(userId, `Scan: ${parts.join(' | ')}`);
-  }
+  // Always log scan summary so Live Activity shows regular updates
+  const parts = [`${candidates.length} candidates`, `${slotsAvailable} slots`];
+  if (buyCount > 0) parts.push(`${buyCount} bought`);
+  if (filteredOut > 0) parts.push(`${filteredOut} filtered`);
+  if (cooldownBlocked > 0) parts.push(`${cooldownBlocked} cooldown`);
+  if (momentumWaiting > 0) parts.push(`${momentumWaiting} momentum`);
+  botLog(userId, `Scan: ${parts.join(' | ')}`);
 
   user.trenchAuto.lastRunAt = new Date();
   await user.save({ validateBeforeSave: false });
@@ -1048,7 +1048,7 @@ function getBotStatus(userId) {
     tradesClosed: bot.tradesClosed,
     uptime: Math.round((Date.now() - bot.startedAt.getTime()) / 1000),
     lastAction: bot.lastAction,
-    log: bot.log.slice(-20)
+    log: bot.log.slice(-30)
   };
 }
 
