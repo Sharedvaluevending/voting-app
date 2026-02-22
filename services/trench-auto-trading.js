@@ -386,7 +386,6 @@ async function fetchTrendingsCached(settings = {}) {
     }
   }
 
-  const memecoin = isMemecoinMode(settings);
   const minScore = intervals.minScore;
   const scoreFn = memecoin ? scoreCandidatePumpStart : scoreCandidate;
   const scored = Array.from(seen.values()).map(t => {
