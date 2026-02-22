@@ -54,6 +54,10 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const dcaDipPct = ft.dcaDipPercent ?? 2;
   const dcaAddSizePct = ft.dcaAddSizePercent ?? 100;
   const dcaMinScore = ft.dcaMinScore ?? 52;
+  const F_MIN_RR = ft.minRiskRewardEnabled === true;
+  const minRiskReward = (ft.minRiskReward != null && Number.isFinite(ft.minRiskReward)) ? Number(ft.minRiskReward) : 1.2;
+  const maxDailyLossPct = (ft.maxDailyLossPercent != null && ft.maxDailyLossPercent > 0) ? Number(ft.maxDailyLossPercent) : null;
+  const minVolume24hUsd = (ft.minVolume24hUsd != null && ft.minVolume24hUsd > 0) ? Number(ft.minVolume24hUsd) : 0;
 
   const c1h = candles['1h'];
   const history = { prices: [], volumes: [], marketCaps: [] };
@@ -79,24 +83,37 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 
   const coinMeta = COIN_META[coinId] || { symbol: coinId.toUpperCase(), name: coinId };
 
+  let portfolioMeta = { dailyStartEquity: initialBalance, lastDailyReset: c1h[50]?.openTime || 0, killSwitch: false };
+  let peakEquity = initialBalance;
+  const drawdownSizingEnabled = ft.drawdownSizingEnabled === true;
+  const drawdownThresholdPercent = ft.drawdownThresholdPercent ?? 10;
+
   for (let t = 50; t < c1h.length - 1; t++) {
     if (equity <= 0) break;
+    if (equity > peakEquity) peakEquity = equity;
 
     const bar = c1h[t];
     const nextBar = c1h[t + 1];
     const slice = sliceCandlesAt(candles, t, '1h');
     if (!slice) continue;
 
+    let volume24h = options.volume24hByCoin?.[coinId];
+    if (volume24h == null && c1h[t].volume != null) {
+      const last24 = c1h.slice(Math.max(0, t - 23), t + 1);
+      volume24h = last24.reduce((s, c) => s + (c.volume || 0), 0);
+    }
     const coinData = {
       id: coinId,
       symbol: coinMeta.symbol,
       name: coinMeta.name,
       price: bar.close,
       change24h: t >= 24 ? ((bar.close - c1h[t - 24].close) / c1h[t - 24].close) * 100 : 0,
-      volume24h: 0,
+      volume24h: volume24h ?? 0,
       marketCap: 0,
       lastUpdated: new Date(bar.openTime)
     };
+    if (minVolume24hUsd > 0 && coinData.volume24h != null && coinData.volume24h > 0 && coinData.volume24h < minVolume24hUsd) continue;
+
 
     const options_bt = {
       strategyWeights: options.strategyWeights || [],
@@ -108,7 +125,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       barTime: F_SESSION_FILTER ? bar.openTime : new Date('2026-01-01T15:00:00Z').getTime(),
       featurePriceActionConfluence: ft.priceActionConfluence === true,
       featureVolatilityFilter: ft.volatilityFilter === true,
-      featureVolumeConfirmation: ft.volumeConfirmation === true
+      featureVolumeConfirmation: ft.volumeConfirmation === true,
+      featureFundingRateFilter: ft.fundingRateFilter === true
     };
 
     if (btcCandles && btcCandles['1h'] && (t - lastBtcAnalysisBar >= 4)) {
@@ -144,8 +162,13 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       indicators: null
     };
 
-    let portfolioState = { openTrades: position ? [position] : [], equity, killSwitch: false };
-    portfolioState = maybeResetDaily(portfolioState, bar.openTime);
+    portfolioMeta = maybeResetDaily({ ...portfolioMeta, equity }, bar.openTime);
+    if (portfolioMeta.dailyStartEquity == null) portfolioMeta.dailyStartEquity = equity;
+    if (maxDailyLossPct != null && portfolioMeta.dailyStartEquity > 0) {
+      const dailyLossPct = ((portfolioMeta.dailyStartEquity - equity) / portfolioMeta.dailyStartEquity) * 100;
+      if (dailyLossPct >= maxDailyLossPct) portfolioMeta.killSwitch = true;
+    }
+    let portfolioState = { openTrades: position ? [position] : [], equity, killSwitch: portfolioMeta.killSwitch, dailyStartEquity: portfolioMeta.dailyStartEquity };
 
     if (position) {
       position = updatePriceRange(position, nextBar.high, nextBar.low);
@@ -211,6 +234,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
             exit: adjExit,
             entryBar: position.entryBar,
             exitBar: t + 1,
+            exitTime: nextBar?.openTime,
             reason: exitReason,
             pnl: totalPnl,
             size: position.originalSize,
@@ -319,19 +343,29 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     }
     if (!decision.stopLoss) continue;
     if (!ft.trailingTp && !decision.takeProfit1) continue;
+    if (F_MIN_RR) {
+      const rr = decision.riskReward ?? 0;
+      if (rr < minRiskReward) continue;
+    }
 
     if (ft.cooldown !== false && lastClosedDirection === decision.side && (t + 1 - lastClosedBar) < COOLDOWN_BARS) continue;
 
-    const canOpen = canOpenTrade({ openTrades: position ? [position] : [], equity }, { maxConcurrentTrades: 1 });
+    const canOpen = canOpenTrade(
+      { openTrades: position ? [position] : [], equity, killSwitch: portfolioMeta.killSwitch, dailyStartEquity: portfolioMeta.dailyStartEquity },
+      { maxConcurrentTrades: 1, dailyLossLimit: maxDailyLossPct, initialBalance }
+    );
     if (!canOpen.ok) continue;
 
     const context = {
       balance: equity,
+      peakEquity: drawdownSizingEnabled ? peakEquity : undefined,
       openTrades: position ? [position] : [],
       streak,
       strategyStats: options.strategyStats || {},
       featureFlags: ft,
       userSettings: {
+        drawdownSizingEnabled,
+        drawdownThresholdPercent,
         riskPerTrade: riskPerTrade * 100,
         riskMode,
         riskDollarsPerTrade,
@@ -421,6 +455,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       exit: adjExit,
       entryBar: position.entryBar,
       exitBar: c1h.length - 1,
+      exitTime: c1h[c1h.length - 1]?.openTime,
       reason: 'END',
       pnl: totalPnl,
       size: position.originalSize,

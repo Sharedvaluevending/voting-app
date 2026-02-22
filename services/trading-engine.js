@@ -269,6 +269,15 @@ function analyzeWithCandles(coinData, candles, options) {
     }
   }
 
+  // Funding rate filter: skip when funding extreme and against our direction
+  if (signal !== 'HOLD' && options.featureFundingRateFilter === true && fundingData && fundingData.rate != null) {
+    const fr = fundingData.rate;
+    const goingLong = signal === 'STRONG_BUY' || signal === 'BUY';
+    const goingShort = signal === 'STRONG_SELL' || signal === 'SELL';
+    if (goingLong && fr > 0.0015) { signal = 'HOLD'; holdReason = 'Funding rate extreme positive (>0.15%) — longs crowded'; }
+    else if (goingShort && fr < -0.0015) { signal = 'HOLD'; holdReason = 'Funding rate extreme negative (<-0.15%) — shorts crowded'; }
+  }
+
   // Quality filters (optional, from options.feature*)
   if (signal !== 'HOLD') {
     const reqPriceAction = options.featurePriceActionConfluence === true;
@@ -369,8 +378,11 @@ function analyzeWithCandles(coinData, candles, options) {
     btcCorrelation, poc, fibLevels, fundingRate: fundingData ? fundingData.rate : null, holdReason, dominantDir
   });
 
-  // Confidence
+  // Confidence and interval (range based on volatility)
   const confidence = calculateConfidence(finalScore, confluenceLevel, regime, candles['1h'].length);
+  const volSpread = (tf1h.volatilityState === 'extreme' || tf4h.volatilityState === 'extreme') ? 15 : (tf1h.volatilityState === 'high' ? 12 : 8);
+  const confidenceLow = Math.max(5, confidence - volSpread);
+  const confidenceHigh = Math.min(95, confidence + volSpread);
 
   return {
     coin: {
@@ -382,6 +394,7 @@ function analyzeWithCandles(coinData, candles, options) {
     score: finalScore,
     strength: Math.round(strength),
     confidence: Math.round(confidence),
+    confidenceInterval: [confidenceLow, confidenceHigh],
     confluenceLevel,
     bestTimeframe: determineBestTF(scores1h, scores4h, scores1d),
     strategyType: bestStrategy.id,
@@ -1754,9 +1767,9 @@ function detectRegime(tf1d, tf4h) {
 
 // Regime–strategy gating: hard block for worst mismatches, soft penalty for borderline
 const REGIME_STRATEGY_BLOCK = {
-  mean_revert: ['trending'],                  // MR hard-blocked only in trending (not compression)
-  trend_follow: ['volatile'],                 // TF hard-blocked only in volatile
-  breakout: ['trending'],                     // Breakout needs consolidation
+  mean_revert: ['trending'],                  // MR hard-blocked in trending (fade the trend = bad)
+  trend_follow: ['volatile'],                 // TF hard-blocked in volatile
+  breakout: ['trending', 'ranging'],           // Breakout needs consolidation, not trend or chop
   position: ['volatile']                      // Position can't handle wild vol
 };
 // Soft penalty: reduce score instead of hard block for borderline matches

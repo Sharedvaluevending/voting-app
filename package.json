@@ -6,6 +6,7 @@
     "start": "node voting-app.js",
     "test": "jest tests/unit",
     "test:apis": "node scripts/test-apis.js",
+    "test:features": "node scripts/test-new-features.js",
     "test:backtest": "node tests/backtest/time-alignment.test.js && node tests/backtest/fill-rules.test.js && node tests/backtest/determinism.test.js && node tests/backtest/trade-state.test.js",
     "generate-vapid": "node scripts/generate-vapid.js"
   },
@@ -22,9 +23,12 @@
   "type": "commonjs",
   "description": "Professional crypto trading signals with multi-strategy scoring, paper trading, learning engine, and user accounts",
   "dependencies": {
+    "@solana/web3.js": "^1.95.4",
     "bcryptjs": "^2.4.3",
     "bitget-api": "^3.1.4",
+    "bs58": "^5.0.0",
     "connect-mongo": "^5.1.0",
+    "dotenv": "^17.3.1",
     "ejs": "^3.1.10",
     "express": "^4.21.2",
     "express-session": "^1.18.1",

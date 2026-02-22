@@ -170,11 +170,21 @@
         </div>
       </div>
 
-      <% if (sig.topStrategies && sig.topStrategies.length > 0) { %>
-      <div class="top-strategies" style="font-size:11px;color:#9ca3af;margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">
-        <% sig.topStrategies.forEach(function(ts) { %>
-          <span class="<%= ts.signal === 'STRONG_BUY' || ts.signal === 'BUY' ? 'up' : ts.signal === 'STRONG_SELL' || ts.signal === 'SELL' ? 'down' : '' %>"><%= ts.name %>: <strong><%= ts.signal %></strong> (<%= ts.score %>)</span>
+      <% if (sig.topStrategies && sig.topStrategies.length > 0) {
+        var top3 = (sig.topStrategies || []).slice(0, 3);
+        var shortNames = { trend_follow: 'Trend', breakout: 'BO', mean_revert: 'MR', momentum: 'Mom', scalping: 'Scalp', swing: 'Swing', position: 'Pos' };
+      %>
+      <div class="top-strategies multi-strategy-view" style="font-size:11px;color:#9ca3af;margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+        <span style="font-size:10px;color:#6b7280;text-transform:uppercase;">Multi-Strategy:</span>
+        <% top3.forEach(function(ts, i) {
+          var sn = shortNames[ts.id] || (ts.name || ts.id || '').slice(0,6);
+          var dirClass = ts.signal === 'STRONG_BUY' || ts.signal === 'BUY' ? 'up' : ts.signal === 'STRONG_SELL' || ts.signal === 'SELL' ? 'down' : '';
+        %>
+          <span class="<%= dirClass %>"><%= sn %>: <strong><%= ts.signal %></strong> <%= ts.score %></span><%= i < top3.length - 1 ? ' | ' : '' %>
         <% }); %>
+        <% if (sig.regime && sig.regime !== 'unknown') { %>
+          <span style="margin-left:6px;font-size:10px;color:#6b7280;">Best for <%= sig.regime %></span>
+        <% } %>
       </div>
       <% } %>
 
@@ -209,7 +219,7 @@
       <% } } %>
 
       <div class="signal-meta">
-        <span>Conf: <strong><%= sig.confidence %>%</strong></span>
+        <span>Conf: <strong><%= sig.confidence %>%</strong><% if (sig.confidenceInterval && sig.confidenceInterval[0] !== sig.confidenceInterval[1]) { %> (<%= sig.confidenceInterval[0] %>–<%= sig.confidenceInterval[1] %>)<% } %></span>
         <span>R:R <strong><%= sig.riskReward %>x</strong></span>
         <span>Confl: <strong><%= sig.confluenceLevel %>/3</strong></span>
         <span>TF: <strong><%= sig.bestTimeframe %></strong></span>

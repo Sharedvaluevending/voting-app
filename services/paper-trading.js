@@ -26,6 +26,27 @@ const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
 const DEFAULT_COOLDOWN_HOURS = 4;  // no same-direction re-entry on same coin within N hours
 const MIN_HOLD_MINUTES = 30;       // Don't score-exit trades within first 30 minutes
 
+// Correlated coin groups: avoid opening 2+ trades in same group (e.g. ETH + MATIC move together)
+const CORRELATED_GROUPS = [
+  ['ethereum', 'polygon', 'arbitrum', 'optimism', 'sui', 'avalanche-2'],
+  ['bitcoin', 'litecoin'],
+  ['solana', 'near']
+];
+function getCorrelatedGroup(coinId) {
+  for (const group of CORRELATED_GROUPS) {
+    if (group.includes(coinId)) return group;
+  }
+  return [coinId]; // Not in any group: only correlates with itself
+}
+function wouldExceedCorrelation(openTrades, newCoinId) {
+  const newGroup = getCorrelatedGroup(newCoinId);
+  for (const t of openTrades) {
+    const openGroup = getCorrelatedGroup(t.coinId);
+    if (newGroup.some(c => openGroup.includes(c))) return true;
+  }
+  return false;
+}
+
 // Feature flag helper: reads user's settings with defaults (all ON)
 function getFeatureFlags(user) {
   const s = user?.settings || {};
@@ -154,6 +175,35 @@ async function openTrade(userId, signalData) {
     throw new Error(`Max open trades reached (${user.settings?.maxOpenTrades || 3}). Close a trade first.`);
   }
 
+  const maxDailyLossPct = user.settings?.maxDailyLossPercent ?? 0;
+  if (maxDailyLossPct > 0) {
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const closedToday = await Trade.find({
+      userId,
+      status: { $ne: 'OPEN' },
+      exitTime: { $gte: todayStart }
+    }).select('pnl').lean();
+    const todayPnl = closedToday.reduce((s, t) => s + (t.pnl || 0), 0);
+    const maxLoss = user.paperBalance * (maxDailyLossPct / 100);
+    if (todayPnl < -maxLoss) {
+      throw new Error(`Daily loss limit reached ($${Math.abs(todayPnl).toFixed(2)} today). Max ${maxDailyLossPct}% of balance. Resets at midnight UTC.`);
+    }
+  }
+
+  const minVol = user.settings?.minVolume24hUsd ?? 0;
+  if (minVol > 0 && signalData.volume24h != null && signalData.volume24h < minVol) {
+    throw new Error(`${signalData.symbol} volume $${(signalData.volume24h || 0).toLocaleString()} below minimum $${minVol.toLocaleString()}`);
+  }
+
+  // Correlation filter: avoid opening 2+ trades in same correlated group (e.g. ETH + MATIC)
+  if (user.settings?.correlationFilterEnabled) {
+    const openTrades = await Trade.find({ userId, status: 'OPEN' }).select('coinId').lean();
+    if (wouldExceedCorrelation(openTrades, signalData.coinId)) {
+      throw new Error(`Correlation filter: ${signalData.symbol} is correlated with an open position. Close one first.`);
+    }
+  }
+
   const ff = getFeatureFlags(user);
 
   // Use RiskEngine.plan for sizing/levels (single-engine: same logic as backtest)
@@ -171,8 +221,10 @@ async function openTrade(userId, signalData) {
     indicators: signalData.indicators || {},
     suggestedLeverage: signalData.leverage || suggestLeverage(signalData.score, signalData.regime, signalData.indicators?.volatilityState)
   };
+  const peakEquity = Math.max(user.initialBalance || 10000, user.paperBalance);
   const context = {
     balance: user.paperBalance,
+    peakEquity,
     openTrades: [],
     streak: user.stats?.currentStreak || 0,
     strategyStats: signalData.strategyStats || {},
@@ -180,6 +232,10 @@ async function openTrade(userId, signalData) {
     userSettings: {
       riskPerTrade: user.settings?.riskPerTrade || 2,
       riskMode: user.settings?.riskMode || 'percent',
+      drawdownSizingEnabled: user.settings?.drawdownSizingEnabled,
+      drawdownThresholdPercent: user.settings?.drawdownThresholdPercent ?? 10,
+      expectancyFilterEnabled: user.settings?.expectancyFilterEnabled,
+      minExpectancy: user.settings?.minExpectancy ?? 0.15,
       riskDollarsPerTrade: user.settings?.riskDollarsPerTrade ?? 200,
       defaultLeverage: user.settings?.defaultLeverage || 1,
       useFixedLeverage: user.settings?.useFixedLeverage,

@@ -58,6 +58,16 @@ describe('Trading Engine Scoring', () => {
     expect(validRegimes).toContain(result.regime);
   });
 
+  test('analyzeCoin returns confidenceInterval', () => {
+    const candles = buildCandles(50000);
+    const result = analyzeCoin(coinData, candles, null, {});
+    expect(result.confidence).toBeDefined();
+    expect(result.confidenceInterval).toBeDefined();
+    expect(Array.isArray(result.confidenceInterval)).toBe(true);
+    expect(result.confidenceInterval.length).toBe(2);
+    expect(result.confidenceInterval[0]).toBeLessThanOrEqual(result.confidenceInterval[1]);
+  });
+
   test('analyzeCoin falls back to basic signal with insufficient candles', () => {
     const result = analyzeCoin(coinData, { '1h': [] }, null, {});
     expect(result).toBeDefined();

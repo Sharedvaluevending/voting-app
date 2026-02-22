@@ -1,0 +1,895 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Trench Warfare</h2>
+  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Solana memecoin scalping — find pumping coins, quick trades. Connect Phantom to trade directly.</p>
+</div>
+
+<!-- Hero -->
+<div class="section" style="margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;">
+  <h3 style="color:#e5e7eb;margin-bottom:8px;">Shitcoin Scalping Hub</h3>
+  <p style="font-size:13px;color:#9ca3af;margin:0;">100% scalping: 5m signals, 60s momentum, 12min max hold, tight TP/SL. Fast in, fast out. Paper or Phantom. DYOR.</p>
+  <div style="margin-top:12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+    <div style="display:flex;gap:8px;">
+      <button type="button" id="btn-mode-paper" class="nav-btn" style="padding:8px 16px;">Paper</button>
+      <button type="button" id="btn-mode-live" class="nav-btn" style="padding:8px 16px;">Live (Phantom)</button>
+    </div>
+    <% if (typeof user !== 'undefined' && user) { %>
+    <span id="paper-balance" style="color:#10b981;font-size:14px;font-weight:600;">Paper: $<%= (trenchPaperBalance || 1000).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) %></span>
+    <button type="button" id="btn-reset-paper" class="nav-btn" style="padding:6px 12px;font-size:12px;" title="Reset to $1,000">Reset</button>
+    <% } else { %>
+    <span style="color:#6b7280;font-size:13px;">Login to paper trade</span>
+    <% } %>
+    <button type="button" id="btn-connect-wallet" class="nav-btn" style="padding:6px 12px;font-size:12px;display:none;">Connect Phantom</button>
+    <span id="wallet-status" style="color:#6b7280;font-size:13px;"></span>
+  </div>
+</div>
+
+<!-- Open Positions - Always visible when logged in, real-time updates every 2s -->
+<% if (typeof user !== 'undefined' && user) { %>
+<div class="section" style="margin-bottom:24px;" id="open-positions-section">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+    <h3 style="color:#e5e7eb;margin:0;">Open Positions</h3>
+    <span id="positions-total-pnl" style="font-size:14px;font-weight:600;color:#6b7280;"></span>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="data-table">
+      <thead>
+        <tr><th>Token</th><th>Entry</th><th>Now</th><th>PnL</th><th>Hold</th><th>Cost</th><th>Action</th></tr>
+      </thead>
+      <tbody id="positions-tbody">
+        <% if (openPositions && openPositions.length > 0) { openPositions.forEach(function(p) { %>
+        <tr data-position-id="<%= p._id %>" data-token-address="<%= p.tokenAddress %>" data-entry-price="<%= p.entryPrice || 0 %>" data-amount-in="<%= p.amountIn || 0 %>" data-token-amount="<%= p.tokenAmount || 0 %>" data-is-paper="<%= p.isPaper ? '1' : '0' %>" data-created="<%= p.createdAt %>">
+          <td><strong><%= p.tokenSymbol %></strong></td>
+          <td style="font-size:12px;">$<%= (p.entryPrice || 0).toFixed(8) %></td>
+          <td class="pos-current-price" style="font-size:12px;color:#6b7280;">—</td>
+          <td class="pos-pnl" style="font-size:13px;font-weight:600;color:#6b7280;">—</td>
+          <td class="pos-hold" style="font-size:12px;color:#6b7280;">—</td>
+          <td style="font-size:12px;"><%= p.isPaper ? '$' + (p.amountIn || 0).toFixed(2) : (p.amountIn || 0) + ' SOL' %></td>
+          <td><% if (p.isPaper) { %><button type="button" class="btn-sell-paper nav-btn" style="padding:4px 10px;font-size:12px;">Sell</button><% } else { %><span style="color:#6b7280;font-size:11px;">—</span><% } %></td>
+        </tr>
+        <% }); } else { %>
+        <tr id="positions-empty-row"><td colspan="7" style="text-align:center;color:#6b7280;font-size:13px;padding:16px;">No open positions. Start the bot or trade manually.</td></tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+</div>
+<% } %>
+
+<!-- Analytics + Equity Curve -->
+<% if (typeof user !== 'undefined' && user) { %>
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Trench Analytics</h3>
+  <div id="trench-analytics" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;">
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Total PnL</div>
+      <div id="stat-total-pnl" style="font-size:18px;font-weight:600;color:#e5e7eb;">$0</div>
+    </div>
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Win Rate</div>
+      <div id="stat-win-rate" style="font-size:18px;font-weight:600;color:#e5e7eb;">0%</div>
+    </div>
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Trades</div>
+      <div id="stat-trades" style="font-size:18px;font-weight:600;color:#e5e7eb;">0</div>
+    </div>
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Best / Worst</div>
+      <div id="stat-best-worst" style="font-size:14px;font-weight:600;color:#10b981;">$0 / $0</div>
+    </div>
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Profit Factor</div>
+      <div id="stat-profit-factor" style="font-size:18px;font-weight:600;color:#e5e7eb;">—</div>
+    </div>
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Avg Win</div>
+      <div id="stat-avg-win" style="font-size:16px;font-weight:600;color:#10b981;">$0</div>
+    </div>
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Avg Loss</div>
+      <div id="stat-avg-loss" style="font-size:16px;font-weight:600;color:#ef4444;">$0</div>
+    </div>
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Expectancy</div>
+      <div id="stat-expectancy" style="font-size:16px;font-weight:600;color:#e5e7eb;">$0</div>
+    </div>
+    <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
+      <div style="font-size:11px;color:#6b7280;">Max Drawdown</div>
+      <div id="stat-max-dd" style="font-size:16px;font-weight:600;color:#ef4444;">0%</div>
+    </div>
+  </div>
+  <div id="equity-curve-section" style="margin-top:16px;display:none;">
+    <h4 style="color:#e5e7eb;font-size:14px;margin:0 0 8px 0;">Equity Curve</h4>
+    <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">Account balance over time. Drawdown shaded in red.</p>
+    <div style="position:relative;background:#0d1320;border-radius:8px;padding:12px;border:1px solid #1e2a3a;overflow:hidden;">
+      <canvas id="trench-equity-curve" style="width:100%;height:260px;display:block;"></canvas>
+      <div id="trench-equity-legend" style="font-size:11px;color:#6b7280;margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;"></div>
+    </div>
+  </div>
+  <div id="trench-paused" style="display:none;margin-top:12px;padding:12px;background:rgba(239,68,68,0.15);border:1px solid #ef4444;border-radius:8px;">
+    <span style="color:#ef4444;">Paused: </span><span id="paused-reason"></span>
+    <button type="button" id="btn-unpause" class="nav-btn" style="margin-left:12px;padding:4px 12px;">Resume</button>
+  </div>
+</div>
+<% } %>
+
+<!-- Auto Trade Bot -->
+<% if (typeof user !== 'undefined' && user) { %>
+<div class="section" style="margin-bottom:24px;">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+    <h3 style="color:#e5e7eb;margin:0;">Auto Trade Bot</h3>
+    <div id="bot-status-badge" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;<%= botRunning ? 'background:rgba(16,185,129,0.2);color:#10b981;border:1px solid rgba(16,185,129,0.3);' : 'background:rgba(107,114,128,0.2);color:#6b7280;border:1px solid rgba(107,114,128,0.3);' %>">
+      <span id="bot-status-dot" style="width:8px;height:8px;border-radius:50%;<%= botRunning ? 'background:#10b981;box-shadow:0 0 6px #10b981;' : 'background:#6b7280;' %>"></span>
+      <span id="bot-status-text"><%= botRunning ? 'RUNNING' : 'STOPPED' %></span>
+    </div>
+    <span id="bot-uptime" style="font-size:11px;color:#6b7280;"></span>
+  </div>
+
+  <% if (trenchAuto && trenchAuto.lastPausedAt) { %>
+  <div id="paused-banner" style="margin-bottom:12px;padding:10px;background:rgba(239,68,68,0.2);border-radius:8px;color:#ef4444;font-size:13px;">Paused: <%= trenchAuto.pausedReason || 'Risk limit' %>. <button type="button" id="btn-unpause-banner" class="nav-btn" style="padding:4px 10px;font-size:12px;">Resume</button></div>
+  <% } %>
+
+  <!-- Start/Stop Controls -->
+  <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:16px;">
+    <button type="button" id="btn-start-bot" class="nav-btn primary" style="padding:10px 24px;font-size:14px;font-weight:600;<%= botRunning ? 'display:none;' : '' %>">Start Bot</button>
+    <button type="button" id="btn-stop-bot" class="nav-btn" style="padding:10px 24px;font-size:14px;font-weight:600;background:rgba(239,68,68,0.2);border-color:#ef4444;color:#ef4444;<%= botRunning ? '' : 'display:none;' %>">Stop Bot</button>
+    <select id="auto-mode" style="padding:8px 12px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;">
+      <option value="paper" <%= (trenchAuto && trenchAuto.mode === 'live') ? '' : 'selected' %>>Paper (test)</option>
+      <option value="live" <%= (trenchAuto && trenchAuto.mode === 'live') ? 'selected' : '' %>>Live (bot wallet)</option>
+    </select>
+    <span id="bot-wallet-status" style="font-size:13px;color:<%= (trenchBot && trenchBot.connected) ? '#10b981' : '#6b7280' %>;"><%= (trenchBot && trenchBot.connected) ? 'Bot: ' + (trenchBot.publicKey || '').slice(0,8) + '...' : 'No bot wallet' %></span>
+    <button type="button" id="btn-connect-bot" class="nav-btn" style="padding:6px 12px;font-size:12px;display:<%= (trenchBot && trenchBot.connected) ? 'none' : 'inline-block' %>;">Connect Bot Wallet</button>
+    <button type="button" id="btn-disconnect-bot" class="nav-btn" style="padding:6px 12px;font-size:12px;display:<%= (trenchBot && trenchBot.connected) ? 'inline-block' : 'none' %>;">Disconnect</button>
+  </div>
+
+  <!-- Bot Activity Log -->
+  <div id="bot-activity-section" style="margin-bottom:16px;<%= botRunning ? '' : 'display:none;' %>">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+      <span style="font-size:13px;color:#9ca3af;font-weight:600;">Live Activity</span>
+      <span id="bot-strategy-badge" style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(16,185,129,0.2);color:#10b981;display:none;"></span>
+      <span id="bot-scan-count" style="font-size:11px;color:#6b7280;"></span>
+    </div>
+    <div id="bot-activity-log" style="max-height:200px;overflow-y:auto;background:rgba(0,0,0,0.3);border:1px solid #1e2a3a;border-radius:8px;padding:8px 12px;font-family:monospace;font-size:12px;line-height:1.6;">
+      <div style="color:#6b7280;">Waiting for bot activity...</div>
+    </div>
+  </div>
+
+  <div id="bot-key-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:#111827;border:1px solid #1e2a3a;border-radius:12px;padding:24px;max-width:480px;width:100%;">
+      <h3 style="color:#fff;margin:0 0 12px 0;">Connect Bot Wallet</h3>
+      <p style="color:#eab308;font-size:12px;margin:0 0 12px 0;">Use a dedicated wallet with limited funds. Export private key from Phantom (Settings > Security > Export Private Key).</p>
+      <textarea id="bot-private-key" placeholder="Paste base58 private key" rows="3" style="width:100%;padding:10px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;font-size:12px;resize:vertical;"></textarea>
+      <div style="margin-top:12px;display:flex;gap:10px;">
+        <button type="button" id="bot-key-cancel" class="nav-btn" style="flex:1;">Cancel</button>
+        <button type="button" id="bot-key-connect" class="nav-btn primary" style="flex:1;">Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings (collapsible) -->
+  <details style="margin-top:8px;padding:12px;background:rgba(15,23,42,0.4);border-radius:8px;border:1px solid #1e2a3a;">
+    <summary style="cursor:pointer;color:#e5e7eb;font-weight:600;">Bot Settings</summary>
+    <p style="font-size:12px;color:#6b7280;margin:8px 0;"><strong>Memecoin</strong>: Detect pump START (0.5–10% 5m), 1–3% TP, 2–5min hold. <strong>Scalping</strong>: Trending tokens, 8–12% TP.</p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:12px;">
+      <div><label style="font-size:11px;color:#6b7280;">Strategy</label><select id="auto-strategy" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"><option value="memecoin" <%= !trenchAuto || trenchAuto.strategy !== 'scalping' ? 'selected' : '' %>>Memecoin (pump start)</option><option value="scalping" <%= (trenchAuto && trenchAuto.strategy) === 'scalping' ? 'selected' : '' %>>Scalping (trending)</option></select></div>
+      <div><label style="font-size:11px;color:#6b7280;">Max Positions</label><input type="number" id="auto-max-pos" value="<%= (trenchAuto && trenchAuto.maxOpenPositions) != null ? trenchAuto.maxOpenPositions : 3 %>" min="1" max="15" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+      <div><label style="font-size:11px;color:#6b7280;">$ per Trade (Paper)</label><input type="number" id="auto-amount-usd" value="<%= (trenchAuto && trenchAuto.amountPerTradeUsd) != null ? trenchAuto.amountPerTradeUsd : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 50 : 25) %>" min="5" max="500" step="5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+      <div><label style="font-size:11px;color:#6b7280;">SOL per Trade (Live)</label><input type="number" id="auto-amount-sol" value="<%= (trenchAuto && trenchAuto.amountPerTradeSol) != null ? trenchAuto.amountPerTradeSol : 0.05 %>" min="0.01" max="1" step="0.01" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+    </div>
+    <details style="margin-top:12px;padding:10px;background:rgba(15,23,42,0.3);border-radius:6px;border:1px solid rgba(30,42,58,0.5);">
+      <summary style="cursor:pointer;color:#9ca3af;font-size:13px;font-weight:600;">Profit Locking</summary>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
+        <div><label style="font-size:11px;color:#6b7280;">TP %</label><input type="number" id="auto-tp" value="<%= (trenchAuto && trenchAuto.tpPercent) != null ? trenchAuto.tpPercent : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 10 : 2) %>" min="1" max="50" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">SL %</label><input type="number" id="auto-sl" value="<%= (trenchAuto && trenchAuto.slPercent) != null ? trenchAuto.slPercent : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 8 : 2) %>" min="1" max="30" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Trailing %</label><input type="number" id="auto-trailing" value="<%= (trenchAuto && trenchAuto.trailingStopPercent) != null ? trenchAuto.trailingStopPercent : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 5 : 2) %>" min="1" max="20" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Max hold (min)</label><input type="number" id="auto-max-hold" value="<%= (trenchAuto && trenchAuto.maxHoldMinutes) != null ? trenchAuto.maxHoldMinutes : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 10 : 4) %>" min="2" max="15" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Breakeven at %</label><input type="number" id="auto-breakeven-at" value="<%= (trenchAuto && trenchAuto.breakevenAtPercent) != null ? trenchAuto.breakevenAtPercent : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 5 : 1) %>" min="1" max="15" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-trailing" <%= (trenchAuto && trenchAuto.useTrailingStop !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Trailing stop (adaptive: tight at small gains, wide at big gains)</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-breakeven" <%= (trenchAuto && trenchAuto.useBreakevenStop !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Breakeven stop (locks at entry once profit hits threshold)</span></label>
+      </div>
+    </details>
+    <details style="margin-top:8px;padding:10px;background:rgba(15,23,42,0.3);border-radius:6px;border:1px solid rgba(30,42,58,0.5);">
+      <summary style="cursor:pointer;color:#9ca3af;font-size:13px;font-weight:600;">Entry Filters</summary>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
+        <div><label style="font-size:11px;color:#6b7280;">Min Liq $</label><input type="number" id="auto-min-liq" value="<%= (trenchAuto && trenchAuto.minLiquidityUsd) != null ? trenchAuto.minLiquidityUsd : 10000 %>" min="5000" max="100000" step="1000" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Max Top10 %</label><input type="number" id="auto-max-top10" value="<%= (trenchAuto && trenchAuto.maxTop10HoldersPercent) != null ? trenchAuto.maxTop10HoldersPercent : 80 %>" min="50" max="100" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Max 24h %</label><input type="number" id="auto-max-24h" value="<%= (trenchAuto && trenchAuto.maxPriceChange24hPercent) != null ? trenchAuto.maxPriceChange24hPercent : 500 %>" min="100" max="1000" step="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Cooldown (hr)</label><input type="number" id="auto-cooldown" value="<%= (trenchAuto && trenchAuto.cooldownHours) != null ? trenchAuto.cooldownHours : 1 %>" min="0.25" max="4" step="0.25" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-filters" <%= (trenchAuto && trenchAuto.useEntryFilters !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Use entry filters (whale check, liquidity via Mobula)</span></label>
+      </div>
+    </details>
+    <details style="margin-top:8px;padding:10px;background:rgba(15,23,42,0.3);border-radius:6px;border:1px solid rgba(30,42,58,0.5);">
+      <summary style="cursor:pointer;color:#9ca3af;font-size:13px;font-weight:600;">Risk Controls</summary>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
+        <div><label style="font-size:11px;color:#6b7280;">Max daily loss %</label><input type="number" id="auto-max-daily-loss" value="<%= (trenchAuto && trenchAuto.maxDailyLossPercent) != null ? trenchAuto.maxDailyLossPercent : 15 %>" min="5" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Pause after losses</label><input type="number" id="auto-consec-losses" value="<%= (trenchAuto && trenchAuto.consecutiveLossesToPause) != null ? trenchAuto.consecutiveLossesToPause : 3 %>" min="2" max="10" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Min SOL (live)</label><input type="number" id="auto-min-sol" value="<%= (trenchAuto && trenchAuto.minSolBalance) != null ? trenchAuto.minSolBalance : 0.05 %>" min="0.01" max="1" step="0.01" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+      </div>
+    </details>
+    <details style="margin-top:8px;padding:10px;background:rgba(15,23,42,0.3);border-radius:6px;border:1px solid rgba(30,42,58,0.5);">
+      <summary style="cursor:pointer;color:#9ca3af;font-size:13px;font-weight:600;">Profit Payout (Live Mode)</summary>
+      <p style="font-size:11px;color:#6b7280;margin:8px 0;">Automatically send a % of live trade profits to an external wallet.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:12px;">
+        <div style="grid-column:1/-1;"><label style="font-size:11px;color:#6b7280;">Payout Wallet Address</label><input type="text" id="auto-payout-address" value="<%= (trenchAuto && trenchAuto.profitPayoutAddress) || '' %>" placeholder="Solana wallet address..." style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;font-family:monospace;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Payout % of profit</label><input type="number" id="auto-payout-percent" value="<%= (trenchAuto && trenchAuto.profitPayoutPercent) != null ? trenchAuto.profitPayoutPercent : 0 %>" min="0" max="100" step="5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Min payout (SOL)</label><input type="number" id="auto-payout-min" value="<%= (trenchAuto && trenchAuto.profitPayoutMinSol) != null ? trenchAuto.profitPayoutMinSol : 0.1 %>" min="0.01" max="10" step="0.01" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+      </div>
+    </details>
+    <details style="margin-top:8px;padding:10px;background:rgba(15,23,42,0.3);border-radius:6px;border:1px solid rgba(30,42,58,0.5);">
+      <summary style="cursor:pointer;color:#9ca3af;font-size:13px;font-weight:600;">Notifications</summary>
+      <div style="margin-top:12px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" id="auto-notify-open" <%= (trenchAuto && trenchAuto.trenchNotifyTradeOpen !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Notify on buy</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:8px;"><input type="checkbox" id="auto-notify-close" <%= (trenchAuto && trenchAuto.trenchNotifyTradeClose !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Notify on sell</span></label>
+      </div>
+    </details>
+    <button type="button" id="btn-save-auto" class="nav-btn primary" style="margin-top:12px;padding:8px 16px;">Save Settings</button>
+  </details>
+</div>
+<% } %>
+
+<!-- Trade History -->
+<% if (typeof user !== 'undefined' && user) { %>
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Trade History</h3>
+  <div id="trade-history-container" style="overflow-x:auto;">
+    <p style="color:#6b7280;font-size:13px;">Loading...</p>
+  </div>
+</div>
+<% } %>
+
+<!-- Quick Links -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Quick Links</h3>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
+    <a href="https://dexscreener.com/solana" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">Dexscreener</a>
+    <a href="https://pump.fun" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">pump.fun</a>
+    <a href="https://jup.ag" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">Jupiter</a>
+    <a href="https://birdeye.so" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">Birdeye</a>
+    <a href="https://mobula.io" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">Mobula</a>
+  </div>
+</div>
+
+<!-- Scalping Criteria -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Scalping Criteria</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Key filters for shitcoin scalps.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">
+    <div style="padding:10px 14px;background:#1e293b;border-radius:8px;border-left:3px solid #10b981;"><strong style="color:#e5e7eb;">Liquidity</strong><br><span style="font-size:12px;color:#9ca3af;">$50k+ pool, volume spike</span></div>
+    <div style="padding:10px 14px;background:#1e293b;border-radius:8px;border-left:3px solid #3b82f6;"><strong style="color:#e5e7eb;">Momentum</strong><br><span style="font-size:12px;color:#9ca3af;">5m/15m % change, not parabolic</span></div>
+    <div style="padding:10px 14px;background:#1e293b;border-radius:8px;border-left:3px solid #a78bfa;"><strong style="color:#e5e7eb;">Smart Money</strong><br><span style="font-size:12px;color:#9ca3af;">Whale buys, sniper activity</span></div>
+    <div style="padding:10px 14px;background:#1e293b;border-radius:8px;border-left:3px solid #eab308;"><strong style="color:#e5e7eb;">Security</strong><br><span style="font-size:12px;color:#9ca3af;">No honeypot, holder distribution</span></div>
+    <div style="padding:10px 14px;background:#1e293b;border-radius:8px;border-left:3px solid #f97316;"><strong style="color:#e5e7eb;">Timing</strong><br><span style="font-size:12px;color:#9ca3af;">Volume before price, pullback entry</span></div>
+    <div style="padding:10px 14px;background:#1e293b;border-radius:8px;border-left:3px solid #ef4444;"><strong style="color:#e5e7eb;">Exit</strong><br><span style="font-size:12px;color:#9ca3af;">10–25% TP, 5–10% SL, time stop</span></div>
+  </div>
+</div>
+
+<!-- Buy Modal -->
+<div id="buy-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#111827;border:1px solid #1e2a3a;border-radius:12px;padding:24px;max-width:400px;width:100%;">
+    <h3 style="color:#fff;margin:0 0 16px 0;">Buy <span id="modal-token-symbol"></span></h3>
+    <p id="modal-desc" style="color:#9ca3af;font-size:12px;margin:0 0 12px 0;">Paper: spend USD. Live: swap SOL via Phantom.</p>
+    <div id="modal-amount-row" style="margin-bottom:12px;">
+      <label style="display:block;color:#9ca3af;font-size:12px;margin-bottom:4px;">Amount (<span id="modal-amount-label">USD</span>)</label>
+      <input type="number" id="modal-amount" step="0.01" min="0.01" placeholder="10" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;font-size:14px;">
+    </div>
+    <div id="modal-slippage-row" style="margin-bottom:16px;display:none;">
+      <label style="display:block;color:#9ca3af;font-size:12px;margin-bottom:4px;">Slippage (%)</label>
+      <input type="number" id="modal-slippage" value="5" min="1" max="50" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;font-size:14px;">
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button type="button" id="modal-cancel" class="nav-btn" style="flex:1;">Cancel</button>
+      <button type="button" id="modal-confirm" class="nav-btn primary" style="flex:1;">Confirm Buy</button>
+    </div>
+    <div id="modal-status" style="margin-top:12px;font-size:12px;color:#9ca3af;"></div>
+  </div>
+</div>
+
+<script>window.__TRENDINGS__ = <%- JSON.stringify((trendings || []).map(function(t){ return { tokenAddress: t.tokenAddress, price: t.price }; })) %>;</script>
+<script src="https://unpkg.com/@solana/web3.js@1.95.4/lib/index.iife.min.js"></script>
+<script src="/js/trench-phantom.js"></script>
+<script>
+(function() {
+  var walletPubkey = null;
+  var modalToken = null;
+  var isPaperMode = true;
+
+  function setMode(paper) {
+    isPaperMode = !!paper;
+    var paperBtn = document.getElementById('btn-mode-paper');
+    var liveBtn = document.getElementById('btn-mode-live');
+    if (paperBtn) paperBtn.className = isPaperMode ? 'nav-btn primary' : 'nav-btn';
+    if (liveBtn) liveBtn.className = !isPaperMode ? 'nav-btn primary' : 'nav-btn';
+    document.getElementById('modal-slippage-row').style.display = isPaperMode ? 'none' : 'block';
+    document.getElementById('modal-amount-label').textContent = isPaperMode ? 'USD' : 'SOL';
+    document.getElementById('modal-amount').placeholder = isPaperMode ? '10' : '0.1';
+  }
+
+  function showModal(token) {
+    modalToken = token;
+    document.getElementById('modal-token-symbol').textContent = token.symbol;
+    document.getElementById('modal-amount').value = isPaperMode ? '10' : '0.1';
+    document.getElementById('modal-slippage').value = '5';
+    document.getElementById('modal-status').textContent = '';
+    document.getElementById('modal-slippage-row').style.display = isPaperMode ? 'none' : 'block';
+    document.getElementById('modal-amount-label').textContent = isPaperMode ? 'USD' : 'SOL';
+    document.getElementById('buy-modal').style.display = 'flex';
+  }
+
+  function hideModal() {
+    document.getElementById('buy-modal').style.display = 'none';
+    modalToken = null;
+  }
+
+  function getPriceForToken(addr) {
+    var list = window.__TRENDINGS__ || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].tokenAddress === addr) return list[i].price || 0;
+    }
+    return 0;
+  }
+
+  document.getElementById('btn-mode-paper').addEventListener('click', function() { setMode(true); });
+  document.getElementById('btn-mode-live').addEventListener('click', function() {
+    setMode(false);
+    document.getElementById('btn-connect-wallet').style.display = 'inline-block';
+  });
+  document.getElementById('btn-connect-wallet').addEventListener('click', function() {
+    if (window.TrenchPhantom && window.TrenchPhantom.connect) {
+      window.TrenchPhantom.connect().then(function(pk) {
+        walletPubkey = pk;
+        document.getElementById('wallet-status').textContent = 'Connected: ' + (pk ? pk.slice(0,4) + '...' + pk.slice(-4) : '');
+      }).catch(function(err) {
+        document.getElementById('wallet-status').textContent = 'Error: ' + (err.message || 'Install Phantom');
+      });
+    } else {
+      document.getElementById('wallet-status').textContent = 'Phantom not found.';
+    }
+  });
+  setMode(true);
+
+  document.getElementById('btn-reset-paper').addEventListener('click', function() {
+    if (!confirm('Reset trench paper balance to $1,000? Close all positions first.')) return;
+    fetch('/api/trench-warfare/paper/reset', { method: 'POST', credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.success) { document.getElementById('paper-balance').textContent = 'Paper: $' + d.trenchPaperBalance.toFixed(2); location.reload(); }
+      });
+  });
+
+  // Event delegation for sell buttons (works with dynamically added rows)
+  var positionsTbody = document.getElementById('positions-tbody');
+  if (positionsTbody) {
+    positionsTbody.addEventListener('click', function(e) {
+      var btn = e.target.closest('.btn-sell-paper');
+      if (!btn) return;
+      var row = btn.closest('tr');
+      var posId = row.getAttribute('data-position-id');
+      var tokenAddr = row.getAttribute('data-token-address');
+      var price = parseFloat(row.getAttribute('data-current-price')) || getPriceForToken(tokenAddr);
+      if (!price || price <= 0) { alert('Price not found. Refresh page to update.'); return; }
+      btn.disabled = true;
+      btn.textContent = 'Selling...';
+      fetch('/api/trench-warfare/paper/sell', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ positionId: posId, currentPrice: price })
+      }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.error) { alert(d.error); btn.disabled = false; btn.textContent = 'Sell'; }
+        else { if (typeof loadPositions === 'function') loadPositions(); if (typeof loadAnalytics === 'function') loadAnalytics(); }
+      }).catch(function() { btn.disabled = false; btn.textContent = 'Sell'; });
+    });
+  }
+
+  document.getElementById('modal-cancel').addEventListener('click', hideModal);
+
+  document.getElementById('modal-confirm').addEventListener('click', function() {
+    if (!modalToken) return;
+    var amount = parseFloat(document.getElementById('modal-amount').value);
+    if (!amount || amount <= 0) {
+      document.getElementById('modal-status').textContent = 'Enter valid amount.';
+      return;
+    }
+    var statusEl = document.getElementById('modal-status');
+
+    if (isPaperMode) {
+      statusEl.textContent = 'Buying...';
+      fetch('/api/trench-warfare/paper/buy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          tokenAddress: modalToken.tokenAddress,
+          tokenSymbol: modalToken.symbol,
+          tokenName: modalToken.name,
+          amountUsd: amount,
+          price: modalToken.price || 0
+        })
+      }).then(function(r) { return r.json();       }).then(function(d) {
+        if (d.error) statusEl.textContent = d.error;
+        else { statusEl.textContent = 'Done!'; document.getElementById('paper-balance').textContent = 'Paper: $' + d.trenchPaperBalance.toFixed(2); hideModal(); if (typeof loadPositions === 'function') loadPositions(); if (typeof loadAnalytics === 'function') loadAnalytics(); }
+      }).catch(function(e) { statusEl.textContent = 'Error: ' + e.message; });
+      return;
+    }
+
+    if (!walletPubkey) { statusEl.textContent = 'Connect Phantom first.'; return; }
+    var slippage = parseFloat(document.getElementById('modal-slippage').value) || 5;
+    statusEl.textContent = 'Getting quote...';
+    fetch('/api/trench-warfare/swap/quote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tokenOut: modalToken.tokenAddress,
+        amount: amount,
+        walletAddress: walletPubkey,
+        slippage: slippage
+      })
+    }).then(function(r) { return r.json(); }).then(function(quote) {
+      if (quote.error) throw new Error(quote.error);
+      var solana = quote.data && quote.data.solana;
+      var serialized = solana && solana.transaction && solana.transaction.serialized;
+      if (!serialized) throw new Error('No transaction in quote');
+      statusEl.textContent = 'Sign in Phantom...';
+      return window.TrenchPhantom.signAndSendTransaction(serialized);
+    }).then(function(signedB64) {
+      statusEl.textContent = 'Sending...';
+      return fetch('/api/trench-warfare/swap/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signedTransaction: signedB64,
+          tokenAddress: modalToken.tokenAddress,
+          tokenSymbol: modalToken.symbol,
+          tokenName: modalToken.name,
+          amountIn: amount,
+          side: 'BUY',
+          walletAddress: walletPubkey
+        })
+      });
+    }).then(function(r) { return r.json(); }).then(function(result) {
+      if (result.error) throw new Error(result.error);
+      var data = result.data || result;
+      if (data.success && data.transactionHash) {
+        statusEl.innerHTML = 'Done! <a href="https://solscan.io/tx/' + data.transactionHash + '" target="_blank" rel="noopener" style="color:#3b82f6;">View tx</a>';
+        hideModal();
+      } else {
+        statusEl.textContent = 'Failed: ' + (result.error || 'Unknown');
+      }
+    }).catch(function(err) {
+      statusEl.textContent = 'Error: ' + (err.message || err);
+    });
+  });
+
+  document.getElementById('buy-modal').addEventListener('click', function(e) {
+    if (e.target === this) hideModal();
+  });
+
+  var btnConnectBot = document.getElementById('btn-connect-bot');
+  var btnDisconnectBot = document.getElementById('btn-disconnect-bot');
+  var btnSaveAuto = document.getElementById('btn-save-auto');
+  if (btnConnectBot) {
+    btnConnectBot.addEventListener('click', function() {
+      document.getElementById('bot-key-modal').style.display = 'flex';
+    });
+  }
+  var botKeyModal = document.getElementById('bot-key-modal');
+  if (document.getElementById('bot-key-cancel')) {
+    document.getElementById('bot-key-cancel').addEventListener('click', function() {
+      if (botKeyModal) botKeyModal.style.display = 'none';
+    });
+  }
+  if (botKeyModal) {
+    botKeyModal.addEventListener('click', function(e) {
+      if (e.target === botKeyModal) botKeyModal.style.display = 'none';
+    });
+  }
+  if (document.getElementById('bot-key-connect')) {
+    document.getElementById('bot-key-connect').addEventListener('click', function() {
+      var pk = (document.getElementById('bot-private-key').value || '').trim();
+      if (!pk) { alert('Paste your private key'); return; }
+      fetch('/api/trench-warfare/bot/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ privateKeyBase58: pk })
+      }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.error) alert(d.error);
+        else { document.getElementById('bot-key-modal').style.display = 'none'; document.getElementById('bot-private-key').value = ''; location.reload(); }
+      });
+    });
+  }
+  if (btnDisconnectBot) {
+    btnDisconnectBot.addEventListener('click', function() {
+      if (!confirm('Disconnect bot wallet? Auto live trading will stop.')) return;
+      fetch('/api/trench-warfare/bot/disconnect', { method: 'POST', credentials: 'same-origin' })
+        .then(function(r) { return r.json(); }).then(function() { location.reload(); });
+    });
+  }
+  if (btnSaveAuto) {
+    btnSaveAuto.addEventListener('click', function() {
+      var payload = {
+        strategy: document.getElementById('auto-strategy')?.value || 'memecoin',
+        mode: document.getElementById('auto-mode').value,
+        maxOpenPositions: parseInt(document.getElementById('auto-max-pos').value, 10),
+        amountPerTradeUsd: parseFloat(document.getElementById('auto-amount-usd').value),
+        amountPerTradeSol: parseFloat(document.getElementById('auto-amount-sol').value),
+        tpPercent: parseFloat(document.getElementById('auto-tp')?.value || 12),
+        slPercent: parseFloat(document.getElementById('auto-sl')?.value || 8),
+        trailingStopPercent: parseFloat(document.getElementById('auto-trailing')?.value || 5),
+        useTrailingStop: document.getElementById('auto-use-trailing')?.checked !== false,
+        breakevenAtPercent: parseFloat(document.getElementById('auto-breakeven-at')?.value || 5),
+        useBreakevenStop: document.getElementById('auto-use-breakeven')?.checked !== false,
+        maxHoldMinutes: parseInt(document.getElementById('auto-max-hold')?.value || 12, 10),
+        minLiquidityUsd: parseFloat(document.getElementById('auto-min-liq')?.value || 10000),
+        maxTop10HoldersPercent: parseFloat(document.getElementById('auto-max-top10')?.value || 80),
+        maxPriceChange24hPercent: parseFloat(document.getElementById('auto-max-24h')?.value || 500),
+        cooldownHours: parseFloat(document.getElementById('auto-cooldown')?.value || 1),
+        useEntryFilters: document.getElementById('auto-use-filters')?.checked !== false,
+        maxDailyLossPercent: parseFloat(document.getElementById('auto-max-daily-loss')?.value || 15),
+        consecutiveLossesToPause: parseInt(document.getElementById('auto-consec-losses')?.value || 3, 10),
+        minSolBalance: parseFloat(document.getElementById('auto-min-sol')?.value || 0.05),
+        profitPayoutAddress: (document.getElementById('auto-payout-address')?.value || '').trim(),
+        profitPayoutPercent: parseFloat(document.getElementById('auto-payout-percent')?.value || 0),
+        profitPayoutMinSol: parseFloat(document.getElementById('auto-payout-min')?.value || 0.1),
+        trenchNotifyTradeOpen: document.getElementById('auto-notify-open')?.checked !== false,
+        trenchNotifyTradeClose: document.getElementById('auto-notify-close')?.checked !== false
+      };
+      fetch('/api/trench-warfare/auto/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload)
+      }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.error) alert(d.error);
+        else {
+          var strat = (d.trenchAuto && d.trenchAuto.strategy) || payload.strategy || 'memecoin';
+          alert('Settings saved. Strategy: ' + (strat === 'memecoin' ? 'Memecoin (pump start)' : 'Scalping'));
+        }
+      });
+    });
+  }
+
+  // ---- BOT START / STOP ----
+  var btnStart = document.getElementById('btn-start-bot');
+  var btnStop = document.getElementById('btn-stop-bot');
+  var botStatusBadge = document.getElementById('bot-status-badge');
+  var botStatusDot = document.getElementById('bot-status-dot');
+  var botStatusText = document.getElementById('bot-status-text');
+  var botUptime = document.getElementById('bot-uptime');
+  var botActivitySection = document.getElementById('bot-activity-section');
+  var botActivityLog = document.getElementById('bot-activity-log');
+  var botScanCount = document.getElementById('bot-scan-count');
+  var botStrategyBadge = document.getElementById('bot-strategy-badge');
+  var botPolling = null;
+
+  function updateBotUI(running) {
+    if (btnStart) btnStart.style.display = running ? 'none' : '';
+    if (btnStop) btnStop.style.display = running ? '' : 'none';
+    if (botActivitySection) botActivitySection.style.display = running ? '' : 'none';
+    if (botStatusDot) {
+      botStatusDot.style.background = running ? '#10b981' : '#6b7280';
+      botStatusDot.style.boxShadow = running ? '0 0 6px #10b981' : 'none';
+    }
+    if (botStatusText) botStatusText.textContent = running ? 'RUNNING' : 'STOPPED';
+    if (botStatusBadge) {
+      botStatusBadge.style.background = running ? 'rgba(16,185,129,0.2)' : 'rgba(107,114,128,0.2)';
+      botStatusBadge.style.color = running ? '#10b981' : '#6b7280';
+      botStatusBadge.style.borderColor = running ? 'rgba(16,185,129,0.3)' : 'rgba(107,114,128,0.3)';
+    }
+  }
+
+  function formatUptime(seconds) {
+    if (seconds < 60) return seconds + 's';
+    if (seconds < 3600) return Math.floor(seconds / 60) + 'm ' + (seconds % 60) + 's';
+    return Math.floor(seconds / 3600) + 'h ' + Math.floor((seconds % 3600) / 60) + 'm';
+  }
+
+  function colorLogLine(msg) {
+    if (msg.indexOf('BUY') !== -1) return '#10b981';
+    if (msg.indexOf('SELL') !== -1) return '#f59e0b';
+    if (msg.indexOf('PAUSED') !== -1 || msg.indexOf('Error') !== -1 || msg.indexOf('failed') !== -1) return '#ef4444';
+    if (msg.indexOf('STARTED') !== -1 || msg.indexOf('STOPPED') !== -1) return '#3b82f6';
+    return '#9ca3af';
+  }
+
+  function pollBotStatus() {
+    fetch('/api/trench-warfare/auto/status', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        updateBotUI(d.running);
+        if (!d.running) {
+          if (botPolling) { clearInterval(botPolling); botPolling = null; }
+          return;
+        }
+        if (botUptime) botUptime.textContent = 'Uptime: ' + formatUptime(d.uptime || 0);
+        if (botStrategyBadge) {
+          botStrategyBadge.textContent = (d.strategy || 'memecoin') === 'memecoin' ? 'Meme Bot' : 'Scalp Bot';
+          botStrategyBadge.style.display = 'inline-block';
+        }
+        if (botScanCount) botScanCount.textContent = 'Scans: ' + (d.scanCount || 0) + ' | Trades: ' + (d.tradesOpened || 0);
+        if (botActivityLog) {
+          if (d.log && d.log.length > 0) {
+            botActivityLog.innerHTML = d.log.map(function(entry) {
+              var t = entry.time ? new Date(entry.time).toLocaleTimeString() : '';
+              return '<div style="color:' + colorLogLine(entry.msg) + ';"><span style="color:#4b5563;">[' + t + ']</span> ' + entry.msg + '</div>';
+            }).join('');
+            botActivityLog.scrollTop = botActivityLog.scrollHeight;
+          } else {
+            botActivityLog.innerHTML = '<div style="color:#6b7280;">Waiting for first scan...</div>';
+          }
+        }
+      }).catch(function() {});
+  }
+
+  if (btnStart) btnStart.addEventListener('click', function() {
+    btnStart.disabled = true;
+    btnStart.textContent = 'Starting...';
+    var mode = document.getElementById('auto-mode').value;
+    var strategy = document.getElementById('auto-strategy')?.value || 'memecoin';
+    fetch('/api/trench-warfare/auto/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ mode: mode, strategy: strategy })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+      btnStart.disabled = false;
+      btnStart.textContent = 'Start Bot';
+      if (d.error) { alert(d.error); return; }
+      updateBotUI(true);
+      if (!botPolling) botPolling = setInterval(pollBotStatus, 5000);
+      pollBotStatus();
+    }).catch(function(e) { alert('Error: ' + (e.message || e)); btnStart.disabled = false; btnStart.textContent = 'Start Bot'; });
+  });
+
+  if (btnStop) btnStop.addEventListener('click', function() {
+    fetch('/api/trench-warfare/auto/stop', { method: 'POST', credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        updateBotUI(false);
+        if (botPolling) { clearInterval(botPolling); botPolling = null; }
+        loadAnalytics();
+      });
+  });
+
+  // Start polling if bot is already running
+  if (<%= botRunning ? 'true' : 'false' %>) {
+    botPolling = setInterval(pollBotStatus, 5000);
+    pollBotStatus();
+  }
+
+  // ---- ANALYTICS + EQUITY CURVE ----
+  var trenchEquityData = null;
+  function loadAnalytics() {
+    fetch('/api/trench-warfare/analytics', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.error) return;
+        var el = document.getElementById('stat-total-pnl');
+        if (el) { el.textContent = '$' + (d.totalPnl || 0).toFixed(2); el.style.color = (d.totalPnl || 0) >= 0 ? '#10b981' : '#ef4444'; }
+        el = document.getElementById('stat-win-rate');
+        if (el) el.textContent = (d.winRate || 0) + '%';
+        el = document.getElementById('stat-trades');
+        if (el) el.textContent = d.totalTrades || 0;
+        el = document.getElementById('stat-best-worst');
+        if (el) { el.innerHTML = '<span style="color:#10b981">$' + (d.bestTrade || 0).toFixed(2) + '</span> / <span style="color:#ef4444">$' + (d.worstTrade || 0).toFixed(2) + '</span>'; }
+        el = document.getElementById('stat-profit-factor');
+        if (el) el.textContent = d.profitFactor != null ? d.profitFactor : '—';
+        el = document.getElementById('stat-avg-win');
+        if (el) { el.textContent = '$' + (d.avgWin || 0).toFixed(2); el.style.color = '#10b981'; }
+        el = document.getElementById('stat-avg-loss');
+        if (el) { el.textContent = '$' + (d.avgLoss || 0).toFixed(2); el.style.color = '#ef4444'; }
+        el = document.getElementById('stat-expectancy');
+        if (el) { el.textContent = '$' + (d.expectancy || 0).toFixed(2); el.style.color = (d.expectancy || 0) >= 0 ? '#10b981' : '#ef4444'; }
+        el = document.getElementById('stat-max-dd');
+        if (el) { el.textContent = (d.maxDrawdownPct || 0) + '%'; el.style.color = '#ef4444'; }
+        var paused = document.getElementById('trench-paused');
+        if (paused) {
+          if (d.paused) { paused.style.display = 'block'; document.getElementById('paused-reason').textContent = d.pausedReason || ''; }
+          else { paused.style.display = 'none'; }
+        }
+        var pausedBanner = document.getElementById('paused-banner');
+        if (pausedBanner) pausedBanner.style.display = d.paused ? '' : 'none';
+        var hist = document.getElementById('trade-history-container');
+        if (hist && d.closedTrades && d.closedTrades.length > 0) {
+          hist.innerHTML = '<table class="data-table"><thead><tr><th>Token</th><th>Side</th><th>Type</th><th>Entry</th><th>Exit</th><th>PnL</th><th>Date</th></tr></thead><tbody>' +
+            d.closedTrades.slice(0, 20).map(function(t) {
+              var pnl = (t.pnl || 0);
+              var pnlCl = pnl >= 0 ? '#10b981' : '#ef4444';
+              return '<tr><td><strong>' + (t.tokenSymbol || '') + '</strong></td><td>' + (t.side || '') + '</td><td>' + (t.isPaper ? 'Paper' : 'Live') + '</td><td>$' + (t.entryPrice || 0).toFixed(8) + '</td><td>$' + (t.exitPrice || 0).toFixed(8) + '</td><td style="color:' + pnlCl + '">$' + pnl.toFixed(2) + '</td><td>' + (t.exitTime ? new Date(t.exitTime).toLocaleString() : '') + '</td></tr>';
+            }).join('') + '</tbody></table>';
+        } else if (hist) {
+          hist.innerHTML = '<p style="color:#6b7280;font-size:13px;">No closed trades yet.</p>';
+        }
+        // Equity curve
+        var eqSection = document.getElementById('equity-curve-section');
+        var canvas = document.getElementById('trench-equity-curve');
+        if (eqSection && canvas && d.equityCurve && d.equityCurve.length > 1) {
+          eqSection.style.display = 'block';
+          drawTrenchEquityCurve(canvas, d.equityCurve);
+          var legend = document.getElementById('trench-equity-legend');
+          if (legend) {
+            var last = d.equityCurve[d.equityCurve.length - 1];
+            legend.innerHTML = '<span>Current: <strong style="color:#fff">$' + (last.equity || 0).toLocaleString() + '</strong></span><span>Max DD: <strong style="color:#ef4444">' + (last.drawdownPct || 0) + '%</strong></span>';
+          }
+        } else if (eqSection) {
+          eqSection.style.display = 'none';
+        }
+      }).catch(function() {});
+  }
+
+  function drawTrenchEquityCurve(canvas, data) {
+    if (!canvas || !data || data.length < 2) return;
+    trenchEquityData = data;
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    function resize() {
+      var rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+      draw();
+    }
+    function draw() {
+      var d = trenchEquityData || data;
+      if (!d || d.length < 2) return;
+      var rect = canvas.getBoundingClientRect();
+      var w = rect.width, h = rect.height;
+      var pad = { top: 14, right: 14, bottom: 28, left: 54 };
+      var plotW = w - pad.left - pad.right, plotH = h - pad.top - pad.bottom;
+      var eq = d.map(function(x) { return x.equity; });
+      var minE = Math.min.apply(null, eq);
+      var maxE = Math.max.apply(null, eq);
+      var range = maxE - minE || 1;
+      minE = Math.max(0, minE - range * 0.08);
+      maxE = maxE + range * 0.08;
+      range = maxE - minE || 1;
+      ctx.clearRect(0, 0, w, h);
+      ctx.strokeStyle = '#1e2a3a';
+      ctx.lineWidth = 0.5;
+      for (var g = 0; g <= 4; g++) {
+        var gy = pad.top + (plotH * g / 4);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, gy);
+        ctx.lineTo(pad.left + plotW, gy);
+        ctx.stroke();
+        ctx.fillStyle = '#4b5563';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText('$' + Math.round(maxE - (range * g / 4)).toLocaleString(), pad.left - 4, gy + 3);
+      }
+      var pts = [];
+      for (var i = 0; i < d.length; i++) {
+        var x = pad.left + (i / (d.length - 1)) * plotW;
+        var y = pad.top + plotH - ((d[i].equity - minE) / range) * plotH;
+        pts.push({ x: x, y: y });
+      }
+      var peak = d[0].equity;
+      ctx.beginPath();
+      var inDrawdown = false;
+      for (var i = 0; i < d.length; i++) {
+        if (d[i].equity > peak) peak = d[i].equity;
+        var peakY = pad.top + plotH - ((peak - minE) / range) * plotH;
+        if (d[i].drawdown > 0) {
+          if (!inDrawdown) { ctx.moveTo(pts[i].x, peakY); inDrawdown = true; }
+          ctx.lineTo(pts[i].x, pts[i].y);
+        } else {
+          if (inDrawdown) { ctx.lineTo(pts[i].x, peakY); ctx.closePath(); inDrawdown = false; }
+          ctx.moveTo(pts[i].x, pts[i].y);
+        }
+      }
+      if (inDrawdown) {
+        var lastPeakY = pad.top + plotH - ((peak - minE) / range) * plotH;
+        ctx.lineTo(pts[pts.length - 1].x, lastPeakY);
+        ctx.closePath();
+      }
+      ctx.fillStyle = 'rgba(239,68,68,0.12)';
+      ctx.fill();
+      ctx.beginPath();
+      for (var i = 0; i < pts.length; i++) {
+        if (i === 0) ctx.moveTo(pts[i].x, pts[i].y);
+        else ctx.lineTo(pts[i].x, pts[i].y);
+      }
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.lineTo(pts[pts.length - 1].x, pad.top + plotH);
+      ctx.lineTo(pts[0].x, pad.top + plotH);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(16,185,129,0.1)';
+      ctx.fill();
+      ctx.fillStyle = '#4b5563';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'left';
+      if (d[0].date) ctx.fillText(new Date(d[0].date).toLocaleDateString(), pad.left, h - 4);
+      ctx.textAlign = 'center';
+      var midIdx = Math.floor(d.length / 2);
+      if (d[midIdx] && d[midIdx].date && d.length > 4) ctx.fillText(new Date(d[midIdx].date).toLocaleDateString(), pts[midIdx].x, h - 4);
+      ctx.textAlign = 'right';
+      if (d[d.length - 1].date) ctx.fillText(new Date(d[d.length - 1].date).toLocaleDateString(), pad.left + plotW, h - 4);
+    }
+    resize();
+    if (!window._trenchEquityResize) {
+      window._trenchEquityResize = function() {
+        if (trenchEquityData && canvas) resize();
+      };
+      window.addEventListener('resize', window._trenchEquityResize);
+    }
+  }
+  if (document.getElementById('trench-analytics')) {
+    loadAnalytics();
+    setInterval(loadAnalytics, 5000);
+  }
+
+  ['btn-unpause', 'btn-unpause-banner'].forEach(function(id) {
+    var btn = document.getElementById(id);
+    if (btn) btn.addEventListener('click', function() {
+      fetch('/api/trench-warfare/unpause', { method: 'POST', credentials: 'same-origin' })
+        .then(function(r) { return r.json(); }).then(function(d) { if (d.success) location.reload(); });
+    });
+  });
+
+  // ---- LIVE POSITIONS PNL - Real-time sync: rebuild table, poll every 2s ----
+  function loadPositions() {
+    fetch('/api/trench-warfare/positions', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.error || !d.positions) return;
+        var section = document.getElementById('open-positions-section');
+        var tbody = document.getElementById('positions-tbody');
+        if (!section || !tbody) return;
+
+        if (d.positions.length === 0) {
+          tbody.innerHTML = '<tr id="positions-empty-row"><td colspan="7" style="text-align:center;color:#6b7280;font-size:13px;padding:16px;">No open positions. Start the bot or trade manually.</td></tr>';
+          var totalEl = document.getElementById('positions-total-pnl');
+          if (totalEl) totalEl.textContent = '';
+          return;
+        }
+
+        // Rebuild table from API (instant add/remove of positions)
+        var totalPnl = 0;
+        var html = '';
+        d.positions.forEach(function(p) {
+          var ep = p.entryPrice || 0;
+          var amt = p.amountIn || 0;
+          var costStr = p.isPaper ? '$' + amt.toFixed(2) : amt + ' SOL';
+          var priceStr = p.currentPrice > 0 ? '$' + p.currentPrice.toFixed(8) : '—';
+          var priceClr = p.currentPrice > 0 ? (p.currentPrice >= ep ? '#10b981' : '#ef4444') : '#6b7280';
+          var sign = p.pnl >= 0 ? '+' : '';
+          var pnlStr = p.currentPrice > 0 ? (sign + '$' + p.pnl.toFixed(2) + ' (' + sign + p.pnlPct.toFixed(1) + '%)') : '—';
+          var pnlClr = p.pnl >= 0 ? '#10b981' : '#ef4444';
+          var holdClr = p.holdMinutes > 15 ? '#eab308' : '#6b7280';
+          var sellBtn = p.isPaper ? '<button type="button" class="btn-sell-paper nav-btn" style="padding:4px 10px;font-size:12px;">Sell</button>' : '<span style="color:#6b7280;font-size:11px;">—</span>';
+          totalPnl += p.pnl;
+          html += '<tr data-position-id="' + p._id + '" data-token-address="' + (p.tokenAddress || '') + '" data-entry-price="' + ep + '" data-amount-in="' + amt + '" data-token-amount="' + (p.tokenAmount || 0) + '" data-is-paper="' + (p.isPaper ? '1' : '0') + '" data-current-price="' + (p.currentPrice || 0) + '">';
+          html += '<td><strong>' + (p.tokenSymbol || '') + '</strong></td>';
+          html += '<td style="font-size:12px;">$' + ep.toFixed(8) + '</td>';
+          html += '<td class="pos-current-price" style="font-size:12px;color:' + priceClr + '">' + priceStr + '</td>';
+          html += '<td class="pos-pnl" style="font-size:13px;font-weight:600;color:' + pnlClr + '">' + pnlStr + '</td>';
+          html += '<td class="pos-hold" style="font-size:12px;color:' + holdClr + '">' + p.holdMinutes + 'm</td>';
+          html += '<td style="font-size:12px;">' + costStr + '</td>';
+          html += '<td>' + sellBtn + '</td></tr>';
+        });
+        tbody.innerHTML = html;
+
+        var totalEl = document.getElementById('positions-total-pnl');
+        if (totalEl) {
+          var s = totalPnl >= 0 ? '+' : '';
+          totalEl.textContent = 'Unrealized: ' + s + '$' + totalPnl.toFixed(2);
+          totalEl.style.color = totalPnl >= 0 ? '#10b981' : '#ef4444';
+        }
+
+        if (d.paperBalance !== undefined) {
+          var balEl = document.getElementById('paper-balance');
+          if (balEl) balEl.textContent = 'Paper: $' + d.paperBalance.toFixed(2);
+        }
+      }).catch(function() {});
+  }
+  if (document.getElementById('positions-tbody')) {
+    loadPositions();
+    setInterval(loadPositions, 2000);
+  }
+})();
+</script>
+
+<%- include('partials/footer') %>
