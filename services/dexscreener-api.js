@@ -200,10 +200,11 @@ async function fetchGeckoTerminalPools(endpoint, maxPages = 3) {
 
 function jupiterTokenToStandard(t) {
   if (!t || !t.id) return null;
+  const s5m = t.stats5m || {};
   const s1h = t.stats1h || {};
   const s24h = t.stats24h || {};
-  const buyVol = s1h.buyVolume || s24h.buyVolume || 0;
-  const sellVol = s1h.sellVolume || s24h.sellVolume || 0;
+  const buyVol = s5m.buyVolume || s1h.buyVolume || s24h.buyVolume || 0;
+  const sellVol = s5m.sellVolume || s1h.sellVolume || s24h.sellVolume || 0;
   const vol24h = (s24h.buyVolume || 0) + (s24h.sellVolume || 0);
   const price = t.usdPrice || 0;
   if (price <= 0) return null;
@@ -214,9 +215,12 @@ function jupiterTokenToStandard(t) {
     price,
     priceChange24h: s24h.priceChange || 0,
     priceChange1h: s1h.priceChange || 0,
+    priceChange5m: s5m.priceChange,
     volume24h: vol24h,
     buyVolume1h: s1h.buyVolume || 0,
     sellVolume1h: s1h.sellVolume || 0,
+    buyVolume5m: s5m.buyVolume || 0,
+    sellVolume5m: s5m.sellVolume || 0,
     buyPressure: (buyVol + sellVol) > 0 ? buyVol / (buyVol + sellVol) : 0.5,
     liquidity: t.liquidity || 0,
     trendingScore: 1,
@@ -224,6 +228,7 @@ function jupiterTokenToStandard(t) {
     organicScoreLabel: t.organicScoreLabel || '',
     holderCount: t.holderCount || 0,
     numBuyers1h: s1h.numOrganicBuyers || s1h.numTraders || 0,
+    numBuyers5m: s5m.numOrganicBuyers || s5m.numTraders || 0,
     isVerified: t.isVerified || false,
     source: 'jupiter'
   };
@@ -287,18 +292,21 @@ async function fetchSolanaTrendings(limit = 500) {
 
   console.log(`[DexScreener] ${dexAddresses.length} unique tokens (boosts:${boosts.length} top:${topBoosts.length} profiles:${profiles.length} takeovers:${takeovers.length} ads:${ads.length})`);
 
-  // Phase 2: GeckoTerminal (trending + new only; skip topTx/topVol to avoid dump-heavy tokens)
-  const [gtTrending, gtNew, gtTopVol] = await Promise.all([
+  // Phase 2: GeckoTerminal - SCALPING: trending, new, top vol, top tx (activity spike)
+  const [gtTrending, gtNew, gtTopVol, gtTopTx] = await Promise.all([
     fetchGeckoTerminalPools('trending_pools', 4).catch(() => []),
     fetchGeckoTerminalPools('new_pools', 4).catch(() => []),
-    fetchGeckoTerminalPools('pools?order=h24_volume_usd_desc', 2).catch(() => [])
+    fetchGeckoTerminalPools('pools?order=h24_volume_usd_desc', 2).catch(() => []),
+    fetchGeckoTerminalPools('pools?order=h24_tx_count_desc', 2).catch(() => [])
   ]);
 
-  const gtTokens = [...gtTrending, ...gtNew, ...gtTopVol];
-  console.log(`[GeckoTerminal] ${gtTokens.length} pools (trending:${gtTrending.length} new:${gtNew.length} topVol:${gtTopVol.length})`);
+  const gtTokens = [...gtTrending, ...gtNew, ...gtTopVol, ...gtTopTx];
+  console.log(`[GeckoTerminal] ${gtTokens.length} pools (trend:${gtTrending.length} new:${gtNew.length} vol:${gtTopVol.length} tx:${gtTopTx.length})`);
 
-  // Phase 3: Jupiter (trending, top traded, organic score, recent)
-  const [jupTrending1h, jupTraded1h, jupTraded6h, jupOrganic, jupRecent] = await Promise.all([
+  // Phase 3: Jupiter - SCALPING: 5m first (earliest pumps), then 1h, 6h, 24h
+  const [jupTrending5m, jupTraded5m, jupTrending1h, jupTraded1h, jupTraded6h, jupOrganic, jupRecent] = await Promise.all([
+    fetchJupiterCategory('toptrending', '5m', 100).catch(() => []),
+    fetchJupiterCategory('toptraded', '5m', 100).catch(() => []),
     fetchJupiterCategory('toptrending', '1h', 100).catch(() => []),
     fetchJupiterCategory('toptraded', '1h', 100).catch(() => []),
     fetchJupiterCategory('toptraded', '6h', 100).catch(() => []),
@@ -306,8 +314,8 @@ async function fetchSolanaTrendings(limit = 500) {
     fetchJupiterRecent(100).catch(() => [])
   ]);
 
-  const jupTokens = [...jupTrending1h, ...jupTraded1h, ...jupTraded6h, ...jupOrganic, ...jupRecent];
-  console.log(`[Jupiter] ${jupTokens.length} tokens (trend1h:${jupTrending1h.length} traded1h:${jupTraded1h.length} traded6h:${jupTraded6h.length} organic:${jupOrganic.length} recent:${jupRecent.length})`);
+  const jupTokens = [...jupTrending5m, ...jupTraded5m, ...jupTrending1h, ...jupTraded1h, ...jupTraded6h, ...jupOrganic, ...jupRecent];
+  console.log(`[Jupiter] ${jupTokens.length} tokens (5m:${jupTrending5m.length + jupTraded5m.length} 1h:${jupTrending1h.length + jupTraded1h.length} 6h:${jupTraded6h.length} organic:${jupOrganic.length} recent:${jupRecent.length})`);
   if (jupTokens.length === 0 && !process.env.JUPITER_API_KEY) {
     console.warn('[Jupiter] Add JUPITER_API_KEY to .env for 200+ more tokens (free at https://portal.jup.ag/api-keys)');
   }

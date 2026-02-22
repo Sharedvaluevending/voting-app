@@ -1,8 +1,7 @@
 // services/trench-auto-trading.js
 // ====================================================
-// TRENCH AUTO TRADING - Persistent bot per user
-// Split loop: 10s exit monitoring, 90s entry scanning
-// Slippage simulation, momentum confirmation, adaptive trailing
+// TRENCH SCALPING - 100% scalping: fast in, fast out
+// 5m signals, 60s momentum, tight TP/SL, short holds
 // ====================================================
 
 const User = require('../models/User');
@@ -15,14 +14,15 @@ const push = require('./push-notifications');
 const ENCRYPT_KEY = process.env.TRENCH_SECRET || process.env.SESSION_SECRET || 'trench-default-key-change-me';
 const ALGO = 'aes-256-gcm';
 
-const EXIT_CHECK_INTERVAL = 10 * 1000;  // 10s - fast exit monitoring
-const ENTRY_SCAN_INTERVAL = 60 * 1000;  // 60s - entry scanning
-const TRENDING_CACHE_TTL = 60 * 1000;
+const EXIT_CHECK_INTERVAL = 5 * 1000;   // 5s - scalping: check exits every 5s
+const ENTRY_SCAN_INTERVAL = 45 * 1000;  // 45s - scalping: scan for entries more often
+const TRENDING_CACHE_TTL = 45 * 1000;   // 45s - fresher data for scalping
+const MOMENTUM_WINDOW_MS = 60 * 1000;   // 60s - scalping: faster confirmation (was 120s)
 const MAX_LOG_ENTRIES = 50;
 const PAPER_SLIPPAGE = 0.008; // 0.8% simulated slippage each way (~1.6% round trip)
 const MAX_BUYS_PER_SCAN = 2;  // stagger entries across scans
-const MIN_QUALITY_SCORE = 60; // skip marginal candidates, focus on actively pumping coins
-const FRESH_PRICE_DROP_SKIP_PCT = 2; // skip buy if price dropped >2% since momentum confirmed
+const MIN_QUALITY_SCORE = 55; // scalping: slightly lower to catch more fast movers
+const FRESH_PRICE_DROP_SKIP_PCT = 1.5; // scalping: skip if dropped >1.5% (tighter)
 
 // ====================================================
 // In-memory state
@@ -98,15 +98,21 @@ function botLog(userId, msg) {
 // ====================================================
 function scoreCandidate(t) {
   const change = t.priceChange24h || 0;
+  const change5m = t.priceChange5m;
   const change1h = t.priceChange1h || 0;
   const vol = t.volume24h || 0;
   const liq = t.liquidity || 0;
   const buyPressure = t.buyPressure || 0.5;
   const organicScore = t.organicScore || 0;
   const numBuyers1h = t.numBuyers1h || 0;
+  const numBuyers5m = t.numBuyers5m || 0;
   const holderCount = t.holderCount || 0;
   const volLiqRatio = liq > 0 ? vol / liq : 0;
   const sourceCount = t._sourceCount || 1;
+
+  // SCALPING: Prefer 5m when available, fallback to 1h
+  const changeShort = (typeof change5m === 'number' && change5m !== undefined) ? change5m : change1h;
+  const minChangeShort = (typeof change5m === 'number') ? 0.5 : 1; // 5m: +0.5% ok, 1h: need +1%
 
   // Hard rejects -- safety filters
   if (change > 500) return -1;
@@ -114,38 +120,41 @@ function scoreCandidate(t) {
   if (vol < 15000) return -1;
   if (liq < 25000) return -1;
   if (holderCount > 0 && holderCount < 500) return -1;
-  // Reject unknown holder count when Jupiter is source (we expect holder data from Jupiter)
   if (t.source === 'jupiter' && holderCount === 0) return -1;
   if (volLiqRatio > 25) return -1;
 
-  // Must be actively pumping
-  if (change1h < 1) return -1;
+  // Must be actively pumping (scalping: 5m or 1h)
+  if (changeShort < minChangeShort) return -1;
   if (buyPressure < 0.50) return -1;
 
+  const buyVol5m = t.buyVolume5m || 0;
+  const sellVol5m = t.sellVolume5m || 0;
   const buyVol1h = t.buyVolume1h || 0;
   const sellVol1h = t.sellVolume1h || 0;
   const vol1h = buyVol1h + sellVol1h;
-  const volVelocity = liq > 0 ? vol1h / liq : 0;
-  const buyDominance = vol1h > 0 ? buyVol1h / vol1h : buyPressure;
+  const vol5m = buyVol5m + sellVol5m;
+  // SCALPING: Use 5m volume when available for velocity (faster signal)
+  const volShort = vol5m > 0 ? vol5m : vol1h;
+  const buyVolShort = vol5m > 0 ? buyVol5m : buyVol1h;
+  const sellVolShort = vol5m > 0 ? sellVol5m : sellVol1h;
+  const volVelocity = liq > 0 ? volShort / liq : (liq > 0 ? vol1h / liq : 0);
+  const buyDominance = volShort > 0 ? buyVolShort / volShort : (vol1h > 0 ? buyVol1h / vol1h : buyPressure);
 
   // --- OVERBOUGHT REJECTION ---
-  // If 1h is extremely high AND 24h is extremely high, the pump is exhausted
-  // Like RSI > 90 -- too extended, will snap back
-  if (change1h > 80 && change > 300) return -1;
+  const changeHigh = changeShort;
+  if (changeHigh > 80 && change > 300) return -1;
 
   // --- VOLUME DIVERGENCE REJECTION ---
-  // Price going up but sellers dominate = pump being sold into (bearish divergence)
-  // Like OBV divergence from the main platform
-  if (change1h > 5 && buyDominance < 0.45 && vol1h > 0) return -1;
+  if (changeHigh > 5 && buyDominance < 0.45 && volShort > 0) return -1;
 
   let score = 0;
 
-  // 1h momentum -- THE dominant signal (max 40 pts)
-  if (change1h >= 10 && change1h <= 40) score += 40;
-  else if (change1h >= 5 && change1h < 10) score += 35;
-  else if (change1h > 40 && change1h <= 80) score += 25;
-  else if (change1h >= 2 && change1h < 5) score += 20;
-  else if (change1h >= 1 && change1h < 2) score += 10;
+  // SCALPING: Short-term momentum dominant (5m or 1h)
+  if (changeShort >= 10 && changeShort <= 40) score += 40;
+  else if (changeShort >= 5 && changeShort < 10) score += 35;
+  else if (changeShort > 40 && changeShort <= 80) score += 25;
+  else if (changeShort >= 2 && changeShort < 5) score += 20;
+  else if (changeShort >= minChangeShort && changeShort < 2) score += 12; // scalping: bonus for 5m +0.5%
 
   // BREAKOUT: volume velocity (max 20 pts)
   if (volVelocity >= 2) score += 20;
@@ -176,10 +185,11 @@ function scoreCandidate(t) {
   else if (buyDominance >= 0.55) score += 6;
   else if (buyDominance >= 0.50) score += 3;
 
-  // Buyer surge -- lots of unique buyers (max 15 pts)
-  if (numBuyers1h >= 50) score += 15;
-  else if (numBuyers1h >= 20) score += 10;
-  else if (numBuyers1h >= 5) score += 5;
+  // Buyer surge -- scalping: prefer 5m buyers when available (max 15 pts)
+  const numBuyers = numBuyers5m > 0 ? numBuyers5m : numBuyers1h;
+  if (numBuyers >= 50) score += 15;
+  else if (numBuyers >= 20) score += 10;
+  else if (numBuyers >= 5) score += 5;
 
   // 24h volume tiers (max 10 pts)
   if (vol >= 200000) score += 10;
@@ -262,9 +272,9 @@ async function fetchTrendingsCached() {
 // ====================================================
 function sanitizeSettings(raw) {
   const s = { ...raw };
-  s.slPercent = Math.min(Math.max(s.slPercent ?? 10, 3), 30);
-  s.tpPercent = Math.min(Math.max(s.tpPercent ?? 22, 5), 50);
-  s.maxHoldMinutes = Math.min(Math.max(s.maxHoldMinutes ?? 20, 5), 60);
+  s.slPercent = Math.min(Math.max(s.slPercent ?? 8, 3), 30);
+  s.tpPercent = Math.min(Math.max(s.tpPercent ?? 12, 5), 50);
+  s.maxHoldMinutes = Math.min(Math.max(s.maxHoldMinutes ?? 12, 5), 30);
   s.maxOpenPositions = Math.min(Math.max(s.maxOpenPositions ?? 6, 1), 15);
   s.consecutiveLossesToPause = Math.min(Math.max(s.consecutiveLossesToPause ?? 3, 2), 10);
   s.cooldownHours = Math.min(Math.max(s.cooldownHours ?? 1, 0.25), 4);
@@ -272,8 +282,8 @@ function sanitizeSettings(raw) {
   s.minLiquidityUsd = Math.min(Math.max(s.minLiquidityUsd ?? 25000, 25000), 100000);
   s.maxTop10HoldersPercent = Math.min(Math.max(s.maxTop10HoldersPercent ?? 80, 50), 100);
   s.maxDailyLossPercent = Math.min(Math.max(s.maxDailyLossPercent ?? 15, 5), 50);
-  s.trailingStopPercent = Math.min(Math.max(s.trailingStopPercent ?? 8, 3), 20);
-  s.breakevenAtPercent = Math.min(Math.max(s.breakevenAtPercent ?? 5, 2), 15);
+  s.trailingStopPercent = Math.min(Math.max(s.trailingStopPercent ?? 5, 3), 20);
+  s.breakevenAtPercent = Math.min(Math.max(s.breakevenAtPercent ?? 3, 2), 15); // scalping: 3% to lock in faster
   s.amountPerTradeUsd = Math.min(Math.max(s.amountPerTradeUsd ?? 50, 5), 500);
   s.amountPerTradeSol = Math.min(Math.max(s.amountPerTradeSol ?? 0.05, 0.01), 1);
   s.minTrendingScore = 1;
@@ -379,23 +389,23 @@ function checkMomentum(tokenAddress, currentPrice) {
   }
   const elapsed = Date.now() - prev.seenAt;
 
-  // During observation: record price snapshots for acceleration analysis
-  if (elapsed < 120000) {
+  // SCALPING: 60s momentum window (was 120s)
+  if (elapsed < MOMENTUM_WINDOW_MS) {
     prev.checks++;
     if (!prev.snapshots) prev.snapshots = [{ price: prev.price, time: prev.seenAt }];
     prev.snapshots.push({ price: currentPrice, time: Date.now() });
-    return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / 120s)` };
+    return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / ${MOMENTUM_WINDOW_MS / 1000}s)` };
   }
 
   const changeSinceFirstSight = ((currentPrice - prev.price) / prev.price) * 100;
 
-  // Must be rising at least +1%
-  if (changeSinceFirstSight < 1.0) {
+  // SCALPING: +0.5% rise over 60s (faster confirmation)
+  if (changeSinceFirstSight < 0.5) {
     momentumCache.set(tokenAddress, {
       price: currentPrice, seenAt: Date.now(), checks: 1,
       snapshots: [{ price: currentPrice, time: Date.now() }]
     });
-    return { ready: false, reason: `momentum_weak (${changeSinceFirstSight.toFixed(1)}%, need +1%)` };
+    return { ready: false, reason: `momentum_weak (${changeSinceFirstSight.toFixed(1)}%, need +0.5%)` };
   }
 
   // Price acceleration check: compare first half vs second half of observation
@@ -406,7 +416,7 @@ function checkMomentum(tokenAddress, currentPrice) {
     const firstHalfChange = ((snaps[mid].price - snaps[0].price) / snaps[0].price) * 100;
     const secondHalfChange = ((currentPrice - snaps[mid].price) / snaps[mid].price) * 100;
 
-    if (secondHalfChange < 0 && firstHalfChange > 1) {
+    if (secondHalfChange < 0 && firstHalfChange > 0.5) {
       // Pumped in first half, now dropping -- fading pump
       momentumCache.set(tokenAddress, {
         price: currentPrice, seenAt: Date.now(), checks: 1,
@@ -439,15 +449,15 @@ function cleanMomentumCache() {
 }
 
 // ====================================================
-// Adaptive trailing stop
-// Small profit (<15%): 7% trail (wide enough to avoid noise)
-// Medium profit (15-30%): normal base trail (8%)
-// Big profit (>30%): wide 12% trail to let winners run
+// SCALPING: Tighter adaptive trailing
+// Small profit (<10%): 5% trail
+// Medium (10-20%): base trail
+// Big (>20%): 8% trail (lock in scalping gains)
 // ====================================================
 function getAdaptiveTrail(pnlPct, baseTrail) {
-  if (pnlPct >= 30) return Math.max(baseTrail, 12);
-  if (pnlPct >= 15) return baseTrail;
-  return Math.min(baseTrail, 7);
+  if (pnlPct >= 20) return Math.max(baseTrail, 8);
+  if (pnlPct >= 10) return baseTrail;
+  return Math.min(baseTrail, 5);
 }
 
 // ====================================================
@@ -458,8 +468,8 @@ function shouldSellPosition(pos, currentPrice, settings) {
   const entry = pos.entryPrice || 0.0000001;
   const pnlPct = ((currentPrice - entry) / entry) * 100;
   const holdMinutes = (Date.now() - new Date(pos.createdAt).getTime()) / 60000;
-  const maxHold = settings.maxHoldMinutes ?? 30;
-  const tp = settings.tpPercent ?? 25;
+  const maxHold = settings.maxHoldMinutes ?? 12;
+  const tp = settings.tpPercent ?? 12;
   const sl = settings.slPercent ?? 8;
   const baseTrail = settings.trailingStopPercent ?? 8;
   const useTrail = settings.useTrailingStop !== false;
@@ -483,8 +493,8 @@ function shouldSellPosition(pos, currentPrice, settings) {
     return { sell: true, reason: 'early_bail', pnlPct };
   }
 
-  // Time limit: only force-close if flat or losing
-  if (holdMinutes >= maxHold && pnlPct <= 2) {
+  // SCALPING: Time limit - force-close if flat or small gain (lock in or cut)
+  if (holdMinutes >= maxHold && pnlPct <= 1.5) {
     return { sell: true, reason: 'time_limit', pnlPct };
   }
   if (holdMinutes >= maxHold * 2) {
@@ -789,7 +799,7 @@ async function _entryTickInner(userId) {
   // Fetch live prices for tokens in momentum window (use live data instead of cache)
   const momentumAddrs = [];
   for (const [addr, entry] of momentumCache) {
-    if (Date.now() - entry.seenAt < 120000) momentumAddrs.push(addr);
+    if (Date.now() - entry.seenAt < MOMENTUM_WINDOW_MS) momentumAddrs.push(addr);
   }
   let momentumFreshPrices = {};
   if (momentumAddrs.length > 0) {
@@ -967,9 +977,9 @@ function startBot(userId) {
   // Log sanitized settings on start so we can verify
   User.findById(userId).lean().then(u => {
     const s = sanitizeSettings(u?.trenchAuto || {});
-    botLog(userId, `Bot STARTED — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m(bail@${Math.round(s.maxHoldMinutes/2)}m/-2%) slots:${s.maxOpenPositions} (${MAX_BUYS_PER_SCAN}/scan) cool:${s.cooldownHours}h(4x losers) minScore:${MIN_QUALITY_SCORE} freshPrice:skip>${FRESH_PRICE_DROP_SKIP_PCT}% | 1h>+1% bp>50% momentum>+1%/120s trail:7/8/12%`);
+    botLog(userId, `SCALP Bot — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m trail:${s.trailingStopPercent}% | 5m/1h pump 60s mom +0.5% skip>${FRESH_PRICE_DROP_SKIP_PCT}%`);
   }).catch(() => {
-    botLog(userId, 'Bot STARTED — exits 10s, entries 60s');
+    botLog(userId, 'SCALP Bot — exits 5s, entries 45s');
   });
 
   // First tick: run entry scan immediately (which also seeds momentum cache)
