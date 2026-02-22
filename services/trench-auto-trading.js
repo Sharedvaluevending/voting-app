@@ -25,7 +25,7 @@ const MEMECOIN_ENTRY_INTERVAL = 25 * 1000; // 25s - scan often
 const MEMECOIN_CACHE_TTL = 25 * 1000;      // 25s
 const MEMECOIN_MOMENTUM_MS = 20 * 1000;    // 20s - quick confirm
 const MEMECOIN_MOMENTUM_MIN_PCT = 0;      // flat or up = in. Loose.
-const MEMECOIN_MIN_SCORE = 20;   // loose - let pumps through, filter by exits
+const MEMECOIN_MIN_SCORE = 5;    // very loose - 100s of candidates, filter by exits
 const MEMECOIN_FRESH_DROP_SKIP = 1.0;      // skip if dropped >1% since confirm
 
 // Scalping: traditional (current behavior)
@@ -283,28 +283,29 @@ function scoreCandidatePumpStart(t) {
   const numBuyers5m = t.numBuyers5m || 0;
   const numBuyers1h = t.numBuyers1h || 0;
 
-  // Minimal hard rejects only - rug/obvious trash (very loose for more candidates)
-  if (vol < 5000) return -1;
-  if (liq < 15000) return -1;
-  if (liq > 0 && vol / liq > 80) return -1;   // memecoins often 50-100x vol/liq
-  if (volShort > 0 && buyDominance < 0.32) return -1;  // only reject heavy dumps
+  // Bare minimum - only reject obvious rugs (want 100s of candidates)
+  if (vol < 1000) return -1;
+  if (liq < 3000) return -1;
+  if (liq > 0 && vol / liq > 150) return -1;
+  if (volShort > 0 && buyDominance < 0.25) return -1;  // only reject extreme dumps
 
-  // Loose: allow -10% to 80% 5m - catch pumps early or mid
   const changeShort = (typeof change5m === 'number' && change5m !== undefined) ? change5m
     : (typeof change1h === 'number' && change1h !== undefined) ? change1h / 12 : 0;
-  if (changeShort > 100) return -1;  // parabolic
-  if (changeShort < -25) return -1;  // heavy dump
+  if (changeShort > 150) return -1;
+  if (changeShort < -40) return -1;
 
   const isNewOrRecent = source === 'geckoterminal' || (t._sourceCount || 1) <= 1;
 
   let score = 25;  // base - almost everything passes
 
-  // Price move bonus (any positive = good)
+  // Price move bonus
   if (changeShort >= 0.5 && changeShort <= 10) score += 30;
   else if (changeShort > 10 && changeShort <= 25) score += 20;
   else if (changeShort >= 0 && changeShort < 0.5) score += 15;
-  else if (changeShort > 25 && changeShort <= 40) score += 10;
+  else if (changeShort > 25 && changeShort <= 80) score += 10;
   else if (changeShort >= -5 && changeShort < 0) score += 5;
+  else if (changeShort >= -25 && changeShort < -5) score += 2;
+  else if (changeShort >= -40 && changeShort < -25) score += 1;
 
   // Volume surge (loose thresholds)
   if (volSurge >= 1.5) score += 15;

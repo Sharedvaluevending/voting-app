@@ -24,15 +24,15 @@ function scoreCandidatePumpStart(t) {
   const volShort = vol5m > 0 ? vol5m : vol1h;
   const buyDominance = volShort > 0 ? (vol5m > 0 ? buyVol5m : buyVol1h) / volShort : buyPressure;
 
-  if (vol < 5000) return { score: -1, reason: 'vol<5k' };
-  if (liq < 15000) return { score: -1, reason: 'liq<15k' };
-  if (liq > 0 && vol / liq > 80) return { score: -1, reason: 'vol/liq>80' };
-  if (volShort > 0 && buyDominance < 0.32) return { score: -1, reason: 'buyDom<32%' };
+  if (vol < 1000) return { score: -1, reason: 'vol<1k' };
+  if (liq < 3000) return { score: -1, reason: 'liq<3k' };
+  if (liq > 0 && vol / liq > 150) return { score: -1, reason: 'vol/liq>150' };
+  if (volShort > 0 && buyDominance < 0.25) return { score: -1, reason: 'buyDom<25%' };
 
   const changeShort = (typeof change5m === 'number' && change5m !== undefined) ? change5m
     : (typeof change1h === 'number' && change1h !== undefined) ? change1h / 12 : 0;
-  if (changeShort > 100) return { score: -1, reason: 'change>100%' };
-  if (changeShort < -25) return { score: -1, reason: 'change<-25%' };
+  if (changeShort > 150) return { score: -1, reason: 'change>150%' };
+  if (changeShort < -40) return { score: -1, reason: 'change<-40%' };
 
   let score = 25;
   if (changeShort >= 0.5 && changeShort <= 10) score += 30;
@@ -76,7 +76,7 @@ async function main() {
   }
   console.log('   Total tokens:', trendings.length);
 
-  const MIN_SCORE = 20;
+  const MIN_SCORE = 5;
   const results = [];
   const rejectReasons = {};
 
