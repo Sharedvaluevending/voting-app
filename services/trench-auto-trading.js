@@ -1,7 +1,8 @@
 // services/trench-auto-trading.js
 // ====================================================
-// TRENCH SCALPING - 100% scalping: fast in, fast out
-// 5m signals, 45s momentum, tight TP/SL, short holds
+// TRENCH SCALPING - Memecoin pump-and-dump vs scalping
+// Memecoin: detect pump START, 1-3% TP, 2% SL, 3-5min hold
+// Scalping: 5m signals, 45s momentum, 8-12% TP, 8% SL
 // ====================================================
 
 const User = require('../models/User');
@@ -14,15 +15,27 @@ const push = require('./push-notifications');
 const ENCRYPT_KEY = process.env.TRENCH_SECRET || process.env.SESSION_SECRET || 'trench-default-key-change-me';
 const ALGO = 'aes-256-gcm';
 
-const EXIT_CHECK_INTERVAL = 5 * 1000;   // 5s - scalping: check exits every 5s
-const ENTRY_SCAN_INTERVAL = 45 * 1000;  // 45s - scalping: scan for entries more often
-const TRENDING_CACHE_TTL = 45 * 1000;   // 45s - fresher data for scalping
-const MOMENTUM_WINDOW_MS = 45 * 1000;   // 45s - enter earlier in pump (was 60s)
 const MAX_LOG_ENTRIES = 50;
 const PAPER_SLIPPAGE = 0.008; // 0.8% simulated slippage each way (~1.6% round trip)
 const MAX_BUYS_PER_SCAN = 2;  // stagger entries across scans
-const MIN_QUALITY_SCORE = 75; // scalping: only best setups (was 65)
-const FRESH_PRICE_DROP_SKIP_PCT = 1.0; // scalping: skip if dropped >1% since confirm (tighter)
+
+// Memecoin: pump-start detection, micro scalps (1-3% TP)
+const MEMECOIN_EXIT_INTERVAL = 3 * 1000;   // 3s - check exits very fast
+const MEMECOIN_ENTRY_INTERVAL = 25 * 1000; // 25s - scan often
+const MEMECOIN_CACHE_TTL = 25 * 1000;      // 25s
+const MEMECOIN_MOMENTUM_MS = 20 * 1000;    // 20s - quick confirm
+const MEMECOIN_MOMENTUM_MIN_PCT = 0;      // flat or up = in. Loose.
+const MEMECOIN_MIN_SCORE = 20;   // loose - let pumps through, filter by exits
+const MEMECOIN_FRESH_DROP_SKIP = 1.0;      // skip if dropped >1% since confirm
+
+// Scalping: traditional (current behavior)
+const SCALP_EXIT_INTERVAL = 5 * 1000;
+const SCALP_ENTRY_INTERVAL = 45 * 1000;
+const SCALP_CACHE_TTL = 45 * 1000;
+const SCALP_MOMENTUM_MS = 45 * 1000;
+const SCALP_MOMENTUM_MIN_PCT = 0.5;
+const SCALP_MIN_SCORE = 75;
+const SCALP_FRESH_DROP_SKIP = 1.0;
 
 // ====================================================
 // In-memory state
@@ -33,6 +46,23 @@ const tickLocks = new Map();
 
 // Momentum tracking: tokenAddress -> { price, seenAt }
 const momentumCache = new Map();
+
+function isMemecoinMode(settings) {
+  return (settings?.strategy || 'scalping') === 'memecoin';
+}
+
+function getIntervals(settings) {
+  const memecoin = isMemecoinMode(settings);
+  return {
+    exitInterval: memecoin ? MEMECOIN_EXIT_INTERVAL : SCALP_EXIT_INTERVAL,
+    entryInterval: memecoin ? MEMECOIN_ENTRY_INTERVAL : SCALP_ENTRY_INTERVAL,
+    cacheTtl: memecoin ? MEMECOIN_CACHE_TTL : SCALP_CACHE_TTL,
+    momentumMs: memecoin ? MEMECOIN_MOMENTUM_MS : SCALP_MOMENTUM_MS,
+    momentumMinPct: memecoin ? MEMECOIN_MOMENTUM_MIN_PCT : SCALP_MOMENTUM_MIN_PCT,
+    minScore: memecoin ? MEMECOIN_MIN_SCORE : SCALP_MIN_SCORE,
+    freshDropSkip: memecoin ? MEMECOIN_FRESH_DROP_SKIP : SCALP_FRESH_DROP_SKIP
+  };
+}
 
 // ====================================================
 // Crypto helpers
@@ -228,10 +258,82 @@ function scoreCandidate(t) {
 }
 
 // ====================================================
+// MEMECOIN: LOOSE scoring - let pumps through, filter by exits
+// Minimal bars: some vol, some liq, not dumping. Score everything else.
+// ====================================================
+function scoreCandidatePumpStart(t) {
+  const change5m = t.priceChange5m;
+  const change1h = t.priceChange1h || 0;
+  const change24 = t.priceChange24h || 0;
+  const vol = t.volume24h || 0;
+  const liq = t.liquidity || 0;
+  const buyPressure = t.buyPressure || 0.5;
+  const buyVol5m = t.buyVolume5m || 0;
+  const sellVol5m = t.sellVolume5m || 0;
+  const buyVol1h = t.buyVolume1h || 0;
+  const sellVol1h = t.sellVolume1h || 0;
+  const vol5m = buyVol5m + sellVol5m;
+  const vol1h = buyVol1h + sellVol1h;
+  const volShort = vol5m > 0 ? vol5m : vol1h;
+  const buyDominance = volShort > 0 ? (vol5m > 0 ? buyVol5m : buyVol1h) / volShort : buyPressure;
+  const volVelocity = liq > 0 ? volShort / liq : 0;
+  const avgHourlyVol = vol / 24;
+  const volSurge = avgHourlyVol > 0 ? vol1h / avgHourlyVol : 0;
+  const source = t.source || '';
+  const numBuyers5m = t.numBuyers5m || 0;
+  const numBuyers1h = t.numBuyers1h || 0;
+
+  // Minimal hard rejects only - rug/obvious trash
+  if (vol < 10000) return -1;
+  if (liq < 20000) return -1;
+  if (liq > 0 && vol / liq > 40) return -1;
+  if (volShort > 0 && buyDominance < 0.40) return -1;  // not actively dumping
+
+  // Loose: allow -5% to 40% 5m - catch pumps early or mid
+  const changeShort = (typeof change5m === 'number' && change5m !== undefined) ? change5m
+    : (typeof change1h === 'number' && change1h !== undefined) ? change1h / 12 : 0;
+  if (changeShort > 60) return -1;   // parabolic dump risk
+  if (changeShort < -15) return -1;  // actively dumping
+
+  const isNewOrRecent = source === 'geckoterminal' || (t._sourceCount || 1) <= 1;
+
+  let score = 25;  // base - almost everything passes
+
+  // Price move bonus (any positive = good)
+  if (changeShort >= 0.5 && changeShort <= 10) score += 30;
+  else if (changeShort > 10 && changeShort <= 25) score += 20;
+  else if (changeShort >= 0 && changeShort < 0.5) score += 15;
+  else if (changeShort > 25 && changeShort <= 40) score += 10;
+  else if (changeShort >= -5 && changeShort < 0) score += 5;
+
+  // Volume surge (loose thresholds)
+  if (volSurge >= 1.5) score += 15;
+  else if (volSurge >= 1) score += 10;
+  else if (volSurge >= 0.5) score += 5;
+
+  // Buy dominance (loose)
+  if (buyDominance >= 0.55) score += 15;
+  else if (buyDominance >= 0.48) score += 10;
+  else if (buyDominance >= 0.40) score += 5;
+
+  // Volume velocity
+  if (volVelocity >= 0.5) score += 10;
+  else if (volVelocity >= 0.2) score += 5;
+
+  if (isNewOrRecent) score += 5;
+  const numBuyers = numBuyers5m > 0 ? numBuyers5m : numBuyers1h;
+  if (numBuyers >= 5) score += 5;
+  if (liq >= 50000) score += 5;
+
+  return score;
+}
+
+// ====================================================
 // Trending data fetcher with cache
 // ====================================================
-async function fetchTrendingsCached() {
-  if (Date.now() - trendingCache.fetchedAt < TRENDING_CACHE_TTL && trendingCache.data.length > 0) {
+async function fetchTrendingsCached(settings = {}) {
+  const intervals = getIntervals(settings);
+  if (Date.now() - trendingCache.fetchedAt < intervals.cacheTtl && trendingCache.data.length > 0) {
     return trendingCache.data;
   }
   let trendings = [];
@@ -281,16 +383,20 @@ async function fetchTrendingsCached() {
     }
   }
 
+  const memecoin = isMemecoinMode(settings);
+  const minScore = intervals.minScore;
+  const scoreFn = memecoin ? scoreCandidatePumpStart : scoreCandidate;
   const scored = Array.from(seen.values()).map(t => {
-    t._qualityScore = scoreCandidate(t);
+    t._qualityScore = scoreFn(t);
     return t;
-  }).filter(t => t._qualityScore >= MIN_QUALITY_SCORE);
+  }).filter(t => t._qualityScore >= minScore);
 
   scored.sort((a, b) => b._qualityScore - a._qualityScore);
 
   const all = Array.from(seen.values());
   const softPass = all.filter(t => (t._qualityScore || 0) > 0).length;
-  console.log(`[TrenchBot] ${all.length} total tokens, ${softPass} pass filters (1h>1%, bp>50%), ${scored.length} pass quality threshold (score>=${MIN_QUALITY_SCORE})`);
+  const modeLabel = memecoin ? 'memecoin pump-start' : 'scalping';
+  console.log(`[TrenchBot] ${all.length} total tokens, ${softPass} pass filters, ${scored.length} pass ${modeLabel} (score>=${minScore})`);
 
   trendingCache = { data: scored, fetchedAt: Date.now() };
   return scored;
@@ -298,12 +404,21 @@ async function fetchTrendingsCached() {
 
 // ====================================================
 // Settings sanitizer - clamps wild DB values to sane ranges
+// Memecoin mode: 1-3% TP, 2% SL, 2-5min hold
 // ====================================================
 function sanitizeSettings(raw) {
   const s = { ...raw };
-  s.slPercent = Math.min(Math.max(s.slPercent ?? 8, 3), 30);
-  s.tpPercent = Math.min(Math.max(s.tpPercent ?? 10, 5), 50);   // 10% - lock gains faster (was 12)
-  s.maxHoldMinutes = Math.min(Math.max(s.maxHoldMinutes ?? 10, 5), 15);  // 10min default, 15max (was 12/30)
+  const memecoin = (s.strategy || 'scalping') === 'memecoin';
+  const defTp = memecoin ? 2 : 10;
+  const defSl = memecoin ? 2 : 8;
+  const defHold = memecoin ? 4 : 10;
+  const minTp = memecoin ? 1 : 5;
+  const maxTp = memecoin ? 5 : 50;
+  const minHold = memecoin ? 2 : 5;
+  const maxHold = memecoin ? 5 : 15;
+  s.slPercent = Math.min(Math.max(s.slPercent ?? defSl, 1), 30);
+  s.tpPercent = Math.min(Math.max(s.tpPercent ?? defTp, minTp), maxTp);
+  s.maxHoldMinutes = Math.min(Math.max(s.maxHoldMinutes ?? defHold, minHold), maxHold);
   s.maxOpenPositions = Math.min(Math.max(s.maxOpenPositions ?? 3, 1), 15);  // 3 default - fewer bags (was 6)
   s.consecutiveLossesToPause = Math.min(Math.max(s.consecutiveLossesToPause ?? 3, 2), 10);
   s.cooldownHours = Math.min(Math.max(s.cooldownHours ?? 1, 0.25), 4);
@@ -311,8 +426,8 @@ function sanitizeSettings(raw) {
   s.minLiquidityUsd = Math.min(Math.max(s.minLiquidityUsd ?? 25000, 25000), 100000);
   s.maxTop10HoldersPercent = Math.min(Math.max(s.maxTop10HoldersPercent ?? 80, 50), 100);
   s.maxDailyLossPercent = Math.min(Math.max(s.maxDailyLossPercent ?? 15, 5), 50);
-  s.trailingStopPercent = Math.min(Math.max(s.trailingStopPercent ?? 5, 3), 20);
-  s.breakevenAtPercent = Math.min(Math.max(s.breakevenAtPercent ?? 3, 2), 15); // scalping: 3% to lock in faster
+  s.trailingStopPercent = Math.min(Math.max(s.trailingStopPercent ?? (memecoin ? 2 : 5), 1), 20);
+  s.breakevenAtPercent = Math.min(Math.max(s.breakevenAtPercent ?? (memecoin ? 1 : 3), 1), 15);
   s.amountPerTradeUsd = Math.min(Math.max(s.amountPerTradeUsd ?? 50, 5), 500);
   s.amountPerTradeSol = Math.min(Math.max(s.amountPerTradeSol ?? 0.05, 0.01), 1);
   s.minTrendingScore = 1;
@@ -404,10 +519,12 @@ async function inCooldown(userId, tokenAddress, cooldownHours) {
 
 // ====================================================
 // Momentum confirmation with price acceleration tracking
-// Tracks multiple snapshots over 120s to detect if the
-// pump is accelerating (good) or decelerating (bad)
+// Memecoin: 25s, +0.3% (pump just starting)
+// Scalping: 45s, +0.5%
 // ====================================================
-function checkMomentum(tokenAddress, currentPrice) {
+function checkMomentum(tokenAddress, currentPrice, opts = {}) {
+  const momentumMs = opts.momentumMs ?? SCALP_MOMENTUM_MS;
+  const momentumMinPct = opts.momentumMinPct ?? SCALP_MOMENTUM_MIN_PCT;
   const prev = momentumCache.get(tokenAddress);
   if (!prev) {
     momentumCache.set(tokenAddress, {
@@ -418,23 +535,21 @@ function checkMomentum(tokenAddress, currentPrice) {
   }
   const elapsed = Date.now() - prev.seenAt;
 
-  // SCALPING: 45s momentum window - enter earlier in pump
-  if (elapsed < MOMENTUM_WINDOW_MS) {
+  if (elapsed < momentumMs) {
     prev.checks++;
     if (!prev.snapshots) prev.snapshots = [{ price: prev.price, time: prev.seenAt }];
     prev.snapshots.push({ price: currentPrice, time: Date.now() });
-    return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / ${MOMENTUM_WINDOW_MS / 1000}s)` };
+    return { ready: false, reason: `confirming (${Math.round(elapsed / 1000)}s / ${momentumMs / 1000}s)` };
   }
 
   const changeSinceFirstSight = ((currentPrice - prev.price) / prev.price) * 100;
 
-  // SCALPING: +0.5% rise over 45s
-  if (changeSinceFirstSight < 0.5) {
+  if (changeSinceFirstSight < momentumMinPct) {
     momentumCache.set(tokenAddress, {
       price: currentPrice, seenAt: Date.now(), checks: 1,
       snapshots: [{ price: currentPrice, time: Date.now() }]
     });
-    return { ready: false, reason: `momentum_weak (${changeSinceFirstSight.toFixed(1)}%, need +0.5%)` };
+    return { ready: false, reason: `momentum_weak (${changeSinceFirstSight.toFixed(1)}%, need +${momentumMinPct}%)` };
   }
 
   // Price acceleration check: compare first half vs second half of observation
@@ -445,7 +560,7 @@ function checkMomentum(tokenAddress, currentPrice) {
     const firstHalfChange = ((snaps[mid].price - snaps[0].price) / snaps[0].price) * 100;
     const secondHalfChange = ((currentPrice - snaps[mid].price) / snaps[mid].price) * 100;
 
-    if (secondHalfChange < 0 && firstHalfChange > 0.5) {
+    if (secondHalfChange < 0 && firstHalfChange > momentumMinPct) {
       // Pumped in first half, now dropping -- fading pump
       momentumCache.set(tokenAddress, {
         price: currentPrice, seenAt: Date.now(), checks: 1,
@@ -782,6 +897,7 @@ async function _entryTickInner(userId) {
 
   const rawSettings = user.trenchAuto || {};
   const settings = sanitizeSettings(rawSettings);
+  const intervals = getIntervals(rawSettings);
   const mode = rawSettings.mode || 'paper';
   const maxPositions = settings.maxOpenPositions;
   const blacklist = user.trenchBlacklist || [];
@@ -798,7 +914,7 @@ async function _entryTickInner(userId) {
     return;
   }
 
-  const validTrendings = await fetchTrendingsCached();
+  const validTrendings = await fetchTrendingsCached(rawSettings);
   if (validTrendings.length === 0) {
     botLog(userId, 'No trending tokens found, waiting...');
     return;
@@ -828,7 +944,7 @@ async function _entryTickInner(userId) {
   // Fetch live prices for tokens in momentum window (use live data instead of cache)
   const momentumAddrs = [];
   for (const [addr, entry] of momentumCache) {
-    if (Date.now() - entry.seenAt < MOMENTUM_WINDOW_MS) momentumAddrs.push(addr);
+    if (Date.now() - entry.seenAt < intervals.momentumMs) momentumAddrs.push(addr);
   }
   let momentumFreshPrices = {};
   if (momentumAddrs.length > 0) {
@@ -856,7 +972,8 @@ async function _entryTickInner(userId) {
       if (cool) { cooldownBlocked++; continue; }
 
       const priceForMomentum = momentumFreshPrices[t.tokenAddress] ?? t.price;
-      const momentum = checkMomentum(t.tokenAddress, priceForMomentum);
+      const momentumOpts = { momentumMs: intervals.momentumMs, momentumMinPct: intervals.momentumMinPct };
+      const momentum = checkMomentum(t.tokenAddress, priceForMomentum, momentumOpts);
       if (!momentum.ready) { momentumWaiting++; continue; }
 
       const pass = await passesEntryFilters(t, settings, blacklist);
@@ -867,7 +984,7 @@ async function _entryTickInner(userId) {
       const refPrice = momentumFreshPrices[t.tokenAddress] ?? t.price;
       if (freshPrice && refPrice > 0) {
         const dropPct = ((refPrice - freshPrice) / refPrice) * 100;
-        if (dropPct > FRESH_PRICE_DROP_SKIP_PCT) {
+        if (dropPct > intervals.freshDropSkip) {
           botLog(userId, `SKIP ${t.symbol} price dropped ${dropPct.toFixed(1)}% since confirm`);
           continue;
         }
@@ -925,7 +1042,8 @@ async function _entryTickInner(userId) {
       if (cool) { cooldownBlocked++; continue; }
 
       const priceForMomentum = momentumFreshPrices[t.tokenAddress] ?? t.price;
-      const momentum = checkMomentum(t.tokenAddress, priceForMomentum);
+      const momentumOpts = { momentumMs: intervals.momentumMs, momentumMinPct: intervals.momentumMinPct };
+      const momentum = checkMomentum(t.tokenAddress, priceForMomentum, momentumOpts);
       if (!momentum.ready) { momentumWaiting++; continue; }
 
       const pass = await passesEntryFilters(t, settings, blacklist);
@@ -935,7 +1053,7 @@ async function _entryTickInner(userId) {
       const refPrice = momentumFreshPrices[t.tokenAddress] ?? t.price;
       if (freshPrice && refPrice > 0) {
         const dropPct = ((refPrice - freshPrice) / refPrice) * 100;
-        if (dropPct > FRESH_PRICE_DROP_SKIP_PCT) {
+        if (dropPct > intervals.freshDropSkip) {
           botLog(userId, `SKIP ${t.symbol} price dropped ${dropPct.toFixed(1)}% since confirm`);
           continue;
         }
@@ -987,9 +1105,15 @@ async function _entryTickInner(userId) {
 // ====================================================
 // START / STOP / STATUS
 // ====================================================
-function startBot(userId) {
+async function startBot(userId) {
   const uid = userId.toString();
   if (activeBots.has(uid)) return { already: true };
+
+  const user = await User.findById(userId).lean();
+  const rawSettings = user?.trenchAuto || {};
+  const intervals = getIntervals(rawSettings);
+  const s = sanitizeSettings(rawSettings);
+  const memecoin = isMemecoinMode(rawSettings);
 
   const bot = {
     startedAt: new Date(),
@@ -1003,26 +1127,21 @@ function startBot(userId) {
   };
   activeBots.set(uid, bot);
 
-  // Log sanitized settings on start so we can verify
-  User.findById(userId).lean().then(u => {
-    const s = sanitizeSettings(u?.trenchAuto || {});
-    botLog(userId, `SCALP Bot — SL:${s.slPercent}% TP:${s.tpPercent}% hold:${s.maxHoldMinutes}m trail:${s.trailingStopPercent}% | 5m/1h pump 45s mom +0.5% skip>${FRESH_PRICE_DROP_SKIP_PCT}%`);
-  }).catch(() => {
-    botLog(userId, 'SCALP Bot — exits 5s, entries 45s');
-  });
+  const modeLabel = memecoin ? 'MEMECOIN pump-start' : 'SCALP';
+  botLog(userId, `${modeLabel} Bot — TP:${s.tpPercent}% SL:${s.slPercent}% hold:${s.maxHoldMinutes}m | ${intervals.momentumMs / 1000}s mom +${intervals.momentumMinPct}%`);
 
   // First tick: run entry scan immediately (which also seeds momentum cache)
   entryTick(userId).catch(err => botLog(userId, `Entry error: ${err.message}`));
 
-  // Fast exit monitoring loop (10 seconds)
+  // Fast exit monitoring loop
   bot.exitInterval = setInterval(() => {
     exitTick(userId).catch(err => botLog(userId, `Exit error: ${err.message}`));
-  }, EXIT_CHECK_INTERVAL);
+  }, intervals.exitInterval);
 
-  // Slower entry scanning loop (90 seconds)
+  // Entry scanning loop
   bot.entryInterval = setInterval(() => {
     entryTick(userId).catch(err => botLog(userId, `Entry error: ${err.message}`));
-  }, ENTRY_SCAN_INTERVAL);
+  }, intervals.entryInterval);
 
   return { started: true };
 }
@@ -1063,7 +1182,7 @@ async function runTrenchAutoTrade(opts = {}) {
   if (runForUserId) {
     const uid = runForUserId.toString();
     if (!activeBots.has(uid)) {
-      startBot(runForUserId);
+      await startBot(runForUserId);
     }
     return { started: true };
   }

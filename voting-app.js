@@ -2040,6 +2040,7 @@ app.post('/api/trench-warfare/auto/settings', requireLogin, async (req, res) => 
     if (!user) return res.status(401).json({ error: 'Not logged in' });
     const b = req.body || {};
     if (b.enabled !== undefined) user.trenchAuto.enabled = !!b.enabled;
+    if (b.strategy !== undefined) user.trenchAuto.strategy = b.strategy === 'memecoin' ? 'memecoin' : 'scalping';
     if (b.mode !== undefined) user.trenchAuto.mode = b.mode === 'live' ? 'live' : 'paper';
     if (b.maxOpenPositions !== undefined) user.trenchAuto.maxOpenPositions = Math.max(1, Math.min(15, Number(b.maxOpenPositions)));
     if (b.amountPerTradeUsd !== undefined) user.trenchAuto.amountPerTradeUsd = Math.max(5, Math.min(500, Number(b.amountPerTradeUsd)));
@@ -2252,7 +2253,7 @@ app.post('/api/trench-warfare/auto/start', requireLogin, async (req, res) => {
     user.trenchAuto.pausedReason = '';
     await user.save({ validateBeforeSave: false });
     const trenchAuto = require('./services/trench-auto-trading');
-    const result = trenchAuto.startBot(userId);
+    const result = await trenchAuto.startBot(userId);
     res.json({ success: true, ...result });
   } catch (e) {
     console.error('[TrenchBot] Start error:', e);
@@ -2298,7 +2299,7 @@ app.post('/api/trench-warfare/auto/run-now', requireLogin, async (req, res) => {
     user.trenchAuto.mode = (req.body?.mode || user.trenchAuto.mode || 'paper');
     await user.save({ validateBeforeSave: false });
     const trenchAuto = require('./services/trench-auto-trading');
-    const result = trenchAuto.startBot(userId);
+    const result = await trenchAuto.startBot(userId);
     res.json({ success: true, ...result });
   } catch (e) {
     console.error('[TrenchBot] Run-now error:', e);
