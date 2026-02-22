@@ -9,7 +9,7 @@ const dexscreener = require('../services/dexscreener-api');
 const mobula = require('../services/mobula-api');
 const trench = require('../services/trench-auto-trading');
 
-const MIN_QUALITY_SCORE = 50;
+const MIN_QUALITY_SCORE = 65;
 
 async function main() {
   console.log('Fetching tokens (DexScreener 800 + GeckoTerminal + Jupiter)...');
@@ -86,7 +86,7 @@ async function main() {
     });
   }
 
-  const GOOD_THRESHOLD = 20;
+  const GOOD_THRESHOLD = 15;
   if (scored.length < GOOD_THRESHOLD) {
     console.log(`\n⚠️  Few high-quality candidates (want ${GOOD_THRESHOLD}+ with score >= ${MIN_QUALITY_SCORE})`);
   } else {

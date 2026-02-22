@@ -21,8 +21,8 @@ const MOMENTUM_WINDOW_MS = 60 * 1000;   // 60s - scalping: faster confirmation (
 const MAX_LOG_ENTRIES = 50;
 const PAPER_SLIPPAGE = 0.008; // 0.8% simulated slippage each way (~1.6% round trip)
 const MAX_BUYS_PER_SCAN = 2;  // stagger entries across scans
-const MIN_QUALITY_SCORE = 50; // scalping: quality over quantity - only high-scoring candidates
-const FRESH_PRICE_DROP_SKIP_PCT = 1.5; // scalping: skip if dropped >1.5% (tighter)
+const MIN_QUALITY_SCORE = 65; // scalping: fewer losers - only top-tier candidates
+const FRESH_PRICE_DROP_SKIP_PCT = 1.0; // scalping: skip if dropped >1% since confirm (tighter)
 
 // ====================================================
 // In-memory state
@@ -114,20 +114,20 @@ function scoreCandidate(t) {
   const changeShort = (typeof change5m === 'number' && change5m !== undefined) ? change5m
     : (typeof change1h === 'number' && change1h !== undefined) ? change1h
     : (change && change > 0) ? change / 24 : 0; // rough hourly from 24h when no 1h
-  const minChangeShort = 0.5; // +0.5% min for any timeframe
+  const minChangeShort = 1.0; // +1% min - avoid weak pumps that reverse
 
-  // Hard rejects -- safety filters
+  // Hard rejects -- safety filters (tighter to reduce losers)
   if (change > 500) return -1;
   if (change < -25) return -1;
-  if (vol < 15000) return -1;
-  if (liq < 25000) return -1;
+  if (vol < 25000) return -1;  // was 15k - require more volume
+  if (liq < 50000) return -1;  // was 25k - avoid thin liquidity dumps
   if (holderCount > 0 && holderCount < 500) return -1;
   // Allow Jupiter tokens with holderCount 0 (API sometimes returns 0 when unknown)
   if (volLiqRatio > 25) return -1;
 
   // Must be actively pumping (scalping: 5m or 1h or 24h proxy)
   if (changeShort < minChangeShort) return -1;
-  if (buyPressure < 0.45) return -1;
+  if (buyPressure < 0.50) return -1;  // was 0.45 - require stronger buy pressure
 
   const buyVol5m = t.buyVolume5m || 0;
   const sellVol5m = t.sellVolume5m || 0;
@@ -142,12 +142,14 @@ function scoreCandidate(t) {
   const volVelocity = liq > 0 ? volShort / liq : (liq > 0 ? vol1h / liq : 0);
   const buyDominance = volShort > 0 ? buyVolShort / volShort : (vol1h > 0 ? buyVol1h / vol1h : buyPressure);
 
-  // --- OVERBOUGHT REJECTION ---
+  // --- OVERBOUGHT / PARABOLIC REJECTION (reduce losers) ---
   const changeHigh = changeShort;
   if (changeHigh > 80 && change > 300) return -1;
+  if (changeHigh > 50 && change > 150) return -1;  // parabolic + extended 24h = often dumps
+  if (changeHigh > 60) return -1;  // too parabolic - avoid buying the top
 
   // --- VOLUME DIVERGENCE REJECTION ---
-  if (changeHigh > 5 && buyDominance < 0.40 && volShort > 0) return -1;
+  if (changeHigh > 5 && buyDominance < 0.45 && volShort > 0) return -1;  // was 0.40 - require volume backing
 
   let score = 0;
 
@@ -193,16 +195,16 @@ function scoreCandidate(t) {
   else if (numBuyers >= 20) score += 10;
   else if (numBuyers >= 5) score += 5;
 
-  // 24h volume tiers (max 10 pts)
+  // 24h volume tiers (max 10 pts) - min vol is 25k now
   if (vol >= 200000) score += 10;
   else if (vol >= 100000) score += 8;
   else if (vol >= 50000) score += 6;
-  else if (vol >= 15000) score += 4;
+  else if (vol >= 25000) score += 4;
 
-  // Liquidity (max 8 pts)
+  // Liquidity (max 8 pts) - min liq is 50k now
   if (liq >= 100000) score += 8;
-  else if (liq >= 50000) score += 6;
-  else if (liq >= 25000) score += 4;
+  else if (liq >= 75000) score += 6;
+  else if (liq >= 50000) score += 4;
 
   // 24h context -- moderate pumps are better entries (max 8 pts)
   if (change >= 5 && change <= 50) score += 8;
