@@ -2249,6 +2249,7 @@ app.post('/api/trench-warfare/auto/start', requireLogin, async (req, res) => {
     if (!user.trenchAuto) user.trenchAuto = {};
     user.trenchAuto.enabled = true;
     user.trenchAuto.mode = (req.body?.mode || user.trenchAuto.mode || 'paper');
+    if (req.body?.strategy) user.trenchAuto.strategy = req.body.strategy === 'memecoin' ? 'memecoin' : 'scalping';
     user.trenchAuto.lastPausedAt = null;
     user.trenchAuto.pausedReason = '';
     await user.save({ validateBeforeSave: false });

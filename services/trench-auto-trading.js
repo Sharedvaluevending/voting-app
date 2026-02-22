@@ -38,10 +38,10 @@ const SCALP_MIN_SCORE = 75;
 const SCALP_FRESH_DROP_SKIP = 1.0;
 
 // ====================================================
-// In-memory state
+// In-memory state (cache per strategy - memecoin vs scalping)
 // ====================================================
 const activeBots = new Map();
-let trendingCache = { data: [], fetchedAt: 0 };
+const trendingCacheByStrategy = { memecoin: { data: [], fetchedAt: 0 }, scalping: { data: [], fetchedAt: 0 } };
 const tickLocks = new Map();
 
 // Momentum tracking: tokenAddress -> { price, seenAt }
@@ -332,9 +332,12 @@ function scoreCandidatePumpStart(t) {
 // Trending data fetcher with cache
 // ====================================================
 async function fetchTrendingsCached(settings = {}) {
+  const memecoin = isMemecoinMode(settings);
+  const cacheKey = memecoin ? 'memecoin' : 'scalping';
+  const cache = trendingCacheByStrategy[cacheKey] || { data: [], fetchedAt: 0 };
   const intervals = getIntervals(settings);
-  if (Date.now() - trendingCache.fetchedAt < intervals.cacheTtl && trendingCache.data.length > 0) {
-    return trendingCache.data;
+  if (Date.now() - cache.fetchedAt < intervals.cacheTtl && cache.data.length > 0) {
+    return cache.data;
   }
   let trendings = [];
   try {
@@ -398,7 +401,7 @@ async function fetchTrendingsCached(settings = {}) {
   const modeLabel = memecoin ? 'memecoin pump-start' : 'scalping';
   console.log(`[TrenchBot] ${all.length} total tokens, ${scored.length} pass ${modeLabel} (score>=${minScore})`);
 
-  trendingCache = { data: scored, fetchedAt: Date.now() };
+  trendingCacheByStrategy[cacheKey] = { data: scored, fetchedAt: Date.now() };
   return scored;
 }
 
@@ -1117,6 +1120,7 @@ async function startBot(userId) {
 
   const bot = {
     startedAt: new Date(),
+    strategy: memecoin ? 'memecoin' : 'scalping',
     scanCount: 0,
     tradesOpened: 0,
     tradesClosed: 0,
@@ -1127,8 +1131,8 @@ async function startBot(userId) {
   };
   activeBots.set(uid, bot);
 
-  const modeLabel = memecoin ? 'MEMECOIN pump-start' : 'SCALP';
-  botLog(userId, `${modeLabel} Bot — TP:${s.tpPercent}% SL:${s.slPercent}% hold:${s.maxHoldMinutes}m | ${intervals.momentumMs / 1000}s mom +${intervals.momentumMinPct}%`);
+  const modeLabel = memecoin ? 'Meme Bot' : 'Scalp Bot';
+  botLog(userId, `${modeLabel} — TP:${s.tpPercent}% SL:${s.slPercent}% hold:${s.maxHoldMinutes}m | ${intervals.momentumMs / 1000}s mom +${intervals.momentumMinPct}%`);
 
   // First tick: run entry scan immediately (which also seeds momentum cache)
   entryTick(userId).catch(err => botLog(userId, `Entry error: ${err.message}`));
@@ -1163,6 +1167,7 @@ function getBotStatus(userId) {
   if (!bot) return { running: false };
   return {
     running: true,
+    strategy: bot.strategy || 'scalping',
     startedAt: bot.startedAt,
     scanCount: bot.scanCount,
     tradesOpened: bot.tradesOpened,
