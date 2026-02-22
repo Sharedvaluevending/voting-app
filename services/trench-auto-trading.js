@@ -21,7 +21,7 @@ const MOMENTUM_WINDOW_MS = 60 * 1000;   // 60s - scalping: faster confirmation (
 const MAX_LOG_ENTRIES = 50;
 const PAPER_SLIPPAGE = 0.008; // 0.8% simulated slippage each way (~1.6% round trip)
 const MAX_BUYS_PER_SCAN = 2;  // stagger entries across scans
-const MIN_QUALITY_SCORE = 50; // scalping: allow more candidates (was 55)
+const MIN_QUALITY_SCORE = 40; // scalping: allow more candidates (was 50)
 const FRESH_PRICE_DROP_SKIP_PCT = 1.5; // scalping: skip if dropped >1.5% (tighter)
 
 // ====================================================
@@ -110,9 +110,11 @@ function scoreCandidate(t) {
   const volLiqRatio = liq > 0 ? vol / liq : 0;
   const sourceCount = t._sourceCount || 1;
 
-  // SCALPING: Prefer 5m when available, fallback to 1h
-  const changeShort = (typeof change5m === 'number' && change5m !== undefined) ? change5m : change1h;
-  const minChangeShort = (typeof change5m === 'number') ? 0.5 : 1; // 5m: +0.5% ok, 1h: need +1%
+  // SCALPING: Prefer 5m when available, fallback to 1h, then 24h/24 as last resort
+  const changeShort = (typeof change5m === 'number' && change5m !== undefined) ? change5m
+    : (typeof change1h === 'number' && change1h !== undefined) ? change1h
+    : (change && change > 0) ? change / 24 : 0; // rough hourly from 24h when no 1h
+  const minChangeShort = 0.5; // +0.5% min for any timeframe
 
   // Hard rejects -- safety filters
   if (change > 500) return -1;
@@ -120,12 +122,12 @@ function scoreCandidate(t) {
   if (vol < 15000) return -1;
   if (liq < 25000) return -1;
   if (holderCount > 0 && holderCount < 500) return -1;
-  if (t.source === 'jupiter' && holderCount === 0) return -1;
+  // Allow Jupiter tokens with holderCount 0 (API sometimes returns 0 when unknown)
   if (volLiqRatio > 25) return -1;
 
-  // Must be actively pumping (scalping: 5m or 1h)
+  // Must be actively pumping (scalping: 5m or 1h or 24h proxy)
   if (changeShort < minChangeShort) return -1;
-  if (buyPressure < 0.50) return -1;
+  if (buyPressure < 0.45) return -1; // relaxed from 0.50 for tokens without bp data
 
   const buyVol5m = t.buyVolume5m || 0;
   const sellVol5m = t.sellVolume5m || 0;
@@ -145,7 +147,7 @@ function scoreCandidate(t) {
   if (changeHigh > 80 && change > 300) return -1;
 
   // --- VOLUME DIVERGENCE REJECTION ---
-  if (changeHigh > 5 && buyDominance < 0.45 && volShort > 0) return -1;
+  if (changeHigh > 5 && buyDominance < 0.40 && volShort > 0) return -1; // relaxed from 0.45
 
   let score = 0;
 
@@ -255,8 +257,8 @@ async function fetchTrendingsCached() {
   // Enrich non-Jupiter tokens missing buyVolume1h with Mobula (helps them score)
   const toEnrich = Array.from(seen.values()).filter(t =>
     t.source !== 'jupiter' && !t.buyVolume1h && !t.sellVolume1h &&
-    t.tokenAddress && t.priceChange1h != null && (t.volume24h || 0) >= 15000
-  ).slice(0, 25);
+    t.tokenAddress && ((t.priceChange1h != null) || (t.priceChange24h != null && (t.priceChange24h || 0) > 0)) && (t.volume24h || 0) >= 15000
+  ).slice(0, 50);
   if (toEnrich.length > 0) {
     const chunkSize = 5;
     for (let i = 0; i < toEnrich.length; i += chunkSize) {
