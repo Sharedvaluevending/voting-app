@@ -147,7 +147,8 @@ app.use(async (req, res, next) => {
     const user = await User.findById(req.session.userId).lean();
     if (user) {
       res.locals.user = user;
-      res.locals.balance = user.paperBalance;
+      // Fallback for legacy users or undefined: show/trade with $10k default
+      res.locals.balance = (user.paperBalance != null && user.paperBalance >= 0) ? user.paperBalance : 10000;
       req.session.username = user.username;
       // Compute live PNL from open trades using cached prices (no extra latency)
       try {

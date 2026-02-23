@@ -175,6 +175,7 @@ async function openTrade(userId, signalData) {
     throw new Error(`Max open trades reached (${user.settings?.maxOpenTrades || 3}). Close a trade first.`);
   }
 
+  const balance = (user.paperBalance != null && user.paperBalance >= 0) ? user.paperBalance : 10000;
   const maxDailyLossPct = user.settings?.maxDailyLossPercent ?? 5;
   if (maxDailyLossPct > 0) {
     const todayStart = new Date();
@@ -185,7 +186,7 @@ async function openTrade(userId, signalData) {
       exitTime: { $gte: todayStart }
     }).select('pnl').lean();
     const todayPnl = closedToday.reduce((s, t) => s + (t.pnl || 0), 0);
-    const maxLoss = user.paperBalance * (maxDailyLossPct / 100);
+    const maxLoss = balance * (maxDailyLossPct / 100);
     if (todayPnl < -maxLoss) {
       throw new Error(`Daily loss limit reached ($${Math.abs(todayPnl).toFixed(2)} today). Max ${maxDailyLossPct}% of balance. Resets at midnight UTC.`);
     }
@@ -221,9 +222,9 @@ async function openTrade(userId, signalData) {
     indicators: signalData.indicators || {},
     suggestedLeverage: signalData.leverage || suggestLeverage(signalData.score, signalData.regime, signalData.indicators?.volatilityState)
   };
-  const peakEquity = Math.max(user.initialBalance || 10000, user.paperBalance);
+  const peakEquity = Math.max(user.initialBalance || 10000, balance);
   const context = {
-    balance: user.paperBalance,
+    balance,
     peakEquity,
     openTrades: [],
     streak: user.stats?.currentStreak || 0,
@@ -267,11 +268,11 @@ async function openTrade(userId, signalData) {
   let safeTP2 = orders.takeProfit2;
   let safeTP3 = orders.takeProfit3;
 
-  if (user.paperBalance <= 0) {
+  if (balance <= 0) {
     throw new Error('Insufficient balance. Your paper balance is zero. Reset your paper account from the Performance page.');
   }
-  if (required > user.paperBalance) {
-    throw new Error(`Insufficient balance. Need $${required.toFixed(2)}, have $${user.paperBalance.toFixed(2)}. Try resetting paper account.`);
+  if (required > balance) {
+    throw new Error(`Insufficient balance. Need $${required.toFixed(2)}, have $${balance.toFixed(2)}. Try resetting paper account.`);
   }
 
   if (tpMode === 'trailing') {
@@ -328,6 +329,11 @@ async function openTrade(userId, signalData) {
 
   console.log(`[OpenTrade] ${signalData.symbol} ${signalData.direction} | entry=$${entryPrice} | SL=$${stopLoss} | TP1=$${safeTP1} | TP2=$${safeTP2} | TP3=$${safeTP3} | size=$${positionSize.toFixed(2)} | lev=${leverage}x | score=${signalData.score} | strategy=${signalData.strategyType || 'default'} | auto=${!!signalData.autoTriggered}`);
 
+  // Persist balance for legacy users who had undefined paperBalance
+  if (user.paperBalance == null || user.paperBalance < 0) {
+    user.paperBalance = balance;
+    user.initialBalance = user.initialBalance || balance;
+  }
   user.paperBalance -= (margin + fees);
   await user.save();
 
@@ -390,7 +396,8 @@ async function closeTradePartial(trade, exitPrice, portionSize, reason) {
   pnl -= exitFees;
 
   const marginPortion = portion / trade.leverage;
-  user.paperBalance = Math.max(0, user.paperBalance + marginPortion + pnl); // Prevent negative balance
+  const currentBal = (user.paperBalance != null && user.paperBalance >= 0) ? user.paperBalance : 10000;
+  user.paperBalance = Math.max(0, currentBal + marginPortion + pnl); // Prevent negative balance
   await user.save();
 
   trade.positionSize -= portion;
@@ -498,7 +505,8 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
 
   console.log(`[CloseTrade] ${trade.symbol} ${trade.direction} | entry=$${trade.entryPrice} exit=$${exitPrice} (fed price=$${currentPrice}) | reason=${reason} | PnL=$${totalPnl.toFixed(2)} (${pnlPercent.toFixed(1)}%) | duration=${Math.round((Date.now() - new Date(trade.createdAt).getTime()) / 60000)}min`);
 
-  user.paperBalance = Math.max(0, user.paperBalance + trade.margin + pnl); // Prevent negative balance
+  const currentBal = (user.paperBalance != null && user.paperBalance >= 0) ? user.paperBalance : 10000;
+  user.paperBalance = Math.max(0, currentBal + trade.margin + pnl); // Prevent negative balance
   user.stats.totalTrades += 1;
   if (totalPnl > 0) {
     user.stats.wins += 1;
@@ -966,8 +974,9 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
                 const addMargin = addSize / lev;
                 const addFees = addSize * getTakerFee(dcaUser);
                 const addRequired = addMargin + addFees;
+                const dcaBal = (dcaUser.paperBalance != null && dcaUser.paperBalance >= 0) ? dcaUser.paperBalance : 10000;
 
-                if (dcaUser.paperBalance >= addRequired) {
+                if (dcaBal >= addRequired) {
                   const oldAvg = trade.avgEntryPrice || trade.entryPrice;
                   const oldTotalCost = oldAvg * trade.positionSize;
                   const newTotalCost = oldTotalCost + (currentPrice * addSize);
@@ -983,6 +992,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
                   trade.fees = (trade.fees || 0) + addFees;
                   trade.margin = (trade.margin || 0) + addMargin;
 
+                  if (dcaUser.paperBalance == null || dcaUser.paperBalance < 0) dcaUser.paperBalance = dcaBal;
                   dcaUser.paperBalance -= addRequired;
                   await dcaUser.save();
 
@@ -990,7 +1000,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
                   await trade.save();
                   console.log(`[DCA] ${trade.symbol}: DCA #${trade.dcaCount} +$${addSize.toFixed(2)} at $${currentPrice} | avg $${newAvgEntry.toFixed(6)} | dip ${dipPct.toFixed(1)}% | score ${signal.score}`);
                 } else {
-                  console.log(`[DCA] ${trade.symbol}: DCA skipped — insufficient balance ($${dcaUser.paperBalance.toFixed(2)} < $${addRequired.toFixed(2)})`);
+                  console.log(`[DCA] ${trade.symbol}: DCA skipped — insufficient balance ($${dcaBal.toFixed(2)} < $${addRequired.toFixed(2)})`);
                 }
               }
             }
@@ -1967,8 +1977,9 @@ async function getPerformanceStats(userId) {
   const drawdownAnalysis = computeDrawdownAnalysis(equityCurve);
   const riskByStrategyRegime = computeRiskMetricsByStrategyAndRegime(closedTrades, initialBalance, equityCurve);
 
+  const balance = (user.paperBalance != null && user.paperBalance >= 0) ? user.paperBalance : 10000;
   return {
-    balance: user.paperBalance,
+    balance,
     initialBalance,
     totalPnl: Math.round(totalPnl * 100) / 100,
     totalPnlPercent: initialBalance > 0 ? ((totalPnl / initialBalance) * 100).toFixed(2) : '0',
