@@ -120,6 +120,71 @@ function breakdownByStrategy(trades) {
 }
 
 /**
+ * Per-year breakdown (backtest-expert: time robustness)
+ */
+function breakdownByYear(trades) {
+  const byYear = {};
+  for (const t of trades) {
+    const ts = t.exitTime || t.entryTime || t.exitBar;
+    const year = ts ? new Date(typeof ts === 'number' ? (ts < 1e12 ? ts * 1000 : ts) : ts).getFullYear() : 'unknown';
+    if (!byYear[year]) byYear[year] = { trades: 0, pnl: 0, wins: 0 };
+    byYear[year].trades++;
+    byYear[year].pnl += t.pnl || 0;
+    if (t.pnl > 0) byYear[year].wins++;
+  }
+  return byYear;
+}
+
+/**
+ * Backtest-expert evaluation: sample size, red flags, verdict
+ */
+function evaluateBacktest(summary, trades, options) {
+  options = options || {};
+  const totalTrades = summary.totalTrades || trades.length;
+  const winRate = summary.winRate ?? 0;
+  const maxDrawdownPct = summary.maxDrawdownPct ?? 0;
+  const profitFactor = summary.profitFactor ?? 0;
+  const byYear = options.byYear || breakdownByYear(trades);
+
+  const redFlags = [];
+  let verdict = 'deploy';
+
+  // Sample size (backtest-expert: min 30, prefer 100+)
+  if (totalTrades < 30) {
+    redFlags.push({ id: 'sample_size', msg: `Only ${totalTrades} trades (min 30 for confidence)` });
+    verdict = totalTrades < 10 ? 'abandon' : 'refine';
+  }
+
+  // Win rate too high (possible look-ahead)
+  if (winRate > 90) {
+    redFlags.push({ id: 'win_rate_suspicious', msg: `Win rate ${winRate.toFixed(1)}% - audit for look-ahead bias` });
+    verdict = 'refine';
+  }
+
+  // Max drawdown extreme
+  if (maxDrawdownPct > 40) {
+    redFlags.push({ id: 'high_drawdown', msg: `Max drawdown ${maxDrawdownPct.toFixed(1)}% - high risk` });
+  }
+
+  // Year robustness: positive in majority of years
+  const years = Object.keys(byYear).filter(k => k !== 'unknown' && !isNaN(Number(k)));
+  const profitableYears = years.filter(y => (byYear[y].pnl || 0) > 0).length;
+  if (years.length >= 2 && profitableYears < years.length * 0.5) {
+    redFlags.push({ id: 'regime_dependent', msg: `Profitable in only ${profitableYears}/${years.length} years` });
+    verdict = verdict === 'deploy' ? 'refine' : verdict;
+  }
+
+  return {
+    totalTrades,
+    redFlags,
+    verdict,
+    byYear,
+    sampleSizeOk: totalTrades >= 30,
+    regimeRobust: years.length < 2 || profitableYears >= years.length * 0.5
+  };
+}
+
+/**
  * Per-symbol breakdown
  */
 function breakdownBySymbol(trades) {
@@ -235,8 +300,10 @@ module.exports = {
   computeSharpeRatio,
   buildSummary,
   breakdownByRegime,
+  breakdownByYear,
   breakdownByStrategy,
   breakdownBySymbol,
+  evaluateBacktest,
   reconcile,
   logSignalDecision,
   logOrderFill,

@@ -11,7 +11,7 @@ const { sliceCandlesAt, buildSnapshot } = require('./market-data');
 const { execute } = require('./execution-simulator');
 const { createTrade, applyAction, updatePriceRange } = require('./trade-state');
 const { canOpenTrade, maybeResetDaily } = require('./portfolio-controls');
-const { buildSummary, breakdownByStrategy, computeMaxDrawdown, computeMaxDrawdownPct } = require('./analytics');
+const { buildSummary, breakdownByStrategy, breakdownByYear, evaluateBacktest, computeMaxDrawdown, computeMaxDrawdownPct } = require('./analytics');
 const { COIN_META } = require('../crypto-api');
 
 const SLIPPAGE_BPS = 5;
@@ -58,6 +58,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const minRiskReward = (ft.minRiskReward != null && Number.isFinite(ft.minRiskReward)) ? Number(ft.minRiskReward) : 1.2;
   const maxDailyLossPct = (ft.maxDailyLossPercent != null && ft.maxDailyLossPercent > 0) ? Number(ft.maxDailyLossPercent) : null;
   const minVolume24hUsd = (ft.minVolume24hUsd != null && ft.minVolume24hUsd > 0) ? Number(ft.minVolume24hUsd) : 0;
+  const slippageMultiplier = (ft.slippageMultiplier != null && ft.slippageMultiplier > 0) ? Number(ft.slippageMultiplier) : 1;
 
   const c1h = candles['1h'];
   const history = { prices: [], volumes: [], marketCaps: [] };
@@ -215,7 +216,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       for (const action of actions) {
         if (action.type === 'SL' || action.type === 'EXIT' || (action.type === 'TP1' && action.fullClose) || (action.type === 'TP2' && action.fullClose) || action.type === 'TP3') {
           const exitPrice = action.marketPrice || (action.type === 'SL' ? position.stopLoss : nextBar.close);
-          const slipMul = F_SLIPPAGE ? (1 + (SLIPPAGE_BPS / 10000)) : 1;
+          const slipMul = F_SLIPPAGE ? (1 + (SLIPPAGE_BPS * slippageMultiplier / 10000)) : 1;
           const adjExit = position.direction === 'LONG' ? exitPrice / slipMul : exitPrice * slipMul;
           const exitFees = F_FEES ? position.size * TAKER_FEE : 0;
           const pnl = position.direction === 'LONG'
@@ -253,7 +254,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
         if (action.type === 'TP1' || action.type === 'TP2') {
           const portion = action.portion || 0;
           const exitPrice = action.marketPrice;
-          const slipMul = F_SLIPPAGE ? (1 + (SLIPPAGE_BPS / 10000)) : 1;
+          const slipMul = F_SLIPPAGE ? (1 + (SLIPPAGE_BPS * slippageMultiplier / 10000)) : 1;
           const adjExit = position.direction === 'LONG' ? exitPrice / slipMul : exitPrice * slipMul;
           const exitFees = F_FEES ? portion * TAKER_FEE : 0;
           const pnl = position.direction === 'LONG'
@@ -390,7 +391,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     const fillResult = execute(
       { direction: orders.direction, size: orders.size, entry: orders.entry, orderType: 'market' },
       execSnapshot,
-      { takerFee: F_FEES ? TAKER_FEE : 0, minSlipBps: F_SLIPPAGE ? SLIPPAGE_BPS : 0 }
+      { takerFee: F_FEES ? TAKER_FEE : 0, minSlipBps: F_SLIPPAGE ? SLIPPAGE_BPS : 0, slippageMultiplier }
     );
     if (!fillResult.filled) continue;
 
@@ -441,7 +442,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   if (position) {
     const lastBar = c1h[c1h.length - 1];
     const exitPrice = lastBar.close;
-    const slipMul = F_SLIPPAGE ? (1 + (SLIPPAGE_BPS / 10000)) : 1;
+    const slipMul = F_SLIPPAGE ? (1 + (SLIPPAGE_BPS * slippageMultiplier / 10000)) : 1;
     const adjExit = position.direction === 'LONG' ? exitPrice / slipMul : exitPrice * slipMul;
     const exitFees = F_FEES ? position.size * TAKER_FEE : 0;
     const pnl = position.direction === 'LONG'
@@ -501,6 +502,9 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   trades.forEach(t => { exitReasons[t.reason] = (exitReasons[t.reason] || 0) + 1; });
 
   const strategyBreakdown = breakdownByStrategy(trades);
+  const byYear = breakdownByYear(trades);
+  const summary = { totalTrades: trades.length, wins, losses, winRate: trades.length > 0 ? (wins / trades.length) * 100 : 0, totalPnl, returnPct: (totalPnl / initialBalance) * 100, profitFactor, maxDrawdownPct: computeMaxDrawdownPct(equityCurve) };
+  const evaluation = evaluateBacktest(summary, trades, { byYear });
 
   return {
     coinId,
@@ -523,7 +527,9 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     sharpeRatio,
     strategyBreakdown,
     actionCounts,
-    exitReasons
+    exitReasons,
+    byYear,
+    evaluation
   };
 }
 

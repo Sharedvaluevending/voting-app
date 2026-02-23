@@ -177,6 +177,9 @@
       <label class="ft-toggle" title="0.05% slippage simulation on entry and exit">
         <input type="checkbox" id="ft-slippage" checked> <span class="ft-badge ft-cost">COST</span> Slippage (0.05%)
       </label>
+      <label class="ft-toggle" title="1.5x slippage stress test (backtest-expert: strategies that survive are more robust)">
+        <input type="checkbox" id="ft-slippageStress"> <span class="ft-badge ft-risk">STRESS</span> Stress Test (1.5x slippage)
+      </label>
 
       <!-- DCA & Trailing TP -->
       <label class="ft-toggle" title="Trailing TP: no fixed TPs, trail stop from entry using ATR or fixed % distance">
@@ -398,6 +401,7 @@ function getFeatureFlags() {
     drawdownThresholdPercent: parseFloat(document.getElementById('ft-drawdownThresh')?.value) || 10,
     fees: document.getElementById('ft-fees').checked,
     slippage: document.getElementById('ft-slippage').checked,
+    slippageMultiplier: document.getElementById('ft-slippageStress').checked ? 1.5 : 1,
     closeBasedStops: document.getElementById('ft-closeBasedStops').checked,
     minSlDistance: document.getElementById('ft-minSlDistance').checked,
     trailingTp: document.getElementById('ft-trailingTp').checked,
@@ -464,6 +468,7 @@ function loadBacktestPresetByName(name) {
   document.getElementById('ft-drawdownThresh').value = f.drawdownThresholdPercent || 10;
   document.getElementById('ft-fees').checked = f.fees;
   document.getElementById('ft-slippage').checked = f.slippage;
+  if (document.getElementById('ft-slippageStress')) document.getElementById('ft-slippageStress').checked = f.slippageMultiplier === 1.5;
   document.getElementById('ft-closeBasedStops').checked = f.closeBasedStops;
   document.getElementById('ft-minSlDistance').checked = f.minSlDistance;
   document.getElementById('ft-trailingTp').checked = f.trailingTp;
@@ -741,6 +746,40 @@ function renderActionBadgesForTrade(actions) {
         equityLegend.textContent = 'Start: $' + (equityCurve[0].equity || 0).toLocaleString() + ' \u2192 End: $' + (last.equity || 0).toLocaleString() + ' (' + equityCurve.length + ' points)';
       } else {
         equityLegend.textContent = 'No equity data (no trades closed)';
+      }
+
+      // Robustness evaluation (from first successful coin)
+      var firstWithEval = successResults.find(function(r) { return r.evaluation; });
+      var robSection = document.getElementById('bt-robustness-section');
+      if (robSection) robSection.remove();
+      if (firstWithEval && firstWithEval.evaluation) {
+        var ev = firstWithEval.evaluation;
+        var robDiv = document.createElement('div');
+        robDiv.id = 'bt-robustness-section';
+        robDiv.className = 'section';
+        robDiv.style.marginBottom = '24px';
+        robDiv.style.background = 'rgba(15,23,42,0.6)';
+        robDiv.style.border = '1px solid #334155';
+        robDiv.style.borderRadius = '8px';
+        robDiv.style.padding = '16px';
+        var verdictColor = ev.verdict === 'deploy' ? '#10b981' : ev.verdict === 'refine' ? '#eab308' : '#ef4444';
+        var flagsHtml = (ev.redFlags || []).length > 0 ? '<div style="font-size:12px;color:#fca5a5;margin-top:8px;">' + (ev.redFlags || []).map(function(f) { return '• ' + f.msg; }).join('<br>') + '</div>' : '';
+        var yearHtml = '';
+        if (ev.byYear && Object.keys(ev.byYear).filter(function(k) { return k !== 'unknown'; }).length > 0) {
+          var years = Object.keys(ev.byYear).filter(function(k) { return k !== 'unknown'; }).sort();
+          yearHtml = '<div style="font-size:11px;color:#9ca3af;margin-top:8px;">Year-by-year: ' + years.map(function(y) {
+            var d = ev.byYear[y];
+            return '<span style="margin-right:8px;padding:2px 6px;border-radius:4px;background:rgba(30,41,59,0.8);color:' + ((d.pnl || 0) >= 0 ? '#10b981' : '#ef4444') + '">' + y + ': $' + (d.pnl || 0).toFixed(0) + ' (' + d.trades + ')</span>';
+          }).join('') + '</div>';
+        }
+        robDiv.innerHTML = '<h3 style="color:#e5e7eb;margin-bottom:12px;">Robustness Check (' + (firstWithEval.symbol || firstWithEval.coinId) + ')</h3>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;">' +
+          '<span style="padding:4px 10px;border-radius:6px;font-weight:600;font-size:12px;background:' + verdictColor + '22;color:' + verdictColor + '">' + (ev.verdict || 'deploy').toUpperCase() + '</span>' +
+          (ev.sampleSizeOk ? '<span style="font-size:11px;color:#10b981">✓ Sample size OK</span>' : '<span style="font-size:11px;color:#eab308">⚠ Low sample</span>') +
+          (ev.regimeRobust ? '<span style="font-size:11px;color:#10b981">✓ Regime robust</span>' : '<span style="font-size:11px;color:#eab308">⚠ Regime dependent</span>') +
+          '</div>' + flagsHtml + yearHtml;
+        var firstSection = document.querySelector('#backtest-results .section');
+        document.getElementById('backtest-results').insertBefore(robDiv, firstSection);
       }
 
       // Regime breakdown
