@@ -69,10 +69,10 @@ const userSchema = new mongoose.Schema({
     riskDollarsPerTrade: { type: Number, default: 200, min: 10, max: 10000 },
     maxOpenTrades: { type: Number, default: 3, min: 1, max: 10 },
     maxBalancePercentPerTrade: { type: Number, default: 25, min: 5, max: 100 },
-    cooldownHours: { type: Number, default: 4, min: 0, max: 168 },
+    cooldownHours: { type: Number, default: 6, min: 0, max: 168 },
     autoExecuteActions: { type: Boolean, default: false },
     autoTrade: { type: Boolean, default: false },
-    autoTradeMinScore: { type: Number, default: 52, min: 30, max: 95 },
+    autoTradeMinScore: { type: Number, default: 56, min: 30, max: 95 },
     disableLeverage: { type: Boolean, default: false },
     autoMoveBreakeven: { type: Boolean, default: true },
     autoTrailingStop: { type: Boolean, default: true },
@@ -94,12 +94,12 @@ const userSchema = new mongoose.Schema({
     featureMinSlDistance: { type: Boolean, default: true },
     featureConfidenceSizing: { type: Boolean, default: true },
     // Quality filters: require price-action confluence, skip extreme vol, require volume
-    featurePriceActionConfluence: { type: Boolean, default: false },
+    featurePriceActionConfluence: { type: Boolean, default: true },
     featureVolatilityFilter: { type: Boolean, default: false },
-    featureVolumeConfirmation: { type: Boolean, default: false },
-    featureFundingRateFilter: { type: Boolean, default: false },
-    // Min R:R filter (default off) - hide/block signals below this R:R
-    minRiskRewardEnabled: { type: Boolean, default: false },
+    featureVolumeConfirmation: { type: Boolean, default: true },
+    featureFundingRateFilter: { type: Boolean, default: true },
+    // Min R:R filter - hide/block signals below this R:R
+    minRiskRewardEnabled: { type: Boolean, default: true },
     minRiskReward: { type: Number, default: 1.2, min: 1.0, max: 5.0 },
     // Take-Profit mode: 'fixed' = TP1/TP2/TP3, 'trailing' = trail from entry
     tpMode: { type: String, enum: ['fixed', 'trailing'], default: 'fixed' },
@@ -113,13 +113,13 @@ const userSchema = new mongoose.Schema({
     dcaAddSizePercent: { type: Number, default: 100, min: 25, max: 200 },
     dcaMinScore: { type: Number, default: 52, min: 30, max: 95 },
     // Risk controls
-    maxDailyLossPercent: { type: Number, default: 0, min: 0, max: 20 },
-    drawdownSizingEnabled: { type: Boolean, default: false },
+    maxDailyLossPercent: { type: Number, default: 5, min: 0, max: 20 },
+    drawdownSizingEnabled: { type: Boolean, default: true },
     drawdownThresholdPercent: { type: Number, default: 10, min: 5, max: 50 },
     minVolume24hUsd: { type: Number, default: 0, min: 0, max: 500000000 },
-    expectancyFilterEnabled: { type: Boolean, default: false },
+    expectancyFilterEnabled: { type: Boolean, default: true },
     minExpectancy: { type: Number, default: 0.15, min: -1, max: 2 },
-    correlationFilterEnabled: { type: Boolean, default: false }
+    correlationFilterEnabled: { type: Boolean, default: true }
   },
   excludedCoins: [{ type: String }], // Coins excluded from auto-trade (e.g. ['dogecoin', 'cardano']),
   // Coin weights from backtest (1.0 = normal, 1.2 = 20% more allocation, 0.8 = 20% less)

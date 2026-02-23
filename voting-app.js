@@ -419,13 +419,13 @@ async function buildEngineOptions(prices, allCandles, allHistory, user) {
   // Funding rates for contrarian signal
   const fundingRates = getAllFundingRates();
   const opts = { strategyWeights, strategyStats, btcSignal, btcCandles, btcDirection, fundingRates };
-  // User-specific quality filters (for paper/live)
+  // User-specific quality filters (for paper/live) - defaults ON for quality
   if (user?.settings) {
     const s = user.settings;
-    opts.featurePriceActionConfluence = s.featurePriceActionConfluence === true;
+    opts.featurePriceActionConfluence = (s.featurePriceActionConfluence ?? true) === true;
     opts.featureVolatilityFilter = s.featureVolatilityFilter === true;
-    opts.featureVolumeConfirmation = s.featureVolumeConfirmation === true;
-    opts.featureFundingRateFilter = s.featureFundingRateFilter === true;
+    opts.featureVolumeConfirmation = (s.featureVolumeConfirmation ?? true) === true;
+    opts.featureFundingRateFilter = (s.featureFundingRateFilter ?? true) === true;
   }
   return opts;
 }
@@ -479,9 +479,9 @@ app.get('/', async (req, res) => {
     let monitoredSignals = dashUser
       ? signals.filter(s => !excludedCoins.includes(s.coin?.id))
       : signals;
-    // Min R:R filter: hide signals below threshold when enabled
-    if (dashUser?.settings?.minRiskRewardEnabled && dashUser.settings.minRiskReward != null) {
-      const minRr = Number(dashUser.settings.minRiskReward) || 1.2;
+    // Min R:R filter: hide signals below threshold when enabled (default ON)
+    if (dashUser?.settings?.minRiskRewardEnabled !== false) {
+      const minRr = Number(dashUser?.settings?.minRiskReward) || 1.2;
       monitoredSignals = monitoredSignals.filter(s => (s.riskReward || 0) >= minRr);
     }
 
@@ -1195,9 +1195,9 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
     const dcaMinScr = parseInt(req.body.dcaMinScore, 10);
     s.dcaMinScore = !isNaN(dcaMinScr) && dcaMinScr >= 30 && dcaMinScr <= 95 ? dcaMinScr : 52;
 
-    // Risk controls
+    // Risk controls (defaults: max daily 5%, drawdown sizing ON)
     const maxDaily = parseFloat(req.body.maxDailyLossPercent);
-    s.maxDailyLossPercent = !isNaN(maxDaily) && maxDaily >= 0 && maxDaily <= 20 ? maxDaily : 0;
+    s.maxDailyLossPercent = !isNaN(maxDaily) && maxDaily >= 0 && maxDaily <= 20 ? maxDaily : 5;
     s.drawdownSizingEnabled = req.body.drawdownSizingEnabled ? parseBool(req.body.drawdownSizingEnabled) : false;
     const ddThresh = parseFloat(req.body.drawdownThresholdPercent);
     s.drawdownThresholdPercent = !isNaN(ddThresh) && ddThresh >= 5 && ddThresh <= 50 ? ddThresh : 10;
@@ -3136,7 +3136,7 @@ async function runAutoTrade() {
           if (!coinWeightEnabled || baseW == null) return 1;
           return 1 + (baseW - 1) * strengthMult;
         };
-        const minRr = user.settings?.minRiskRewardEnabled ? (Number(user.settings.minRiskReward) || 1.2) : 0;
+        const minRr = (user.settings?.minRiskRewardEnabled ?? true) ? (Number(user.settings?.minRiskReward) || 1.2) : 0;
         const candidates = signalsWithBestStrategy.filter(sig => {
           if (sig._overallScore < minScore) return false;
           if (!sig._direction) return false; // HOLD signals ignored

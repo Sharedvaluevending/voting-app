@@ -175,7 +175,7 @@ async function openTrade(userId, signalData) {
     throw new Error(`Max open trades reached (${user.settings?.maxOpenTrades || 3}). Close a trade first.`);
   }
 
-  const maxDailyLossPct = user.settings?.maxDailyLossPercent ?? 0;
+  const maxDailyLossPct = user.settings?.maxDailyLossPercent ?? 5;
   if (maxDailyLossPct > 0) {
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
@@ -197,7 +197,7 @@ async function openTrade(userId, signalData) {
   }
 
   // Correlation filter: avoid opening 2+ trades in same correlated group (e.g. ETH + MATIC)
-  if (user.settings?.correlationFilterEnabled) {
+  if (user.settings?.correlationFilterEnabled !== false) {
     const openTrades = await Trade.find({ userId, status: 'OPEN' }).select('coinId').lean();
     if (wouldExceedCorrelation(openTrades, signalData.coinId)) {
       throw new Error(`Correlation filter: ${signalData.symbol} is correlated with an open position. Close one first.`);
@@ -232,9 +232,9 @@ async function openTrade(userId, signalData) {
     userSettings: {
       riskPerTrade: user.settings?.riskPerTrade || 2,
       riskMode: user.settings?.riskMode || 'percent',
-      drawdownSizingEnabled: user.settings?.drawdownSizingEnabled,
+      drawdownSizingEnabled: user.settings?.drawdownSizingEnabled ?? true,
       drawdownThresholdPercent: user.settings?.drawdownThresholdPercent ?? 10,
-      expectancyFilterEnabled: user.settings?.expectancyFilterEnabled,
+      expectancyFilterEnabled: user.settings?.expectancyFilterEnabled ?? true,
       minExpectancy: user.settings?.minExpectancy ?? 0.15,
       riskDollarsPerTrade: user.settings?.riskDollarsPerTrade ?? 200,
       defaultLeverage: user.settings?.defaultLeverage || 1,

@@ -171,11 +171,11 @@
         </label>
         <div>
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Min score</label>
-          <input type="number" name="autoTradeMinScore" min="30" max="95" value="<%= (user.settings && user.settings.autoTradeMinScore) != null ? user.settings.autoTradeMinScore : 52 %>" title="Only auto-open when score >= this" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+          <input type="number" name="autoTradeMinScore" min="30" max="95" value="<%= (user.settings && user.settings.autoTradeMinScore) != null ? user.settings.autoTradeMinScore : 56 %>" title="Only auto-open when score >= this" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
         </div>
         <div>
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Cooldown (hours)</label>
-          <input type="number" name="cooldownHours" min="0" max="168" title="Wait before re-opening same coin/direction" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 4 %>" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+          <input type="number" name="cooldownHours" min="0" max="168" title="Wait before re-opening same coin/direction" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 6 %>" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
         </div>
       </div>
     </div>
@@ -328,13 +328,13 @@
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
           <div>
             <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Max Daily Loss % (0=off)</label>
-            <input type="number" name="maxDailyLossPercent" value="<%= (user.settings && user.settings.maxDailyLossPercent) != null ? user.settings.maxDailyLossPercent : 0 %>" min="0" max="20" step="1" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;" placeholder="0">
+            <input type="number" name="maxDailyLossPercent" value="<%= (user.settings && user.settings.maxDailyLossPercent) != null ? user.settings.maxDailyLossPercent : 5 %>" min="0" max="20" step="1" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;" placeholder="0">
           </div>
           <div>
             <label class="ft-toggle" title="Halve position size when in drawdown" style="margin-bottom:4px;">
-              <input type="checkbox" name="drawdownSizingEnabled" value="true" <%= (user.settings && user.settings.drawdownSizingEnabled) === true ? 'checked' : '' %> onchange="document.getElementById('dd-thresh-wrap').style.display=this.checked?'block':'none'"> <span class="ft-badge ft-risk">RISK</span> Drawdown Sizing
+              <input type="checkbox" name="drawdownSizingEnabled" value="true" <%= (user.settings?.drawdownSizingEnabled ?? true) ? 'checked' : '' %> onchange="document.getElementById('dd-thresh-wrap').style.display=this.checked?'block':'none'"> <span class="ft-badge ft-risk">RISK</span> Drawdown Sizing
             </label>
-            <div id="dd-thresh-wrap" style="display:<%= (user.settings && user.settings.drawdownSizingEnabled) === true ? 'block' : 'none' %>;margin-top:6px;">
+            <div id="dd-thresh-wrap" style="display:<%= (user.settings?.drawdownSizingEnabled ?? true) ? 'block' : 'none' %>;margin-top:6px;">
               <input type="number" name="drawdownThresholdPercent" value="<%= (user.settings && user.settings.drawdownThresholdPercent) ?? 10 %>" min="5" max="50" step="1" style="width:80px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;"> % threshold
             </div>
           </div>
@@ -344,14 +344,14 @@
           </div>
           <div>
             <label class="ft-toggle" title="Block opening a trade if it's correlated with an open position (e.g. ETH + MATIC in same group)">
-              <input type="checkbox" name="correlationFilterEnabled" value="true" <%= (user.settings && user.settings.correlationFilterEnabled) === true ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> Correlation Filter
+              <input type="checkbox" name="correlationFilterEnabled" value="true" <%= (user.settings?.correlationFilterEnabled ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> Correlation Filter
             </label>
           </div>
           <div>
             <label class="ft-toggle" title="Block trades when strategy expectancy is below threshold (needs 10+ trades)" onchange="document.getElementById('minExp-wrap').style.display=this.checked?'block':'none'">
-              <input type="checkbox" name="expectancyFilterEnabled" value="true" id="expectancyFilterCb" <%= (user.settings && user.settings.expectancyFilterEnabled) === true ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> Expectancy Filter
+              <input type="checkbox" name="expectancyFilterEnabled" value="true" id="expectancyFilterCb" <%= (user.settings?.expectancyFilterEnabled ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> Expectancy Filter
             </label>
-            <div id="minExp-wrap" style="display:<%= (user.settings && user.settings.expectancyFilterEnabled) === true ? 'block' : 'none' %>;margin-top:6px;">
+            <div id="minExp-wrap" style="display:<%= (user.settings?.expectancyFilterEnabled ?? true) ? 'block' : 'none' %>;margin-top:6px;">
               <input type="number" name="minExpectancy" value="<%= (user.settings && user.settings.minExpectancy) ?? 0.15 %>" min="-1" max="2" step="0.05" style="width:80px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;"> min expectancy
             </div>
           </div>
@@ -370,9 +370,9 @@
           <input type="checkbox" name="featureSessionFilter" value="true" <%= (user.settings && user.settings.featureSessionFilter) !== false ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Session Filter (12-22 UTC)
         </label>
         <label class="ft-toggle" title="Hide signals with R:R below threshold. Dashboard and auto-trade only show signals meeting min R:R.">
-          <input type="checkbox" name="minRiskRewardEnabled" value="true" id="minRrEnabled" <%= (user.settings && user.settings.minRiskRewardEnabled) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Min R:R Filter
+          <input type="checkbox" name="minRiskRewardEnabled" value="true" id="minRrEnabled" <%= (user.settings?.minRiskRewardEnabled ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Min R:R Filter
         </label>
-        <div id="minRrValueWrap" style="display:<%= (user.settings && user.settings.minRiskRewardEnabled) === true ? 'flex' : 'none' %>;align-items:center;gap:8px;">
+        <div id="minRrValueWrap" style="display:<%= (user.settings?.minRiskRewardEnabled ?? true) ? 'flex' : 'none' %>;align-items:center;gap:8px;">
           <label style="font-size:12px;color:#9ca3af;">Min R:R</label>
           <input type="number" name="minRiskReward" id="minRiskRewardInput" min="1" max="5" step="0.1" value="<%= (user.settings && user.settings.minRiskReward) != null ? user.settings.minRiskReward : 1.2 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
         </div>
@@ -411,16 +411,16 @@
 
         <!-- Quality Filters -->
         <label class="ft-toggle" title="Require at least one of: order block, FVG, or liquidity cluster. Reduces trades without structure.">
-          <input type="checkbox" name="featurePriceActionConfluence" value="true" <%= (user.settings && user.settings.featurePriceActionConfluence) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Price-Action Confluence (OB/FVG/Liq)
+          <input type="checkbox" name="featurePriceActionConfluence" value="true" <%= (user.settings?.featurePriceActionConfluence ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Price-Action Confluence (OB/FVG/Liq)
         </label>
         <label class="ft-toggle" title="Skip entries when volatility is extreme. Reduces blow-ups in chaotic markets.">
           <input type="checkbox" name="featureVolatilityFilter" value="true" <%= (user.settings && user.settings.featureVolatilityFilter) === true ? 'checked' : '' %>> <span class="ft-badge ft-risk">QUALITY</span> Volatility Filter (skip extreme)
         </label>
         <label class="ft-toggle" title="Require relative volume &gt; 1.0. Avoids entries on thin, low-conviction moves.">
-          <input type="checkbox" name="featureVolumeConfirmation" value="true" <%= (user.settings && user.settings.featureVolumeConfirmation) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Volume Confirmation
+          <input type="checkbox" name="featureVolumeConfirmation" value="true" <%= (user.settings?.featureVolumeConfirmation ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Volume Confirmation
         </label>
         <label class="ft-toggle" title="Skip LONG when funding &gt;0.15%, skip SHORT when funding &lt;-0.15% (crowded trades)">
-          <input type="checkbox" name="featureFundingRateFilter" value="true" <%= (user.settings && user.settings.featureFundingRateFilter) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Funding Rate Filter
+          <input type="checkbox" name="featureFundingRateFilter" value="true" <%= (user.settings?.featureFundingRateFilter ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Funding Rate Filter
         </label>
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
