@@ -140,10 +140,10 @@ function scoreCandidate(t) {
   const volLiqRatio = liq > 0 ? vol / liq : 0;
   const sourceCount = t._sourceCount || 1;
 
-  // SCALPING: Prefer 5m when available, fallback to 1h, then 24h/24 as last resort
-  const changeShort = (typeof change5m === 'number' && change5m !== undefined) ? change5m
-    : (typeof change1h === 'number' && change1h !== undefined) ? change1h
-    : (change && change > 0) ? change / 24 : 0; // rough hourly from 24h when no 1h
+  // SCALPING: Prefer 5m when available, fallback to 1h, then 24h/6 as last resort
+  const changeShort = (typeof change5m === 'number') ? change5m
+    : (typeof change1h === 'number') ? change1h
+    : (change && change > 0) ? change / 6 : 0;
   const minChangeShort = 1.0; // +1% min - avoid weak pumps that reverse
 
   // Hard rejects -- safety filters (tighter to reduce losers)
@@ -169,7 +169,7 @@ function scoreCandidate(t) {
   const volShort = vol5m > 0 ? vol5m : vol1h;
   const buyVolShort = vol5m > 0 ? buyVol5m : buyVol1h;
   const sellVolShort = vol5m > 0 ? sellVol5m : sellVol1h;
-  const volVelocity = liq > 0 ? volShort / liq : (liq > 0 ? vol1h / liq : 0);
+  const volVelocity = liq > 0 ? volShort / liq : 0;
   const buyDominance = volShort > 0 ? buyVolShort / volShort : (vol1h > 0 ? buyVol1h / vol1h : buyPressure);
 
   // --- OVERBOUGHT / PARABOLIC REJECTION (reduce losers) ---
@@ -184,11 +184,12 @@ function scoreCandidate(t) {
   let score = 0;
 
   // SCALPING: Short-term momentum dominant (5m or 1h)
+  // Sweet spot is 10-40%; parabolic rejection kills >60% above
   if (changeShort >= 10 && changeShort <= 40) score += 40;
   else if (changeShort >= 5 && changeShort < 10) score += 35;
-  else if (changeShort > 40 && changeShort <= 80) score += 25;
+  else if (changeShort > 40 && changeShort <= 60) score += 25;
   else if (changeShort >= 2 && changeShort < 5) score += 20;
-  else if (changeShort >= minChangeShort && changeShort < 2) score += 12; // scalping: bonus for 5m +0.5%
+  else if (changeShort >= minChangeShort && changeShort < 2) score += 12;
 
   // BREAKOUT: volume velocity (max 20 pts)
   if (volVelocity >= 2) score += 20;
@@ -289,8 +290,9 @@ function scoreCandidatePumpStart(t) {
   if (liq > 0 && vol / liq > 150) return -1;
   if (volShort > 0 && buyDominance < 0.25) return -1;  // only reject extreme dumps
 
-  const changeShort = (typeof change5m === 'number' && change5m !== undefined) ? change5m
-    : (typeof change1h === 'number' && change1h !== undefined) ? change1h / 12 : 0;
+  // Approximate 5m change from 1h: /4 is more realistic than /12 for memecoin pumps
+  const changeShort = (typeof change5m === 'number') ? change5m
+    : (typeof change1h === 'number') ? change1h / 4 : 0;
   if (changeShort > 150) return -1;
   if (changeShort < -40) return -1;
 
@@ -310,14 +312,9 @@ function scoreCandidatePumpStart(t) {
 
   let score = 25;  // base - almost everything passes
 
-  // Price move bonus
+  // Price move bonus (only reachable ranges: changeShort >= 0.5 due to hard reject above)
   if (changeShort >= 0.5 && changeShort <= 10) score += 30;
-  else if (changeShort > 10 && changeShort <= 25) score += 20;
-  else if (changeShort >= 0 && changeShort < 0.5) score += 15;
-  else if (changeShort > 25 && changeShort <= 80) score += 10;
-  else if (changeShort >= -5 && changeShort < 0) score += 5;
-  else if (changeShort >= -25 && changeShort < -5) score += 2;
-  else if (changeShort >= -40 && changeShort < -25) score += 1;
+  else if (changeShort > 10 && changeShort <= 15) score += 20;
 
   // Volume surge (loose thresholds)
   if (volSurge >= 1.5) score += 15;
@@ -432,10 +429,18 @@ function sanitizeSettings(raw) {
   const maxTp = memecoin ? 5 : 50;
   const minHold = memecoin ? 2 : 5;
   const maxHold = memecoin ? 5 : 15;
+
+  // Force strategy-appropriate TP/SL: if user has scalping values saved but is in
+  // memecoin mode (or vice versa), override to the correct defaults for the mode.
+  // Without this, switching strategy leaves the old TP/SL in the DB.
+  if (memecoin && s.tpPercent != null && s.tpPercent > maxTp) s.tpPercent = defTp;
+  if (memecoin && s.slPercent != null && s.slPercent > 5) s.slPercent = defSl;
+  if (!memecoin && s.tpPercent != null && s.tpPercent < minTp) s.tpPercent = defTp;
+
   s.slPercent = Math.min(Math.max(s.slPercent ?? defSl, 1), 30);
   s.tpPercent = Math.min(Math.max(s.tpPercent ?? defTp, minTp), maxTp);
   s.maxHoldMinutes = Math.min(Math.max(s.maxHoldMinutes ?? defHold, minHold), maxHold);
-  s.maxOpenPositions = Math.min(Math.max(s.maxOpenPositions ?? 3, 1), 15);  // 3 default - fewer bags (was 6)
+  s.maxOpenPositions = Math.min(Math.max(s.maxOpenPositions ?? 3, 1), 15);
   s.consecutiveLossesToPause = Math.min(Math.max(s.consecutiveLossesToPause ?? 3, 2), 10);
   s.cooldownHours = Math.min(Math.max(s.cooldownHours ?? 1, 0.25), 4);
   s.bigLossPauseMinutes = Math.min(Math.max(s.bigLossPauseMinutes ?? 20, 5), 60);
@@ -605,16 +610,6 @@ function checkMomentum(tokenAddress, currentPrice, opts = {}) {
   return { ready: true, changeSinceFirstSight };
 }
 
-// Fetch fresh price for a token (used before buy to avoid stale price)
-async function fetchFreshPrice(tokenAddress) {
-  try {
-    const pair = await dexscreener.fetchTokenPairs('solana', tokenAddress);
-    return pair?.price > 0 ? pair.price : null;
-  } catch (e) {
-    return null;
-  }
-}
-
 // Clean stale momentum entries (older than 10 minutes)
 function cleanMomentumCache() {
   const cutoff = Date.now() - 10 * 60 * 1000;
@@ -624,15 +619,19 @@ function cleanMomentumCache() {
 }
 
 // ====================================================
-// SCALPING: Tighter adaptive trailing
-// Small profit (<10%): 5% trail
-// Medium (10-20%): base trail
-// Big (>20%): 8% trail (lock in scalping gains)
+// Adaptive trailing: strategy-aware trail widths
+// Memecoin (base 2%): small profit: 1.5% trail, medium: 2%, big: 3%
+// Scalping (base 5%): small profit: 4% trail, medium: 5%, big: 8%
 // ====================================================
-function getAdaptiveTrail(pnlPct, baseTrail) {
+function getAdaptiveTrail(pnlPct, baseTrail, isMemecoin = false) {
+  if (isMemecoin) {
+    if (pnlPct >= 3) return Math.max(baseTrail, 3);
+    if (pnlPct >= 1.5) return baseTrail;
+    return Math.max(1.5, baseTrail * 0.75);
+  }
   if (pnlPct >= 20) return Math.max(baseTrail, 8);
   if (pnlPct >= 10) return baseTrail;
-  return Math.min(baseTrail, 5);
+  return Math.min(baseTrail, 4);
 }
 
 // ====================================================
@@ -662,16 +661,26 @@ function shouldSellPosition(pos, currentPrice, settings) {
   }
 
   // Early bail: if down at the halfway mark, cut losses early
-  // Memecoin: 1% down at 40% of hold; Scalping: 1.5% down at 50% of hold
+  // Memecoin: 1% down at 60% of hold (give pump time to develop)
+  // Scalping: 1.5% down at 50% of hold
   const memecoin = (settings.strategy ?? 'memecoin') === 'memecoin';
   const earlyBailThreshold = memecoin ? 1.0 : 1.5;
-  const earlyBailAt = memecoin ? maxHold * 0.4 : maxHold / 2;
+  const earlyBailAt = memecoin ? maxHold * 0.6 : maxHold / 2;
   if (holdMinutes >= earlyBailAt && holdMinutes < maxHold && pnlPct <= -earlyBailThreshold) {
     return { sell: true, reason: 'early_bail', pnlPct };
   }
 
-  // SCALPING: Time limit - force-close if flat or small gain (lock in or cut)
-  if (holdMinutes >= maxHold && pnlPct <= 1.5) {
+  // Stale position: if price hasn't moved meaningfully after 70% of hold time, exit
+  // Flat positions tie up capital and usually drift into losses
+  const staleThreshold = memecoin ? 0.3 : 0.5;
+  if (holdMinutes >= maxHold * 0.7 && Math.abs(pnlPct) < staleThreshold) {
+    return { sell: true, reason: 'stale_position', pnlPct };
+  }
+
+  // Time limit - force-close; use strategy-aware profit threshold
+  // Memecoin TP is ~2%, so don't cut at 1.5% (that's 75% of TP)
+  const timeLimitProfitCap = memecoin ? 0.5 : 1.5;
+  if (holdMinutes >= maxHold && pnlPct <= timeLimitProfitCap) {
     return { sell: true, reason: 'time_limit', pnlPct };
   }
   if (holdMinutes >= maxHold * 2) {
@@ -682,7 +691,7 @@ function shouldSellPosition(pos, currentPrice, settings) {
   // tighten during normal pullbacks from a high
   if (useTrail && pnlPct > 0 && peakPrice > 0) {
     const peakPnlPct = ((peakPrice - entry) / entry) * 100;
-    const adaptiveTrail = getAdaptiveTrail(peakPnlPct, baseTrail);
+    const adaptiveTrail = getAdaptiveTrail(peakPnlPct, baseTrail, memecoin);
     const dropFromPeak = ((peakPrice - currentPrice) / peakPrice) * 100;
     if (dropFromPeak >= adaptiveTrail) {
       return { sell: true, reason: `trailing_stop(${adaptiveTrail}%)`, pnlPct };
@@ -924,7 +933,8 @@ async function _exitTickInner(userId) {
         notifyUser(user, `Trench LIVE SELL ${pos.tokenSymbol}`, `PnL: $${pnl.toFixed(2)}`, 'close').catch(() => {});
 
         if (pnl > 0 && settings.profitPayoutAddress) {
-          const solPrice = currentPrice > 1 ? currentPrice : 85;
+          // currentPrice is the TOKEN price, not SOL — use a reasonable SOL estimate
+          const solPrice = 150;
           const profitSol = pnl / solPrice;
           const payout = await sendProfitPayout(user, keypair, profitSol);
           if (payout) {
@@ -1044,8 +1054,10 @@ async function _entryTickInner(userId) {
       const pass = await passesEntryFilters(t, settings, blacklist);
       if (!pass) { filteredOut++; continue; }
 
-      // Fetch fresh price right before buy - skip if pump has reversed
-      const freshPrice = await fetchFreshPrice(t.tokenAddress);
+      // Fetch fresh pair data right before buy — price + momentum confirmation
+      let freshPair = null;
+      try { freshPair = await dexscreener.fetchTokenPairs('solana', t.tokenAddress); } catch (e) { /* proceed */ }
+      const freshPrice = freshPair?.price > 0 ? freshPair.price : null;
       const refPrice = momentumFreshPrices[t.tokenAddress] ?? t.price;
       if (freshPrice && refPrice > 0) {
         const dropPct = ((refPrice - freshPrice) / refPrice) * 100;
@@ -1053,6 +1065,11 @@ async function _entryTickInner(userId) {
           botLog(userId, `SKIP ${t.symbol} price dropped ${dropPct.toFixed(1)}% since confirm`);
           continue;
         }
+      }
+      // Volume-at-entry: verify 5m trend is still positive (not reversed)
+      if (freshPair && typeof freshPair.priceChange5m === 'number' && freshPair.priceChange5m < -2) {
+        botLog(userId, `SKIP ${t.symbol} 5m change reversed to ${freshPair.priceChange5m.toFixed(1)}%`);
+        continue;
       }
       const entryPrice = (freshPrice && freshPrice > 0) ? freshPrice : t.price;
 
@@ -1114,7 +1131,9 @@ async function _entryTickInner(userId) {
       const pass = await passesEntryFilters(t, settings, blacklist);
       if (!pass) { filteredOut++; continue; }
 
-      const freshPrice = await fetchFreshPrice(t.tokenAddress);
+      let freshPairLive = null;
+      try { freshPairLive = await dexscreener.fetchTokenPairs('solana', t.tokenAddress); } catch (e) { /* proceed */ }
+      const freshPrice = freshPairLive?.price > 0 ? freshPairLive.price : null;
       const refPrice = momentumFreshPrices[t.tokenAddress] ?? t.price;
       if (freshPrice && refPrice > 0) {
         const dropPct = ((refPrice - freshPrice) / refPrice) * 100;
@@ -1122,6 +1141,10 @@ async function _entryTickInner(userId) {
           botLog(userId, `SKIP ${t.symbol} price dropped ${dropPct.toFixed(1)}% since confirm`);
           continue;
         }
+      }
+      if (freshPairLive && typeof freshPairLive.priceChange5m === 'number' && freshPairLive.priceChange5m < -2) {
+        botLog(userId, `SKIP ${t.symbol} 5m change reversed to ${freshPairLive.priceChange5m.toFixed(1)}%`);
+        continue;
       }
       const entryPrice = (freshPrice && freshPrice > 0) ? freshPrice : t.price;
 
