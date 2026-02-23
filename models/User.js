@@ -132,7 +132,6 @@ const userSchema = new mongoose.Schema({
   coinWeightStrength: { type: String, enum: ['conservative', 'moderate', 'aggressive'], default: 'moderate' },
   resetToken: { type: String },
   resetTokenExpiry: { type: Date },
-  pushSubscriptions: [{ type: mongoose.Schema.Types.Mixed }],
   bitget: {
     apiKey: { type: String, default: '' },
     secretKey: { type: String, default: '' },

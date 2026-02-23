@@ -10,6 +10,14 @@
   <!-- Real-time WebSocket prices (all pages: ticker, cards, trades, nav PnL) -->
   <script src="/js/ws-prices.js"></script>
 
+  <script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then(function(regs) {
+      regs.forEach(function(r) { r.unregister(); });
+    });
+  }
+  </script>
+
   <% if (typeof user !== 'undefined' && user) { %>
   <script>
   // Live PNL — real-time via WebSocket + fallback poll every 5s

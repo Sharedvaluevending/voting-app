@@ -103,10 +103,6 @@ function getBotKeypair(user) {
   }
 }
 
-async function notifyUser(user, title, body, type) {
-  // Push notifications removed — was triggering browser "dangerous software" warnings
-}
-
 function botLog(userId, msg) {
   const bot = activeBots.get(userId.toString());
   if (!bot) return;
@@ -913,7 +909,6 @@ async function _exitTickInner(userId) {
         }
       }
       await user.save({ validateBeforeSave: false });
-      notifyUser(user, `Trench SELL ${pos.tokenSymbol}`, `PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%)`, 'close').catch(() => {});
     } else {
       const keypair = getBotKeypair(user);
       if (!keypair) continue;
@@ -943,7 +938,6 @@ async function _exitTickInner(userId) {
         await user.save({ validateBeforeSave: false });
         sellCount++;
         botLog(userId, `LIVE SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)}`);
-        notifyUser(user, `Trench LIVE SELL ${pos.tokenSymbol}`, `PnL: $${pnl.toFixed(2)}`, 'close').catch(() => {});
 
         if (pnl > 0 && settings.profitPayoutAddress) {
           // currentPrice is the TOKEN price, not SOL — use a reasonable SOL estimate
@@ -1110,7 +1104,6 @@ async function _entryTickInner(userId) {
         const vel = t.liquidity > 0 ? (bv1h / t.liquidity).toFixed(1) : '0';
         const holders = t.holderCount ? ` hldr:${t.holderCount}` : '';
         botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${slippedEntry.toFixed(8)} (${h1}${bp} vel:${vel}x score:${t._qualityScore || 0} vol:${vol} liq:${liq}${holders} mom:+${(momentum.changeSinceFirstSight || 0).toFixed(1)}%)`);
-        notifyUser(user, `Trench BUY ${t.symbol}`, `$${amount} @ $${slippedEntry.toFixed(8)}`, 'open').catch(() => {});
       } catch (err) {
         botLog(userId, `Buy failed ${t.symbol}: ${err.message}`);
       }
@@ -1187,7 +1180,6 @@ async function _entryTickInner(userId) {
           buyCount++;
           bot.tradesOpened++;
           botLog(userId, `LIVE BUY ${t.symbol} ${amountPerTrade} SOL @ $${t.price.toFixed(8)}`);
-          notifyUser(user, `Trench LIVE BUY ${t.symbol}`, `${amountPerTrade} SOL`, 'open').catch(() => {});
         }
       } catch (err) {
         botLog(userId, `Live buy failed ${t.symbol}: ${err.message}`);

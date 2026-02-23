@@ -11,7 +11,7 @@
 
 <div class="section" style="margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;padding:16px;">
   <h3 style="color:#e5e7eb;font-size:14px;margin:0 0 12px 0;">Create Alert</h3>
-  <p style="font-size:12px;color:#9ca3af;margin:0 0 12px 0;">Get notified when price crosses your target. Requires push notifications enabled.</p>
+  <p style="font-size:12px;color:#9ca3af;margin:0 0 12px 0;">Get notified when price crosses your target.</p>
   <form action="/alerts" method="POST" style="display:flex;flex-wrap:wrap;gap:12px;align-items:end;">
     <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
     <div>
