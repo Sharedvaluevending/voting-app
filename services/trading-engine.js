@@ -241,6 +241,12 @@ function analyzeWithCandles(coinData, candles, options) {
     finalScore = preModifierScore - MAX_TOTAL_PENALTY;
   }
 
+  // Theme detector boost: coins in trending bullish themes get +2 when going long
+  const hotThemeCoinIds = options.hotThemeCoinIds;
+  if (hotThemeCoinIds && (hotThemeCoinIds instanceof Set ? hotThemeCoinIds.has(coinData.id) : hotThemeCoinIds.includes(coinData.id))) {
+    if (dominantDir === 'BULL') finalScore = Math.min(100, finalScore + 2);
+  }
+
   // Final score clamp: ensure score stays within 0-100 after all modifiers
   finalScore = Math.max(0, Math.min(100, finalScore));
 

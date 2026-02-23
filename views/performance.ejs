@@ -411,7 +411,7 @@
         <label class="ft-toggle" title="Blend 70% risk-based + 30% fractional Kelly based on strategy win rate & R:R. Requires 15+ trades.">
           <input type="checkbox" name="featureKellySizing" value="true" <%= (user.settings && user.settings.featureKellySizing) !== false ? 'checked' : '' %>> <span class="ft-badge ft-cost">SIZE</span> Kelly Criterion Sizing
         </label>
-        <label class="ft-toggle" title="Filter signals by trending market themes (AI theme-detector skill). Coming soon.">
+        <label class="ft-toggle" title="Boost +2 score for coins in top 5 bullish sectors (CoinGecko categories). See Themes page.">
           <input type="checkbox" name="featureThemeDetector" value="true" <%= (user.settings && user.settings.featureThemeDetector) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Theme Detector
         </label>
 

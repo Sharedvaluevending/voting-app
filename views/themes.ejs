@@ -1,0 +1,55 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Market Themes</h2>
+  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Trending crypto sectors by momentum. Theme-detector skill inspired — prefer coins in hot themes when Theme Detector toggle is ON (Performance page).</p>
+</div>
+
+<div class="section" style="margin-bottom:20px;padding:12px 16px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;">
+  <h3 style="color:#10b981;font-size:13px;margin:0 0 6px 0;">Theme Detector</h3>
+  <p style="color:#9ca3af;font-size:12px;margin:0;">Enable <strong>Theme Detector</strong> in Performance → Feature Toggles to boost signal scores (+2) for coins in top bullish sectors. Data from CoinGecko categories (24h momentum).</p>
+</div>
+
+<% if (themes && themes.length > 0) { %>
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Top Themes by Momentum</h3>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:16px;">Heat = strength; Bullish = sector gaining; Bearish = sector losing. Top coins per theme from CoinGecko.</p>
+  <div style="overflow-x:auto;">
+    <table class="data-table" style="background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:10px 12px;">Theme</th>
+          <th style="text-align:center;padding:10px 12px;">Heat</th>
+          <th style="text-align:center;padding:10px 12px;">Direction</th>
+          <th style="text-align:right;padding:10px 12px;">24h Change</th>
+          <th style="text-align:left;padding:10px 12px;">Top Coins</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% themes.forEach(function(t) { %>
+        <tr>
+          <td style="padding:10px 12px;"><strong style="color:#e5e7eb;"><%= t.name %></strong></td>
+          <td style="text-align:center;padding:10px 12px;">
+            <span style="font-weight:600;color:<%= t.heat >= 50 ? '#10b981' : t.heat >= 25 ? '#eab308' : '#6b7280' %>;"><%= t.heat %></span>
+          </td>
+          <td style="text-align:center;padding:10px 12px;">
+            <span style="font-size:11px;padding:2px 8px;border-radius:4px;<%= t.direction === 'bullish' ? 'background:rgba(16,185,129,0.2);color:#10b981;' : 'background:rgba(239,68,68,0.2);color:#ef4444;' %>"><%= t.direction %></span>
+          </td>
+          <td style="text-align:right;padding:10px 12px;font-weight:600;color:<%= t.change24h >= 0 ? '#10b981' : '#ef4444' %>;">
+            <%= t.change24h >= 0 ? '+' : '' %><%= (t.change24h || 0).toFixed(2) %>%
+          </td>
+          <td style="padding:10px 12px;font-size:12px;color:#9ca3af;">
+            <%= (t.topCoins || []).slice(0, 3).map(function(c) { return c.toUpperCase ? c.toUpperCase() : c; }).join(', ') %>
+          </td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+<% } else { %>
+<div class="section" style="margin-bottom:24px;padding:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;">
+  <p style="color:#6b7280;font-size:13px;">Loading themes... Refresh in a moment. CoinGecko rate limits may apply.</p>
+</div>
+<% } %>
+<%- include('partials/footer') %>

@@ -427,6 +427,13 @@ async function buildEngineOptions(prices, allCandles, allHistory, user) {
     opts.featureVolatilityFilter = s.featureVolatilityFilter === true;
     opts.featureVolumeConfirmation = (s.featureVolumeConfirmation ?? true) === true;
     opts.featureFundingRateFilter = (s.featureFundingRateFilter ?? true) === true;
+    // Theme detector: boost signals for coins in trending sectors (theme-detector skill inspired)
+    if (s.featureThemeDetector === true) {
+      try {
+        const { getHotThemeCoinIds } = require('./services/crypto-themes');
+        opts.hotThemeCoinIds = await getHotThemeCoinIds(5);
+      } catch (e) { /* ignore */ }
+    }
   }
   return opts;
 }
@@ -975,6 +982,34 @@ app.get('/performance', requireLogin, async (req, res) => {
   } catch (err) {
     console.error('[Performance] Error:', err);
     res.status(500).send('Error loading performance');
+  }
+});
+
+// ====================================================
+// MARKET THEMES (theme-detector skill inspired)
+// ====================================================
+app.get('/themes', optionalUser, async (req, res) => {
+  try {
+    const { getCryptoThemes } = require('./services/crypto-themes');
+    const themes = await getCryptoThemes(15);
+    res.render('themes', { activePage: 'themes', themes });
+  } catch (err) {
+    console.error('[Themes] Error:', err);
+    res.render('themes', { activePage: 'themes', themes: [] });
+  }
+});
+
+// ====================================================
+// MARKET PULSE (market-news-analyst skill inspired)
+// ====================================================
+app.get('/market-pulse', optionalUser, async (req, res) => {
+  try {
+    const { getMarketPulse } = require('./services/market-pulse');
+    const pulse = await getMarketPulse();
+    res.render('market-pulse', { activePage: 'market-pulse', pulse });
+  } catch (err) {
+    console.error('[MarketPulse] Error:', err);
+    res.render('market-pulse', { activePage: 'market-pulse', pulse: null });
   }
 });
 
