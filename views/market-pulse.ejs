@@ -5,60 +5,60 @@
   <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Fear & Greed Index, BTC dominance, and market overview. Market-news-analyst skill inspired — use for context before trading.</p>
 </div>
 
-<div class="section" style="margin-bottom:20px;padding:12px 16px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.3);border-radius:8px;">
-  <h3 style="color:#3b82f6;font-size:13px;margin:0 0 6px 0;">Market Context</h3>
+<div class="themes-info-box market-context">
+  <h3 style="color:#3b82f6;font-size:13px;margin:0 0 8px 0;">Market Context</h3>
   <p style="color:#9ca3af;font-size:12px;margin:0;">Extreme Fear often precedes bounces; Extreme Greed can signal tops. Combine with signals for better timing.</p>
 </div>
 
 <% if (pulse) { %>
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:24px;">
-  <div class="section" style="padding:20px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;">
-    <div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Fear & Greed</div>
+<div class="pulse-grid">
+  <div class="pulse-card">
+    <div class="pulse-card-label">Fear & Greed</div>
     <% if (pulse.fearGreed && pulse.fearGreed.value != null) {
       var v = pulse.fearGreed.value;
       var fgColor = v <= 25 ? '#ef4444' : v <= 45 ? '#eab308' : v <= 55 ? '#9ca3af' : v <= 75 ? '#10b981' : '#3b82f6';
     %>
-    <div style="font-size:28px;font-weight:700;color:<%= fgColor %>;"><%= v %></div>
-    <div style="font-size:13px;color:#9ca3af;"><%= pulse.fearGreed.classification %></div>
+    <div class="pulse-card-value" style="color:<%= fgColor %>;"><%= v %></div>
+    <div class="pulse-card-sub"><%= pulse.fearGreed.classification %></div>
     <% } else { %>
-    <div style="font-size:16px;color:#6b7280;">—</div>
+    <div class="pulse-card-value" style="color:#6b7280;font-size:16px;">—</div>
     <% } %>
   </div>
-  <div class="section" style="padding:20px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;">
-    <div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">BTC Dominance</div>
+  <div class="pulse-card">
+    <div class="pulse-card-label">BTC Dominance</div>
     <% if (pulse.global && pulse.global.btcDominance != null) { %>
-    <div style="font-size:28px;font-weight:700;color:#f59e0b;"><%= pulse.global.btcDominance.toFixed(1) %>%</div>
-    <div style="font-size:13px;color:#9ca3af;">of total market cap</div>
+    <div class="pulse-card-value" style="color:#f59e0b;"><%= pulse.global.btcDominance.toFixed(1) %>%</div>
+    <div class="pulse-card-sub">of total market cap</div>
     <% } else { %>
-    <div style="font-size:16px;color:#6b7280;">—</div>
+    <div class="pulse-card-value" style="color:#6b7280;font-size:16px;">—</div>
     <% } %>
   </div>
-  <div class="section" style="padding:20px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;">
-    <div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">ETH Dominance</div>
+  <div class="pulse-card">
+    <div class="pulse-card-label">ETH Dominance</div>
     <% if (pulse.global && pulse.global.ethDominance != null) { %>
-    <div style="font-size:28px;font-weight:700;color:#6366f1;"><%= pulse.global.ethDominance.toFixed(1) %>%</div>
+    <div class="pulse-card-value" style="color:#6366f1;"><%= pulse.global.ethDominance.toFixed(1) %>%</div>
     <% } else { %>
-    <div style="font-size:16px;color:#6b7280;">—</div>
+    <div class="pulse-card-value" style="color:#6b7280;font-size:16px;">—</div>
     <% } %>
   </div>
-  <div class="section" style="padding:20px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;">
-    <div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Market Cap 24h</div>
+  <div class="pulse-card">
+    <div class="pulse-card-label">Market Cap 24h</div>
     <% if (pulse.global && pulse.global.marketCapChange24h != null) {
       var ch = pulse.global.marketCapChange24h;
     %>
-    <div style="font-size:28px;font-weight:700;color:<%= ch >= 0 ? '#10b981' : '#ef4444' %>;"><%= ch >= 0 ? '+' : '' %><%= ch.toFixed(2) %>%</div>
+    <div class="pulse-card-value" style="color:<%= ch >= 0 ? '#10b981' : '#ef4444' %>;"><%= ch >= 0 ? '+' : '' %><%= ch.toFixed(2) %>%</div>
     <% } else { %>
-    <div style="font-size:16px;color:#6b7280;">—</div>
+    <div class="pulse-card-value" style="color:#6b7280;font-size:16px;">—</div>
     <% } %>
   </div>
-  <div class="section" style="padding:20px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;">
-    <div style="font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:8px;">Volume 24h</div>
+  <div class="pulse-card">
+    <div class="pulse-card-label">Volume 24h</div>
     <% if (pulse.global && pulse.global.volumeChange24h != null) {
       var vch = pulse.global.volumeChange24h;
     %>
-    <div style="font-size:28px;font-weight:700;color:<%= vch >= 0 ? '#10b981' : '#ef4444' %>;"><%= vch >= 0 ? '+' : '' %><%= vch.toFixed(1) %>%</div>
+    <div class="pulse-card-value" style="color:<%= vch >= 0 ? '#10b981' : '#ef4444' %>;"><%= vch >= 0 ? '+' : '' %><%= vch.toFixed(1) %>%</div>
     <% } else { %>
-    <div style="font-size:16px;color:#6b7280;">—</div>
+    <div class="pulse-card-value" style="color:#6b7280;font-size:16px;">—</div>
     <% } %>
   </div>
 </div>
