@@ -5,6 +5,16 @@
   <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Simulate the full trading engine on historical candles. Toggle features to compare performance.</p>
 </div>
 
+<!-- Backtest Methodology (backtest-expert skill) -->
+<div class="section" style="margin-bottom:20px;padding:16px;background:rgba(234,179,8,0.06);border:1px solid rgba(234,179,8,0.2);border-radius:8px;">
+  <h3 style="color:#eab308;font-size:12px;margin:0 0 8px 0;text-transform:uppercase;letter-spacing:0.5px;">Backtest Methodology</h3>
+  <ul style="margin:0;padding-left:18px;font-size:12px;color:#9ca3af;line-height:1.6;">
+    <li><strong style="color:#e5e7eb;">Sample size</strong> — Aim for 30+ trades minimum; 100+ for higher confidence.</li>
+    <li><strong style="color:#e5e7eb;">Stress test</strong> — Try different min scores; if results collapse on small changes, strategy may be fragile.</li>
+    <li><strong style="color:#e5e7eb;">Walk-forward</strong> — Use train/test split to validate out-of-sample performance.</li>
+  </ul>
+</div>
+
 <!-- Form -->
 <div class="section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Backtest Parameters</h3>

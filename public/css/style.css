@@ -372,6 +372,9 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+@media (prefers-reduced-motion: reduce) {
+  .pulse-card { animation: none; }
+}
 .pulse-card-label {
   font-size: 11px;
   color: #6b7280;
