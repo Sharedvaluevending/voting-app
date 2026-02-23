@@ -1157,6 +1157,8 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
     s.featureSlCap = req.body.featureSlCap ? parseBool(req.body.featureSlCap) : false;
     s.featureMinSlDistance = req.body.featureMinSlDistance ? parseBool(req.body.featureMinSlDistance) : false;
     s.featureConfidenceSizing = req.body.featureConfidenceSizing ? parseBool(req.body.featureConfidenceSizing) : false;
+    s.featureKellySizing = req.body.featureKellySizing ? parseBool(req.body.featureKellySizing) : false;
+    s.featureThemeDetector = req.body.featureThemeDetector ? parseBool(req.body.featureThemeDetector) : false;
     s.featurePriceActionConfluence = req.body.featurePriceActionConfluence ? parseBool(req.body.featurePriceActionConfluence) : false;
     s.featureVolatilityFilter = req.body.featureVolatilityFilter ? parseBool(req.body.featureVolatilityFilter) : false;
     s.featureVolumeConfirmation = req.body.featureVolumeConfirmation ? parseBool(req.body.featureVolumeConfirmation) : false;
@@ -2066,6 +2068,8 @@ app.post('/api/trench-warfare/auto/settings', requireLogin, async (req, res) => 
     if (b.profitPayoutMinSol !== undefined) user.trenchAuto.profitPayoutMinSol = Math.max(0.01, Math.min(10, Number(b.profitPayoutMinSol)));
     if (b.trenchNotifyTradeOpen !== undefined) user.trenchAuto.trenchNotifyTradeOpen = !!b.trenchNotifyTradeOpen;
     if (b.trenchNotifyTradeClose !== undefined) user.trenchAuto.trenchNotifyTradeClose = !!b.trenchNotifyTradeClose;
+    if (b.useKellySizing !== undefined) user.trenchAuto.useKellySizing = !!b.useKellySizing;
+    if (b.themeFilterEnabled !== undefined) user.trenchAuto.themeFilterEnabled = !!b.themeFilterEnabled;
     await user.save();
     res.json({ success: true, trenchAuto: user.trenchAuto });
   } catch (e) {

@@ -171,6 +171,9 @@
       <label class="ft-toggle" title="Higher score = slightly larger position (0.5 + score/100, cap 1.2x)">
         <input type="checkbox" id="ft-confidenceSizing" checked> <span class="ft-badge ft-cost">SIZE</span> Confidence Sizing
       </label>
+      <label class="ft-toggle" title="Blend 70% risk-based + 30% fractional Kelly from strategy win rate & R:R">
+        <input type="checkbox" id="ft-kellySizing" checked> <span class="ft-badge ft-cost">SIZE</span> Kelly Sizing
+      </label>
       <label class="ft-toggle" title="0.1% taker fee on entry and exit">
         <input type="checkbox" id="ft-fees" checked> <span class="ft-badge ft-cost">COST</span> Trading Fees (0.1%)
       </label>
@@ -389,6 +392,7 @@ function getFeatureFlags() {
     slCap: document.getElementById('ft-slCap').checked,
     cooldown: document.getElementById('ft-cooldown').checked,
     confidenceSizing: document.getElementById('ft-confidenceSizing').checked,
+    kellySizing: document.getElementById('ft-kellySizing').checked,
     priceActionConfluence: document.getElementById('ft-priceActionConfluence').checked,
     volatilityFilter: document.getElementById('ft-volatilityFilter').checked,
     volumeConfirmation: document.getElementById('ft-volumeConfirmation').checked,
@@ -457,6 +461,7 @@ function loadBacktestPresetByName(name) {
   document.getElementById('ft-slCap').checked = f.slCap;
   document.getElementById('ft-cooldown').checked = f.cooldown;
   document.getElementById('ft-confidenceSizing').checked = f.confidenceSizing;
+  if (document.getElementById('ft-kellySizing')) document.getElementById('ft-kellySizing').checked = f.kellySizing !== false;
   document.getElementById('ft-priceActionConfluence').checked = f.priceActionConfluence;
   document.getElementById('ft-volatilityFilter').checked = f.volatilityFilter;
   document.getElementById('ft-volumeConfirmation').checked = f.volumeConfirmation;

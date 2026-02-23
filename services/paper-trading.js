@@ -61,7 +61,8 @@ function getFeatureFlags(user) {
     scoreRecheck: s.featureScoreRecheck !== false,
     slCap: s.featureSlCap !== false,
     minSlDistance: s.featureMinSlDistance !== false,
-    confidenceSizing: s.featureConfidenceSizing !== false
+    confidenceSizing: s.featureConfidenceSizing !== false,
+    kellySizing: s.featureKellySizing !== false
   };
 }
 

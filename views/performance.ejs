@@ -408,6 +408,12 @@
         <label class="ft-toggle" title="Higher score = slightly larger position (0.5 + score/100, cap 1.2x)">
           <input type="checkbox" name="featureConfidenceSizing" value="true" <%= (user.settings && user.settings.featureConfidenceSizing) !== false ? 'checked' : '' %>> <span class="ft-badge ft-cost">SIZE</span> Confidence Sizing
         </label>
+        <label class="ft-toggle" title="Blend 70% risk-based + 30% fractional Kelly based on strategy win rate & R:R. Requires 15+ trades.">
+          <input type="checkbox" name="featureKellySizing" value="true" <%= (user.settings && user.settings.featureKellySizing) !== false ? 'checked' : '' %>> <span class="ft-badge ft-cost">SIZE</span> Kelly Criterion Sizing
+        </label>
+        <label class="ft-toggle" title="Filter signals by trending market themes (AI theme-detector skill). Coming soon.">
+          <input type="checkbox" name="featureThemeDetector" value="true" <%= (user.settings && user.settings.featureThemeDetector) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Theme Detector
+        </label>
 
         <!-- Quality Filters -->
         <label class="ft-toggle" title="Require at least one of: order block, FVG, or liquidity cluster. Reduces trades without structure.">
@@ -910,6 +916,7 @@ function setLiveToggles(val) {
     set('featureScoreRecheck', true);
     set('featureSlCap', true);
     set('featureConfidenceSizing', true);
+    set('featureKellySizing', true);
     set('featurePriceActionConfluence', true);
     set('featureVolatilityFilter', true);
     set('featureVolumeConfirmation', true);
@@ -957,6 +964,7 @@ function setLiveToggles(val) {
         scoreRecheck: 'featureScoreRecheck',
         slCap: 'featureSlCap',
         confidenceSizing: 'featureConfidenceSizing',
+        kellySizing: 'featureKellySizing',
         priceActionConfluence: 'featurePriceActionConfluence',
         volatilityFilter: 'featureVolatilityFilter',
         volumeConfirmation: 'featureVolumeConfirmation',

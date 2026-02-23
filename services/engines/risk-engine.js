@@ -167,11 +167,11 @@ function plan(decision, snapshot, context) {
     }
   }
 
-  // Kelly criterion sizing — blend with risk-based, don't hard-cap
+  // Kelly criterion sizing — blend with risk-based, don't hard-cap (when enabled)
   // Old: min(riskBased, kelly) could shrink positions 8x on good strategies
   // New: blend 70% risk-based + 30% kelly to nudge size without crushing it
   const strat = strategyStats[decision.strategy];
-  if (strat && strat.totalTrades >= 15 && strat.winRate > 0 && strat.avgRR > 0) {
+  if (ff.kellySizing !== false && strat && strat.totalTrades >= 15 && strat.winRate > 0 && strat.avgRR > 0) {
     const w = strat.winRate / 100;
     const r = strat.avgRR;
     const kellyFull = w - ((1 - w) / r);

@@ -46,7 +46,9 @@ const userSchema = new mongoose.Schema({
     // Profit payout (live mode only)
     profitPayoutAddress: { type: String, default: '' },
     profitPayoutPercent: { type: Number, default: 0, min: 0, max: 100 },
-    profitPayoutMinSol: { type: Number, default: 0.1, min: 0.01, max: 10 }
+    profitPayoutMinSol: { type: Number, default: 0.1, min: 0.01, max: 10 },
+    useKellySizing: { type: Boolean, default: false },
+    themeFilterEnabled: { type: Boolean, default: false }
   },
   trenchBlacklist: [{ type: String }],
   trenchStats: {
@@ -93,6 +95,8 @@ const userSchema = new mongoose.Schema({
     featureSlCap: { type: Boolean, default: true },
     featureMinSlDistance: { type: Boolean, default: true },
     featureConfidenceSizing: { type: Boolean, default: true },
+    featureKellySizing: { type: Boolean, default: true },
+    featureThemeDetector: { type: Boolean, default: false },
     // Quality filters: require price-action confluence, skip extreme vol, require volume
     featurePriceActionConfluence: { type: Boolean, default: true },
     featureVolatilityFilter: { type: Boolean, default: false },

@@ -456,6 +456,25 @@ function sanitizeSettings(raw) {
   return s;
 }
 
+/** Kelly-based position size multiplier when useKellySizing is enabled. Uses trenchStats win rate. */
+function getKellyMultiplier(user, rawSettings) {
+  if (!rawSettings?.useKellySizing) return 1;
+  const stats = user.trenchStats || {};
+  const wins = stats.wins || 0;
+  const losses = stats.losses || 0;
+  const total = wins + losses;
+  if (total < 10) return 1;
+  const w = wins / total;
+  const r = 1.2; // assume avg R:R ~1.2 (TP/SL typical)
+  const kellyFull = w - (1 - w) / r;
+  if (kellyFull > 0) {
+    const kellyFraction = Math.min(0.25, kellyFull * 0.25);
+    return 1 + kellyFraction * 0.5; // cap at 1.125x
+  }
+  if (kellyFull < -0.1) return 0.75;
+  return 1;
+}
+
 // ====================================================
 // Risk checks
 // ====================================================
@@ -1037,7 +1056,9 @@ async function _entryTickInner(userId) {
   let cooldownBlocked = 0;
   const maxBuysThisScan = Math.min(MAX_BUYS_PER_SCAN, slotsAvailable);
   if (mode === 'paper') {
-    const amountPerTrade = settings.amountPerTradeUsd ?? 50;
+    let amountPerTrade = settings.amountPerTradeUsd ?? 50;
+    amountPerTrade *= getKellyMultiplier(user, rawSettings);
+    amountPerTrade = Math.max(5, Math.min(500, amountPerTrade));
     for (const t of candidates) {
       if (buyCount >= maxBuysThisScan) break;
       if ((user.trenchPaperBalance ?? 0) < amountPerTrade) { botLog(userId, 'Insufficient paper balance'); break; }
@@ -1105,7 +1126,9 @@ async function _entryTickInner(userId) {
     const keypair = getBotKeypair(user);
     if (!keypair) { botLog(userId, 'Invalid bot wallet key'); return; }
     const walletAddress = keypair.publicKey.toBase58();
-    const amountPerTrade = settings.amountPerTradeSol ?? 0.05;
+    let amountPerTrade = settings.amountPerTradeSol ?? 0.05;
+    amountPerTrade *= getKellyMultiplier(user, rawSettings);
+    amountPerTrade = Math.max(0.01, Math.min(1, amountPerTrade));
 
     const minSol = settings.minSolBalance ?? 0.05;
     let solBalance = 0;
