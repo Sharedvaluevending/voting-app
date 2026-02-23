@@ -3112,14 +3112,14 @@ async function runAutoTrade() {
           return { ...sig, _overallScore: overallScore, _bestStrat: bestStrat, _direction: direction, _coinId: coinId };
         });
         // Use paper trading min score from settings, fallback to exchange setting, then default 70
-        const minScore = user.settings?.autoTradeMinScore ?? user.liveTrading?.autoOpenMinScore ?? 52;
+        const minScore = user.settings?.autoTradeMinScore ?? user.liveTrading?.autoOpenMinScore ?? 56;
         const maxOpen = user.settings?.maxOpenTrades || 3;
         const openTrades = await Trade.find({ userId: user._id, status: 'OPEN' }).lean();
         if (openTrades.length >= maxOpen) continue;
 
         const openCoinIds = openTrades.map(t => t.coinId);
         // Cooldown check
-        const cooldownMs = (user.settings?.cooldownHours || 4) * 3600 * 1000;
+        const cooldownMs = (user.settings?.cooldownHours ?? 6) * 3600 * 1000;
         const recentTrades = await Trade.find({
           userId: user._id,
           status: { $ne: 'OPEN' },

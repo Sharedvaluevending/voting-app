@@ -23,7 +23,7 @@ function getTakerFee(user) {
   return (Number.isFinite(pct) ? pct / 100 : DEFAULT_TAKER_FEE);
 }
 const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
-const DEFAULT_COOLDOWN_HOURS = 4;  // no same-direction re-entry on same coin within N hours
+const DEFAULT_COOLDOWN_HOURS = 6;  // no same-direction re-entry on same coin within N hours (matches schema default)
 const MIN_HOLD_MINUTES = 30;       // Don't score-exit trades within first 30 minutes
 
 // Correlated coin groups: avoid opening 2+ trades in same group (e.g. ETH + MATIC move together)
@@ -252,7 +252,26 @@ async function openTrade(userId, signalData) {
   };
   const orders = riskEnginePlan(decision, { coinData: { price: signalData.entry } }, context);
   if (!orders) {
-    throw new Error('Insufficient balance. Your paper balance is zero. Reset your paper account from the Performance page.');
+    // Diagnose why risk engine rejected the trade
+    if (!decision.entry || !decision.stopLoss) {
+      throw new Error(`Trade rejected: missing ${!decision.entry ? 'entry price' : 'stop loss'}. Signal may not have levels for this direction.`);
+    }
+    if (context.userSettings.expectancyFilterEnabled) {
+      const strat = context.strategyStats[decision.strategy];
+      if (strat && (strat.totalTrades || 0) >= 10 && strat.winRate > 0 && strat.avgRR > 0) {
+        const w = strat.winRate / 100;
+        const r = strat.avgRR;
+        const expectancy = (w * r) - (1 - w);
+        const minExp = context.userSettings.minExpectancy ?? 0.15;
+        if (expectancy < minExp) {
+          throw new Error(`Trade rejected: ${signalData.symbol} strategy "${signalData.strategyType}" expectancy ${expectancy.toFixed(2)} < min ${minExp}. Disable Expectancy Filter in Feature Toggles or lower the threshold.`);
+        }
+      }
+    }
+    if (balance <= 0) {
+      throw new Error('Insufficient balance. Your paper balance is zero. Reset your paper account from the Performance page.');
+    }
+    throw new Error(`Trade rejected by risk engine. Balance: $${balance.toFixed(2)}, Entry: $${(decision.entry || 0).toFixed(4)}, SL: $${(decision.stopLoss || 0).toFixed(4)}. Position may exceed max balance % or balance is too low.`);
   }
 
   const leverage = orders.leverage;

@@ -69,17 +69,26 @@ function plan(decision, snapshot, context) {
   context = context || {};
   const { balance, openTrades = [], streak = 0, strategyStats = {}, featureFlags = {}, userSettings = {}, peakEquity } = context;
 
-  if (!decision || !decision.side) return null;
-  if (!decision.entry || !decision.stopLoss) return null;
+  if (!decision || !decision.side) {
+    console.warn('[RiskEngine] Rejected: missing decision or side');
+    return null;
+  }
+  if (!decision.entry || !decision.stopLoss) {
+    console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: missing entry ($${decision.entry}) or stopLoss ($${decision.stopLoss})`);
+    return null;
+  }
 
   if (userSettings.expectancyFilterEnabled) {
     const strat = strategyStats[decision.strategy];
     if (strat && (strat.totalTrades || 0) >= 10 && strat.winRate > 0 && strat.avgRR > 0) {
       const w = strat.winRate / 100;
       const r = strat.avgRR;
-      const expectancy = (w * r) - (1 - w); // (winRate * avgRR) - lossRate
+      const expectancy = (w * r) - (1 - w);
       const minExp = userSettings.minExpectancy ?? 0.15;
-      if (expectancy < minExp) return null;
+      if (expectancy < minExp) {
+        console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: strategy "${decision.strategy}" expectancy ${expectancy.toFixed(3)} < min ${minExp}`);
+        return null;
+      }
     }
   }
 
@@ -202,7 +211,10 @@ function plan(decision, snapshot, context) {
     required = margin + fees;
   }
 
-  if (balance <= 0 || required > balance) return null;
+  if (balance <= 0 || required > balance) {
+    console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: balance $${balance} insufficient (need $${required.toFixed(2)})`);
+    return null;
+  }
 
   // TP mode and levels
   const tpMode = userSettings.tpMode || 'fixed';
