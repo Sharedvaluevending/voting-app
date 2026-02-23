@@ -9,7 +9,6 @@
     "test:features": "node scripts/test-new-features.js",
     "test:backtest": "node tests/backtest/time-alignment.test.js && node tests/backtest/fill-rules.test.js && node tests/backtest/determinism.test.js && node tests/backtest/trade-state.test.js",
     "test:e2e": "playwright test",
-    "generate-vapid": "node scripts/generate-vapid.js",
     "release": "standard-version",
     "release:patch": "standard-version --release-as patch",
     "release:minor": "standard-version --release-as minor",
@@ -33,7 +32,6 @@
     "mongoose": "^8.9.6",
     "node-fetch": "^2.7.0",
     "nodemailer": "^8.0.1",
-    "web-push": "^3.6.7",
     "ws": "^8.19.0"
   },
   "devDependencies": {

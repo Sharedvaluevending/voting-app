@@ -10,7 +10,6 @@ const ScalpTrade = require('../models/ScalpTrade');
 const mobula = require('./mobula-api');
 const dexscreener = require('./dexscreener-api');
 const crypto = require('crypto');
-const push = require('./push-notifications');
 
 const ENCRYPT_KEY = process.env.TRENCH_SECRET || process.env.SESSION_SECRET || 'trench-default-key-change-me';
 const ALGO = 'aes-256-gcm';
@@ -105,12 +104,7 @@ function getBotKeypair(user) {
 }
 
 async function notifyUser(user, title, body, type) {
-  try {
-    const u = await User.findById(user._id);
-    if (!u) return;
-    const ok = type === 'open' ? (u.trenchAuto?.trenchNotifyTradeOpen !== false) : (u.trenchAuto?.trenchNotifyTradeClose !== false);
-    if (ok) await push.sendPushToUser(u, title, body);
-  } catch (e) { /* ignore */ }
+  // Push notifications removed — was triggering browser "dangerous software" warnings
 }
 
 function botLog(userId, msg) {

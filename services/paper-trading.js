@@ -371,14 +371,6 @@ async function openTrade(userId, signalData) {
     console.error(`[Bitget] Live open error (paper trade still saved): ${bitgetErr.message}`);
   }
 
-  // Push notification
-  if (user.settings?.notifyTradeOpen !== false) {
-    try {
-      const { sendPushToUser } = require('./push-notifications');
-      const u = await User.findById(user._id).lean();
-      if (u) await sendPushToUser(u, `Trade opened: ${signalData.symbol} ${signalData.direction}`, `Entry $${entryPrice.toFixed(4)} | ${leverage}x`);
-    } catch (e) { /* non-critical */ }
-  }
 
   return trade;
 }
@@ -559,14 +551,6 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
   }
 
   // Push notification
-  const notifyClose = user.settings?.notifyTradeClose !== false;
-  if (notifyClose) {
-    try {
-      const { sendPushToUser } = require('./push-notifications');
-      const u = await User.findById(userId).lean();
-      if (u) await sendPushToUser(u, `Trade closed: ${trade.symbol} ${trade.direction}`, `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${reason})`);
-    } catch (e) { /* non-critical */ }
-  }
 
   return trade;
 }

@@ -2750,38 +2750,6 @@ app.post('/api/backtest', async (req, res) => {
   }
 });
 
-// Push notifications: get VAPID public key
-app.get('/api/push/vapid-public', (req, res) => {
-  try {
-    const { getVapidKeys } = require('./services/push-notifications');
-    const keys = getVapidKeys();
-    if (!keys) return res.json({ publicKey: null });
-    res.json({ publicKey: keys.publicKey });
-  } catch (e) {
-    res.json({ publicKey: null });
-  }
-});
-
-// Push notifications: subscribe (save subscription to user)
-app.post('/api/push/subscribe', requireLogin, async (req, res) => {
-  try {
-    const subscription = req.body;
-    if (!subscription || !subscription.endpoint) {
-      return res.status(400).json({ error: 'Invalid subscription' });
-    }
-    const user = await User.findById(req.session.userId);
-    if (!user) return res.status(401).json({ error: 'Not logged in' });
-    if (!Array.isArray(user.pushSubscriptions)) user.pushSubscriptions = [];
-    const exists = user.pushSubscriptions.some(s => s && s.endpoint === subscription.endpoint);
-    if (!exists) {
-      user.pushSubscriptions.push(subscription);
-      await user.save();
-    }
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
 
 // Candles for chart (Lightweight Charts format)
 app.get('/api/candles/:coinId', async (req, res) => {
@@ -3025,11 +2993,6 @@ async function checkPriceAlerts() {
         (alert.condition === 'below' && price <= alert.price);
       if (triggered) {
         await Alert.updateOne({ _id: alert._id }, { triggeredAt: new Date(), active: false });
-        try {
-          const { sendPushToUser } = require('./services/push-notifications');
-          const u = await User.findById(alert.userId).lean();
-          if (u) await sendPushToUser(u, `${alert.symbol} Alert`, `Price ${alert.condition} $${alert.price.toLocaleString()} (now $${price.toLocaleString()})`);
-        } catch (e) { /* non-critical */ }
       }
     }
   } catch (err) {
