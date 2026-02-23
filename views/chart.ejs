@@ -233,7 +233,12 @@
 
   <!-- TradingView widget (fallback – always works) -->
   <div class="chart-container" id="tv-chart-container">
-    <div id="tv-loading" style="display:flex;align-items:center;justify-content:center;height:100%;color:#6b7280;font-size:14px;">Loading chart...</div>
+    <div id="tv-loading" class="chart-loading-wrap">
+      <svg class="chart-loading-spinner" viewBox="0 0 50 50" width="48" height="48" aria-hidden="true">
+        <circle class="chart-loading-spinner-path" cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="3"/>
+      </svg>
+      <span class="chart-loading-text">Loading chart...</span>
+    </div>
     <div class="tradingview-widget-container" id="tv-widget-wrap" style="width:100%;height:100%;display:none;">
       <div id="tradingview_widget" style="width:100%;height:100%;"></div>
     </div>
@@ -330,24 +335,34 @@
 .chart-tf-bar { display: flex; align-items: center; justify-content: center; padding: 8px 12px; background: rgba(15,23,42,0.6); border-top: 1px solid #334155; }
 .chart-container { position: relative; width: 100%; flex: 1; height: calc(100vh - 380px); min-height: 380px; overflow: hidden; background: #0f172a; }
 .tf-selector { display: flex; gap: 4px; }
-.tf-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
-.tf-btn:hover { background: rgba(51,65,85,0.8); color: #e5e7eb; }
+.tf-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; transform: scale(1); }
+.tf-btn:hover { background: rgba(51,65,85,0.8); color: #e5e7eb; transform: scale(1.03); }
 .tf-btn.tf-active { background: rgba(59,130,246,0.25); border-color: #3b82f6; color: #93c5fd; }
 .chart-fit-btn { display: flex; align-items: center; gap: 4px; padding: 6px 10px; }
 .chart-fit-text { font-size: 12px; font-weight: 600; }
-.tool-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; min-width: 38px; min-height: 38px; }
+.tool-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; min-width: 38px; min-height: 38px; }
+.tool-btn svg { transition: transform 0.2s ease, opacity 0.2s ease; }
 .tool-btn:hover { background: rgba(51,65,85,0.8); color: #e5e7eb; }
+.tool-btn:hover svg { transform: scale(1.08); opacity: 1; }
 .tool-btn.tool-active { background: rgba(59,130,246,0.25); border-color: #3b82f6; color: #93c5fd; }
+.tool-btn.tool-active svg { opacity: 1; }
 .tool-btn-danger:hover { background: rgba(239,68,68,0.25); border-color: #ef4444; color: #fca5a5; }
 .draw-color-picker { display: flex; align-items: center; gap: 6px; position: relative; }
 .draw-color-picker input[type="color"] { width: 28px; height: 28px; padding: 2px; border: 1px solid #334155; border-radius: 6px; cursor: pointer; background: #1e293b; }
 .draw-color-swatches { display: flex; gap: 4px; }
-.color-swatch { width: 20px; height: 20px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; }
-.color-swatch:hover, .color-swatch.active { border-color: #fff; }
+.color-swatch { width: 20px; height: 20px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease; }
+.color-swatch:hover { transform: scale(1.15); border-color: rgba(255,255,255,0.6); box-shadow: 0 0 8px rgba(59,130,246,0.3); }
+.color-swatch.active { border-color: #fff; box-shadow: 0 0 6px rgba(59,130,246,0.4); }
 .toggle-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: #9ca3af; user-select: none; }
 .toggle-label input[type="checkbox"] { accent-color: #3b82f6; width: 14px; height: 14px; cursor: pointer; }
 .toggle-label:hover .toggle-text { color: #e5e7eb; }
 .candle-colors-wrap { position: relative; }
+/* SVG Animation: loading spinner (stroke-dasharray pattern) */
+.chart-loading-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: #6b7280; }
+.chart-loading-spinner { color: #3b82f6; animation: chart-spinner-rotate 0.8s linear infinite; }
+.chart-loading-spinner-path { stroke-dasharray: 60 106; stroke-linecap: round; }
+@keyframes chart-spinner-rotate { to { transform: rotate(360deg); } }
+.chart-loading-text { font-size: 14px; }
 /* Mobile: collapse sidebar, stack layout */
 @media (max-width: 768px) {
   .chart-page { padding: 0.5rem; }
