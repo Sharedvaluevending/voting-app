@@ -515,8 +515,11 @@ app.get('/', async (req, res) => {
     }) : [];
 
     let top3MarketPicks = [];
+    let marketHoldState = false;
     try {
-      top3MarketPicks = require('./services/market-scanner').getTop3Cached();
+      const scanner = require('./services/market-scanner');
+      top3MarketPicks = scanner.getTop3Cached();
+      marketHoldState = scanner.isMarketHoldState();
     } catch (e) { /* ignore */ }
 
     res.render('dashboard', {
@@ -530,6 +533,8 @@ app.get('/', async (req, res) => {
       excludedCoinsFull,
       topPerformerCoins,
       top3MarketPicks,
+      marketHoldState,
+      errorMsg: req.query.error || null,
       COIN_META
     });
   } catch (err) {
@@ -545,6 +550,7 @@ app.get('/coin/:coinId', async (req, res) => {
   try {
     const coinId = req.params.coinId;
     let coinData, candles, history, prices, allCandles, allHistory;
+    let sig;
 
     if (TRACKED_COINS.includes(coinId)) {
       [prices, allCandles, allHistory] = await Promise.all([
@@ -553,22 +559,37 @@ app.get('/coin/:coinId', async (req, res) => {
         fetchAllHistory()
       ]);
       coinData = prices.find(p => p.id === coinId);
-      if (!coinData) return res.status(404).send('Price data unavailable. <a href="/">Back to Dashboard</a>');
+      if (!coinData) return res.redirect('/?error=price_unavailable');
       candles = fetchCandles(coinId);
       history = allHistory[coinId] || { prices: [], volumes: [] };
+      const options = await buildEngineOptions(prices, allCandles, allHistory, req.session?.userId ? await User.findById(req.session.userId).select('settings').lean() : null);
+      sig = analyzeCoin(coinData, candles, history, options);
     } else {
-      const fetched = await fetchCoinDataForDetail(coinId);
-      if (!fetched) return res.status(404).send('Coin not found. <a href="/">Back to Dashboard</a>');
-      coinData = fetched.coinData;
-      history = fetched.history;
-      candles = await fetchAllCandlesForCoin(coinId);
-      prices = [coinData];
-      allCandles = candles ? { [coinId]: candles } : {};
-      allHistory = { [coinId]: history };
-    }
+      // For scanner coins: use cached signal for consistency with dashboard
+      let cachedSig = null;
+      try {
+        const scannerFull = require('./services/market-scanner').getTop3FullCached();
+        cachedSig = scannerFull.find(s => (s.coin?.id || s.coinData?.id) === coinId);
+      } catch (e) { /* scanner not loaded */ }
 
-    const options = await buildEngineOptions(prices, allCandles, allHistory, req.session?.userId ? await User.findById(req.session.userId).select('settings').lean() : null);
-    const sig = analyzeCoin(coinData, candles, history, options);
+      if (cachedSig) {
+        // Use the exact same signal that was shown on the dashboard
+        sig = cachedSig;
+        if (!sig.coin && sig.coinData) sig.coin = sig.coinData;
+      } else {
+        // Fallback: fetch fresh data (coin may not be in top 3 cache anymore)
+        const fetched = await fetchCoinDataForDetail(coinId);
+        if (!fetched) return res.redirect('/?error=coin_not_found');
+        coinData = fetched.coinData;
+        history = fetched.history;
+        candles = await fetchAllCandlesForCoin(coinId);
+        prices = [coinData];
+        allCandles = candles ? { [coinId]: candles } : {};
+        allHistory = { [coinId]: history };
+        const options = await buildEngineOptions(prices, allCandles, allHistory, req.session?.userId ? await User.findById(req.session.userId).select('settings').lean() : null);
+        sig = analyzeCoin(coinData, candles, history, options);
+      }
+    }
 
     res.render('coin-detail', {
       activePage: 'dashboard',
@@ -577,7 +598,7 @@ app.get('/coin/:coinId', async (req, res) => {
     });
   } catch (err) {
     console.error('[CoinDetail] Error:', err);
-    res.status(500).send('Error loading coin data. <a href="/">Back to Dashboard</a>');
+    res.redirect('/?error=load_failed');
   }
 });
 

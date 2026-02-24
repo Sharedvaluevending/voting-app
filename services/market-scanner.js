@@ -15,7 +15,13 @@ const COINGECKO_DELAY_MS = 1500;     // Rate limit: ~40/min
 const TOP_MARKET_LIMIT = 80;          // Scan top 80 by market cap
 const TOP_PICKS = 3;
 
-let cache = { top3: [], fetchedAt: 0, scanning: false };
+const STABLECOINS = [
+  'tether', 'usd-coin', 'dai', 'binance-usd', 'true-usd', 'first-digital-usd',
+  'paxos-standard', 'frax', 'usdd', 'gemini-dollar', 'paypal-usd', 'ethena-usde'
+];
+const STABLECOIN_SYMBOLS = ['USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'FDUSD', 'USDP', 'FRAX', 'USDD', 'GUSD', 'PYUSD', 'USDE'];
+
+let cache = { top3: [], top3Full: [], fetchedAt: 0, scanning: false, marketHoldState: false };
 
 /** Build engine options for background scan (strategy weights + BTC signal from market data). */
 async function buildScannerOptions(marketCoins) {
@@ -108,7 +114,8 @@ async function scanMarket(options = {}) {
     const opts = (options && options.strategyWeights) ? options : await buildScannerOptions(marketCoins);
     const outsideTracked = marketCoins.filter(m => {
       if (TRACKED_COINS.includes(m.id)) return false;
-      if (m.id === 'tether' || (m.symbol || '').toUpperCase() === 'USDT') return false;
+      if (STABLECOINS.includes(m.id)) return false;
+      if (STABLECOIN_SYMBOLS.includes((m.symbol || '').toUpperCase())) return false;
       return true;
     });
     if (outsideTracked.length === 0) {
@@ -137,9 +144,37 @@ async function scanMarket(options = {}) {
       scored.push({ ...sig, coinData });
     }
 
-    // Sort by score desc, take top 3
+    // BTC regime filter: suppress alt longs when BTC STRONG_SELL, alt shorts when BTC STRONG_BUY
+    if (opts.btcSignal) {
+      scored.forEach(sig => {
+        if ((sig.coin?.id || sig.coinData?.id) === 'bitcoin') return;
+        if (opts.btcSignal === 'STRONG_SELL' && (sig.signal === 'BUY' || sig.signal === 'STRONG_BUY')) {
+          sig.signal = 'HOLD';
+          sig.reasoning = (sig.reasoning || []).concat(['BTC strongly bearish – alt longs suppressed']);
+        } else if (opts.btcSignal === 'STRONG_BUY' && (sig.signal === 'SELL' || sig.signal === 'STRONG_SELL')) {
+          sig.signal = 'HOLD';
+          sig.reasoning = (sig.reasoning || []).concat(['BTC strongly bullish – alt shorts suppressed']);
+        }
+      });
+    }
+
+    // Sort by score desc
     scored.sort((a, b) => (b.score || 0) - (a.score || 0));
-    const top3 = scored.slice(0, TOP_PICKS).map(s => ({
+
+    // Only pick actionable signals (BUY/SELL/STRONG_BUY/STRONG_SELL) — not HOLD
+    const ACTIONABLE = ['BUY', 'SELL', 'STRONG_BUY', 'STRONG_SELL'];
+    const actionable = scored.filter(s => ACTIONABLE.includes(s.signal));
+
+    let picks, isMarketHold = false;
+    if (actionable.length > 0) {
+      picks = actionable.slice(0, TOP_PICKS);
+    } else {
+      isMarketHold = true;
+      picks = scored.slice(0, TOP_PICKS);
+      console.log('[MarketScanner] No actionable signals found – whole market in HOLD state');
+    }
+
+    const top3 = picks.map(s => ({
       coin: s.coin || s.coinData,
       signal: s.signal,
       score: s.score,
@@ -148,12 +183,13 @@ async function scanMarket(options = {}) {
       confluenceLevel: s.confluenceLevel,
       riskReward: s.riskReward
     }));
-    const top3Full = scored.slice(0, TOP_PICKS);
+    const top3Full = picks;
 
     cache.top3 = top3;
     cache.top3Full = top3Full;
     cache.fetchedAt = Date.now();
-    console.log(`[MarketScanner] Top 3: ${top3.map(t => t.coin?.symbol).join(', ')}`);
+    cache.marketHoldState = isMarketHold;
+    console.log(`[MarketScanner] Top ${picks.length}: ${top3.map(t => `${t.coin?.symbol}(${t.signal})`).join(', ')}${isMarketHold ? ' [MARKET HOLD]' : ''}`);
     return top3;
   } catch (err) {
     console.error('[MarketScanner] Error:', err.message);
@@ -183,6 +219,11 @@ function getTop3FullCached() {
   return cache.top3Full || [];
 }
 
+/** Sync: is the entire market in a hold state (no actionable signals found)? */
+function isMarketHoldState() {
+  return cache.marketHoldState || false;
+}
+
 /** Sync: return full signal for top 1 (for auto-trade). Null if empty or top 1 is in TRACKED_COINS. */
 function getTop1ForAutoTrade() {
   const full = cache.top3Full || [];
@@ -198,5 +239,6 @@ module.exports = {
   getTop3Cached,
   getTop3FullCached,
   getTop1ForAutoTrade,
+  isMarketHoldState,
   TOP_PICKS
 };

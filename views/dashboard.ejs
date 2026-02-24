@@ -1,4 +1,9 @@
 <%- include('partials/header') %>
+<% if (typeof errorMsg !== 'undefined' && errorMsg) { %>
+<div style="background:rgba(239,68,68,0.15);border:1px solid #ef4444;border-radius:8px;padding:12px 16px;margin-bottom:16px;color:#fca5a5;font-size:13px;">
+  <%= errorMsg === 'coin_not_found' ? 'Coin data is temporarily unavailable. CoinGecko may be rate-limiting. Try again in a minute.' : errorMsg === 'price_unavailable' ? 'Price data is loading. Please refresh in a few seconds.' : errorMsg === 'load_failed' ? 'Failed to load coin details. Please try again.' : 'Something went wrong. Please try again.' %>
+</div>
+<% } %>
 <%
   var displayCounts = { STRONG_BUY: 0, BUY: 0, SELL: 0, STRONG_SELL: 0, HOLD: 0 };
   (signals || []).forEach(function(sig) {
@@ -58,8 +63,18 @@
 <!-- TOP 3 WHOLE MARKET (scanned 24/7, same scoring as tracked 20) -->
 <% if (typeof top3MarketPicks !== 'undefined' && top3MarketPicks && top3MarketPicks.length > 0) { %>
 <div class="section" style="margin-bottom:20px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;padding:16px;">
-  <h3 style="color:#10b981;font-size:13px;margin:0 0 12px 0;">Top 3 Whole Market</h3>
-  <p style="font-size:12px;color:#9ca3af;margin:0 0 12px 0;">Scanned 24/7 across top 80 coins. Same scoring engine as your 20 tracked coins. Refreshes every 10 min.</p>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+    <h3 style="color:#10b981;font-size:13px;margin:0;">Top 3 Whole Market</h3>
+    <% if (typeof marketHoldState !== 'undefined' && marketHoldState) { %>
+      <span style="font-size:10px;padding:2px 8px;background:rgba(234,179,8,0.2);color:#eab308;border-radius:4px;">MARKET HOLD</span>
+    <% } %>
+  </div>
+  <p style="font-size:12px;color:#9ca3af;margin:0 0 12px 0;">
+    Scanned 24/7 across top 80 coins. Same scoring engine as your 20 tracked coins. Refreshes every 10 min.
+    <% if (typeof marketHoldState !== 'undefined' && marketHoldState) { %>
+      <br><span style="color:#eab308;">No actionable buy/sell signals found. Showing highest-scored coins in hold state.</span>
+    <% } %>
+  </p>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;">
     <% top3MarketPicks.forEach(function(p, i) { var c = p.coin; if (!c) return; %>
     <a href="/coin/<%= c.id %>" style="text-decoration:none;display:block;padding:12px;background:rgba(30,42,59,0.5);border:1px solid #334155;border-radius:6px;transition:border-color 0.2s;">
