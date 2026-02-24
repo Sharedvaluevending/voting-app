@@ -467,7 +467,7 @@ async function fetchAllKrakenCandlesForCoin(coinId) {
 // FETCH CANDLES: Bitget primary, Kraken fallback
 // ====================================================
 async function fetchAllCandlesForCoin(coinId, retriesLeft = 1) {
-  const meta = COIN_META[coinId];
+  const meta = getCoinMeta(coinId);
 
   // Try Bitget first (primary OHLCV source)
   if (meta?.bybit) {
@@ -581,6 +581,33 @@ async function fetchHistoryOnce(coinId, days = 7) {
 
 async function fetchHistoryFromAPI(coinId, days = 7) {
   return fetchHistoryOnce(coinId, days);
+}
+
+/** Fetch coin data + history for detail page (market-scanner coins). */
+async function fetchCoinDataForDetail(coinId) {
+  try {
+    const [detailRes, history] = await Promise.all([
+      fetch(`https://api.coingecko.com/api/v3/coins/${coinId}?localization=false&tickers=false&community_data=false&developer_data=false`, { headers: { Accept: 'application/json' }, timeout: 12000 }),
+      fetchHistoryOnce(coinId, 7).catch(() => null)
+    ]);
+    if (!detailRes.ok) return null;
+    const d = await detailRes.json();
+    const md = d.market_data || {};
+    const price = md.current_price?.usd ?? 0;
+    const coinData = {
+      id: d.id,
+      symbol: (d.symbol || '').toUpperCase(),
+      name: d.name || d.id,
+      price,
+      change24h: md.price_change_percentage_24h ?? 0,
+      volume24h: md.total_volume?.usd ?? 0,
+      marketCap: md.market_cap?.usd ?? 0
+    };
+    registerScannerCoinMeta(coinId, coinData.symbol);
+    return { coinData, history: history || { prices: [], volumes: [] } };
+  } catch (e) {
+    return null;
+  }
 }
 
 let pricesReadyResolve;
@@ -914,6 +941,7 @@ refreshAllData().catch(err => console.error('[CryptoAPI] Initial error:', err.me
 module.exports = {
   fetchAllPrices, fetchPriceHistory, fetchAllHistory,
   fetchCandles, fetchAllCandles, fetchAllCandlesForCoin, fetchHistoricalCandlesForCoin, fetchHistoricalKrakenCandles, getCurrentPrice, fetchLivePrice, isDataReady,
+  fetchCoinDataForDetail,
   getFundingRate, getAllFundingRates,
   isCandleFresh, getCandleSource, getCandleAge,
   recordScoreHistory, getScoreHistory,

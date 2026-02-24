@@ -26,7 +26,7 @@ const MongoStore = require('connect-mongo');
 const crypto = require('crypto');
 const path = require('path');
 
-const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, isCandleFresh, getCandleSource, recordScoreHistory, getScoreHistory, recordRegimeSnapshot, getRegimeTimeline, pricesReadyPromise, TRACKED_COINS, COIN_META, registerScannerCoinMeta, getCoinMeta } = require('./services/crypto-api');
+const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, isCandleFresh, getCandleSource, recordScoreHistory, getScoreHistory, recordRegimeSnapshot, getRegimeTimeline, pricesReadyPromise, TRACKED_COINS, COIN_META, registerScannerCoinMeta, getCoinMeta, fetchCoinDataForDetail } = require('./services/crypto-api');
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
 const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
@@ -539,27 +539,35 @@ app.get('/', async (req, res) => {
 });
 
 // ====================================================
-// COIN DETAIL
+// COIN DETAIL (tracked 20 + top 3 market-scanner coins)
 // ====================================================
 app.get('/coin/:coinId', async (req, res) => {
   try {
     const coinId = req.params.coinId;
-    if (!TRACKED_COINS.includes(coinId)) {
-      return res.status(404).send('Coin not found. <a href="/">Back to Dashboard</a>');
+    let coinData, candles, history, prices, allCandles, allHistory;
+
+    if (TRACKED_COINS.includes(coinId)) {
+      [prices, allCandles, allHistory] = await Promise.all([
+        fetchAllPrices(),
+        Promise.resolve(fetchAllCandles()),
+        fetchAllHistory()
+      ]);
+      coinData = prices.find(p => p.id === coinId);
+      if (!coinData) return res.status(404).send('Price data unavailable. <a href="/">Back to Dashboard</a>');
+      candles = fetchCandles(coinId);
+      history = allHistory[coinId] || { prices: [], volumes: [] };
+    } else {
+      const fetched = await fetchCoinDataForDetail(coinId);
+      if (!fetched) return res.status(404).send('Coin not found. <a href="/">Back to Dashboard</a>');
+      coinData = fetched.coinData;
+      history = fetched.history;
+      candles = await fetchAllCandlesForCoin(coinId);
+      prices = [coinData];
+      allCandles = candles ? { [coinId]: candles } : {};
+      allHistory = { [coinId]: history };
     }
 
-    const [prices, allCandles, allHistory] = await Promise.all([
-      fetchAllPrices(),
-      Promise.resolve(fetchAllCandles()),
-      fetchAllHistory()
-    ]);
-    const coinData = prices.find(p => p.id === coinId);
-    if (!coinData) {
-      return res.status(404).send('Price data unavailable. <a href="/">Back to Dashboard</a>');
-    }
-    const options = await buildEngineOptions(prices, allCandles, allHistory);
-    const candles = fetchCandles(coinId);
-    const history = allHistory[coinId] || { prices: [], volumes: [] };
+    const options = await buildEngineOptions(prices, allCandles, allHistory, req.session?.userId ? await User.findById(req.session.userId).select('settings').lean() : null);
     const sig = analyzeCoin(coinData, candles, history, options);
 
     res.render('coin-detail', {
@@ -578,12 +586,14 @@ app.get('/coin/:coinId', async (req, res) => {
 // ====================================================
 app.get('/chart/:coinId', async (req, res) => {
   const coinId = req.params.coinId;
-  if (!TRACKED_COINS.includes(coinId)) {
-    return res.status(404).send('Coin not found. <a href="/">Back to Dashboard</a>');
-  }
-  const meta = COIN_META[coinId];
+  let meta = getCoinMeta(coinId);
   if (!meta || !meta.bybit) {
-    return res.status(404).send('Chart not available for this coin. <a href="/">Back to Dashboard</a>');
+    if (!TRACKED_COINS.includes(coinId)) {
+      const fetched = await fetchCoinDataForDetail(coinId);
+      if (!fetched) return res.status(404).send('Coin not found. <a href="/">Back to Dashboard</a>');
+      meta = getCoinMeta(coinId);
+    }
+    if (!meta || !meta.bybit) return res.status(404).send('Chart not available for this coin. <a href="/">Back to Dashboard</a>');
   }
   // Use Bitget for TradingView symbol with Kraken fallback
   const TV_PAIRS = {
@@ -620,7 +630,8 @@ app.get('/chart/:coinId', async (req, res) => {
     }
   }
   // Calculate Fibonacci levels for chart overlay
-  const chartCandles = fetchCandles(coinId);
+  let chartCandles = fetchCandles(coinId);
+  if (!chartCandles && !TRACKED_COINS.includes(coinId)) chartCandles = await fetchAllCandlesForCoin(coinId);
   let fibLevels = null;
   if (chartCandles && chartCandles['4h'] && chartCandles['4h'].length >= 10) {
     const highs = chartCandles['4h'].map(c => c.high);
@@ -639,15 +650,17 @@ app.get('/chart/:coinId', async (req, res) => {
     }
   }
 
-  const currentCoinIndex = TRACKED_COINS.indexOf(coinId);
-  const prevCoinId = currentCoinIndex > 0 ? TRACKED_COINS[currentCoinIndex - 1] : TRACKED_COINS[TRACKED_COINS.length - 1];
-  const nextCoinId = currentCoinIndex < TRACKED_COINS.length - 1 && currentCoinIndex >= 0 ? TRACKED_COINS[currentCoinIndex + 1] : TRACKED_COINS[0];
-
-  const chartCoins = TRACKED_COINS.filter(id => COIN_META[id] && COIN_META[id].bybit).map(id => ({
-    id,
-    symbol: COIN_META[id].symbol,
-    name: COIN_META[id].name
+  const chartCoinsBase = TRACKED_COINS.filter(id => getCoinMeta(id)?.bybit).map(id => ({
+    id, symbol: getCoinMeta(id).symbol, name: getCoinMeta(id).name
   }));
+  let top3Picks = [];
+  try { top3Picks = require('./services/market-scanner').getTop3Cached(); } catch (e) {}
+  top3Picks.forEach(p => { if (p.coin?.id && p.coin?.symbol) registerScannerCoinMeta(p.coin.id, p.coin.symbol); });
+  const chartCoinsExtra = top3Picks.filter(p => !chartCoinsBase.some(c => c.id === p.coin?.id)).map(p => p.coin ? { id: p.coin.id, symbol: p.coin.symbol, name: p.coin.name } : null).filter(Boolean);
+  const chartCoins = [...chartCoinsBase, ...chartCoinsExtra];
+  const currentCoinIndex = chartCoins.findIndex(c => c.id === coinId);
+  const prevCoinId = currentCoinIndex > 0 ? chartCoins[currentCoinIndex - 1].id : (chartCoins[chartCoins.length - 1]?.id || coinId);
+  const nextCoinId = currentCoinIndex >= 0 && currentCoinIndex < chartCoins.length - 1 ? chartCoins[currentCoinIndex + 1].id : (chartCoins[0]?.id || coinId);
 
   res.render('chart', {
     activePage: 'dashboard',
@@ -717,30 +730,32 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       return res.redirect('/trades?error=' + encodeURIComponent('Missing trade data'));
     }
 
-    // Explicit coin whitelist: only tracked coins can be traded
-    if (!TRACKED_COINS.includes(coinId)) {
-      return res.redirect('/trades?error=' + encodeURIComponent('Invalid coin'));
-    }
-
     // Validate direction
     if (!['LONG', 'SHORT'].includes(direction)) {
       return res.redirect('/trades?error=' + encodeURIComponent('Invalid direction'));
     }
 
-    const prices = await fetchAllPrices();
-    const coinData = prices.find(p => p.id === coinId);
-    if (!coinData) {
-      return res.redirect('/trades?error=' + encodeURIComponent('Price data not available'));
+    let coinData, allCandles, allHistory, prices;
+    if (TRACKED_COINS.includes(coinId)) {
+      prices = await fetchAllPrices();
+      coinData = prices.find(p => p.id === coinId);
+      if (!coinData) return res.redirect('/trades?error=' + encodeURIComponent('Price data not available'));
+      [allCandles, allHistory] = await Promise.all([Promise.resolve(fetchAllCandles()), fetchAllHistory()]);
+    } else {
+      const fetched = await fetchCoinDataForDetail(coinId);
+      if (!fetched) return res.redirect('/trades?error=' + encodeURIComponent('Coin not available'));
+      coinData = fetched.coinData;
+      allHistory = { [coinId]: fetched.history };
+      allCandles = { [coinId]: await fetchAllCandlesForCoin(coinId) };
+      prices = [coinData];
     }
 
-    const [allCandles, allHistory, livePrice, user] = await Promise.all([
-      Promise.resolve(fetchAllCandles()),
-      fetchAllHistory(),
+    const [livePrice, user] = await Promise.all([
       fetchLivePrice(coinId),
       User.findById(req.session.userId).lean()
     ]);
-    const options = await buildEngineOptions(await fetchAllPrices(), allCandles, allHistory, user);
-    const candles = fetchCandles(coinId);
+    const options = await buildEngineOptions(prices, allCandles, allHistory, user);
+    const candles = allCandles[coinId] || fetchCandles(coinId);
     const history = allHistory[coinId] || { prices: [], volumes: [] };
     const signal = analyzeCoin(coinData, candles, history, options);
     const signalDir = (signal.signal === 'BUY' || signal.signal === 'STRONG_BUY') ? 'LONG'
@@ -824,7 +839,7 @@ app.post('/trades/open', requireLogin, async (req, res) => {
 
     const tradeData = {
       coinId,
-      symbol: COIN_META[coinId]?.symbol || coinId.toUpperCase(),
+      symbol: getCoinMeta(coinId)?.symbol || coinData?.symbol || coinId.toUpperCase(),
       direction,
       entry,
       stopLoss,
@@ -3401,7 +3416,17 @@ app.get('/strategy-comparison', async (req, res) => {
       } catch (e) { /* ignore */ }
     }
     const options = await buildEngineOptions(pricesMerged, allCandles, allHistory, compUser);
-    const signals = analyzeAllCoins(pricesMerged, allCandles, allHistory, options);
+    let signals = analyzeAllCoins(pricesMerged, allCandles, allHistory, options) || [];
+
+    // Add top 3 market picks to comparison (they change each scan)
+    try {
+      const top3Full = require('./services/market-scanner').getTop3FullCached();
+      top3Full.forEach(s => {
+        if (s && s.coin && !signals.some(x => x.coin?.id === s.coin.id)) {
+          signals = [...signals, s];
+        }
+      });
+    } catch (e) { /* ignore */ }
 
     // Get learning engine data
     const strategies = await StrategyWeight.find({}).lean();

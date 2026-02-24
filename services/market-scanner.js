@@ -106,7 +106,11 @@ async function scanMarket(options = {}) {
   try {
     const marketCoins = await fetchTopMarketCoins();
     const opts = (options && options.strategyWeights) ? options : await buildScannerOptions(marketCoins);
-    const outsideTracked = marketCoins.filter(m => !TRACKED_COINS.includes(m.id));
+    const outsideTracked = marketCoins.filter(m => {
+      if (TRACKED_COINS.includes(m.id)) return false;
+      if (m.id === 'tether' || (m.symbol || '').toUpperCase() === 'USDT') return false;
+      return true;
+    });
     if (outsideTracked.length === 0) {
       cache.top3 = [];
       cache.top3Full = [];
@@ -174,6 +178,11 @@ function getTop3Cached() {
   return cache.top3;
 }
 
+/** Sync: return full signals for top 3 (for strategy comparison). */
+function getTop3FullCached() {
+  return cache.top3Full || [];
+}
+
 /** Sync: return full signal for top 1 (for auto-trade). Null if empty or top 1 is in TRACKED_COINS. */
 function getTop1ForAutoTrade() {
   const full = cache.top3Full || [];
@@ -187,6 +196,7 @@ module.exports = {
   scanMarket,
   getTop3MarketPicks,
   getTop3Cached,
+  getTop3FullCached,
   getTop1ForAutoTrade,
   TOP_PICKS
 };

@@ -62,7 +62,7 @@
   <p style="font-size:12px;color:#9ca3af;margin:0 0 12px 0;">Scanned 24/7 across top 80 coins. Same scoring engine as your 20 tracked coins. Refreshes every 10 min.</p>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;">
     <% top3MarketPicks.forEach(function(p, i) { var c = p.coin; if (!c) return; %>
-    <a href="https://www.coingecko.com/en/coins/<%= c.id %>" target="_blank" rel="noopener" style="text-decoration:none;display:block;padding:12px;background:rgba(30,42,59,0.5);border:1px solid #334155;border-radius:6px;transition:border-color 0.2s;">
+    <a href="/coin/<%= c.id %>" style="text-decoration:none;display:block;padding:12px;background:rgba(30,42,59,0.5);border:1px solid #334155;border-radius:6px;transition:border-color 0.2s;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
         <span style="color:#e5e7eb;font-weight:600;"><%= c.symbol %></span>
         <span class="signal-badge badge-<%= p.signal %>" style="font-size:10px;"><%= (p.signal || 'HOLD').replace('_', ' ') %></span>
