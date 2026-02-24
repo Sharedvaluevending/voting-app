@@ -877,27 +877,30 @@ app.post('/trades/close/:tradeId', requireLogin, async (req, res) => {
 });
 
 // ====================================================
-// PRICE ALERTS
+// CRYPTO ALERTS (price alerts — new URL to avoid Safe Browsing flag)
+// Old /alerts redirects to new URL (legacy bookmarks)
 // ====================================================
-app.get('/alerts', requireLogin, async (req, res) => {
+app.get('/alerts', requireLogin, (req, res) => res.redirect(301, '/crypto-alerts'));
+
+app.get('/crypto-alerts', requireLogin, async (req, res) => {
   try {
     const alerts = await Alert.find({ userId: req.session.userId }).sort({ createdAt: -1 }).lean();
-    res.render('alerts', { activePage: 'alerts', alerts, TRACKED_COINS, COIN_META });
+    res.render('crypto-alerts', { activePage: 'crypto-alerts', alerts, TRACKED_COINS, COIN_META });
   } catch (err) {
-    console.error('[Alerts] Error:', err);
+    console.error('[CryptoAlerts] Error:', err);
     res.status(500).send('Error loading alerts');
   }
 });
 
-app.post('/alerts', requireLogin, async (req, res) => {
+app.post('/crypto-alerts', requireLogin, async (req, res) => {
   try {
     const { coinId, condition, price } = req.body;
     if (!coinId || !TRACKED_COINS.includes(coinId) || !condition || !price) {
-      return res.redirect('/alerts?error=' + encodeURIComponent('Invalid alert: coin, condition, and price required'));
+      return res.redirect('/crypto-alerts?error=' + encodeURIComponent('Invalid alert: coin, condition, and price required'));
     }
     const p = parseFloat(price);
-    if (isNaN(p) || p <= 0) return res.redirect('/alerts?error=' + encodeURIComponent('Invalid price'));
-    if (condition !== 'above' && condition !== 'below') return res.redirect('/alerts?error=' + encodeURIComponent('Condition must be above or below'));
+    if (isNaN(p) || p <= 0) return res.redirect('/crypto-alerts?error=' + encodeURIComponent('Invalid price'));
+    if (condition !== 'above' && condition !== 'below') return res.redirect('/crypto-alerts?error=' + encodeURIComponent('Condition must be above or below'));
     const meta = COIN_META[coinId];
     await Alert.create({
       userId: req.session.userId,
@@ -906,20 +909,20 @@ app.post('/alerts', requireLogin, async (req, res) => {
       condition,
       price: p
     });
-    res.redirect('/alerts?success=Alert+created');
+    res.redirect('/crypto-alerts?success=Alert+created');
   } catch (err) {
-    console.error('[Alerts Create] Error:', err);
-    res.redirect('/alerts?error=' + encodeURIComponent(err.message));
+    console.error('[CryptoAlerts Create] Error:', err);
+    res.redirect('/crypto-alerts?error=' + encodeURIComponent(err.message));
   }
 });
 
-app.post('/alerts/:id/delete', requireLogin, async (req, res) => {
+app.post('/crypto-alerts/:id/delete', requireLogin, async (req, res) => {
   try {
     await Alert.findOneAndDelete({ _id: req.params.id, userId: req.session.userId });
-    res.redirect('/alerts?success=Alert+deleted');
+    res.redirect('/crypto-alerts?success=Alert+deleted');
   } catch (err) {
-    console.error('[Alerts Delete] Error:', err);
-    res.redirect('/alerts?error=' + encodeURIComponent(err.message));
+    console.error('[CryptoAlerts Delete] Error:', err);
+    res.redirect('/crypto-alerts?error=' + encodeURIComponent(err.message));
   }
 });
 
@@ -1126,8 +1129,8 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       const v = Math.min(95, Math.max(30, parseInt(req.body.autoTradeMinScore, 10) || 52));
       s.autoTradeMinScore = v;
     }
-    if (req.body.autoTradeTopMarketPick !== undefined) {
-      s.autoTradeTopMarketPick = req.body.autoTradeTopMarketPick === 'true' || (Array.isArray(req.body.autoTradeTopMarketPick) && req.body.autoTradeTopMarketPick.includes('true'));
+    if (req.body.autoTradeCoinsMode && ['tracked', 'tracked+top1', 'top1'].includes(req.body.autoTradeCoinsMode)) {
+      s.autoTradeCoinsMode = req.body.autoTradeCoinsMode;
     }
     if (req.body.useFixedLeverage !== undefined) {
       const val = req.body.useFixedLeverage;
@@ -3107,11 +3110,15 @@ async function runAutoTrade() {
     for (const user of autoTradeUsers) {
       try {
         const options = await buildEngineOptions(prices, allCandles, allHistory, user);
-        let signals = analyzeAllCoins(prices, allCandles, allHistory, options);
-        if (!signals) signals = [];
+        const mode = user.settings?.autoTradeCoinsMode || (user.settings?.autoTradeTopMarketPick ? 'tracked+top1' : 'tracked');
+        let signals = [];
 
-        // Include top 1 from whole-market scanner when enabled (best of the best)
-        if (user.settings?.autoTradeTopMarketPick === true) {
+        if (mode === 'tracked' || mode === 'tracked+top1') {
+          const analyzed = analyzeAllCoins(prices, allCandles, allHistory, options);
+          signals = analyzed || [];
+        }
+
+        if (mode === 'tracked+top1' || mode === 'top1') {
           try {
             const { getTop1ForAutoTrade } = require('./services/market-scanner');
             const top1 = getTop1ForAutoTrade();

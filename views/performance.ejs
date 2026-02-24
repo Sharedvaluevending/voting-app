@@ -177,11 +177,14 @@
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Cooldown (hours)</label>
           <input type="number" name="cooldownHours" min="0" max="168" title="Wait before re-opening same coin/direction" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 6 %>" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
         </div>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="Include top 1 coin from whole-market scanner (best of the best, outside your 20 tracked)">
-          <input type="hidden" name="autoTradeTopMarketPick" value="false">
-          <input type="checkbox" name="autoTradeTopMarketPick" value="true" <%= (user.settings && user.settings.autoTradeTopMarketPick) ? 'checked' : '' %>>
-          <span style="font-size:12px;color:#9ca3af;">Top 1 whole-market pick</span>
-        </label>
+        <div>
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Coins to trade</label>
+          <select name="autoTradeCoinsMode" title="Which coins to auto-trade" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
+            <option value="tracked" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'tracked' ? 'selected' : (!user.settings?.autoTradeCoinsMode && !user.settings?.autoTradeTopMarketPick) ? 'selected' : '' %>>20 tracked only</option>
+            <option value="tracked+top1" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'tracked+top1' ? 'selected' : (user.settings?.autoTradeTopMarketPick && !user.settings?.autoTradeCoinsMode) ? 'selected' : '' %>>20 + top 1 market pick</option>
+            <option value="top1" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'top1' ? 'selected' : '' %>>Top 1 market pick only</option>
+          </select>
+        </div>
       </div>
     </div>
 

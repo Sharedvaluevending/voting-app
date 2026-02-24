@@ -23,7 +23,7 @@
     <% } %>
     <a href="/trades" class="btn btn-outline btn-sm">Active Trades</a>
     <a href="/coin/<%= coinId %>" class="btn btn-outline btn-sm">Back to <%= coinName %></a>
-    <% if (typeof user !== 'undefined' && user) { %><a href="/alerts" class="btn btn-outline btn-sm" style="border-color:#a78bfa;color:#a78bfa;">Alerts</a><% } %>
+    <% if (typeof user !== 'undefined' && user) { %><a href="/crypto-alerts" class="btn btn-outline btn-sm" style="border-color:#a78bfa;color:#a78bfa;">Crypto Alerts</a><% } %>
   </div>
 
   <% if (entry != null || sl != null || tp1 != null || tp2 != null || tp3 != null) { %>
