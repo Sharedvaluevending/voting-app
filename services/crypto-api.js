@@ -797,6 +797,17 @@ function getCurrentPrice(coinId) {
   return prices.find(p => p.id === coinId) || null;
 }
 
+// Extended meta for market-scanner coins (top 1 from whole market) — allows auto-trade
+let scannerCoinMeta = {};
+function registerScannerCoinMeta(coinId, symbol) {
+  if (!coinId || !symbol) return;
+  const sym = (symbol || '').toUpperCase();
+  scannerCoinMeta[coinId] = { symbol: sym, bybit: sym + 'USDT' };
+}
+function getCoinMeta(coinId) {
+  return COIN_META[coinId] || scannerCoinMeta[coinId] || null;
+}
+
 /** Fetch live price for one coin. Tries WebSocket -> Bitget -> Kraken -> cache. */
 async function fetchLivePrice(coinId) {
   try {
@@ -805,7 +816,7 @@ async function fetchLivePrice(coinId) {
     if (p && Number.isFinite(p.price) && p.price > 0) return p.price;
   } catch (e) { /* WS not available */ }
 
-  const meta = COIN_META[coinId];
+  const meta = getCoinMeta(coinId);
 
   // Try Bitget REST
   if (meta && meta.bybit) {
@@ -909,5 +920,6 @@ module.exports = {
   recordRegimeSnapshot, getRegimeTimeline,
   pricesReadyPromise,
   TRACKED_COINS, COIN_META,
+  registerScannerCoinMeta, getCoinMeta,
   KRAKEN_PAIRS
 };

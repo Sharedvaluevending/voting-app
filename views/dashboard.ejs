@@ -55,6 +55,27 @@
   </div>
 </div>
 
+<!-- TOP 3 WHOLE MARKET (scanned 24/7, same scoring as tracked 20) -->
+<% if (typeof top3MarketPicks !== 'undefined' && top3MarketPicks && top3MarketPicks.length > 0) { %>
+<div class="section" style="margin-bottom:20px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;padding:16px;">
+  <h3 style="color:#10b981;font-size:13px;margin:0 0 12px 0;">Top 3 Whole Market</h3>
+  <p style="font-size:12px;color:#9ca3af;margin:0 0 12px 0;">Scanned 24/7 across top 80 coins. Same scoring engine as your 20 tracked coins. Refreshes every 10 min.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;">
+    <% top3MarketPicks.forEach(function(p, i) { var c = p.coin; if (!c) return; %>
+    <a href="https://www.coingecko.com/en/coins/<%= c.id %>" target="_blank" rel="noopener" style="text-decoration:none;display:block;padding:12px;background:rgba(30,42,59,0.5);border:1px solid #334155;border-radius:6px;transition:border-color 0.2s;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <span style="color:#e5e7eb;font-weight:600;"><%= c.symbol %></span>
+        <span class="signal-badge badge-<%= p.signal %>" style="font-size:10px;"><%= (p.signal || 'HOLD').replace('_', ' ') %></span>
+      </div>
+      <div style="font-size:18px;color:#fff;margin-bottom:4px;">$<%= typeof formatPrice !== 'undefined' ? formatPrice(c.price) : Number(c.price).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:6}) %></div>
+      <div style="font-size:11px;color:#9ca3af;">Score <%= p.score || 0 %> · <%= p.strategyName || 'Basic' %></div>
+      <div class="<%= (c.change24h || 0) >= 0 ? 'up' : 'down' %>" style="font-size:12px;"><%= (c.change24h || 0) >= 0 ? '+' : '' %><%= Number(c.change24h || 0).toFixed(2) %>% 24h</div>
+    </a>
+    <% }); %>
+  </div>
+</div>
+<% } %>
+
 <!-- MANAGE COINS (logged-in users only) -->
 <% if (typeof user !== 'undefined' && user && typeof COIN_META !== 'undefined' && COIN_META) { %>
 <div class="manage-coins-section" style="margin-bottom:20px;">

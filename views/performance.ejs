@@ -177,6 +177,11 @@
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Cooldown (hours)</label>
           <input type="number" name="cooldownHours" min="0" max="168" title="Wait before re-opening same coin/direction" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 6 %>" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
         </div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="Include top 1 coin from whole-market scanner (best of the best, outside your 20 tracked)">
+          <input type="hidden" name="autoTradeTopMarketPick" value="false">
+          <input type="checkbox" name="autoTradeTopMarketPick" value="true" <%= (user.settings && user.settings.autoTradeTopMarketPick) ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Top 1 whole-market pick</span>
+        </label>
       </div>
     </div>
 

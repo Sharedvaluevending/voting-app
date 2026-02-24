@@ -75,6 +75,7 @@ const userSchema = new mongoose.Schema({
     autoExecuteActions: { type: Boolean, default: false },
     autoTrade: { type: Boolean, default: false },
     autoTradeMinScore: { type: Number, default: 56, min: 30, max: 95 },
+    autoTradeTopMarketPick: { type: Boolean, default: false },
     disableLeverage: { type: Boolean, default: false },
     autoMoveBreakeven: { type: Boolean, default: true },
     autoTrailingStop: { type: Boolean, default: true },

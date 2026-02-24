@@ -26,7 +26,7 @@ const MongoStore = require('connect-mongo');
 const crypto = require('crypto');
 const path = require('path');
 
-const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, isCandleFresh, getCandleSource, recordScoreHistory, getScoreHistory, recordRegimeSnapshot, getRegimeTimeline, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
+const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, isCandleFresh, getCandleSource, recordScoreHistory, getScoreHistory, recordRegimeSnapshot, getRegimeTimeline, pricesReadyPromise, TRACKED_COINS, COIN_META, registerScannerCoinMeta, getCoinMeta } = require('./services/crypto-api');
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
 const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
@@ -514,6 +514,11 @@ app.get('/', async (req, res) => {
       return { id, symbol: sig?.coin?.symbol || meta?.symbol || id, name: sig?.coin?.name || meta?.name || id };
     }) : [];
 
+    let top3MarketPicks = [];
+    try {
+      top3MarketPicks = require('./services/market-scanner').getTop3Cached();
+    } catch (e) { /* ignore */ }
+
     res.render('dashboard', {
       activePage: 'dashboard',
       prices: pricesMerged,
@@ -524,6 +529,7 @@ app.get('/', async (req, res) => {
       excludedSignals,
       excludedCoinsFull,
       topPerformerCoins,
+      top3MarketPicks,
       COIN_META
     });
   } catch (err) {
@@ -1119,6 +1125,9 @@ app.post('/account/settings', requireLogin, async (req, res) => {
     if (req.body.autoTradeMinScore != null) {
       const v = Math.min(95, Math.max(30, parseInt(req.body.autoTradeMinScore, 10) || 52));
       s.autoTradeMinScore = v;
+    }
+    if (req.body.autoTradeTopMarketPick !== undefined) {
+      s.autoTradeTopMarketPick = req.body.autoTradeTopMarketPick === 'true' || (Array.isArray(req.body.autoTradeTopMarketPick) && req.body.autoTradeTopMarketPick.includes('true'));
     }
     if (req.body.useFixedLeverage !== undefined) {
       const val = req.body.useFixedLeverage;
@@ -3003,6 +3012,18 @@ setInterval(checkPriceAlerts, 60 * 1000);
 setTimeout(checkPriceAlerts, 20 * 1000);
 
 // ====================================================
+// WHOLE-MARKET SCANNER (runs every 10 min)
+// Scans top 80 coins by market cap, scores with same engine as 20 tracked.
+// Caches top 3 for dashboard display.
+// ====================================================
+try {
+  const { scanMarket } = require('./services/market-scanner');
+  setInterval(() => scanMarket().catch(e => console.warn('[MarketScanner]', e.message)), 10 * 60 * 1000);
+  setTimeout(() => scanMarket().catch(() => {}), 30 * 1000);
+  console.log('[MarketScanner] Whole-market scan every 10 min');
+} catch (e) { console.warn('[MarketScanner] Not loaded:', e.message); }
+
+// ====================================================
 // TRADE SCORE RE-CHECK (runs every SCORE_RECHECK_MINUTES)
 // Re-analyzes each open trade's coin and generates
 // status messages: confidence, momentum, structure, etc.
@@ -3086,8 +3107,25 @@ async function runAutoTrade() {
     for (const user of autoTradeUsers) {
       try {
         const options = await buildEngineOptions(prices, allCandles, allHistory, user);
-        const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
-        if (!signals || signals.length === 0) continue;
+        let signals = analyzeAllCoins(prices, allCandles, allHistory, options);
+        if (!signals) signals = [];
+
+        // Include top 1 from whole-market scanner when enabled (best of the best)
+        if (user.settings?.autoTradeTopMarketPick === true) {
+          try {
+            const { getTop1ForAutoTrade } = require('./services/market-scanner');
+            const top1 = getTop1ForAutoTrade();
+            if (top1 && top1.coin) {
+              const c = top1.coin;
+              registerScannerCoinMeta(c.id, c.symbol);
+              const dir = (top1.signal === 'STRONG_BUY' || top1.signal === 'BUY') ? 'LONG'
+                : (top1.signal === 'STRONG_SELL' || top1.signal === 'SELL') ? 'SHORT' : null;
+              if (dir && (top1.score || 0) >= (user.settings?.autoTradeMinScore ?? 56)) {
+                signals = [...signals, { ...top1, _overallScore: top1.score, _bestStrat: top1.topStrategies?.[0] || { stopLoss: top1.stopLoss, takeProfit1: top1.takeProfit1, takeProfit2: top1.takeProfit2, takeProfit3: top1.takeProfit3, entry: top1.entry, riskReward: top1.riskReward, id: top1.strategyType }, _direction: dir, _coinId: c.id, _bestScore: top1.score }];
+              }
+            }
+          } catch (e) { /* scanner not ready */ }
+        }
 
         const signalsWithBestStrategy = signals.map(sig => {
           const coinId = sig.coin?.id || sig.id;
@@ -3176,7 +3214,8 @@ async function runAutoTrade() {
         for (const sig of toOpen) {
           try {
             const coinId = sig._coinId;
-            const coinData = prices.find(p => p.id === coinId);
+            let coinData = prices.find(p => p.id === coinId);
+            if (!coinData && sig.coin) coinData = sig.coin; // Market-scanner top pick
             if (!coinData) continue;
             const livePrice = await fetchLivePrice(coinId);
             if (livePrice == null || !Number.isFinite(livePrice) || livePrice <= 0) continue;
@@ -3200,16 +3239,17 @@ async function runAutoTrade() {
 
             // Sanity: for LONG, TPs must be ABOVE entry; for SHORT, TPs must be BELOW entry.
             // If any TP is on the wrong side (from a direction mismatch), null it out.
+            const metaSym = getCoinMeta(coinId)?.symbol || coinData?.symbol || coinId;
             if (sig._direction === 'LONG') {
-              if (useTP1 && useTP1 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP1 $${useTP1} below entry $${livePrice} for LONG — removed`); useTP1 = null; }
-              if (useTP2 && useTP2 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP2 $${useTP2} below entry $${livePrice} for LONG — removed`); useTP2 = null; }
-              if (useTP3 && useTP3 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP3 $${useTP3} below entry $${livePrice} for LONG — removed`); useTP3 = null; }
-              if (useSL && useSL >= livePrice * 1.01) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: SL $${useSL} above entry $${livePrice} for LONG — removed`); useSL = null; }
+              if (useTP1 && useTP1 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${metaSym}: TP1 $${useTP1} below entry $${livePrice} for LONG — removed`); useTP1 = null; }
+              if (useTP2 && useTP2 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${metaSym}: TP2 $${useTP2} below entry $${livePrice} for LONG — removed`); useTP2 = null; }
+              if (useTP3 && useTP3 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${metaSym}: TP3 $${useTP3} below entry $${livePrice} for LONG — removed`); useTP3 = null; }
+              if (useSL && useSL >= livePrice * 1.01) { console.warn(`[AutoTrade] ${metaSym}: SL $${useSL} above entry $${livePrice} for LONG — removed`); useSL = null; }
             } else {
-              if (useTP1 && useTP1 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP1 $${useTP1} above entry $${livePrice} for SHORT — removed`); useTP1 = null; }
-              if (useTP2 && useTP2 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP2 $${useTP2} above entry $${livePrice} for SHORT — removed`); useTP2 = null; }
-              if (useTP3 && useTP3 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP3 $${useTP3} above entry $${livePrice} for SHORT — removed`); useTP3 = null; }
-              if (useSL && useSL <= livePrice * 0.99) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: SL $${useSL} below entry $${livePrice} for SHORT — removed`); useSL = null; }
+              if (useTP1 && useTP1 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${metaSym}: TP1 $${useTP1} above entry $${livePrice} for SHORT — removed`); useTP1 = null; }
+              if (useTP2 && useTP2 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${metaSym}: TP2 $${useTP2} above entry $${livePrice} for SHORT — removed`); useTP2 = null; }
+              if (useTP3 && useTP3 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${metaSym}: TP3 $${useTP3} above entry $${livePrice} for SHORT — removed`); useTP3 = null; }
+              if (useSL && useSL <= livePrice * 0.99) { console.warn(`[AutoTrade] ${metaSym}: SL $${useSL} below entry $${livePrice} for SHORT — removed`); useSL = null; }
             }
 
             // If no SL from strategy, calculate a default ATR-based one
@@ -3227,7 +3267,7 @@ async function runAutoTrade() {
               if (useTP1) useTP1 = parseFloat((useTP1 * ratio).toFixed(6));
               if (useTP2) useTP2 = parseFloat((useTP2 * ratio).toFixed(6));
               if (useTP3) useTP3 = parseFloat((useTP3 * ratio).toFixed(6));
-              console.log(`[AutoTrade] ${COIN_META[coinId]?.symbol}: Scaled levels by ${ratio.toFixed(4)} (analysis=$${analysisEntry} live=$${livePrice})`);
+              console.log(`[AutoTrade] ${metaSym}: Scaled levels by ${ratio.toFixed(4)} (analysis=$${analysisEntry} live=$${livePrice})`);
             }
 
             const signalLev = sig.suggestedLeverage || suggestLeverage(sig._bestScore, sig.regime || 'mixed', 'normal');
@@ -3235,7 +3275,7 @@ async function runAutoTrade() {
             const lev = user.settings?.disableLeverage ? 1 : (useFixed ? (user.settings?.defaultLeverage ?? 2) : signalLev);
             const tradeData = {
               coinId,
-              symbol: COIN_META[coinId]?.symbol || coinId.toUpperCase(),
+              symbol: getCoinMeta(coinId)?.symbol || coinData?.symbol || coinId.toUpperCase(),
               direction: sig._direction,
               entry: livePrice,
               stopLoss: useSL,

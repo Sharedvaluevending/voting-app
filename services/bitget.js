@@ -6,14 +6,14 @@
 // ====================================================
 
 const { RestClientV2 } = require('bitget-api');
-const { COIN_META } = require('./crypto-api');
+const { getCoinMeta } = require('./crypto-api');
 
 const PRODUCT_TYPE = 'USDT-FUTURES';
 const MARGIN_COIN = 'USDT';
 const MARGIN_MODE = 'crossed';
 
 function getBitgetSymbol(coinId) {
-  const meta = COIN_META[coinId];
+  const meta = getCoinMeta(coinId);
   if (!meta || !meta.bybit) throw new Error(`No Bitget symbol for ${coinId}`);
   return meta.bybit; // BTCUSDT, ETHUSDT, etc. - same format as Bybit
 }
