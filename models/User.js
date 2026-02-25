@@ -77,6 +77,10 @@ const userSchema = new mongoose.Schema({
     autoTradeMinScore: { type: Number, default: 56, min: 30, max: 95 },
     // Which coins to auto-trade: 'tracked' (20 only), 'tracked+top1' (20 + top market pick), 'top1' (only top market pick)
     autoTradeCoinsMode: { type: String, enum: ['tracked', 'tracked+top1', 'top1'], default: 'tracked' },
+    // Signal source: 'original' = scoring engine, 'indicators' = Strategy Builder rules, 'both' = either
+    autoTradeSignalMode: { type: String, enum: ['original', 'indicators', 'both'], default: 'original' },
+    autoTradeBothLogic: { type: String, enum: ['or', 'and'], default: 'or' },
+    autoTradeStrategyConfigId: { type: mongoose.Schema.Types.ObjectId, ref: 'StrategyConfig', default: null },
     disableLeverage: { type: Boolean, default: false },
     autoMoveBreakeven: { type: Boolean, default: true },
     autoTrailingStop: { type: Boolean, default: true },

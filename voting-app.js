@@ -1191,6 +1191,12 @@ app.post('/account/settings', requireLogin, async (req, res) => {
     if (req.body.autoTradeCoinsMode && ['tracked', 'tracked+top1', 'top1'].includes(req.body.autoTradeCoinsMode)) {
       s.autoTradeCoinsMode = req.body.autoTradeCoinsMode;
     }
+    if (req.body.autoTradeSignalMode && ['original', 'indicators', 'both'].includes(req.body.autoTradeSignalMode)) {
+      s.autoTradeSignalMode = req.body.autoTradeSignalMode;
+    }
+    if (req.body.autoTradeBothLogic && ['or', 'and'].includes(req.body.autoTradeBothLogic)) {
+      s.autoTradeBothLogic = req.body.autoTradeBothLogic;
+    }
     if (req.body.useFixedLeverage !== undefined) {
       const val = req.body.useFixedLeverage;
       s.useFixedLeverage = val === 'true' || (Array.isArray(val) && val.includes('true'));
@@ -1932,6 +1938,84 @@ app.get('/learn', (req, res) => {
 // ====================================================
 app.get('/backtest', (req, res) => {
   res.render('backtest', { activePage: 'backtest', results: null, TRACKED_COINS });
+});
+
+// ====================================================
+// STRATEGY BUILDER (indicator-based custom strategies)
+// ====================================================
+app.get('/strategy-builder', optionalUser, async (req, res) => {
+  const { getAllPresets } = require('./services/strategy-builder/presets');
+  let savedStrategies = [];
+  if (req.session?.userId) {
+    const StrategyConfig = require('./models/StrategyConfig');
+    savedStrategies = await StrategyConfig.find({ userId: req.session.userId }).sort({ updatedAt: -1 }).lean();
+  }
+  res.render('strategy-builder', {
+    activePage: 'strategy-builder',
+    presets: getAllPresets(),
+    savedStrategies,
+    TRACKED_COINS,
+    user: req.session?.userId ? await User.findById(req.session.userId).lean() : null
+  });
+});
+
+app.post('/api/strategy-builder/backtest', async (req, res) => {
+  try {
+    const { coinId, startDate, endDate, strategy, presetId } = req.body || {};
+    if (!strategy || !strategy.entry || !strategy.exit) {
+      return res.status(400).json({ error: 'Strategy entry and exit rules required' });
+    }
+    const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 365 * 24 * 3600000;
+    const endMs = endDate ? new Date(endDate).getTime() : Date.now();
+    const cid = coinId || 'bitcoin';
+    const { runCustomBacktest } = require('./services/strategy-builder/run-custom-backtest');
+    const result = await runCustomBacktest(cid, startMs, endMs, strategy, { initialBalance: 10000, leverage: 2 });
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json({ success: true, ...result, presetId: presetId || null });
+  } catch (err) {
+    console.error('[StrategyBuilder] Backtest error:', err);
+    res.status(500).json({ error: err.message || 'Backtest failed' });
+  }
+});
+
+app.post('/api/strategy-builder/save', requireLogin, async (req, res) => {
+  try {
+    const StrategyConfig = require('./models/StrategyConfig');
+    const { name, presetId, timeframe, entry, exit } = req.body || {};
+    if (!name || !entry || !exit) {
+      return res.status(400).json({ error: 'Name, entry, and exit required' });
+    }
+    const doc = await StrategyConfig.findOneAndUpdate(
+      { userId: req.session.userId, name },
+      { presetId: presetId || null, timeframe: timeframe || '1h', entry, exit, updatedAt: new Date() },
+      { upsert: true, new: true }
+    );
+    res.json({ success: true, id: doc._id });
+  } catch (err) {
+    console.error('[StrategyBuilder] Save error:', err);
+    res.status(500).json({ error: err.message || 'Save failed' });
+  }
+});
+
+app.post('/api/strategy-builder/save-result', requireLogin, async (req, res) => {
+  try {
+    const StrategyBacktestResult = require('./models/StrategyBacktestResult');
+    const { strategyConfigId, coinId, startDate, endDate, summary, trades } = req.body || {};
+    if (!strategyConfigId || !coinId || !summary) return res.status(400).json({ error: 'Missing data' });
+    await StrategyBacktestResult.create({
+      strategyConfigId,
+      userId: req.session.userId,
+      coinId,
+      startDate: startDate ? new Date(startDate) : new Date(),
+      endDate: endDate ? new Date(endDate) : new Date(),
+      ...summary,
+      trades: trades || []
+    });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[StrategyBuilder] Save result error:', err);
+    res.status(500).json({ error: err.message || 'Save failed' });
+  }
 });
 
 // ====================================================

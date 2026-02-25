@@ -185,6 +185,21 @@
             <option value="top1" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'top1' ? 'selected' : '' %>>Top 1 market pick only</option>
           </select>
         </div>
+        <div>
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Signal source</label>
+          <select name="autoTradeSignalMode" id="autoTradeSignalMode" title="Original = scoring engine. Indicators = Strategy Builder. Both = either can trigger." onchange="document.getElementById('autoTradeBothLogicWrap').style.display=this.value==='both'?'block':'none';" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
+            <option value="original" <%= (user.settings && user.settings.autoTradeSignalMode) === 'original' ? 'selected' : !user.settings?.autoTradeSignalMode ? 'selected' : '' %>>Original (scoring engine)</option>
+            <option value="indicators" <%= (user.settings && user.settings.autoTradeSignalMode) === 'indicators' ? 'selected' : '' %>>Strategy Builder (indicators)</option>
+            <option value="both" <%= (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'selected' : '' %>>Both (OR or AND)</option>
+          </select>
+        </div>
+        <div id="autoTradeBothLogicWrap" style="display:<%= (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'block' : 'none' %>;">
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">When both</label>
+          <select name="autoTradeBothLogic" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
+            <option value="or" <%= (user.settings && user.settings.autoTradeBothLogic) === 'or' ? 'selected' : '' %>>OR (either signals)</option>
+            <option value="and" <%= (user.settings && user.settings.autoTradeBothLogic) === 'and' ? 'selected' : '' %>>AND (both must agree)</option>
+          </select>
+        </div>
       </div>
     </div>
 
