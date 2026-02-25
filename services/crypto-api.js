@@ -352,6 +352,10 @@ async function fetchHistoryFromAPI(coinId, days = 7) {
 let pricesReadyResolve;
 const pricesReadyPromise = new Promise(function(resolve) { pricesReadyResolve = resolve; });
 
+// Resolved when first full refresh (prices + candles + history) completes – for backtest/scripts
+let refreshCompleteResolve;
+const refreshCompletePromise = new Promise(function(resolve) { refreshCompleteResolve = resolve; });
+
 // ====================================================
 // BACKGROUND REFRESH
 // ====================================================
@@ -466,6 +470,10 @@ async function refreshAllData() {
       pricesReadyResolve();
       pricesReadyResolve = null;
     }
+    if (refreshCompleteResolve) {
+      refreshCompleteResolve();
+      refreshCompleteResolve = null;
+    }
   }
 }
 
@@ -544,6 +552,6 @@ refreshAllData().catch(err => console.error('[CryptoAPI] Initial error:', err.me
 module.exports = {
   fetchAllPrices, fetchPriceHistory, fetchAllHistory,
   fetchCandles, fetchAllCandles, getCurrentPrice, fetchLivePrice, isDataReady,
-  pricesReadyPromise,
+  pricesReadyPromise, refreshCompletePromise,
   TRACKED_COINS, COIN_META
 };

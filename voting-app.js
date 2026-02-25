@@ -331,6 +331,19 @@ app.post('/trades/open', requireLogin, async (req, res) => {
     const useScore = parseInt(score, 10) || signal.score || 0;
     const lev = signal.suggestedLeverage || suggestLeverage(useScore, signal.regime || 'mixed', 'normal');
 
+    // Validate direction matches signal when using main signal (strategy overrides have their own direction)
+    const hasStrategyOverride = strategyType && signal.topStrategies?.some(s => s.id === strategyType);
+    if (!hasStrategyOverride) {
+      const longSignals = ['STRONG_BUY', 'BUY'];
+      const shortSignals = ['STRONG_SELL', 'SELL'];
+      if (direction === 'LONG' && !longSignals.includes(signal.signal)) {
+        return res.redirect('/trades?error=' + encodeURIComponent(`Signal is ${signal.signal} – cannot open LONG. Use SHORT or wait for a buy signal.`));
+      }
+      if (direction === 'SHORT' && !shortSignals.includes(signal.signal)) {
+        return res.redirect('/trades?error=' + encodeURIComponent(`Signal is ${signal.signal} – cannot open SHORT. Use LONG or wait for a sell signal.`));
+      }
+    }
+
     let entry = signal.entry || coinData.price;
     let stopLoss = signal.stopLoss;
     let takeProfit1 = signal.takeProfit1;
