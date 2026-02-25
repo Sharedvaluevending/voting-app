@@ -34,6 +34,7 @@ const { initializeStrategies, getPerformanceReport, resetStrategyWeights } = req
 const { runBacktest, runBacktestForCoin } = require('./services/backtest');
 const bitget = require('./services/bitget');
 const { getWebSocketPrice, getAllWebSocketPrices, addBrowserClient, isWebSocketConnected } = require('./services/websocket-prices');
+const { approveTrade, checkOllamaReachable } = require('./services/ollama-client');
 const StrategyWeight = require('./models/StrategyWeight');
 
 const User = require('./models/User');
@@ -1204,6 +1205,17 @@ app.post('/account/settings', requireLogin, async (req, res) => {
     }
     if (req.body.autoTradeStrategyConfigId !== undefined) {
       s.autoTradeStrategyConfigId = req.body.autoTradeStrategyConfigId || null;
+    }
+    if (req.body.llmEnabled !== undefined) {
+      const val = req.body.llmEnabled;
+      s.llmEnabled = val === 'true' || (Array.isArray(val) && val.includes('true'));
+    }
+    if (req.body.ollamaUrl != null && typeof req.body.ollamaUrl === 'string') {
+      const url = req.body.ollamaUrl.trim();
+      s.ollamaUrl = url || 'http://localhost:11434';
+    }
+    if (req.body.ollamaModel != null && typeof req.body.ollamaModel === 'string') {
+      s.ollamaModel = req.body.ollamaModel.trim() || 'llama3.2';
     }
     if (req.body.useFixedLeverage !== undefined) {
       const val = req.body.useFixedLeverage;
@@ -3267,6 +3279,19 @@ app.post('/api/trigger-score-check', requireLogin, async (req, res) => {
 });
 
 // ====================================================
+// OLLAMA STATUS (check if local LLM is reachable)
+// ====================================================
+app.get('/api/ollama/status', requireLogin, async (req, res) => {
+  try {
+    const url = req.query.url || req.session?.ollamaUrl || 'http://localhost:11434';
+    const ok = await checkOllamaReachable(url);
+    res.json({ success: true, reachable: ok });
+  } catch (err) {
+    res.status(500).json({ success: false, reachable: false, error: err.message });
+  }
+});
+
+// ====================================================
 // AUTO-TRADE: Periodically scan signals for users with autoTrade enabled
 // Opens paper trades (and live if Bitget connected) automatically
 // when signal score meets threshold. Runs every 2 minutes.
@@ -3510,6 +3535,23 @@ async function runAutoTrade() {
               strategyStats: strategyStatsForOpen,
               autoTriggered: true
             };
+
+            // LLM approval gate (Ollama) — when enabled, ask local LLM before opening
+            if (user.settings?.llmEnabled) {
+              const approved = await approveTrade({
+                coinId,
+                symbol: tradeData.symbol,
+                direction: sig._direction,
+                score: sig._overallScore,
+                strategy: useStratType,
+                regime: sig.regime || 'unknown',
+                riskReward: sig._bestStrat?.riskReward ?? sig.riskReward
+              }, user.settings?.ollamaUrl || 'http://localhost:11434', user.settings?.ollamaModel || 'llama3.2');
+              if (!approved) {
+                console.log(`[AutoTrade] LLM rejected ${tradeData.symbol} ${sig._direction} for ${user.username}`);
+                continue;
+              }
+            }
 
             await openTrade(user._id, tradeData);
             console.log(`[AutoTrade] Opened ${sig._direction} on ${tradeData.symbol} (overall ${sig._overallScore}, strat: ${useStratType}) for user ${user.username}`);

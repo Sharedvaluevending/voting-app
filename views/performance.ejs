@@ -210,6 +210,47 @@
             <option value="and" <%= (user.settings && user.settings.autoTradeBothLogic) === 'and' ? 'selected' : '' %>>AND (both must agree)</option>
           </select>
         </div>
+        <div style="flex-basis:100%;margin-top:8px;padding-top:12px;border-top:1px solid #1e2a3a;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:6px;" title="Ask local Ollama LLM to approve each auto-trade before opening. Requires Ollama running (e.g. ollama run llama3.2).">
+            <input type="hidden" name="llmEnabled" value="false">
+            <input type="checkbox" name="llmEnabled" id="llmEnabled" value="true" <%= (user.settings && user.settings.llmEnabled) ? 'checked' : '' %> onchange="document.getElementById('ollama-url-wrap').style.display=this.checked?'block':'none'">
+            <span style="font-size:12px;color:#9ca3af;">Use LLM (Ollama) to approve trades</span>
+          </label>
+          <div id="ollama-url-wrap" style="<%= (user.settings && user.settings.llmEnabled) ? '' : 'display:none;' %>">
+            <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:4px;">
+              <div>
+                <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:4px;">Ollama URL</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input type="text" name="ollamaUrl" id="ollamaUrlInput" placeholder="http://localhost:11434" value="<%= (user.settings && user.settings.ollamaUrl) || 'http://localhost:11434' %>" style="width:220px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;">
+                  <button type="button" onclick="testOllama()" style="padding:6px 12px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:6px;font-size:12px;cursor:pointer;">Test</button>
+                </div>
+              </div>
+              <div>
+                <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:4px;">Model</label>
+                <input type="text" name="ollamaModel" placeholder="llama3.2" value="<%= (user.settings && user.settings.ollamaModel) || 'llama3.2' %>" style="width:120px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="e.g. llama3.2, mistral, codellama">
+              </div>
+            </div>
+            <span id="ollama-status" style="font-size:11px;color:#6b7280;margin-top:4px;display:block;"></span>
+          </div>
+          <script>
+            function testOllama() {
+              var url = document.getElementById('ollamaUrlInput').value.trim() || 'http://localhost:11434';
+              var el = document.getElementById('ollama-status');
+              el.textContent = 'Checking...';
+              el.style.color = '#6b7280';
+              fetch('/api/ollama/status?url=' + encodeURIComponent(url))
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                  el.textContent = d.reachable ? 'Connected' : 'Not reachable';
+                  el.style.color = d.reachable ? '#10b981' : '#ef4444';
+                })
+                .catch(function() {
+                  el.textContent = 'Error';
+                  el.style.color = '#ef4444';
+                });
+            }
+          </script>
+        </div>
       </div>
     </div>
 
