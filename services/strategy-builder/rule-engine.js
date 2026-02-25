@@ -15,6 +15,7 @@ const ind = require('../../lib/indicators');
  */
 function evaluateBar(candles, strategy, t) {
   if (!candles || t < 50 || t >= candles.length - 1) return { signal: 'HOLD', entry: false, exit: false };
+  if (!strategy || !strategy.entry || !strategy.exit) return { signal: 'HOLD', entry: false, exit: false };
 
   const slice = candles.slice(0, t + 1);
   const closes = slice.map(c => c.close);

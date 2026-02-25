@@ -50,6 +50,13 @@
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">End</label>
       <input type="date" id="sb-end" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
     </div>
+    <div style="display:flex;flex-direction:column;gap:4px;">
+      <label style="font-size:11px;color:#6b7280;">Quick range</label>
+      <div style="display:flex;gap:6px;">
+        <button type="button" id="sb-30d" class="btn btn-outline btn-sm" style="padding:6px 10px;">30d</button>
+        <button type="button" id="sb-90d" class="btn btn-outline btn-sm" style="padding:6px 10px;">90d</button>
+      </div>
+    </div>
     <div>
       <button type="submit" class="btn btn-primary" id="sb-run">Run Backtest</button>
     </div>
@@ -132,11 +139,28 @@
   function setDefaultDates() {
     var end = new Date();
     var start = new Date(end);
-    start.setDate(start.getDate() - 60);
+    start.setDate(start.getDate() - 30);
     document.getElementById('sb-end').value = end.toISOString().slice(0,10);
     document.getElementById('sb-start').value = start.toISOString().slice(0,10);
   }
   setDefaultDates();
+
+  var sb30 = document.getElementById('sb-30d');
+  if (sb30) sb30.addEventListener('click', function() {
+    var end = new Date();
+    var start = new Date(end);
+    start.setDate(start.getDate() - 30);
+    document.getElementById('sb-end').value = end.toISOString().slice(0,10);
+    document.getElementById('sb-start').value = start.toISOString().slice(0,10);
+  });
+  var sb90 = document.getElementById('sb-90d');
+  if (sb90) sb90.addEventListener('click', function() {
+    var end = new Date();
+    var start = new Date(end);
+    start.setDate(start.getDate() - 90);
+    document.getElementById('sb-end').value = end.toISOString().slice(0,10);
+    document.getElementById('sb-start').value = start.toISOString().slice(0,10);
+  });
 
   if (presets.length > 0) {
     document.getElementById('sb-preset').value = presets[0].id;
@@ -245,7 +269,8 @@
       if (data.error) throw new Error(data.error);
       lastResult = data;
       var s = data.summary || {};
-      document.getElementById('sb-summary').innerHTML =
+      var rangeNote = data.dataRangeNote ? '<div style="grid-column:1/-1;font-size:11px;color:#6b7280;">Data: ' + data.dataRangeNote + '</div>' : '';
+      document.getElementById('sb-summary').innerHTML = rangeNote +
         '<div style="padding:10px;background:rgba(30,42,58,0.5);border-radius:6px;"><div style="font-size:10px;color:#6b7280;">Trades</div><div style="font-size:18px;font-weight:700;">' + (s.totalTrades || 0) + '</div></div>' +
         '<div style="padding:10px;background:rgba(30,42,58,0.5);border-radius:6px;"><div style="font-size:10px;color:#6b7280;">Win Rate</div><div style="font-size:18px;font-weight:700;color:#10b981;">' + (s.winRate || 0).toFixed(1) + '%</div></div>' +
         '<div style="padding:10px;background:rgba(30,42,58,0.5);border-radius:6px;"><div style="font-size:10px;color:#6b7280;">Total PnL</div><div style="font-size:18px;font-weight:700;' + ((s.totalPnl || 0) >= 0 ? 'color:#10b981' : 'color:#ef4444') + '">$' + (s.totalPnl || 0).toFixed(2) + '</div></div>' +
@@ -259,7 +284,7 @@
       });
       if (!data.trades || data.trades.length === 0) {
         var tr = document.createElement('tr');
-        tr.innerHTML = '<td colspan="5" style="text-align:center;color:#6b7280;padding:16px;">No trades in this period. Try a different strategy, coin, or date range. Kraken has ~30 days of data; Bitget has more.</td>';
+        tr.innerHTML = '<td colspan="5" style="text-align:center;color:#6b7280;padding:16px;">No trades in this period. Future dates have no data — use 30d or 90d buttons for recent history. Try RSI Mean Reversion preset for more signals.</td>';
         tbody.appendChild(tr);
       }
       document.getElementById('sb-results').style.display = 'block';

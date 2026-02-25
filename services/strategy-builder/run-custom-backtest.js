@@ -35,6 +35,12 @@ async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {})
   const { loadCachedCandles, saveCachedCandles } = require('../backtest-cache');
   const WARMUP = 100;
 
+  // Clamp to valid historical range (APIs have no future data)
+  const now = Date.now();
+  if (endMs > now) endMs = now;
+  if (startMs > endMs) startMs = endMs - 90 * 24 * 3600000;
+  if (startMs > now) startMs = now - 90 * 24 * 3600000;
+
   const fetchStartMs = startMs - WARMUP * 3600000;
   let candles = options.candles;
 
@@ -74,13 +80,14 @@ async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {})
       break;
     }
   }
+  const lastBar = c1h.length - 1;
+  if (startBar >= lastBar) startBar = 50; // Use available data if range has no overlap
 
   const trades = [];
   let equity = initialBalance;
   let position = null;
   const equityCurve = [{ bar: startBar, equity: initialBalance, time: c1h[startBar]?.openTime }];
 
-  const lastBar = c1h.length - 1;
   for (let t = startBar; t < lastBar; t++) {
     if (equity <= 0) break;
 
@@ -88,7 +95,7 @@ async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {})
     const nextBar = c1h[t + 1];
     const slice = c1h.slice(0, t + 1);
 
-    const result = evaluateBar(slice, strategy, t);
+    const result = evaluateBar(c1h, strategy, t);
 
     if (position) {
       // Check exit
@@ -198,9 +205,14 @@ async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {})
   const maxDrawdown = computeMaxDrawdown(equityCurve);
   const maxDrawdownPct = computeMaxDrawdownPct(equityCurve);
 
+  const dataRangeNote = c1h.length > 0
+    ? `${new Date(c1h[startBar]?.openTime || 0).toISOString().slice(0, 10)} to ${new Date(c1h[lastBar]?.openTime || 0).toISOString().slice(0, 10)}`
+    : null;
+
   return {
     trades,
     equityCurve,
+    dataRangeNote,
     summary: {
       totalTrades: trades.length,
       wins,
