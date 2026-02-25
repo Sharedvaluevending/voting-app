@@ -1788,7 +1788,7 @@ const REGIME_STRATEGY_PENALTY = {
   position: { compression: -10 }
 };
 
-const MIN_TRADES_FOR_STRATEGY = 5;
+const MIN_TRADES_FOR_STRATEGY = 2;
 
 // ====================================================
 // STRATEGY SELECTION (7 strategies + regime gating + learned weights)

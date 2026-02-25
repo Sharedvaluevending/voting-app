@@ -75,8 +75,8 @@ const userSchema = new mongoose.Schema({
     autoExecuteActions: { type: Boolean, default: false },
     autoTrade: { type: Boolean, default: false },
     autoTradeMinScore: { type: Number, default: 56, min: 30, max: 95 },
-    // Which coins to auto-trade: 'tracked' (20 only), 'tracked+top1' (20 + top market pick), 'top1' (only top market pick)
-    autoTradeCoinsMode: { type: String, enum: ['tracked', 'tracked+top1', 'top1'], default: 'tracked' },
+    // Which coins to auto-trade: 'tracked' (20 only), 'tracked+top1'/'tracked+top3' (20 + top market picks), 'top1'/'top3' (only top market picks)
+    autoTradeCoinsMode: { type: String, enum: ['tracked', 'tracked+top1', 'tracked+top3', 'top1', 'top3'], default: 'tracked' },
     disableLeverage: { type: Boolean, default: false },
     autoMoveBreakeven: { type: Boolean, default: true },
     autoTrailingStop: { type: Boolean, default: true },

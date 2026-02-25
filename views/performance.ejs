@@ -182,7 +182,9 @@
           <select name="autoTradeCoinsMode" title="Which coins to auto-trade" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
             <option value="tracked" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'tracked' ? 'selected' : (!user.settings?.autoTradeCoinsMode && !user.settings?.autoTradeTopMarketPick) ? 'selected' : '' %>>20 tracked only</option>
             <option value="tracked+top1" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'tracked+top1' ? 'selected' : (user.settings?.autoTradeTopMarketPick && !user.settings?.autoTradeCoinsMode) ? 'selected' : '' %>>20 + top 1 market pick</option>
+            <option value="tracked+top3" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'tracked+top3' ? 'selected' : '' %>>20 + top 3 market picks</option>
             <option value="top1" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'top1' ? 'selected' : '' %>>Top 1 market pick only</option>
+            <option value="top3" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'top3' ? 'selected' : '' %>>Top 3 market picks only</option>
           </select>
         </div>
       </div>

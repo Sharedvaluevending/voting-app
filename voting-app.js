@@ -828,12 +828,14 @@ app.post('/trades/open', requireLogin, async (req, res) => {
     const useFixed = user?.settings?.useFixedLeverage;
     const lev = user?.settings?.disableLeverage ? 1 : (useFixed ? (user?.settings?.defaultLeverage ?? 2) : signalLev);
 
-    // Use live price as entry so trade reflects actual fill, not stale signal
-    // If fetchLivePrice failed, do NOT fall back to stale cache - user would open at wrong price
-    if (livePrice == null || !Number.isFinite(livePrice) || livePrice <= 0) {
+    // Use live price as entry. For scanner coins (top 3), Bitget may not list the pair — fall back to coinData price
+    let entry = (livePrice != null && Number.isFinite(livePrice) && livePrice > 0) ? livePrice : null;
+    if (entry == null && coinData?.price && Number.isFinite(coinData.price) && coinData.price > 0) {
+      entry = coinData.price; // Scanner coin: Bitget may not have pair, use CoinGecko price
+    }
+    if (entry == null || entry <= 0) {
       return res.redirect('/trades?error=' + encodeURIComponent('Live price unavailable. Please try again in a moment.'));
     }
-    let entry = livePrice;
     let stopLoss = signal.stopLoss;
     let takeProfit1 = signal.takeProfit1;
     let takeProfit2 = signal.takeProfit2;
@@ -852,14 +854,21 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       return res.redirect('/trades?error=' + encodeURIComponent('Signal levels do not match requested direction'));
     }
 
+    // Fallback SL for scanner coins with limited data (2% from entry)
+    if (stopLoss == null || !Number.isFinite(stopLoss) || stopLoss <= 0) {
+      const pct = 0.02;
+      stopLoss = direction === 'LONG' ? entry * (1 - pct) : entry * (1 + pct);
+    }
+
     // Build strategy performance stats for Kelly criterion sizing
     const allStratWeights = await StrategyWeight.find({ active: true }).lean();
     const strategyStatsForKelly = {};
     allStratWeights.forEach(s => {
+      const perf = s.performance || {};
       strategyStatsForKelly[s.strategyId] = {
-        totalTrades: s.performance.totalTrades || 0,
-        winRate: s.performance.winRate || 0,
-        avgRR: s.performance.avgRR || 0
+        totalTrades: perf.totalTrades || 0,
+        winRate: perf.winRate || 0,
+        avgRR: perf.avgRR || 0
       };
     });
 
@@ -3201,17 +3210,19 @@ async function runAutoTrade() {
           signals = analyzed || [];
         }
 
-        if (mode === 'tracked+top1' || mode === 'top1') {
+        if (mode === 'tracked+top1' || mode === 'top1' || mode === 'tracked+top3' || mode === 'top3') {
           try {
-            const { getTop1ForAutoTrade } = require('./services/market-scanner');
-            const top1 = getTop1ForAutoTrade();
-            if (top1 && top1.coin) {
-              const c = top1.coin;
+            const { getTop3ForAutoTrade } = require('./services/market-scanner');
+            const topPicks = getTop3ForAutoTrade();
+            const minScore = user.settings?.autoTradeMinScore ?? 56;
+            for (const pick of topPicks) {
+              if (!pick || !pick.coin) continue;
+              const c = pick.coin;
               registerScannerCoinMeta(c.id, c.symbol);
-              const dir = (top1.signal === 'STRONG_BUY' || top1.signal === 'BUY') ? 'LONG'
-                : (top1.signal === 'STRONG_SELL' || top1.signal === 'SELL') ? 'SHORT' : null;
-              if (dir && (top1.score || 0) >= (user.settings?.autoTradeMinScore ?? 56)) {
-                signals = [...signals, { ...top1, _overallScore: top1.score, _bestStrat: top1.topStrategies?.[0] || { stopLoss: top1.stopLoss, takeProfit1: top1.takeProfit1, takeProfit2: top1.takeProfit2, takeProfit3: top1.takeProfit3, entry: top1.entry, riskReward: top1.riskReward, id: top1.strategyType }, _direction: dir, _coinId: c.id, _bestScore: top1.score }];
+              const dir = (pick.signal === 'STRONG_BUY' || pick.signal === 'BUY') ? 'LONG'
+                : (pick.signal === 'STRONG_SELL' || pick.signal === 'SELL') ? 'SHORT' : null;
+              if (dir && (pick.score || 0) >= minScore) {
+                signals = [...signals, { ...pick, _overallScore: pick.score, _bestStrat: pick.topStrategies?.[0] || { stopLoss: pick.stopLoss, takeProfit1: pick.takeProfit1, takeProfit2: pick.takeProfit2, takeProfit3: pick.takeProfit3, entry: pick.entry, riskReward: pick.riskReward, id: pick.strategyType }, _direction: dir, _coinId: c.id, _bestScore: pick.score }];
               }
             }
           } catch (e) { /* scanner not ready */ }

@@ -226,11 +226,14 @@ function isMarketHoldState() {
 
 /** Sync: return full signal for top 1 (for auto-trade). Null if empty or top 1 is in TRACKED_COINS. */
 function getTop1ForAutoTrade() {
+  const picks = getTop3ForAutoTrade();
+  return picks.length > 0 ? picks[0] : null;
+}
+
+/** Sync: return full signals for top 3 (for auto-trade). Excludes any in TRACKED_COINS. */
+function getTop3ForAutoTrade() {
   const full = cache.top3Full || [];
-  if (full.length === 0) return null;
-  const pick = full[0];
-  if (!pick || TRACKED_COINS.includes(pick.coin?.id || pick.coinData?.id)) return null;
-  return pick;
+  return full.filter(p => p && p.coin && !TRACKED_COINS.includes(p.coin?.id || p.coinData?.id));
 }
 
 module.exports = {
@@ -239,6 +242,7 @@ module.exports = {
   getTop3Cached,
   getTop3FullCached,
   getTop1ForAutoTrade,
+  getTop3ForAutoTrade,
   isMarketHoldState,
   TOP_PICKS
 };
