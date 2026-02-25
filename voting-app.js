@@ -29,7 +29,7 @@ const path = require('path');
 const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, isCandleFresh, getCandleSource, recordScoreHistory, getScoreHistory, recordRegimeSnapshot, getRegimeTimeline, pricesReadyPromise, TRACKED_COINS, COIN_META, registerScannerCoinMeta, getCoinMeta, fetchCoinDataForDetail } = require('./services/crypto-api');
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
-const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
+const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage, reconcileBalance, fixBalance } = require('./services/paper-trading');
 const { initializeStrategies, getPerformanceReport, resetStrategyWeights } = require('./services/learning-engine');
 const { runBacktest, runBacktestForCoin } = require('./services/backtest');
 const bitget = require('./services/bitget');
@@ -148,7 +148,7 @@ app.use(async (req, res, next) => {
     const user = await User.findById(req.session.userId).lean();
     if (user) {
       res.locals.user = user;
-      const cashBalance = (user.paperBalance != null && user.paperBalance >= 0) ? user.paperBalance : 10000;
+      const cashBalance = user.paperBalance != null ? user.paperBalance : 10000;
       res.locals.balance = cashBalance;
       req.session.username = user.username;
       // Compute total equity = cash + margin locked + unrealized P&L
@@ -1021,11 +1021,19 @@ app.get('/performance', requireLogin, async (req, res) => {
       byStrategy: {}, byCoin: {}, equityCurve: [],
       drawdownAnalysis: {}, riskByStrategyRegime: { byStrategy: {}, byRegime: {} }
     };
+
+    // Run balance audit to detect discrepancies
+    let balanceAudit = null;
+    try {
+      balanceAudit = await reconcileBalance(req.session.userId);
+    } catch (e) { /* non-critical */ }
+
     res.render('performance', {
       activePage: 'performance',
       stats: safeStats,
       user: user || {},
       journalAnalytics: journalAnalytics || { byEmotion: {}, byRules: { followed: { wins: 0, total: 0 }, broke: { wins: 0, total: 0 } } },
+      balanceAudit,
       success: req.query.success || null,
       error: req.query.error || null
     });
@@ -1472,6 +1480,33 @@ app.post('/account/set-balance', requireLogin, async (req, res) => {
   } catch (err) {
     console.error('[SetBalance] Error:', err.message);
     res.redirect('/performance');
+  }
+});
+
+// ====================================================
+// BALANCE RECONCILIATION — audit & fix corrupted balance
+// ====================================================
+app.get('/account/reconcile', requireLogin, async (req, res) => {
+  try {
+    const result = await reconcileBalance(req.session.userId);
+    res.json(result);
+  } catch (err) {
+    console.error('[Reconcile] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/account/reconcile', requireLogin, async (req, res) => {
+  try {
+    const result = await fixBalance(req.session.userId);
+    if (result.fixed) {
+      res.redirect('/performance?success=' + encodeURIComponent(`Balance reconciled: $${result.currentBalance.toFixed(2)} → $${result.newBalance.toFixed(2)} (recovered $${Math.abs(result.discrepancy).toFixed(2)})`));
+    } else {
+      res.redirect('/performance?success=' + encodeURIComponent('Balance is already correct — no adjustment needed'));
+    }
+  } catch (err) {
+    console.error('[Reconcile] Error:', err.message);
+    res.redirect('/performance?error=' + encodeURIComponent('Reconciliation failed: ' + err.message));
   }
 });
 

@@ -479,6 +479,23 @@
   </div>
 </div>
 
+<% if (balanceAudit && Math.abs(balanceAudit.discrepancy) >= 1) { %>
+<div style="margin-bottom:16px;padding:14px 18px;background:rgba(239,68,68,0.12);border:1px solid #ef4444;border-radius:10px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+  <div style="flex:1;min-width:200px;">
+    <div style="font-size:14px;font-weight:600;color:#ef4444;">Balance Discrepancy Detected</div>
+    <div style="font-size:12px;color:#9ca3af;margin-top:4px;">
+      Current: <strong style="color:#fff;">$<%= balanceAudit.currentBalance.toFixed(2) %></strong> &nbsp;|&nbsp;
+      Correct: <strong style="color:#10b981;">$<%= balanceAudit.expectedBalance.toFixed(2) %></strong> &nbsp;|&nbsp;
+      Off by: <strong style="color:#ef4444;">$<%= Math.abs(balanceAudit.discrepancy).toFixed(2) %></strong>
+    </div>
+    <div style="font-size:11px;color:#6b7280;margin-top:2px;">Computed from <%= balanceAudit.closedTradeCount %> closed + <%= balanceAudit.openTradeCount %> open trades. Fees: $<%= balanceAudit.totalOpenFees.toFixed(2) %> entry + $<%= balanceAudit.totalDcaFees.toFixed(2) %> DCA.</div>
+  </div>
+  <form action="/account/reconcile" method="POST" style="margin:0;">
+    <button type="submit" style="padding:8px 18px;background:#10b981;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:13px;">Fix Balance</button>
+  </form>
+</div>
+<% } %>
+
 <div class="perf-grid">
   <div class="perf-card" style="border:1px solid #10b981;">
     <div class="perf-label" title="Total account value: available cash + margin locked in open trades + unrealized P&L">Total Equity</div>
