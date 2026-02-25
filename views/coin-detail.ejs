@@ -210,7 +210,7 @@
 </div>
 <% } } %>
 
-<% var scr = sig.score || 0; var conf = sig.confluenceLevel || 0; var minConf = scr >= 58 ? 1 : 2; var canTrade = typeof user !== 'undefined' && user && displaySignal !== 'HOLD' && scr >= 55 && conf >= minConf; %>
+<% var scr = sig.score || 0; var conf = sig.confluenceLevel || 0; var isScanner = typeof isScannerCoin !== 'undefined' && isScannerCoin; var minConf = scr >= 58 ? 1 : (isScanner ? 1 : 2); var canTrade = typeof user !== 'undefined' && user && displaySignal !== 'HOLD' && scr >= 55 && conf >= minConf; %>
 <% if (typeof user !== 'undefined' && user) { %>
 <div class="section">
   <h3>Take This Trade</h3>

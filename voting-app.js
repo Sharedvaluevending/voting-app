@@ -599,7 +599,8 @@ app.get('/coin/:coinId', async (req, res) => {
     res.render('coin-detail', {
       activePage: 'dashboard',
       pageTitle: sig.coin.name,
-      sig
+      sig,
+      isScannerCoin: !TRACKED_COINS.includes(coinId)
     });
   } catch (err) {
     console.error('[CoinDetail] Error:', err);
@@ -795,7 +796,9 @@ app.post('/trades/open', requireLogin, async (req, res) => {
     const displayDir = (displaySignal === 'BUY' || displaySignal === 'STRONG_BUY') ? 'LONG'
       : (displaySignal === 'SELL' || displaySignal === 'STRONG_SELL') ? 'SHORT'
       : null;
-    const minConf = (signal.score || 0) >= 58 ? 1 : 2;
+    // Scanner/top3 coins use history-based analysis → often lower confluence. Relax to minConf=1.
+    const isScannerCoin = !TRACKED_COINS.includes(coinId);
+    const minConf = (signal.score || 0) >= 58 ? 1 : (isScannerCoin ? 1 : 2);
     const overallCanTrade = (signal.score || 0) >= 55 && (signal.confluenceLevel || 0) >= minConf;
 
     let selectedStrat = null;

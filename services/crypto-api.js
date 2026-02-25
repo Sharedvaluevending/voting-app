@@ -224,14 +224,24 @@ async function fetchPricesFromCoinCap() {
   }
 }
 
-// Kraken pair names
+// Kraken pair names (tracked 20 + common top-80 for Top 3 market scanner)
 const KRAKEN_PAIRS = {
+  // Tracked 20
   'bitcoin': 'XXBTZUSD', 'ethereum': 'XETHZUSD', 'solana': 'SOLUSD', 'dogecoin': 'XDGUSD',
   'ripple': 'XXRPZUSD', 'cardano': 'ADAUSD', 'polkadot': 'DOTUSD', 'avalanche-2': 'AVAXUSD',
   'chainlink': 'LINKUSD', 'polygon': 'POLUSD',
   'binancecoin': 'BNBUSD', 'litecoin': 'XLTCZUSD', 'uniswap': 'UNIUSD', 'cosmos': 'ATOMUSD',
   'near': 'NEARUSD', 'arbitrum': 'ARBUSD', 'optimism': 'OPUSD', 'sui': 'SUIUSD',
-  'injective-protocol': 'INJUSD', 'pepe': 'PEPEUSD'
+  'injective-protocol': 'INJUSD', 'pepe': 'PEPEUSD',
+  // Top 3 / top-80 scanner coins (CoinGecko IDs) — Kraken fallback when Bitget unavailable
+  'tron': 'TRXUSD', 'toncoin': 'TONUSD', 'shiba-inu': 'SHIBUSD', 'bitcoin-cash': 'BCHUSD',
+  'aptos': 'APTUSD', 'filecoin': 'FILUSD', 'lido-dao': 'LDOUSD', 'internet-computer': 'ICPUSD',
+  'hedera-hashgraph': 'HBARUSD', 'mantle': 'MNTUSD', 'render-token': 'RNDRUSD', 'cronos': 'CROUSD',
+  'immutable-x': 'IMXUSD', 'maker': 'MKRUSD', 'the-graph': 'GRTUSD', 'quant-network': 'QNTUSD',
+  'aave': 'AAVEUSD', 'algorand': 'ALGOUSD', 'theta-token': 'THETAUSD', 'flow': 'FLOWUSD',
+  'fantom': 'FTMUSD', 'axie-infinity': 'AXSUSD', 'eos': 'EOSUSD', 'multiversx': 'EGLDUSD',
+  'the-sandbox': 'SANDUSD', 'decentraland': 'MANAUSD', 'klay-token': 'KLAYUSD',
+  'curve-dao-token': 'CRVUSD', 'rocket-pool-eth': 'RETHUSD', 'pancakeswap-token': 'CAKEUSD'
 };
 
 // ====================================================
