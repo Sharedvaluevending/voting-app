@@ -1982,8 +1982,55 @@ async function getPerformanceStats(userId) {
   const riskByStrategyRegime = computeRiskMetricsByStrategyAndRegime(closedTrades, initialBalance, equityCurve);
 
   const balance = (user.paperBalance != null && user.paperBalance >= 0) ? user.paperBalance : 10000;
+
+  // Compute total equity: available cash + margin locked in open trades + unrealized P&L
+  let openMarginLocked = 0;
+  let openUnrealizedPnl = 0;
+  let openTradeDetails = [];
+  if (openTrades.length > 0) {
+    let priceMap = {};
+    try {
+      const { fetchAllPrices } = require('./crypto-api');
+      const prices = await fetchAllPrices();
+      prices.forEach(p => { if (p && p.id != null) priceMap[p.id] = Number(p.price); });
+    } catch (e) { /* prices may not be ready yet */ }
+
+    for (const t of openTrades) {
+      const m = t.margin || ((t.positionSize || 0) / (t.leverage || 1));
+      openMarginLocked += m;
+      const cp = priceMap[t.coinId];
+      if (cp && t.entryPrice && t.positionSize) {
+        const unrealized = t.direction === 'LONG'
+          ? ((cp - t.entryPrice) / t.entryPrice) * t.positionSize
+          : ((t.entryPrice - cp) / t.entryPrice) * t.positionSize;
+        openUnrealizedPnl += (t.partialPnl || 0) + unrealized;
+        openTradeDetails.push({ symbol: t.symbol, margin: m, unrealized: (t.partialPnl || 0) + unrealized });
+      } else {
+        openUnrealizedPnl += (t.partialPnl || 0);
+        openTradeDetails.push({ symbol: t.symbol, margin: m, unrealized: t.partialPnl || 0 });
+      }
+    }
+  }
+  const totalEquity = Math.round((balance + openMarginLocked + openUnrealizedPnl) * 100) / 100;
+
+  // Add live data point to equity curve showing actual current total equity
+  if (equityCurve.length > 0) {
+    equityCurve.push({
+      date: new Date().toISOString(),
+      equity: totalEquity,
+      drawdown: Math.max(0, Math.round((peak - totalEquity) * 100) / 100),
+      drawdownPct: peak > 0 ? Math.round(((peak - totalEquity) / peak) * 10000) / 100 : 0,
+      pnl: 0,
+      symbol: 'NOW',
+      isLive: true
+    });
+  }
+
   return {
     balance,
+    totalEquity,
+    openMarginLocked: Math.round(openMarginLocked * 100) / 100,
+    openUnrealizedPnl: Math.round(openUnrealizedPnl * 100) / 100,
     initialBalance,
     totalPnl: Math.round(totalPnl * 100) / 100,
     totalPnlPercent: initialBalance > 0 ? ((totalPnl / initialBalance) * 100).toFixed(2) : '0',

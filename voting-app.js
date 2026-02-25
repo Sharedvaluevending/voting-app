@@ -141,16 +141,17 @@ app.use(session(sessionConfig));
 app.use(async (req, res, next) => {
   res.locals.user = null;
   res.locals.balance = 10000;
+  res.locals.totalEquity = 10000;
   res.locals.livePnl = null;
   if (!dbConnected || !req.session || !req.session.userId) return next();
   try {
     const user = await User.findById(req.session.userId).lean();
     if (user) {
       res.locals.user = user;
-      // Fallback for legacy users or undefined: show/trade with $10k default
-      res.locals.balance = (user.paperBalance != null && user.paperBalance >= 0) ? user.paperBalance : 10000;
+      const cashBalance = (user.paperBalance != null && user.paperBalance >= 0) ? user.paperBalance : 10000;
+      res.locals.balance = cashBalance;
       req.session.username = user.username;
-      // Compute live PNL from open trades using cached prices (no extra latency)
+      // Compute total equity = cash + margin locked + unrealized P&L
       try {
         const openTrades = await getOpenTrades(req.session.userId);
         if (openTrades.length > 0) {
@@ -158,8 +159,10 @@ app.use(async (req, res, next) => {
           const priceMap = {};
           prices.forEach(p => { if (p && p.id != null) priceMap[p.id] = Number(p.price); });
           let totalPnl = 0;
+          let totalMargin = 0;
           let count = 0;
           for (const t of openTrades) {
+            totalMargin += t.margin || ((t.positionSize || 0) / (t.leverage || 1));
             const cp = priceMap[t.coinId];
             if (cp == null || !t.entryPrice || !t.positionSize) continue;
             const unrealized = t.direction === 'LONG'
@@ -169,10 +172,12 @@ app.use(async (req, res, next) => {
             count++;
           }
           if (count > 0) res.locals.livePnl = totalPnl;
+          res.locals.totalEquity = Math.round((cashBalance + totalMargin + totalPnl) * 100) / 100;
+        } else {
+          res.locals.totalEquity = cashBalance;
         }
-      } catch (e) { /* non-critical, client polling will fill in */ }
+      } catch (e) { res.locals.totalEquity = cashBalance; }
     } else {
-      // User no longer exists in DB — clear stale session
       delete req.session.userId;
       delete req.session.username;
     }
