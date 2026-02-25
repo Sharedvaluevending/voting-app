@@ -54,6 +54,12 @@ const COINCAP_IDS = {
   'binancecoin': 'binance-coin', 'litecoin': 'litecoin', 'uniswap': 'uniswap', 'cosmos': 'cosmos'
 };
 
+// CoinGecko market_chart uses different ids for some coins
+const COINGECKO_HISTORY_IDS = {
+  'polygon': 'matic-network',
+  'binancecoin': 'binancecoin'
+};
+
 // Once we get 451 from Binance we skip all Binance calls for this process (e.g. on Render)
 let binanceRestricted = false;
 let priceSourceRotation = 0;
@@ -327,7 +333,8 @@ async function fetchAllCandlesForCoin(coinId, retriesLeft = 1) {
 // COINGECKO HISTORY – one shot, no retry on 429 (so we don't block refresh)
 // ====================================================
 async function fetchHistoryOnce(coinId, days = 7) {
-  const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
+  const cgId = COINGECKO_HISTORY_IDS[coinId] || coinId;
+  const url = `https://api.coingecko.com/api/v3/coins/${cgId}/market_chart?vs_currency=usd&days=${days}`;
   const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
   if (res.status === 429) throw new Error('Rate limited (429)');
   if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -351,6 +358,13 @@ async function fetchHistoryFromAPI(coinId, days = 7) {
 // Resolved when first price load attempt has finished (so dashboard has data or we've tried)
 let pricesReadyResolve;
 const pricesReadyPromise = new Promise(function(resolve) { pricesReadyResolve = resolve; });
+
+// Resolved when full refresh completes (prices + candles/history). For backtest/scripts.
+let refreshCompleteResolve;
+let refreshCompletePromise = new Promise(function(resolve) { refreshCompleteResolve = resolve; });
+function getRefreshCompletePromise() {
+  return refreshCompletePromise;
+}
 
 // ====================================================
 // BACKGROUND REFRESH
@@ -466,6 +480,10 @@ async function refreshAllData() {
       pricesReadyResolve();
       pricesReadyResolve = null;
     }
+    if (refreshCompleteResolve) {
+      refreshCompleteResolve();
+      refreshCompleteResolve = null;
+    }
   }
 }
 
@@ -544,6 +562,6 @@ refreshAllData().catch(err => console.error('[CryptoAPI] Initial error:', err.me
 module.exports = {
   fetchAllPrices, fetchPriceHistory, fetchAllHistory,
   fetchCandles, fetchAllCandles, getCurrentPrice, fetchLivePrice, isDataReady,
-  pricesReadyPromise,
+  pricesReadyPromise, getRefreshCompletePromise,
   TRACKED_COINS, COIN_META
 };
