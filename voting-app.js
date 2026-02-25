@@ -1022,10 +1022,17 @@ app.get('/performance', requireLogin, async (req, res) => {
       drawdownAnalysis: {}, riskByStrategyRegime: { byStrategy: {}, byRegime: {} }
     };
 
-    // Run balance audit to detect discrepancies
+    // Auto-fix balance if discrepancy detected — no manual action needed
     let balanceAudit = null;
     try {
-      balanceAudit = await reconcileBalance(req.session.userId);
+      const audit = await reconcileBalance(req.session.userId);
+      if (audit && Math.abs(audit.discrepancy) >= 1) {
+        await fixBalance(req.session.userId);
+        // Re-fetch stats with corrected balance
+        const freshStats = await getPerformanceStats(req.session.userId);
+        Object.assign(safeStats, freshStats || {});
+        balanceAudit = { ...audit, autoFixed: true };
+      }
     } catch (e) { /* non-critical */ }
 
     res.render('performance', {
