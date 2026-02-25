@@ -25,7 +25,7 @@ function suggestLeverage(score, regime, volatilityState) {
   else if (score >= 45) maxLev = 2;
   else maxLev = 1;
 
-  if (regime === 'ranging' || regime === 'choppy') {
+  if (regime === 'ranging' || regime === 'mixed' || regime === 'choppy') {
     maxLev = Math.max(1, Math.floor(maxLev * 0.6));
   }
   if (volatilityState === 'high' || volatilityState === 'extreme') {
@@ -232,9 +232,10 @@ async function checkStopsAndTPs(getCurrentPriceFunc) {
 
   for (const trade of openTrades) {
     const priceData = getCurrentPriceFunc(trade.coinId);
-    if (!priceData) continue;
-
-    const currentPrice = priceData.price;
+    const currentPrice = priceData && typeof priceData.price === 'number' && Number.isFinite(priceData.price) && priceData.price > 0
+      ? priceData.price
+      : null;
+    if (currentPrice == null) continue;
 
     if (currentPrice > trade.maxPrice) trade.maxPrice = currentPrice;
     if (currentPrice < trade.minPrice) trade.minPrice = currentPrice;
