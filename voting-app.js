@@ -609,9 +609,16 @@ app.get('/api/status', (req, res) => {
 
 // ====================================================
 // AUTO-CHECK STOPS & TPs (runs every 60 seconds)
+// Uses fetchLivePrice for accuracy; falls back to cache if live fails
 // ====================================================
+async function getPriceForStopCheck(coinId) {
+  const live = await fetchLivePrice(coinId);
+  if (live != null && Number.isFinite(live)) return { price: live };
+  const cached = getCurrentPrice(coinId);
+  return cached || null;
+}
 setInterval(() => {
-  checkStopsAndTPs(getCurrentPrice).catch(err =>
+  checkStopsAndTPs(getPriceForStopCheck).catch(err =>
     console.error('[AutoCheck] Error:', err.message)
   );
 }, 60 * 1000);

@@ -226,13 +226,17 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
   return trade;
 }
 
-async function checkStopsAndTPs(getCurrentPriceFunc) {
+/**
+ * Check stop-loss and take-profit levels for open trades.
+ * @param {function(string): Promise<{price: number}|null>|{price: number}|null} getPriceFunc - Async or sync function returning { price } or null
+ */
+async function checkStopsAndTPs(getPriceFunc) {
   const openTrades = await Trade.find({ status: 'OPEN' });
   let closedCount = 0;
 
   for (const trade of openTrades) {
-    const priceData = getCurrentPriceFunc(trade.coinId);
-    if (!priceData) continue;
+    const priceData = await Promise.resolve(getPriceFunc(trade.coinId));
+    if (!priceData || typeof priceData.price !== 'number' || !Number.isFinite(priceData.price)) continue;
 
     const currentPrice = priceData.price;
 
