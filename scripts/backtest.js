@@ -3,11 +3,17 @@
 // Usage: node scripts/backtest.js
 
 const { analyzeAllCoins, ENGINE_CONFIG } = require('../services/trading-engine');
-const { fetchAllPrices, fetchAllCandles, fetchAllHistory } = require('../services/crypto-api');
+const { fetchAllPrices, fetchAllCandles, fetchAllHistory, pricesReadyPromise } = require('../services/crypto-api');
 
 async function main() {
   console.log('\n--- Backtest (current data) ---');
   console.log('Config: minScore', ENGINE_CONFIG.MIN_SIGNAL_SCORE, 'minConfluence', ENGINE_CONFIG.MIN_CONFLUENCE_FOR_SIGNAL);
+  console.log('Waiting for market data...');
+  await Promise.race([
+    pricesReadyPromise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Data load timeout')), 90000))
+  ]);
+  console.log('Data ready.');
   const [prices, allCandles, allHistory] = await Promise.all([
     fetchAllPrices(),
     Promise.resolve(fetchAllCandles()),
@@ -27,6 +33,7 @@ async function main() {
   console.log('Signals:', { STRONG_BUY: strongBuy, BUY: buy, HOLD: hold, SELL: sell, STRONG_SELL: strongSell });
   console.log('Sample:', signals[0] ? { coin: signals[0].coin.symbol, signal: signals[0].signal, score: signals[0].score, strategy: signals[0].strategyName } : 'none');
   console.log('OK\n');
+  process.exit(0);
 }
 
 main().catch(err => {
