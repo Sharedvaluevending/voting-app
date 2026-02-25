@@ -1958,9 +1958,11 @@ app.get('/strategy-builder', optionalUser, async (req, res) => {
     const StrategyConfig = require('./models/StrategyConfig');
     savedStrategies = await StrategyConfig.find({ userId: req.session.userId }).sort({ updatedAt: -1 }).lean();
   }
+  const { getCatalog } = require('./services/strategy-builder/indicator-catalog');
   res.render('strategy-builder', {
     activePage: 'strategy-builder',
     presets: getAllPresets(),
+    indicatorCatalog: getCatalog(),
     savedStrategies,
     TRACKED_COINS,
     user: req.session?.userId ? await User.findById(req.session.userId).lean() : null

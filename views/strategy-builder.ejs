@@ -7,7 +7,7 @@
 
 <div class="section" style="margin-bottom:20px;padding:16px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;">
   <h3 style="color:#eab308;font-size:12px;margin:0 0 8px 0;text-transform:uppercase;">How it works</h3>
-  <p style="font-size:12px;color:#9ca3af;margin:0;line-height:1.6;">Select a preset strategy (e.g. EMA Crossover, RSI Mean Reversion) or load a saved one. Run a backtest on historical data. Save strategies with their win rates for later use or auto-trade.</p>
+  <p style="font-size:12px;color:#9ca3af;margin:0;line-height:1.6;">Use a preset or <strong>Build custom</strong> to pick from 18+ indicators (EMA, RSI, MACD, Bollinger, Stochastic, Keltner, Donchian, VWAP, etc.). Adjust period, multiplier, and overbought/oversold levels for each. Run backtest, save, and use for auto-trade.</p>
 </div>
 
 <div class="section" style="margin-bottom:24px;">
@@ -64,39 +64,31 @@
   </div>
 
   <div id="sb-custom-wrap" style="display:none;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;margin-bottom:16px;">
-    <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Build Custom Strategy</h4>
-    <p style="font-size:12px;color:#6b7280;margin:0 0 12px 0;">Pick indicators and adjust settings. Combine conditions with AND/OR.</p>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <h4 style="color:#e5e7eb;margin:0 0 8px 0;font-size:14px;">Build Custom Strategy — All Indicators</h4>
+    <p style="font-size:12px;color:#6b7280;margin:0 0 16px 0;">Pick from 18+ indicators. Adjust period, multiplier, and levels for each.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
       <div>
-        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:6px;">Entry</label>
-        <select id="sb-custom-entry" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
-          <option value="ema_crossover">EMA Crossover (fast above slow)</option>
-          <option value="ema_cross_below">EMA Crossover (fast below slow)</option>
-          <option value="rsi_oversold">RSI Oversold (&lt; 30)</option>
-          <option value="rsi_custom">RSI in range (min–max)</option>
-          <option value="macd_cross_up">MACD cross up</option>
-          <option value="macd_cross_down">MACD cross down</option>
-          <option value="bb_lower">Price at Bollinger lower</option>
-          <option value="stoch_oversold">Stochastic oversold bounce</option>
+        <label style="font-size:11px;color:#eab308;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:8px;">Entry condition</label>
+        <select id="sb-custom-entry" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;margin-bottom:10px;">
+          <option value="">-- Select indicator --</option>
+          <% (indicatorCatalog || []).forEach(function(ind) { %>
+          <option value="<%= ind.id %>" data-group="<%= ind.group %>"><%= ind.group %>: <%= ind.name %></option>
+          <% }); %>
         </select>
-        <div id="sb-entry-params" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>
+        <div id="sb-entry-params" style="display:grid;gap:8px;"></div>
       </div>
       <div>
-        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:6px;">Exit</label>
-        <select id="sb-custom-exit" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
-          <option value="ema_cross_below">EMA Crossover (fast below slow)</option>
-          <option value="ema_cross_above">EMA Crossover (fast above slow)</option>
-          <option value="rsi_overbought">RSI Overbought (&gt; 70)</option>
-          <option value="rsi_custom_exit">RSI in range (min–max)</option>
-          <option value="macd_cross_down">MACD cross down</option>
-          <option value="macd_cross_up">MACD cross up</option>
-          <option value="bb_upper">Price at Bollinger upper</option>
-          <option value="stoch_overbought">Stochastic overbought</option>
+        <label style="font-size:11px;color:#eab308;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:8px;">Exit condition</label>
+        <select id="sb-custom-exit" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;margin-bottom:10px;">
+          <option value="">-- Select indicator --</option>
+          <% (indicatorCatalog || []).forEach(function(ind) { %>
+          <option value="<%= ind.id %>" data-group="<%= ind.group %>"><%= ind.group %>: <%= ind.name %></option>
+          <% }); %>
         </select>
-        <div id="sb-exit-params" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>
+        <div id="sb-exit-params" style="display:grid;gap:8px;"></div>
       </div>
     </div>
-    <button type="button" class="btn btn-outline btn-sm" id="sb-apply-custom" style="margin-top:12px;">Apply Custom Strategy</button>
+    <button type="button" class="btn btn-primary btn-sm" id="sb-apply-custom" style="margin-top:16px;">Apply Custom Strategy</button>
   </div>
 </div>
 
@@ -176,56 +168,98 @@
     });
   });
 
-  function buildCustomEntry() {
-    var sel = document.getElementById('sb-custom-entry').value;
-    if (sel === 'ema_crossover') return { type: 'ema_crossover', fast: parseInt(document.getElementById('sb-ema-fast')?.value || 9), slow: parseInt(document.getElementById('sb-ema-slow')?.value || 21), direction: 'above' };
-    if (sel === 'ema_cross_below') return { type: 'ema_crossover', fast: parseInt(document.getElementById('sb-ema-fast')?.value || 9), slow: parseInt(document.getElementById('sb-ema-slow')?.value || 21), direction: 'below' };
-    if (sel === 'rsi_oversold') return { type: 'rsi_range', period: parseInt(document.getElementById('sb-rsi-period')?.value || 14), max: 30 };
-    if (sel === 'rsi_custom') return { type: 'rsi_range', period: parseInt(document.getElementById('sb-rsi-period')?.value || 14), min: parseInt(document.getElementById('sb-rsi-min')?.value || 30), max: parseInt(document.getElementById('sb-rsi-max')?.value || 70) };
-    if (sel === 'macd_cross_up') return { type: 'macd_crossover', fast: 12, slow: 26, signal: 9, direction: 'above' };
-    if (sel === 'macd_cross_down') return { type: 'macd_crossover', fast: 12, slow: 26, signal: 9, direction: 'below' };
-    if (sel === 'bb_lower') return { type: 'bb_touch', period: 20, stdDev: 2, band: 'lower' };
-    if (sel === 'stoch_oversold') return { type: 'stoch_crossover', period: 14, inOversold: true, direction: 'above' };
-    return { type: 'rsi_range', period: 14, max: 30 };
+  var indicatorCatalog = <%- JSON.stringify(indicatorCatalog || []) %>;
+
+  function renderParams(divId, prefix, indicatorId) {
+    var ind = indicatorCatalog.find(function(x) { return x.id === indicatorId; });
+    var div = document.getElementById(divId);
+    div.innerHTML = '';
+    if (!ind || !ind.params || ind.params.length === 0) return;
+    ind.params.forEach(function(p) {
+      var wrap = document.createElement('div');
+      wrap.style.display = 'flex';
+      wrap.style.alignItems = 'center';
+      wrap.style.gap = '8px';
+      var lbl = document.createElement('label');
+      lbl.textContent = p.label + ':';
+      lbl.style.fontSize = '12px';
+      lbl.style.color = '#9ca3af';
+      lbl.style.minWidth = '90px';
+      wrap.appendChild(lbl);
+      if (p.type === 'number') {
+        var inp = document.createElement('input');
+        inp.type = 'number';
+        inp.id = prefix + '-' + p.key;
+        inp.value = p.default;
+        if (p.min != null) inp.min = p.min;
+        if (p.max != null) inp.max = p.max;
+        inp.style.cssText = 'width:70px;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;font-size:12px;';
+        wrap.appendChild(inp);
+      } else if (p.type === 'select') {
+        var sel = document.createElement('select');
+        sel.id = prefix + '-' + p.key;
+        sel.style.cssText = 'padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;font-size:12px;min-width:160px;';
+        (p.options || []).forEach(function(opt) {
+          var o = document.createElement('option');
+          o.value = opt.value;
+          o.textContent = opt.label;
+          if (String(opt.value) === String(p.default)) o.selected = true;
+          sel.appendChild(o);
+        });
+        if (!sel.value && p.options && p.options[0]) sel.value = p.options[0].value;
+        wrap.appendChild(sel);
+      } else if (p.type === 'checkbox') {
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.id = prefix + '-' + p.key;
+        cb.checked = !!p.default;
+        wrap.appendChild(cb);
+      }
+      div.appendChild(wrap);
+    });
   }
-  function buildCustomExit() {
-    var sel = document.getElementById('sb-custom-exit').value;
-    if (sel === 'ema_cross_below') return { type: 'ema_crossover', fast: parseInt(document.getElementById('sb-exit-ema-fast')?.value || 9), slow: parseInt(document.getElementById('sb-exit-ema-slow')?.value || 21), direction: 'below' };
-    if (sel === 'ema_cross_above') return { type: 'ema_crossover', fast: parseInt(document.getElementById('sb-exit-ema-fast')?.value || 9), slow: parseInt(document.getElementById('sb-exit-ema-slow')?.value || 21), direction: 'above' };
-    if (sel === 'rsi_overbought') return { type: 'rsi_range', period: parseInt(document.getElementById('sb-exit-rsi-period')?.value || 14), min: 70 };
-    if (sel === 'rsi_custom_exit') return { type: 'rsi_range', period: parseInt(document.getElementById('sb-exit-rsi-period')?.value || 14), min: parseInt(document.getElementById('sb-exit-rsi-min')?.value || 70), max: 100 };
-    if (sel === 'macd_cross_down') return { type: 'macd_crossover', fast: 12, slow: 26, signal: 9, direction: 'below' };
-    if (sel === 'macd_cross_up') return { type: 'macd_crossover', fast: 12, slow: 26, signal: 9, direction: 'above' };
-    if (sel === 'bb_upper') return { type: 'bb_touch', period: 20, stdDev: 2, band: 'upper' };
-    if (sel === 'stoch_overbought') return { type: 'stoch_crossover', period: 14, inOverbought: true, direction: 'below' };
-    return { type: 'rsi_range', period: 14, min: 70 };
+
+  function buildCondition(prefix, indicatorId) {
+    var ind = indicatorCatalog.find(function(x) { return x.id === indicatorId; });
+    if (!ind) return null;
+    var rule = { type: ind.ruleType };
+    if (ind.extra) for (var k in ind.extra) rule[k] = ind.extra[k];
+    (ind.params || []).forEach(function(p) {
+      var el = document.getElementById(prefix + '-' + p.key);
+      var val;
+      if (!el) val = p.default;
+      else if (p.type === 'number') val = parseFloat(el.value);
+      else if (p.type === 'checkbox') val = el.checked;
+      else val = el.value;
+      if (val !== undefined && val !== null) rule[p.key] = p.type === 'number' ? (Number(val) || p.default) : val;
+      else rule[p.key] = p.default;
+    });
+    return rule;
   }
+
   function updateCustomParams() {
     var entry = document.getElementById('sb-custom-entry').value;
     var exit = document.getElementById('sb-custom-exit').value;
-    var entryDiv = document.getElementById('sb-entry-params');
-    var exitDiv = document.getElementById('sb-exit-params');
-    entryDiv.innerHTML = '';
-    exitDiv.innerHTML = '';
-    if (['ema_crossover','ema_cross_below','ema_cross_above'].indexOf(entry) >= 0) {
-      entryDiv.innerHTML = 'Fast <input type="number" id="sb-ema-fast" value="9" min="2" max="50" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;"> Slow <input type="number" id="sb-ema-slow" value="21" min="5" max="100" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;">';
-    }
-    if (['rsi_oversold','rsi_custom'].indexOf(entry) >= 0) {
-      entryDiv.innerHTML = 'Period <input type="number" id="sb-rsi-period" value="14" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;">' + (entry === 'rsi_custom' ? ' Min <input type="number" id="sb-rsi-min" value="30" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;"> Max <input type="number" id="sb-rsi-max" value="70" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;">' : '');
-    }
-    if (['ema_cross_below','ema_cross_above'].indexOf(exit) >= 0) {
-      exitDiv.innerHTML = 'Fast <input type="number" id="sb-exit-ema-fast" value="9" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;"> Slow <input type="number" id="sb-exit-ema-slow" value="21" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;">';
-    }
-    if (['rsi_overbought','rsi_custom_exit'].indexOf(exit) >= 0) {
-      exitDiv.innerHTML = 'Period <input type="number" id="sb-exit-rsi-period" value="14" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;">' + (exit === 'rsi_custom_exit' ? ' Min <input type="number" id="sb-exit-rsi-min" value="70" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;">' : '');
-    }
+    renderParams('sb-entry-params', 'sb-entry', entry);
+    renderParams('sb-exit-params', 'sb-exit', exit);
   }
+
   document.getElementById('sb-custom-entry').addEventListener('change', updateCustomParams);
   document.getElementById('sb-custom-exit').addEventListener('change', updateCustomParams);
   document.getElementById('sb-apply-custom').addEventListener('click', function() {
-    currentStrategy = { entry: buildCustomEntry(), exit: buildCustomExit() };
-    document.getElementById('sb-preset').value = '';
-    alert('Custom strategy applied. Click Run Backtest.');
+    var entryId = document.getElementById('sb-custom-entry').value;
+    var exitId = document.getElementById('sb-custom-exit').value;
+    if (!entryId || !exitId) {
+      alert('Select both entry and exit indicators.');
+      return;
+    }
+    var entry = buildCondition('sb-entry', entryId);
+    var exit = buildCondition('sb-exit', exitId);
+    if (entry && exit) {
+      currentStrategy = { entry: entry, exit: exit };
+      document.getElementById('sb-preset').value = '';
+      alert('Custom strategy applied. Click Run Backtest.');
+    }
   });
 
   document.getElementById('sb-preset').addEventListener('change', function() {
