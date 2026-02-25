@@ -6,8 +6,10 @@
 
 const { evaluateBar } = require('./rule-engine');
 const ind = require('../../lib/indicators');
-const { runBacktestForCoin: fetchAndRun } = require('../backtest');
 const { computeMaxDrawdown, computeMaxDrawdownPct } = require('../backtest/analytics');
+
+const SL_ATR_MULT_AUTO = 2;
+const TP_ATR_MULT_AUTO = 3;
 
 const INITIAL_BALANCE = 10000;
 const RISK_PER_TRADE = 0.02;
@@ -38,20 +40,21 @@ async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {})
 
   if (!candles || !candles['1h']) {
     const cached = loadCachedCandles(coinId, fetchStartMs, endMs);
-    if (cached && cached['1h']) {
+    if (cached && cached['1h'] && cached['1h'].length >= 100) {
       candles = cached;
     } else {
       try {
-        let c1h = await fetchHistoricalKrakenCandles(coinId, '1h', fetchStartMs, endMs),
-            c4h = await fetchHistoricalKrakenCandles(coinId, '4h', fetchStartMs, endMs),
-            c1d = await fetchHistoricalKrakenCandles(coinId, '1d', fetchStartMs, endMs);
-        if (!c1h || c1h.length < 50) {
-          c1h = await fetchHistoricalCandlesForCoin(coinId, '1h', fetchStartMs, endMs);
-          c4h = await fetchHistoricalCandlesForCoin(coinId, '4h', fetchStartMs, endMs);
-          c1d = await fetchHistoricalCandlesForCoin(coinId, '1d', fetchStartMs, endMs);
+        // Bitget first (paginates, more history); Kraken fallback (~30d)
+        let c1h = await fetchHistoricalCandlesForCoin(coinId, '1h', fetchStartMs, endMs);
+        let c4h = await fetchHistoricalCandlesForCoin(coinId, '4h', fetchStartMs, endMs);
+        let c1d = await fetchHistoricalCandlesForCoin(coinId, '1d', fetchStartMs, endMs);
+        if (!c1h || c1h.length < 100) {
+          c1h = await fetchHistoricalKrakenCandles(coinId, '1h', fetchStartMs, endMs);
+          c4h = await fetchHistoricalKrakenCandles(coinId, '4h', fetchStartMs, endMs);
+          c1d = await fetchHistoricalKrakenCandles(coinId, '1d', fetchStartMs, endMs);
         }
         candles = { '1h': c1h, '4h': c4h, '1d': c1d };
-        saveCachedCandles(coinId, fetchStartMs, endMs, candles);
+        if (c1h && c1h.length >= 100) saveCachedCandles(coinId, fetchStartMs, endMs, candles);
       } catch (err) {
         return { error: err.message || 'Failed to fetch candles', trades: [], equityCurve: [] };
       }
@@ -60,10 +63,10 @@ async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {})
 
   const c1h = candles['1h'];
   if (!c1h || c1h.length < 100) {
-    return { error: 'Insufficient candle data', trades: [], equityCurve: [] };
+    return { error: 'Insufficient candle data (need 100+ bars)', trades: [], equityCurve: [] };
   }
 
-  // Find start bar index
+  // Find start bar index (first bar within date range)
   let startBar = 50;
   for (let i = 0; i < c1h.length; i++) {
     if (c1h[i].openTime >= startMs) {
@@ -77,7 +80,8 @@ async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {})
   let position = null;
   const equityCurve = [{ bar: startBar, equity: initialBalance, time: c1h[startBar]?.openTime }];
 
-  for (let t = startBar; t < c1h.length - 1; t++) {
+  const lastBar = c1h.length - 1;
+  for (let t = startBar; t < lastBar; t++) {
     if (equity <= 0) break;
 
     const bar = c1h[t];
@@ -122,12 +126,12 @@ async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {})
       const lows = slice.map(c => c.low);
       const closes = slice.map(c => c.close);
       const atr = ind.ATR(highs, lows, closes, 14);
-      const riskDist = atr * SL_ATR_MULT;
+      const riskDist = Math.max(atr * SL_ATR_MULT, adjEntry * 0.005); // min 0.5% to avoid div by zero
       const rewardDist = atr * TP_ATR_MULT;
       const stopLoss = adjEntry - riskDist;
       const takeProfit = adjEntry + rewardDist;
       const riskAmount = equity * RISK_PER_TRADE;
-      const positionSize = Math.min(equity * leverage * 0.95, (riskAmount / riskDist) * adjEntry);
+      const positionSize = Math.min(equity * leverage * 0.95, riskDist > 0 ? (riskAmount / riskDist) * adjEntry : equity * 0.1);
       const entryFees = positionSize * TAKER_FEE;
 
       if (entryFees + (positionSize / leverage) > equity) continue;
@@ -213,6 +217,47 @@ async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {})
   };
 }
 
+/**
+ * Evaluate strategy on current candles for auto-trade.
+ * @param {Object} strategy - { entry, exit }
+ * @param {Object} allCandles - { coinId: { '1h': [...] } }
+ * @param {string[]} coinIds - coins to evaluate
+ * @param {Object} prices - price data for coin info
+ * @returns {Array} signals in format { coin, _coinId, _direction, _overallScore, _bestStrat }
+ */
+function evaluateStrategyForAutoTrade(strategy, allCandles, coinIds, prices = []) {
+  const signals = [];
+  for (const coinId of coinIds || []) {
+    const coinCandles = allCandles?.[coinId]?.['1h'];
+    if (!coinCandles || coinCandles.length < 100) continue;
+    const t = coinCandles.length - 2;
+    const slice = coinCandles.slice(0, t + 1);
+    const result = evaluateBar(slice, strategy, t);
+    if (result.signal !== 'BUY' || !result.entry) continue;
+    const bar = coinCandles[t];
+    const nextBar = coinCandles[t + 1];
+    const entryPrice = nextBar?.open || bar?.close;
+    const highs = slice.map(c => c.high);
+    const lows = slice.map(c => c.low);
+    const closes = slice.map(c => c.close);
+    const atr = ind.ATR(highs, lows, closes, 14);
+    const riskDist = Math.max(atr * SL_ATR_MULT_AUTO, entryPrice * 0.005);
+    const rewardDist = atr * TP_ATR_MULT_AUTO;
+    const stopLoss = entryPrice - riskDist;
+    const takeProfit = entryPrice + rewardDist;
+    const coinData = Array.isArray(prices) ? prices.find(p => p.id === coinId) : null;
+    signals.push({
+      coin: coinData || { id: coinId },
+      _coinId: coinId,
+      _direction: 'LONG',
+      _overallScore: 60,
+      _bestStrat: { stopLoss, takeProfit1: takeProfit, takeProfit2: takeProfit * 1.2, takeProfit3: takeProfit * 1.5, entry: entryPrice, riskReward: rewardDist / riskDist, id: 'strategy-builder' }
+    });
+  }
+  return signals;
+}
+
 module.exports = {
-  runCustomBacktest
+  runCustomBacktest,
+  evaluateStrategyForAutoTrade
 };

@@ -988,7 +988,7 @@ app.get('/history', requireLogin, async (req, res) => {
 // ====================================================
 app.get('/performance', requireLogin, async (req, res) => {
   try {
-    const [stats, user, journalAnalytics] = await Promise.all([
+    const [stats, user, journalAnalytics, savedStrategies] = await Promise.all([
       getPerformanceStats(req.session.userId),
       User.findById(req.session.userId).lean(),
       (async () => {
@@ -1015,6 +1015,10 @@ app.get('/performance', requireLogin, async (req, res) => {
           }
         }
         return { byEmotion, byRules };
+      })(),
+      (async () => {
+        const StrategyConfig = require('./models/StrategyConfig');
+        return StrategyConfig.find({ userId: req.session.userId }).sort({ updatedAt: -1 }).select('_id name').lean();
       })()
     ]);
     const safeStats = stats || {
@@ -1043,6 +1047,7 @@ app.get('/performance', requireLogin, async (req, res) => {
       stats: safeStats,
       user: user || {},
       journalAnalytics: journalAnalytics || { byEmotion: {}, byRules: { followed: { wins: 0, total: 0 }, broke: { wins: 0, total: 0 } } },
+      savedStrategies: savedStrategies || [],
       balanceAudit,
       success: req.query.success || null,
       error: req.query.error || null
@@ -1196,6 +1201,9 @@ app.post('/account/settings', requireLogin, async (req, res) => {
     }
     if (req.body.autoTradeBothLogic && ['or', 'and'].includes(req.body.autoTradeBothLogic)) {
       s.autoTradeBothLogic = req.body.autoTradeBothLogic;
+    }
+    if (req.body.autoTradeStrategyConfigId !== undefined) {
+      s.autoTradeStrategyConfigId = req.body.autoTradeStrategyConfigId || null;
     }
     if (req.body.useFixedLeverage !== undefined) {
       const val = req.body.useFixedLeverage;
@@ -3302,6 +3310,32 @@ async function runAutoTrade() {
               }
             }
           } catch (e) { /* scanner not ready */ }
+        }
+
+        const signalMode = user.settings?.autoTradeSignalMode || 'original';
+        if (signalMode === 'indicators' || signalMode === 'both') {
+          const StrategyConfig = require('./models/StrategyConfig');
+          const configId = user.settings?.autoTradeStrategyConfigId;
+          const config = configId ? await StrategyConfig.findById(configId).lean() : null;
+          if (config && config.entry && config.exit) {
+            const coinIds = (mode === 'top1') ? [] : TRACKED_COINS;
+            const { evaluateStrategyForAutoTrade } = require('./services/strategy-builder/run-custom-backtest');
+            const stratSignals = evaluateStrategyForAutoTrade({ entry: config.entry, exit: config.exit }, allCandles, coinIds, prices);
+            if (signalMode === 'indicators') {
+              signals = stratSignals;
+            } else {
+              const bothLogic = user.settings?.autoTradeBothLogic || 'or';
+              if (bothLogic === 'or') {
+                const origIds = new Set(signals.map(s => s._coinId));
+                for (const ss of stratSignals) {
+                  if (!origIds.has(ss._coinId)) signals.push(ss);
+                }
+              } else {
+                const stratIds = new Set(stratSignals.map(s => s._coinId));
+                signals = signals.filter(s => stratIds.has(s._coinId));
+              }
+            }
+          }
         }
 
         const signalsWithBestStrategy = signals.map(sig => {

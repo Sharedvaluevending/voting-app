@@ -11,7 +11,19 @@
 </div>
 
 <div class="section" style="margin-bottom:24px;">
-  <h3 style="color:#e5e7eb;margin-bottom:12px;">Backtest</h3>
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Strategy</h3>
+  <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+      <input type="radio" name="sb-mode" value="preset" id="sb-mode-preset" checked>
+      <span style="font-size:13px;color:#9ca3af;">Use preset</span>
+    </label>
+    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+      <input type="radio" name="sb-mode" value="custom" id="sb-mode-custom">
+      <span style="font-size:13px;color:#9ca3af;">Build custom</span>
+    </label>
+  </div>
+
+  <div id="sb-preset-wrap">
   <form id="sb-form" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;align-items:end;">
     <div>
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Preset</label>
@@ -42,6 +54,43 @@
       <button type="submit" class="btn btn-primary" id="sb-run">Run Backtest</button>
     </div>
   </form>
+  </div>
+
+  <div id="sb-custom-wrap" style="display:none;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;margin-bottom:16px;">
+    <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Build Custom Strategy</h4>
+    <p style="font-size:12px;color:#6b7280;margin:0 0 12px 0;">Pick indicators and adjust settings. Combine conditions with AND/OR.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div>
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:6px;">Entry</label>
+        <select id="sb-custom-entry" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+          <option value="ema_crossover">EMA Crossover (fast above slow)</option>
+          <option value="ema_cross_below">EMA Crossover (fast below slow)</option>
+          <option value="rsi_oversold">RSI Oversold (&lt; 30)</option>
+          <option value="rsi_custom">RSI in range (min–max)</option>
+          <option value="macd_cross_up">MACD cross up</option>
+          <option value="macd_cross_down">MACD cross down</option>
+          <option value="bb_lower">Price at Bollinger lower</option>
+          <option value="stoch_oversold">Stochastic oversold bounce</option>
+        </select>
+        <div id="sb-entry-params" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>
+      </div>
+      <div>
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:6px;">Exit</label>
+        <select id="sb-custom-exit" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+          <option value="ema_cross_below">EMA Crossover (fast below slow)</option>
+          <option value="ema_cross_above">EMA Crossover (fast above slow)</option>
+          <option value="rsi_overbought">RSI Overbought (&gt; 70)</option>
+          <option value="rsi_custom_exit">RSI in range (min–max)</option>
+          <option value="macd_cross_down">MACD cross down</option>
+          <option value="macd_cross_up">MACD cross up</option>
+          <option value="bb_upper">Price at Bollinger upper</option>
+          <option value="stoch_overbought">Stochastic overbought</option>
+        </select>
+        <div id="sb-exit-params" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;"></div>
+      </div>
+    </div>
+    <button type="button" class="btn btn-outline btn-sm" id="sb-apply-custom" style="margin-top:12px;">Apply Custom Strategy</button>
+  </div>
 </div>
 
 <% if (typeof user !== 'undefined' && user && savedStrategies && savedStrategies.length > 0) { %>
@@ -83,11 +132,77 @@
   function setDefaultDates() {
     var end = new Date();
     var start = new Date(end);
-    start.setFullYear(start.getFullYear() - 1);
+    start.setDate(start.getDate() - 60);
     document.getElementById('sb-end').value = end.toISOString().slice(0,10);
     document.getElementById('sb-start').value = start.toISOString().slice(0,10);
   }
   setDefaultDates();
+
+  if (presets.length > 0) {
+    document.getElementById('sb-preset').value = presets[0].id;
+    currentStrategy = { entry: presets[0].entry, exit: presets[0].exit };
+  }
+
+  document.querySelectorAll('input[name="sb-mode"]').forEach(function(r) {
+    r.addEventListener('change', function() {
+      var isCustom = this.value === 'custom';
+      document.getElementById('sb-preset-wrap').style.display = isCustom ? 'none' : 'block';
+      document.getElementById('sb-custom-wrap').style.display = isCustom ? 'block' : 'none';
+      if (isCustom) updateCustomParams();
+    });
+  });
+
+  function buildCustomEntry() {
+    var sel = document.getElementById('sb-custom-entry').value;
+    if (sel === 'ema_crossover') return { type: 'ema_crossover', fast: parseInt(document.getElementById('sb-ema-fast')?.value || 9), slow: parseInt(document.getElementById('sb-ema-slow')?.value || 21), direction: 'above' };
+    if (sel === 'ema_cross_below') return { type: 'ema_crossover', fast: parseInt(document.getElementById('sb-ema-fast')?.value || 9), slow: parseInt(document.getElementById('sb-ema-slow')?.value || 21), direction: 'below' };
+    if (sel === 'rsi_oversold') return { type: 'rsi_range', period: parseInt(document.getElementById('sb-rsi-period')?.value || 14), max: 30 };
+    if (sel === 'rsi_custom') return { type: 'rsi_range', period: parseInt(document.getElementById('sb-rsi-period')?.value || 14), min: parseInt(document.getElementById('sb-rsi-min')?.value || 30), max: parseInt(document.getElementById('sb-rsi-max')?.value || 70) };
+    if (sel === 'macd_cross_up') return { type: 'macd_crossover', fast: 12, slow: 26, signal: 9, direction: 'above' };
+    if (sel === 'macd_cross_down') return { type: 'macd_crossover', fast: 12, slow: 26, signal: 9, direction: 'below' };
+    if (sel === 'bb_lower') return { type: 'bb_touch', period: 20, stdDev: 2, band: 'lower' };
+    if (sel === 'stoch_oversold') return { type: 'stoch_crossover', period: 14, inOversold: true, direction: 'above' };
+    return { type: 'rsi_range', period: 14, max: 30 };
+  }
+  function buildCustomExit() {
+    var sel = document.getElementById('sb-custom-exit').value;
+    if (sel === 'ema_cross_below') return { type: 'ema_crossover', fast: parseInt(document.getElementById('sb-exit-ema-fast')?.value || 9), slow: parseInt(document.getElementById('sb-exit-ema-slow')?.value || 21), direction: 'below' };
+    if (sel === 'ema_cross_above') return { type: 'ema_crossover', fast: parseInt(document.getElementById('sb-exit-ema-fast')?.value || 9), slow: parseInt(document.getElementById('sb-exit-ema-slow')?.value || 21), direction: 'above' };
+    if (sel === 'rsi_overbought') return { type: 'rsi_range', period: parseInt(document.getElementById('sb-exit-rsi-period')?.value || 14), min: 70 };
+    if (sel === 'rsi_custom_exit') return { type: 'rsi_range', period: parseInt(document.getElementById('sb-exit-rsi-period')?.value || 14), min: parseInt(document.getElementById('sb-exit-rsi-min')?.value || 70), max: 100 };
+    if (sel === 'macd_cross_down') return { type: 'macd_crossover', fast: 12, slow: 26, signal: 9, direction: 'below' };
+    if (sel === 'macd_cross_up') return { type: 'macd_crossover', fast: 12, slow: 26, signal: 9, direction: 'above' };
+    if (sel === 'bb_upper') return { type: 'bb_touch', period: 20, stdDev: 2, band: 'upper' };
+    if (sel === 'stoch_overbought') return { type: 'stoch_crossover', period: 14, inOverbought: true, direction: 'below' };
+    return { type: 'rsi_range', period: 14, min: 70 };
+  }
+  function updateCustomParams() {
+    var entry = document.getElementById('sb-custom-entry').value;
+    var exit = document.getElementById('sb-custom-exit').value;
+    var entryDiv = document.getElementById('sb-entry-params');
+    var exitDiv = document.getElementById('sb-exit-params');
+    entryDiv.innerHTML = '';
+    exitDiv.innerHTML = '';
+    if (['ema_crossover','ema_cross_below','ema_cross_above'].indexOf(entry) >= 0) {
+      entryDiv.innerHTML = 'Fast <input type="number" id="sb-ema-fast" value="9" min="2" max="50" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;"> Slow <input type="number" id="sb-ema-slow" value="21" min="5" max="100" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;">';
+    }
+    if (['rsi_oversold','rsi_custom'].indexOf(entry) >= 0) {
+      entryDiv.innerHTML = 'Period <input type="number" id="sb-rsi-period" value="14" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;">' + (entry === 'rsi_custom' ? ' Min <input type="number" id="sb-rsi-min" value="30" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;"> Max <input type="number" id="sb-rsi-max" value="70" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;">' : '');
+    }
+    if (['ema_cross_below','ema_cross_above'].indexOf(exit) >= 0) {
+      exitDiv.innerHTML = 'Fast <input type="number" id="sb-exit-ema-fast" value="9" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;"> Slow <input type="number" id="sb-exit-ema-slow" value="21" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;">';
+    }
+    if (['rsi_overbought','rsi_custom_exit'].indexOf(exit) >= 0) {
+      exitDiv.innerHTML = 'Period <input type="number" id="sb-exit-rsi-period" value="14" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;">' + (exit === 'rsi_custom_exit' ? ' Min <input type="number" id="sb-exit-rsi-min" value="70" style="width:50px;padding:4px;background:#0d1320;border:1px solid #1e2a3a;border-radius:4px;color:#e5e7eb;">' : '');
+    }
+  }
+  document.getElementById('sb-custom-entry').addEventListener('change', updateCustomParams);
+  document.getElementById('sb-custom-exit').addEventListener('change', updateCustomParams);
+  document.getElementById('sb-apply-custom').addEventListener('click', function() {
+    currentStrategy = { entry: buildCustomEntry(), exit: buildCustomExit() };
+    document.getElementById('sb-preset').value = '';
+    alert('Custom strategy applied. Click Run Backtest.');
+  });
 
   document.getElementById('sb-preset').addEventListener('change', function() {
     var id = this.value;
@@ -142,6 +257,11 @@
         tr.innerHTML = '<td>' + (i+1) + '</td><td>' + (t.direction || 'LONG') + '</td><td>$' + (t.entry || 0).toFixed(4) + '</td><td>$' + (t.exit || 0).toFixed(4) + '</td><td style="' + ((t.pnl || 0) >= 0 ? 'color:#10b981' : 'color:#ef4444') + '">$' + (t.pnl || 0).toFixed(2) + '</td>';
         tbody.appendChild(tr);
       });
+      if (!data.trades || data.trades.length === 0) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td colspan="5" style="text-align:center;color:#6b7280;padding:16px;">No trades in this period. Try a different strategy, coin, or date range. Kraken has ~30 days of data; Bitget has more.</td>';
+        tbody.appendChild(tr);
+      }
       document.getElementById('sb-results').style.display = 'block';
     })
     .catch(function(err) {
