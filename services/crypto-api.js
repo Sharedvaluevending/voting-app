@@ -241,7 +241,11 @@ const KRAKEN_PAIRS = {
   'aave': 'AAVEUSD', 'algorand': 'ALGOUSD', 'theta-token': 'THETAUSD', 'flow': 'FLOWUSD',
   'fantom': 'FTMUSD', 'axie-infinity': 'AXSUSD', 'eos': 'EOSUSD', 'multiversx': 'EGLDUSD',
   'the-sandbox': 'SANDUSD', 'decentraland': 'MANAUSD', 'klay-token': 'KLAYUSD',
-  'curve-dao-token': 'CRVUSD', 'rocket-pool-eth': 'RETHUSD', 'pancakeswap-token': 'CAKEUSD'
+  'curve-dao-token': 'CRVUSD', 'rocket-pool-eth': 'RETHUSD', 'pancakeswap-token': 'CAKEUSD',
+  // More top-80 scanner coins (staked-ether, etc.) — fixes "Live price unavailable" for top 3
+  'staked-ether': 'STETHUSD', 'leo-token': 'LEOUSD', 'stacks': 'STXUSD', 'monero': 'XMRUSD',
+  'bitcoin-cash-sv': 'BSVUSD', 'elrond-erd-2': 'EGLDUSD', 'tezos': 'XTZUSD', 'neo': 'NEOUSD',
+  'kusama': 'KSMUSD', 'mina-protocol': 'MINAUSD', 'celo': 'CELOUSD', 'conflux-token': 'CFXUSD'
 };
 
 // ====================================================
@@ -845,7 +849,7 @@ function getCoinMeta(coinId) {
   return COIN_META[coinId] || scannerCoinMeta[coinId] || null;
 }
 
-/** Fetch live price for one coin. Tries WebSocket -> Bitget -> Kraken -> cache. */
+/** Fetch live price for one coin. Tries WebSocket -> Bitget -> Kraken -> dynamic Kraken -> CoinGecko -> cache. */
 async function fetchLivePrice(coinId) {
   try {
     const ws = require('./websocket-prices');
@@ -870,27 +874,55 @@ async function fetchLivePrice(coinId) {
     } catch (err) { /* fall through */ }
   }
 
-  // Fallback: Kraken
-  const krakenPair = KRAKEN_PAIRS[coinId];
+  // Fallback: Kraken (static pairs)
+  let krakenPair = KRAKEN_PAIRS[coinId];
   if (krakenPair) {
+    const price = await fetchKrakenTicker(krakenPair);
+    if (price != null) return price;
+  }
+
+  // Dynamic Kraken: for scanner coins not in KRAKEN_PAIRS, try {SYMBOL}USD
+  if (meta && meta.symbol && !TRACKED_COINS.includes(coinId)) {
+    const dynPair = (meta.symbol || '').toUpperCase() + 'USD';
+    if (dynPair.length > 4) {
+      const price = await fetchKrakenTicker(dynPair);
+      if (price != null) return price;
+    }
+  }
+
+  // CoinGecko simple price (last resort for top 3 / scanner coins — fixes "Live price unavailable")
+  if (!TRACKED_COINS.includes(coinId)) {
     try {
-      const url = `https://api.kraken.com/0/public/Ticker?pair=${krakenPair}`;
+      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(coinId)}&vs_currencies=usd`;
       const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 8000 });
       if (res.ok) {
         const json = await res.json();
-        const result = json.result || {};
-        const t = result[krakenPair];
-        if (t && t.c) {
-          const price = parseFloat(t.c[0]);
-          if (Number.isFinite(price) && price > 0) return price;
-        }
+        const p = json?.[coinId]?.usd;
+        if (Number.isFinite(p) && p > 0) return p;
       }
-    } catch (err) { /* fall through to cache */ }
+    } catch (err) { /* fall through */ }
   }
 
   // Last resort: cache
   const cached = getCurrentPrice(coinId);
   return cached && Number.isFinite(cached.price) ? cached.price : null;
+}
+
+/** Helper: fetch single pair from Kraken Ticker API. Returns price or null. */
+async function fetchKrakenTicker(pair) {
+  try {
+    const url = `https://api.kraken.com/0/public/Ticker?pair=${pair}`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 8000 });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const result = json.result || {};
+    const t = result[pair] || result[pair.replace('Z', '')] || result['X' + pair] || result[pair.replace('X', '').replace('Z', '')];
+    if (!t || !t.c) return null;
+    const price = parseFloat(t.c[0]);
+    return Number.isFinite(price) && price > 0 ? price : null;
+  } catch (err) {
+    return null;
+  }
 }
 
 // ====================================================

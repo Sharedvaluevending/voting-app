@@ -456,6 +456,14 @@ async function executeAction(action, user, deps, actionContext = {}) {
     if (direction !== 'LONG' && direction !== 'SHORT') return { ok: false, message: 'direction must be LONG or SHORT' };
     if (!openTrade) return { ok: false, message: 'openTrade not available' };
 
+    // Register scanner meta for top 3 coins so fetchLivePrice can use Bitget/Kraken (fixes "Live price unavailable")
+    const { registerScannerCoinMeta } = require('./crypto-api');
+    const top3Scan = actionContext.top3MarketScan || [];
+    const top3Match = top3Scan.find(s => ((s.coin?.id || s.coinData?.id) || '').toLowerCase() === coinId);
+    if (top3Match && (top3Match.coin?.symbol || top3Match.coinData?.symbol)) {
+      registerScannerCoinMeta(coinId, top3Match.coin?.symbol || top3Match.coinData?.symbol);
+    }
+
     // Find signal from context (fullSignals = tracked coins, top3MarketScan = 80-coin scan)
     const fullSignals = actionContext.fullSignals || [];
     const top3Scan = actionContext.top3MarketScan || [];
