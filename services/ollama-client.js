@@ -116,19 +116,30 @@ function parseJsonResponse(text) {
 /**
  * Check if Ollama is reachable.
  * @param {string} baseUrl
- * @returns {Promise<boolean>}
+ * @returns {Promise<{ok: boolean, status?: number, statusText?: string, error?: string}>}
  */
 async function checkOllamaReachable(baseUrl = DEFAULT_URL) {
   try {
     const url = baseUrl.replace(/\/$/, '') + '/api/tags';
     const headers = getHeaders(baseUrl);
     const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 3000);
+    const t = setTimeout(() => controller.abort(), 8000);
     const res = await fetch(url, { headers, signal: controller.signal });
     clearTimeout(t);
-    return res.ok;
+    if (res.ok) return { ok: true };
+    const statusText = res.statusText || '';
+    let error = `${res.status} ${statusText}`;
+    if (res.status === 502) {
+      error += ' — ngrok can\'t reach Ollama. Is Ollama running? (ollama run llama3.2)';
+    } else if (res.status === 404) {
+      error += ' — Wrong URL or Ollama version?';
+    } else if (res.status === 403 || res.status === 401) {
+      error += ' — Access denied (ngrok/auth?)';
+    }
+    return { ok: false, status: res.status, statusText, error };
   } catch (e) {
-    return false;
+    const msg = e.name === 'AbortError' ? 'Timeout (8s)' : e.message || 'Connection failed';
+    return { ok: false, error: msg };
   }
 }
 

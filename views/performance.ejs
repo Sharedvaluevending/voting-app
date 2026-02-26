@@ -241,7 +241,7 @@
               fetch('/api/ollama/status?url=' + encodeURIComponent(url))
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
-                  el.textContent = d.reachable ? 'Connected' : 'Not reachable';
+                  el.textContent = d.reachable ? 'Connected' : (d.error || 'Not reachable');
                   el.style.color = d.reachable ? '#10b981' : '#ef4444';
                 })
                 .catch(function() {

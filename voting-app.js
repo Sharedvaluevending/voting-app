@@ -3313,8 +3313,8 @@ app.post('/api/llm-agent/run', requireLogin, async (req, res) => {
 app.get('/api/ollama/status', requireLogin, async (req, res) => {
   try {
     const url = req.query.url || req.session?.ollamaUrl || 'http://localhost:11434';
-    const ok = await checkOllamaReachable(url);
-    res.json({ success: true, reachable: ok });
+    const result = await checkOllamaReachable(url);
+    res.json({ success: true, reachable: result.ok, error: result.error });
   } catch (err) {
     res.status(500).json({ success: false, reachable: false, error: err.message });
   }

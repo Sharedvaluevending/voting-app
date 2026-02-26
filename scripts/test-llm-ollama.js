@@ -31,8 +31,8 @@ async function main() {
   // 1. Ollama reachable (/api/tags)
   const r1 = await test('Ollama reachable (GET /api/tags)', async () => {
     const { checkOllamaReachable } = require('../services/ollama-client');
-    const ok = await checkOllamaReachable(OLLAMA_URL);
-    if (!ok) throw new Error('Ollama not reachable');
+    const result = await checkOllamaReachable(OLLAMA_URL);
+    if (!result.ok) throw new Error(result.error || 'Ollama not reachable');
     return 'connected';
   });
   if (r1.ok) passed++; else failed++;
