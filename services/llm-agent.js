@@ -80,7 +80,10 @@ function isNgrokUrl(url) {
 
 function getOllamaHeaders(baseUrl) {
   const h = { 'Content-Type': 'application/json' };
-  if (isNgrokUrl(baseUrl)) h['ngrok-skip-browser-warning'] = 'true';
+  if (isNgrokUrl(baseUrl)) {
+    h['ngrok-skip-browser-warning'] = '1';
+    h['User-Agent'] = 'VotingApp-Ollama/1.0';
+  }
   return h;
 }
 
@@ -96,10 +99,12 @@ async function callAgent(prompt, systemPrompt, baseUrl, model) {
     messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }]
   };
   const openaiBody = { model: model || 'llama3.2', messages: chatBody.messages };
+  const responsesBody = { model: model || 'llama3.2', input: systemPrompt + '\n\n' + prompt };
 
   let res;
   if (isNgrokUrl(base)) {
     res = await fetch(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
+    if (res.status === 404) res = await fetch(base + '/v1/responses', { method: 'POST', headers, body: JSON.stringify(responsesBody), signal: controller.signal });
     if (res.status === 404) res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
     if (res.status === 404) res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
   } else {
@@ -110,7 +115,7 @@ async function callAgent(prompt, systemPrompt, baseUrl, model) {
   clearTimeout(timeout);
   if (!res.ok) throw new Error(`Ollama ${res.status}`);
   const data = await res.json();
-  return data.message?.content || data.response || data.choices?.[0]?.message?.content || '';
+  return data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
 }
 
 function parseJsonResponse(text) {

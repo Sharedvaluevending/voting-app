@@ -15,7 +15,10 @@ function isNgrokUrl(url) {
 
 function getHeaders(baseUrl) {
   const h = { 'Content-Type': 'application/json' };
-  if (isNgrokUrl(baseUrl)) h['ngrok-skip-browser-warning'] = 'true';
+  if (isNgrokUrl(baseUrl)) {
+    h['ngrok-skip-browser-warning'] = '1';
+    h['User-Agent'] = 'VotingApp-Ollama/1.0'; // non-browser to avoid ngrok interstitial
+  }
   return h;
 }
 
@@ -50,11 +53,13 @@ async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'llama3.2') {
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }]
     };
     const openaiBody = { model: model || 'llama3.2', messages: chatBody.messages };
+    const responsesBody = { model: model || 'llama3.2', input: systemPrompt + '\n\n' + prompt };
 
-    // For ngrok: try /v1/chat/completions first (often works when /api/chat and /api/generate 404)
+    // For ngrok: try multiple endpoints (some return 404 through ngrok)
     let res;
     if (isNgrokUrl(base)) {
       res = await fetch(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
+      if (res.status === 404) res = await fetch(base + '/v1/responses', { method: 'POST', headers, body: JSON.stringify(responsesBody), signal: controller.signal });
       if (res.status === 404) res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
       if (res.status === 404) res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
     } else {
@@ -70,7 +75,7 @@ async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'llama3.2') {
     }
 
     const data = await res.json();
-    const text = data.message?.content || data.response || data.choices?.[0]?.message?.content || '';
+    const text = data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
     const json = parseJsonResponse(text);
     if (json && json.approve === true) {
       return true;
