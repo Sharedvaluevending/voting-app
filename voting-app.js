@@ -29,7 +29,7 @@ const path = require('path');
 const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, isCandleFresh, getCandleSource, recordScoreHistory, getScoreHistory, recordRegimeSnapshot, getRegimeTimeline, pricesReadyPromise, TRACKED_COINS, COIN_META, registerScannerCoinMeta, getCoinMeta, fetchCoinDataForDetail } = require('./services/crypto-api');
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
-const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage, reconcileBalance, fixBalance } = require('./services/paper-trading');
+const { openTrade, closeTrade, closeTradePartial, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage, reconcileBalance, fixBalance } = require('./services/paper-trading');
 const { initializeStrategies, getPerformanceReport, resetStrategyWeights } = require('./services/learning-engine');
 const { runBacktest, runBacktestForCoin } = require('./services/backtest');
 const bitget = require('./services/bitget');
@@ -3299,7 +3299,7 @@ app.post('/api/llm-agent/run', requireLogin, async (req, res) => {
       return res.status(429).json({ success: false, error: 'Wait 1 minute between runs' });
     }
     _llmAgentLastTrigger[uid] = now;
-    const deps = { User, Trade, runBacktest, getPerformanceStats };
+    const deps = { User, Trade, runBacktest, getPerformanceStats, closeTrade, closeTradePartial, fetchLivePrice };
     const result = await runAgent(uid, deps);
     res.json(result);
   } catch (err) {
@@ -3608,7 +3608,7 @@ async function runLlmAgentForUsers() {
   if (!dbConnected) return;
   try {
     const users = await User.find({ 'settings.llmAgentEnabled': true }).select('_id settings llmAgentLastRun').lean();
-    const deps = { User, Trade, runBacktest, getPerformanceStats };
+    const deps = { User, Trade, runBacktest, getPerformanceStats, closeTrade, closeTradePartial, fetchLivePrice };
     for (const u of users) {
       const intervalMin = u.settings?.llmAgentIntervalMinutes ?? 60;
       const lastRun = u.llmAgentLastRun?.at ? new Date(u.llmAgentLastRun.at).getTime() : 0;

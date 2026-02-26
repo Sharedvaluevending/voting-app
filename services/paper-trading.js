@@ -2195,6 +2195,7 @@ module.exports = {
   calculatePositionSize,
   openTrade,
   closeTrade,
+  closeTradePartial,
   checkStopsAndTPs,
   recheckTradeScores,
   SCORE_RECHECK_MINUTES,

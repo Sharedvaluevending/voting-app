@@ -125,17 +125,52 @@ function parseJsonResponse(text) {
 /**
  * Build context for the agent.
  */
-async function buildContext(user, User, Trade, getPerformanceStats) {
+async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePrice) {
   const stats = await getPerformanceStats(user._id);
-  const openTrades = await Trade.find({ userId: user._id, status: 'OPEN' }).lean();
+  const openTradesRaw = await Trade.find({ userId: user._id, status: 'OPEN' }).lean();
   const recentTrades = await Trade.find({ userId: user._id, status: { $ne: 'OPEN' } })
-    .sort({ closedAt: -1 }).limit(10).lean();
+    .sort({ exitTime: -1 }).limit(10).lean();
+
+  const openTrades = [];
+  for (const t of openTradesRaw) {
+    let currentPrice = null;
+    try {
+      currentPrice = await fetchLivePrice(t.coinId);
+    } catch (e) { /* ignore */ }
+    const price = currentPrice != null && Number.isFinite(currentPrice) ? currentPrice : t.entryPrice;
+    let pnl = 0;
+    let pnlPercent = 0;
+    if (t.entryPrice > 0 && price > 0) {
+      if (t.direction === 'LONG') {
+        pnl = ((price - t.entryPrice) / t.entryPrice) * t.positionSize;
+      } else {
+        pnl = ((t.entryPrice - price) / t.entryPrice) * t.positionSize;
+      }
+      pnlPercent = (pnl / (t.margin || t.positionSize)) * 100;
+    }
+    openTrades.push({
+      tradeId: t._id.toString(),
+      symbol: t.symbol,
+      coinId: t.coinId,
+      direction: t.direction,
+      entryPrice: t.entryPrice,
+      currentPrice: price,
+      positionSize: t.positionSize,
+      margin: t.margin,
+      pnl,
+      pnlPercent,
+      score: t.score,
+      strategyType: t.strategyType,
+      entryTime: t.entryTime
+    });
+  }
 
   return {
     balance: user.paperBalance ?? 10000,
     initialBalance: user.initialBalance ?? 10000,
     stats: stats || {},
-    openTrades: openTrades.length,
+    openTrades,
+    openTradesCount: openTrades.length,
     recentTrades: recentTrades.map(t => ({
       symbol: t.symbol,
       direction: t.direction,
@@ -151,8 +186,9 @@ async function buildContext(user, User, Trade, getPerformanceStats) {
 /**
  * Execute a single action. Returns { ok, message }.
  */
-async function executeAction(action, user, User, runBacktest) {
+async function executeAction(action, user, deps) {
   const { tool, key, value } = action;
+  const { User, Trade, runBacktest, closeTrade, closeTradePartial, fetchLivePrice } = deps;
 
   if (tool === 'change_setting') {
     if (!key || typeof key !== 'string') return { ok: false, message: 'Missing key' };
@@ -218,6 +254,40 @@ async function executeAction(action, user, User, runBacktest) {
     }
   }
 
+  if (tool === 'close_trade') {
+    const tradeId = action.tradeId;
+    if (!tradeId) return { ok: false, message: 'Missing tradeId' };
+    const trade = await Trade.findOne({ _id: tradeId, userId: user._id, status: 'OPEN' });
+    if (!trade) return { ok: false, message: 'Trade not found or already closed' };
+    let price;
+    try {
+      price = await fetchLivePrice(trade.coinId);
+    } catch (e) { /* ignore */ }
+    if (price == null || !Number.isFinite(price) || price <= 0) {
+      price = trade.entryPrice;
+    }
+    await closeTrade(user._id, trade._id, price, 'LLM_AGENT_CLOSE');
+    return { ok: true, message: `Closed ${trade.symbol} ${trade.direction}` };
+  }
+
+  if (tool === 'reduce_position') {
+    const tradeId = action.tradeId;
+    const percent = Math.min(99, Math.max(10, Number(action.percent) || 50));
+    if (!tradeId) return { ok: false, message: 'Missing tradeId' };
+    const trade = await Trade.findOne({ _id: tradeId, userId: user._id, status: 'OPEN' });
+    if (!trade) return { ok: false, message: 'Trade not found or already closed' };
+    const portionSize = (trade.positionSize * percent) / 100;
+    let price;
+    try {
+      price = await fetchLivePrice(trade.coinId);
+    } catch (e) { /* ignore */ }
+    if (price == null || !Number.isFinite(price) || price <= 0) {
+      price = trade.entryPrice;
+    }
+    await closeTradePartial(trade, price, portionSize, 'LLM_AGENT_REDUCE');
+    return { ok: true, message: `Reduced ${trade.symbol} by ${percent}%` };
+  }
+
   return { ok: false, message: `Unknown tool: ${tool}` };
 }
 
@@ -233,35 +303,39 @@ async function runAgent(userId, deps) {
   const ollamaUrl = user.settings?.ollamaUrl || 'http://localhost:11434';
   const model = user.settings?.ollamaModel || 'llama3.2';
 
-  const ctx = await buildContext(user, User, Trade, getPerformanceStats);
+  const ctx = await buildContext(user, User, Trade, getPerformanceStats, deps.fetchLivePrice);
 
-  const systemPrompt = `You are an autonomous crypto trading assistant. You can change settings, run backtests, and optimize the user's strategy.
+  const systemPrompt = `You are an autonomous crypto trading assistant. You can change settings, run backtests, monitor open trades, close them, or reduce positions.
 
 Reply ONLY with valid JSON in this exact format (no other text):
 {
   "reasoning": "Brief explanation of what you're doing and why",
   "actions": [
     { "tool": "change_setting", "key": "settingName", "value": numberOrBoolean },
-    { "tool": "run_backtest", "days": 14 }
+    { "tool": "run_backtest", "days": 14 },
+    { "tool": "close_trade", "tradeId": "trade_id_string" },
+    { "tool": "reduce_position", "tradeId": "trade_id_string", "percent": 50 }
   ]
 }
 
 Available tools:
 - change_setting: key = setting name, value = number, boolean, or string. Allowed: riskPerTrade (0.5-10), riskDollarsPerTrade (10-10000), maxOpenTrades (1-10), autoTradeMinScore (30-95), autoTrade (bool), cooldownHours (0-168), defaultLeverage (1-20), minRiskReward (1-5), maxDailyLossPercent (0-20), autoTradeCoinsMode (tracked|tracked+top1|top1), riskMode (percent|dollar).
-- run_backtest: days = 7 to 14. Runs historical simulation. Use to validate before changing settings.
+- run_backtest: days = 7 to 14. Runs historical simulation.
+- close_trade: tradeId = id of open trade. Closes the entire position.
+- reduce_position: tradeId = id of open trade, percent = 10-99 (how much to close). Reduces position size.
 
 If no changes needed, use "actions": [].
-Be conservative. Only change what improves the strategy based on recent performance.`;
+Be conservative. Only close or reduce when the trade is clearly against you or risk management demands it.`;
 
   const prompt = `Current state:
 - Balance: $${ctx.balance} (initial $${ctx.initialBalance})
 - Stats: ${JSON.stringify(ctx.stats)}
-- Open trades: ${ctx.openTrades}
+- Open trades (${ctx.openTradesCount}): ${JSON.stringify(ctx.openTrades)}
 - Recent trades: ${JSON.stringify(ctx.recentTrades)}
 - Current settings (relevant): riskPerTrade=${ctx.settings.riskPerTrade}, riskDollarsPerTrade=${ctx.settings.riskDollarsPerTrade}, maxOpenTrades=${ctx.settings.maxOpenTrades}, autoTradeMinScore=${ctx.settings.autoTradeMinScore}, autoTrade=${ctx.settings.autoTrade}
 ${ctx.lastBacktest ? `- Last backtest (${ctx.lastBacktest.at}): ${JSON.stringify(ctx.lastBacktest)}` : '- No backtest run yet.'}
 
-What changes should we make? Reply with JSON only.`;
+Review open trades. Should we close any, reduce any, change settings, or run a backtest? Reply with JSON only.`;
 
   let text;
   try {
@@ -279,7 +353,7 @@ What changes should we make? Reply with JSON only.`;
   const actionsFailed = [];
   for (const action of parsed.actions) {
     if (!action.tool) continue;
-    const result = await executeAction(action, user, User, runBacktest);
+    const result = await executeAction(action, user, deps);
     if (result.ok) {
       actionsExecuted.push({ ...action, message: result.message });
     } else {
