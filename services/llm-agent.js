@@ -466,7 +466,6 @@ async function executeAction(action, user, deps, actionContext = {}) {
 
     // Find signal from context (fullSignals = tracked coins, top3MarketScan = 80-coin scan)
     const fullSignals = actionContext.fullSignals || [];
-    const top3Scan = actionContext.top3MarketScan || [];
     const wantBuy = direction === 'LONG';
     const matchSignal = (s) => {
       const cid = (s.coin?.id || s.coinData?.id || '').toLowerCase();
