@@ -80,7 +80,7 @@ async function runChat(userId, messages, deps, opts = {}) {
       const userRequest = lastUser?.content?.trim();
       if (userRequest) {
         try {
-          const agentResult = await runAgent(userId, deps, { userRequest });
+          const agentResult = await runAgent(userId, deps, { userRequest, source: 'chat' });
           result.agentResult = agentResult;
         } catch (agentErr) {
           result.agentError = agentErr.message;

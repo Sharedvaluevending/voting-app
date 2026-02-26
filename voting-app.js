@@ -1101,6 +1101,20 @@ app.get('/llm-chat', requireLogin, (req, res) => {
   res.render('llm-chat', { activePage: 'llm-chat', pageTitle: 'LLM Chat' });
 });
 
+app.get('/llm-logs', requireLogin, async (req, res) => {
+  try {
+    const LlmAgentLog = require('./models/LlmAgentLog');
+    const logs = await LlmAgentLog.find({ userId: req.session.userId })
+      .sort({ at: -1 })
+      .limit(100)
+      .lean();
+    res.render('llm-logs', { activePage: 'llm-logs', pageTitle: 'LLM Logs', logs });
+  } catch (err) {
+    console.error('[LLM-Logs] Error:', err);
+    res.status(500).send('Error loading logs');
+  }
+});
+
 // ====================================================
 // MARKET PULSE (market-news-analyst skill inspired)
 // ====================================================
@@ -3359,7 +3373,7 @@ app.post('/api/llm-agent/run', requireLogin, async (req, res) => {
       fetchAllPrices, fetchAllCandles, fetchAllHistory, buildEngineOptions, analyzeAllCoins,
       getScoreHistory, getRegimeTimeline, getMarketPulse, getTop3FullCached
     };
-    const result = await runAgent(uid, deps);
+    const result = await runAgent(uid, deps, { source: 'manual' });
     res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -3679,7 +3693,7 @@ async function runLlmAgentForUsers() {
       const lastRun = u.llmAgentLastRun?.at ? new Date(u.llmAgentLastRun.at).getTime() : 0;
       if (Date.now() - lastRun < intervalMin * 60 * 1000) continue;
       try {
-        const result = await runAgent(u._id, deps);
+        const result = await runAgent(u._id, deps, { source: 'scheduled' });
         if (result.success && (result.actionsExecuted?.length || result.actionsFailed?.length)) {
           console.log(`[LLMAgent] ${u._id}: ${result.actionsExecuted?.length || 0} ok, ${result.actionsFailed?.length || 0} failed`);
         }

@@ -567,10 +567,32 @@ async function executeAction(action, user, deps, actionContext = {}) {
 }
 
 /**
+ * Save agent run to LlmAgentLog for the LLM Logs page.
+ */
+async function saveAgentLog(userId, result, opts = {}) {
+  try {
+    const LlmAgentLog = require('../models/LlmAgentLog');
+    await LlmAgentLog.create({
+      userId,
+      success: result.success === true,
+      source: opts.source || 'manual',
+      reasoning: result.reasoning || '',
+      actionsExecuted: result.actionsExecuted || [],
+      actionsFailed: result.actionsFailed || [],
+      error: result.error,
+      userRequest: opts.userRequest,
+      at: result.at || new Date()
+    });
+  } catch (e) {
+    console.warn('[LLMAgent] Failed to save log:', e.message);
+  }
+}
+
+/**
  * Run the LLM agent for a user.
  * @param {string} userId
  * @param {Object} deps
- * @param {Object} [opts] - { userRequest?: string } - when provided, uses this as the main prompt (e.g. from chat)
+ * @param {Object} [opts] - { userRequest?: string, source?: 'manual'|'scheduled'|'chat' }
  * @returns {Object} { success, actionsExecuted, actionsFailed, reasoning }
  */
 async function runAgent(userId, deps, opts = {}) {
@@ -695,12 +717,16 @@ Be conservative. Only open trades when the signal is strong and fits your risk r
   try {
     text = await callAgent(prompt, systemPrompt, ollamaUrl, model);
   } catch (err) {
-    return { success: false, error: err.message };
+    const failResult = { success: false, error: err.message, at: new Date() };
+    await saveAgentLog(userId, failResult, opts);
+    return failResult;
   }
 
   const parsed = parseJsonResponse(text);
   if (!parsed || !Array.isArray(parsed.actions)) {
-    return { success: false, error: 'Invalid LLM response', raw: text?.slice(0, 200) };
+    const failResult = { success: false, error: 'Invalid LLM response', raw: text?.slice(0, 200), at: new Date() };
+    await saveAgentLog(userId, failResult, opts);
+    return failResult;
   }
 
   const actionsExecuted = [];
@@ -726,6 +752,8 @@ Be conservative. Only open trades when the signal is strong and fits your risk r
 
   user.llmAgentLastRun = runResult;
   await user.save();
+
+  await saveAgentLog(userId, runResult, opts);
 
   return runResult;
 }

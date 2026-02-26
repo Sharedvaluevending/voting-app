@@ -1,0 +1,76 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">LLM Logs</h2>
+  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">History of all actions taken by the LLM agent (manual runs, scheduled 24/7, and chat Execute actions).</p>
+</div>
+
+<% if (logs.length === 0) { %>
+  <div class="empty-state">
+    <h3>No LLM Runs Yet</h3>
+    <p>Agent runs will appear here when you trigger the agent from Performance, run it 24/7, or use Execute actions in LLM Chat.</p>
+    <a href="/performance" class="btn btn-primary" style="margin-top:12px;">Go to Performance</a>
+  </div>
+<% } else { %>
+  <div class="section" style="background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;backdrop-filter:blur(8px);overflow-x:auto;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Source</th>
+          <th>Status</th>
+          <th>Reasoning</th>
+          <th>Actions Executed</th>
+          <th>Actions Failed</th>
+          <th>User Request</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% logs.forEach(function(log) { %>
+          <tr>
+            <td style="font-size:12px;color:#9ca3af;white-space:nowrap;"><%= log.at ? new Date(log.at).toLocaleString() : '-' %></td>
+            <td>
+              <span style="font-size:11px;padding:2px 8px;border-radius:6px;background:rgba(139,92,246,0.2);color:#a78bfa;">
+                <%= log.source === 'scheduled' ? '24/7' : log.source === 'chat' ? 'Chat' : 'Manual' %>
+              </span>
+            </td>
+            <td>
+              <% if (log.success) { %>
+                <span style="color:#10b981;font-size:12px;">✓ OK</span>
+              <% } else { %>
+                <span style="color:#ef4444;font-size:12px;">✗ Failed</span>
+              <% } %>
+            </td>
+            <td style="font-size:12px;color:#c4b5fd;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="<%= (log.reasoning || '').replace(/"/g, '&quot;') %>"><%= log.reasoning || '-' %></td>
+            <td style="font-size:12px;">
+              <% if (log.actionsExecuted && log.actionsExecuted.length > 0) { %>
+                <ul style="margin:0;padding-left:16px;list-style:disc;">
+                  <% log.actionsExecuted.forEach(function(a) { %>
+                    <li style="margin:2px 0;"><%= a.message || (a.tool + (a.key ? ' ' + a.key + '=' + a.value : '')) %></li>
+                  <% }); %>
+                </ul>
+              <% } else { %>-<% } %>
+            </td>
+            <td style="font-size:12px;color:#fca5a5;">
+              <% if (log.actionsFailed && log.actionsFailed.length > 0) { %>
+                <ul style="margin:0;padding-left:16px;list-style:disc;">
+                  <% log.actionsFailed.forEach(function(a) { %>
+                    <li style="margin:2px 0;"><%= a.message || (a.tool + ': ' + (a.key || '')) %></li>
+                  <% }); %>
+                </ul>
+              <% } else if (log.error) { %>
+                <span title="<%= (log.error || '').replace(/"/g, '&quot;') %>"><%= log.error %></span>
+              <% } else { %>-<% } %>
+            </td>
+            <td style="font-size:11px;color:#6b7280;max-width:150px;overflow:hidden;text-overflow:ellipsis;" title="<%= (log.userRequest || '').replace(/"/g, '&quot;') %>"><%= log.userRequest || '-' %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+  <% if (logs.length >= 100) { %>
+    <p style="font-size:12px;color:#6b7280;margin-top:12px;">Showing last 100 runs. Older logs are not stored.</p>
+  <% } %>
+<% } %>
+
+<%- include('partials/footer') %>
