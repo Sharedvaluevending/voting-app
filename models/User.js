@@ -4,7 +4,8 @@ const bcrypt = require('bcryptjs');
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   username: { type: String, required: true, unique: true, trim: true, minlength: 3, maxlength: 20 },
-  password: { type: String, required: true },
+  password: { type: String, default: '' }, // empty for OAuth-only users
+  googleId: { type: String, sparse: true, unique: true }, // for Google OAuth
   paperBalance: { type: Number, default: 10000 },
   initialBalance: { type: Number, default: 10000 },
   trenchPaperBalance: { type: Number, default: 1000 },
@@ -176,11 +177,14 @@ const userSchema = new mongoose.Schema({
 
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 12);
+  if (this.password && this.password.length > 0) {
+    this.password = await bcrypt.hash(this.password, 12);
+  }
   next();
 });
 
 userSchema.methods.comparePassword = async function(candidate) {
+  if (!this.password || this.password.length === 0) return false;
   return bcrypt.compare(candidate, this.password);
 };
 

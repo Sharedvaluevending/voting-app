@@ -138,6 +138,10 @@ if (!sessionConfig.store) {
 
 app.use(session(sessionConfig));
 
+const passport = require('passport');
+require('./config/passport');
+app.use(passport.initialize());
+app.use(passport.session());
 
 // Load user data into res.locals for all templates
 app.use(async (req, res, next) => {
@@ -271,9 +275,29 @@ app.locals.formatBigNumber = formatBigNumber;
 // ====================================================
 // AUTH ROUTES
 // ====================================================
+const googleAuthEnabled = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+
 app.get('/login', guestOnly, (req, res) => {
-  res.render('login', { activePage: 'login', error: req.query.error || null, success: req.query.success || null });
+  res.render('login', { activePage: 'login', error: req.query.error || null, success: req.query.success || null, googleAuthEnabled });
 });
+
+app.get('/register', guestOnly, (req, res) => {
+  res.render('register', { activePage: 'register', error: null, googleAuthEnabled });
+});
+
+if (googleAuthEnabled) {
+  app.get('/auth/google', guestOnly, passport.authenticate('google', { scope: ['profile', 'email'] }));
+  app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: '/login?error=Google+sign-in+failed' }), (req, res) => {
+    req.session.userId = req.user._id;
+    req.session.username = req.user.username;
+    req.session.save((err) => {
+      if (err) console.error('[Auth] Session save error:', err.message);
+      res.redirect('/');
+    });
+  });
+} else {
+  app.get('/auth/google', guestOnly, (req, res) => res.redirect('/login?error=Google+sign-in+not+configured'));
+}
 
 app.post('/login', guestOnly, async (req, res) => {
   if (!dbConnected) {
@@ -302,26 +326,22 @@ app.post('/login', guestOnly, async (req, res) => {
   }
 });
 
-app.get('/register', guestOnly, (req, res) => {
-  res.render('register', { activePage: 'register', error: null });
-});
-
 app.post('/register', guestOnly, async (req, res) => {
   if (!dbConnected) {
-    return res.render('register', { activePage: 'register', error: 'Database not available. Registration requires MongoDB.' });
+    return res.render('register', { activePage: 'register', error: 'Database not available. Registration requires MongoDB.', googleAuthEnabled });
   }
   try {
     const { username, email, password } = req.body;
     if (!username || !email || !password) {
-      return res.render('register', { activePage: 'register', error: 'All fields are required' });
+      return res.render('register', { activePage: 'register', error: 'All fields are required', googleAuthEnabled });
     }
     if (password.length < 6) {
-      return res.render('register', { activePage: 'register', error: 'Password must be at least 6 characters' });
+      return res.render('register', { activePage: 'register', error: 'Password must be at least 6 characters', googleAuthEnabled });
     }
 
     const existing = await User.findOne({ $or: [{ email: email.toLowerCase().trim() }, { username: username.trim() }] });
     if (existing) {
-      return res.render('register', { activePage: 'register', error: 'Email or username already taken' });
+      return res.render('register', { activePage: 'register', error: 'Email or username already taken', googleAuthEnabled });
     }
 
     const user = new User({
@@ -336,12 +356,12 @@ app.post('/register', guestOnly, async (req, res) => {
     req.session.save((err) => {
       if (err) {
         console.error('[Register] Session save error:', err.message);
-        return res.render('register', { activePage: 'register', error: 'Account created but login failed. Please log in manually.' });
+        return res.render('register', { activePage: 'register', error: 'Account created but login failed. Please log in manually.', googleAuthEnabled });
       }
       res.redirect('/');
     });
   } catch (err) {
-    res.render('register', { activePage: 'register', error: err.message || 'Registration failed' });
+    res.render('register', { activePage: 'register', error: err.message || 'Registration failed', googleAuthEnabled });
   }
 });
 

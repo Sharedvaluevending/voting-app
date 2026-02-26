@@ -15,7 +15,14 @@
     "release:minor": "standard-version --release-as minor",
     "release:major": "standard-version --release-as major"
   },
-  "keywords": ["crypto", "trading", "signals", "bitcoin", "technical-analysis", "paper-trading"],
+  "keywords": [
+    "crypto",
+    "trading",
+    "signals",
+    "bitcoin",
+    "technical-analysis",
+    "paper-trading"
+  ],
   "author": "SharedValueVending",
   "license": "ISC",
   "type": "commonjs",
@@ -33,11 +40,13 @@
     "mongoose": "^8.9.6",
     "node-fetch": "^2.7.0",
     "nodemailer": "^8.0.1",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
     "ws": "^8.19.0"
   },
   "devDependencies": {
-    "jest": "^30.2.0",
     "@playwright/test": "^1.49.0",
+    "jest": "^30.2.0",
     "standard-version": "^9.5.0"
   }
 }
