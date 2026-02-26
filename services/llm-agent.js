@@ -68,7 +68,10 @@ const BOOLEAN_SETTINGS = [
   'autoTrade', 'llmEnabled', 'autoExecuteActions', 'autoMoveBreakeven', 'autoTrailingStop',
   'featureBtcFilter', 'featureBtcCorrelation', 'featureSessionFilter', 'featurePartialTP',
   'featureLockIn', 'featureScoreRecheck', 'featureSlCap', 'featureMinSlDistance',
-  'featureConfidenceSizing', 'featureKellySizing', 'minRiskRewardEnabled', 'dcaEnabled'
+  'featureConfidenceSizing', 'featureKellySizing', 'minRiskRewardEnabled', 'dcaEnabled',
+  'featureThemeDetector', 'featurePriceActionConfluence', 'featureVolatilityFilter',
+  'featureVolumeConfirmation', 'featureFundingRateFilter', 'correlationFilterEnabled',
+  'expectancyFilterEnabled', 'paperLiveSync'
 ];
 
 /**
@@ -137,7 +140,7 @@ function parseJsonResponse(text) {
  * @param {Object} Trade - Trade model
  * @param {Function} getPerformanceStats
  * @param {Function} fetchLivePrice
- * @param {Object} [extraDeps] - Optional: fetchAllPrices, fetchAllCandles, fetchAllHistory, buildEngineOptions, analyzeAllCoins, getScoreHistory, getRegimeTimeline
+ * @param {Object} [extraDeps] - Optional: fetchAllPrices, fetchAllCandles, fetchAllHistory, buildEngineOptions, analyzeAllCoins, getScoreHistory, getRegimeTimeline, getMarketPulse, getTop3FullCached
  */
 async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePrice, extraDeps) {
   const stats = await getPerformanceStats(user._id);
@@ -216,13 +219,22 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
       if (prices && prices.length > 0) {
         const options = await extraDeps.buildEngineOptions(prices, allCandles, allHistory, user);
         const signals = extraDeps.analyzeAllCoins(prices, allCandles, allHistory, options);
-        ctx.liveSignals = (signals || []).slice(0, 12).map(s => ({
+        ctx.fullSignals = (signals || []).slice(0, 15);
+        ctx.liveSignals = ctx.fullSignals.map(s => ({
           symbol: s.coin?.symbol || s.coin?.id,
           coinId: s.coin?.id,
           signal: s.signal,
           score: s.score,
+          confidence: s.confidence,
           regime: s.regime,
-          strategyName: s.strategyName
+          strategyName: s.strategyName,
+          scoreBreakdown: s.scoreBreakdown,
+          reasoning: Array.isArray(s.reasoning) ? s.reasoning.join('; ') : s.reasoning,
+          timeframes: s.timeframes ? { '1H': s.timeframes['1H']?.score, '4H': s.timeframes['4H']?.score, '1D': s.timeframes['1D']?.score } : null,
+          entry: s.entry,
+          stopLoss: s.stopLoss,
+          takeProfit1: s.takeProfit1,
+          riskReward: s.riskReward
         }));
 
         // Score history for open-trade coins + top 3 from signals
@@ -245,6 +257,18 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
           ctx.regimeTimeline = tl.slice(-5).map(s => s.counts || {});
         }
       }
+
+      if (extraDeps.getTop3FullCached) {
+        try {
+          ctx.top3MarketScan = extraDeps.getTop3FullCached() || [];
+        } catch (e) { /* ignore */ }
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  if (extraDeps?.getMarketPulse) {
+    try {
+      ctx.marketPulse = await extraDeps.getMarketPulse();
     } catch (e) { /* ignore */ }
   }
 
@@ -253,10 +277,11 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
 
 /**
  * Execute a single action. Returns { ok, message }.
+ * @param {Object} actionContext - Optional: { fullSignals, top3MarketScan } for open_trade
  */
-async function executeAction(action, user, deps) {
+async function executeAction(action, user, deps, actionContext = {}) {
   const { tool, key, value } = action;
-  const { User, Trade, runBacktest, closeTrade, closeTradePartial, updateTradeLevels, fetchLivePrice } = deps;
+  const { User, Trade, runBacktest, closeTrade, closeTradePartial, updateTradeLevels, fetchLivePrice, openTrade } = deps;
 
   if (tool === 'change_setting') {
     if (!key || typeof key !== 'string') return { ok: false, message: 'Missing key' };
@@ -424,6 +449,120 @@ async function executeAction(action, user, deps) {
     return result.ok ? { ok: true, message: `Updated ${trade.symbol} take profit levels` } : result;
   }
 
+  if (tool === 'open_trade') {
+    const coinId = (action.coinId || '').toString().toLowerCase().trim();
+    const direction = (action.direction || '').toUpperCase();
+    if (!coinId) return { ok: false, message: 'Missing coinId' };
+    if (direction !== 'LONG' && direction !== 'SHORT') return { ok: false, message: 'direction must be LONG or SHORT' };
+    if (!openTrade) return { ok: false, message: 'openTrade not available' };
+
+    // Find signal from context (fullSignals = tracked coins, top3MarketScan = 80-coin scan)
+    const fullSignals = actionContext.fullSignals || [];
+    const top3Scan = actionContext.top3MarketScan || [];
+    const wantBuy = direction === 'LONG';
+    const matchSignal = (s) => {
+      const cid = (s.coin?.id || s.coinData?.id || '').toLowerCase();
+      if (cid !== coinId) return false;
+      const sig = s.signal || '';
+      if (wantBuy) return sig === 'STRONG_BUY' || sig === 'BUY';
+      return sig === 'STRONG_SELL' || sig === 'SELL';
+    };
+    let sig = fullSignals.find(matchSignal) || top3Scan.find(matchSignal);
+    if (!sig) return { ok: false, message: `No actionable signal for ${coinId} ${direction}. Check liveSignals or top3MarketScan.` };
+
+    let livePrice;
+    try { livePrice = await fetchLivePrice(coinId); } catch (e) { /* ignore */ }
+    if (!Number.isFinite(livePrice) || livePrice <= 0) {
+      livePrice = sig.coin?.price || sig.coinData?.price;
+    }
+    if (!Number.isFinite(livePrice) || livePrice <= 0) return { ok: false, message: `Could not get live price for ${coinId}` };
+
+    const strat = sig.topStrategies?.[0] || sig._bestStrat || {};
+    let useSL = strat.stopLoss || sig.stopLoss;
+    let useTP1 = strat.takeProfit1 || sig.takeProfit1;
+    let useTP2 = strat.takeProfit2 || sig.takeProfit2;
+    let useTP3 = strat.takeProfit3 || sig.takeProfit3;
+    const analysisEntry = strat.entry || sig.entry || sig.coin?.price || sig.coinData?.price;
+    if (analysisEntry && analysisEntry > 0 && useSL && Math.abs(livePrice - analysisEntry) / analysisEntry > 0.005) {
+      const ratio = livePrice / analysisEntry;
+      useSL = parseFloat((useSL * ratio).toFixed(6));
+      if (useTP1) useTP1 = parseFloat((useTP1 * ratio).toFixed(6));
+      if (useTP2) useTP2 = parseFloat((useTP2 * ratio).toFixed(6));
+      if (useTP3) useTP3 = parseFloat((useTP3 * ratio).toFixed(6));
+    }
+    if (!useSL) {
+      const defaultSlPct = 0.05;
+      useSL = direction === 'LONG' ? livePrice * (1 - defaultSlPct) : livePrice * (1 + defaultSlPct);
+      useSL = parseFloat(useSL.toFixed(6));
+    }
+    if (direction === 'LONG') {
+      if (useTP1 && useTP1 <= livePrice * 0.99) useTP1 = null;
+      if (useTP2 && useTP2 <= livePrice * 0.99) useTP2 = null;
+      if (useTP3 && useTP3 <= livePrice * 0.99) useTP3 = null;
+      if (useSL >= livePrice * 1.01) useSL = livePrice * 0.95;
+    } else {
+      if (useTP1 && useTP1 >= livePrice * 1.01) useTP1 = null;
+      if (useTP2 && useTP2 >= livePrice * 1.01) useTP2 = null;
+      if (useTP3 && useTP3 >= livePrice * 1.01) useTP3 = null;
+      if (useSL <= livePrice * 0.99) useSL = livePrice * 1.05;
+    }
+
+    const { getCoinMeta } = require('./crypto-api');
+    const meta = getCoinMeta(coinId);
+    const coinData = sig.coin || sig.coinData || {};
+    const symbol = meta?.symbol || coinData.symbol || coinId.toUpperCase();
+    const useStratType = (strat && strat.id) || sig.strategyType || 'auto';
+    let strategyStats = {};
+    try {
+      const StrategyWeight = require('../models/StrategyWeight');
+      const sw = await StrategyWeight.find({ active: true }).lean();
+      (sw || []).forEach(s => {
+        strategyStats[s.strategyId] = {
+          totalTrades: s.performance?.totalTrades || 0,
+          winRate: s.performance?.winRate ?? 0,
+          avgRR: s.performance?.avgRR ?? 0
+        };
+      });
+    } catch (e) { /* ignore */ }
+
+    const suggestLeverage = require('./paper-trading').suggestLeverage;
+    const lev = user.settings?.disableLeverage ? 1
+      : (user.settings?.useFixedLeverage ? (user.settings?.defaultLeverage ?? 2)
+        : (sig.suggestedLeverage || suggestLeverage(sig.score || 50, sig.regime || 'mixed', sig.indicators?.volatilityState || 'normal')));
+
+    const tradeData = {
+      coinId,
+      symbol,
+      direction,
+      entry: livePrice,
+      stopLoss: useSL,
+      takeProfit1: useTP1,
+      takeProfit2: useTP2,
+      takeProfit3: useTP3,
+      volume24h: coinData.volume24h,
+      leverage: lev,
+      score: sig.score || 50,
+      strategyType: useStratType,
+      regime: sig.regime || 'unknown',
+      reasoning: sig.reasoning || [],
+      indicators: sig.indicators || {},
+      scoreBreakdown: sig.scoreBreakdown || {},
+      stopType: sig.stopType || 'ATR_SR_FIB',
+      stopLabel: sig.stopLabel || 'ATR + S/R + Fib',
+      tpType: sig.tpType || 'R_multiple',
+      tpLabel: sig.tpLabel || 'R multiples',
+      strategyStats,
+      autoTriggered: false
+    };
+
+    try {
+      await openTrade(user._id, tradeData);
+      return { ok: true, message: `Opened ${direction} on ${symbol} at $${livePrice.toFixed(2)}` };
+    } catch (err) {
+      return { ok: false, message: `Open trade failed: ${err.message}` };
+    }
+  }
+
   return { ok: false, message: `Unknown tool: ${tool}` };
 }
 
@@ -449,11 +588,13 @@ async function runAgent(userId, deps, opts = {}) {
     buildEngineOptions: deps.buildEngineOptions,
     analyzeAllCoins: deps.analyzeAllCoins,
     getScoreHistory: deps.getScoreHistory,
-    getRegimeTimeline: deps.getRegimeTimeline
+    getRegimeTimeline: deps.getRegimeTimeline,
+    getMarketPulse: deps.getMarketPulse,
+    getTop3FullCached: deps.getTop3FullCached
   };
   const ctx = await buildContext(user, User, Trade, getPerformanceStats, deps.fetchLivePrice, extraDeps);
 
-  const systemPrompt = `You are an autonomous crypto trading assistant with full market and portfolio context. You can change settings, run backtests, monitor open trades, close/reduce them, and exclude/include coins from auto-trade.
+  const systemPrompt = `You are an autonomous crypto trading assistant with full market and portfolio context. You have access to everything: live signals (tracked 20 coins + top 3 from 80-coin market scan), Market Pulse (Fear & Greed, dominance), open trades, performance stats, score history, regime timeline. You can change settings, run backtests, open new trades, close/reduce positions, move stops, and exclude/include coins.
 
 Reply ONLY with valid JSON in this exact format (no other text):
 {
@@ -461,6 +602,7 @@ Reply ONLY with valid JSON in this exact format (no other text):
   "actions": [
     { "tool": "change_setting", "key": "settingName", "value": numberOrBoolean },
     { "tool": "run_backtest", "days": 14 },
+    { "tool": "open_trade", "coinId": "ethereum", "direction": "LONG" },
     { "tool": "close_trade", "tradeId": "trade_id_string" },
     { "tool": "reduce_position", "tradeId": "trade_id_string", "percent": 50 },
     { "tool": "exclude_coin", "coinId": "bitcoin" },
@@ -474,16 +616,17 @@ Reply ONLY with valid JSON in this exact format (no other text):
 Available tools:
 - change_setting: key = setting name, value = number, boolean, or string. Allowed: riskPerTrade (0.5-10), riskDollarsPerTrade (10-10000), maxOpenTrades (1-10), autoTradeMinScore (30-95), autoTrade (bool), cooldownHours (0-168), defaultLeverage (1-20), minRiskReward (1-5), maxDailyLossPercent (0-20), autoTradeCoinsMode (tracked|tracked+top1|top1), riskMode (percent|dollar), autoMoveBreakeven (bool), autoTrailingStop (bool).
 - run_backtest: days = 7 to 14. Runs historical simulation.
+- open_trade: coinId = coin id (e.g. ethereum, solana), direction = LONG or SHORT. Opens a new trade using the signal from liveSignals or top3MarketScan. Only use coins that have an actionable signal (BUY/STRONG_BUY for LONG, SELL/STRONG_SELL for SHORT) in the context.
 - close_trade: tradeId = id of open trade. Closes the entire position.
 - reduce_position: tradeId = id of open trade, percent = 10-99 (how much to close). Reduces position size.
-- exclude_coin: coinId = coin id (e.g. bitcoin, ethereum). Excludes from auto-trade.
+- exclude_coin: coinId = coin id. Excludes from auto-trade.
 - include_coin: coinId = coin id. Re-includes in auto-trade.
-- move_stop_loss: tradeId = id of open trade, stopLoss = new stop price (number). LONG: stop must be below entry. SHORT: stop must be above entry.
+- move_stop_loss: tradeId = id of open trade, stopLoss = new stop price (number). LONG: stop below entry. SHORT: stop above entry.
 - move_to_breakeven: tradeId = id of open trade. Moves stop to entry (with fee buffer).
 - update_take_profit: tradeId = id of open trade, takeProfit1/takeProfit2/takeProfit3 = new TP prices (provide at least one). LONG: TPs above entry. SHORT: TPs below entry.
 
 If no changes needed, use "actions": [].
-Be conservative. Only close or reduce when the trade is clearly against you or risk management demands it.`;
+Be conservative. Only open trades when the signal is strong and fits your risk rules. Only close or reduce when the trade is clearly against you or risk management demands it.`;
 
   const promptParts = [
     `Current state:`,
@@ -506,8 +649,29 @@ Be conservative. Only close or reduce when the trade is clearly against you or r
     promptParts.push(`- Win/loss by strategy: ${JSON.stringify(ctx.stats.byStrategy)}`);
   }
 
+  if (ctx.marketPulse) {
+    const mp = ctx.marketPulse;
+    const fg = mp.fearGreed;
+    const g = mp.global || {};
+    promptParts.push(`- Market Pulse: Fear & Greed ${fg?.value ?? 'N/A'} (${fg?.classification ?? 'N/A'}), BTC dom ${g.btcDominance != null ? g.btcDominance.toFixed(1) + '%' : 'N/A'}, ETH dom ${g.ethDominance != null ? g.ethDominance.toFixed(1) + '%' : 'N/A'}, mcap 24h ${g.marketCapChange24h != null ? (g.marketCapChange24h >= 0 ? '+' : '') + g.marketCapChange24h.toFixed(2) + '%' : 'N/A'}`);
+  }
   if (ctx.liveSignals && ctx.liveSignals.length > 0) {
-    promptParts.push(`- Live signals (top ${ctx.liveSignals.length}): ${JSON.stringify(ctx.liveSignals)}`);
+    promptParts.push(`- Live signals (tracked coins, top ${ctx.liveSignals.length}): ${JSON.stringify(ctx.liveSignals)}`);
+  }
+  if (ctx.top3MarketScan && ctx.top3MarketScan.length > 0) {
+    const top3 = ctx.top3MarketScan.map(s => ({
+      coinId: s.coin?.id || s.coinData?.id,
+      symbol: s.coin?.symbol || s.coinData?.symbol,
+      signal: s.signal,
+      score: s.score,
+      regime: s.regime,
+      strategyName: s.strategyName,
+      entry: s.entry,
+      stopLoss: s.stopLoss,
+      takeProfit1: s.takeProfit1,
+      riskReward: s.riskReward
+    }));
+    promptParts.push(`- Top 3 from 80-coin market scan (outside tracked 20): ${JSON.stringify(top3)}`);
   }
   if (ctx.scoreHistory && Object.keys(ctx.scoreHistory).length > 0) {
     promptParts.push(`- Score history (recent): ${JSON.stringify(ctx.scoreHistory)}`);
@@ -541,9 +705,10 @@ Be conservative. Only close or reduce when the trade is clearly against you or r
 
   const actionsExecuted = [];
   const actionsFailed = [];
+  const actionContext = { fullSignals: ctx.fullSignals || [], top3MarketScan: ctx.top3MarketScan || [] };
   for (const action of parsed.actions) {
     if (!action.tool) continue;
-    const result = await executeAction(action, user, deps);
+    const result = await executeAction(action, user, deps, actionContext);
     if (result.ok) {
       actionsExecuted.push({ ...action, message: result.message });
     } else {

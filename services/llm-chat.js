@@ -45,7 +45,9 @@ async function runChat(userId, messages, deps, opts = {}) {
         buildEngineOptions: deps.buildEngineOptions,
         analyzeAllCoins: deps.analyzeAllCoins,
         getScoreHistory: deps.getScoreHistory,
-        getRegimeTimeline: deps.getRegimeTimeline
+        getRegimeTimeline: deps.getRegimeTimeline,
+        getMarketPulse: deps.getMarketPulse,
+        getTop3FullCached: deps.getTop3FullCached
       }
     : null;
 

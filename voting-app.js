@@ -3324,11 +3324,12 @@ app.post('/api/llm-chat', requireLogin, async (req, res) => {
       return res.status(400).json({ success: false, error: 'messages array required' });
     }
     const { getMarketPulse } = require('./services/market-pulse');
+    const { getTop3FullCached } = require('./services/market-scanner');
     const { runChat } = require('./services/llm-chat');
     const deps = {
-      User, Trade, getPerformanceStats, closeTrade, closeTradePartial, updateTradeLevels, fetchLivePrice, getMarketPulse,
+      User, Trade, getPerformanceStats, closeTrade, closeTradePartial, updateTradeLevels, fetchLivePrice, openTrade,
       fetchAllPrices, fetchAllCandles, fetchAllHistory, buildEngineOptions, analyzeAllCoins,
-      getScoreHistory, getRegimeTimeline, runBacktest
+      getScoreHistory, getRegimeTimeline, getMarketPulse, getTop3FullCached, runBacktest
     };
     const executeActions = req.body?.executeActions === true;
     const result = await runChat(req.session.userId, messages, deps, { executeActions });
@@ -3351,10 +3352,12 @@ app.post('/api/llm-agent/run', requireLogin, async (req, res) => {
       return res.status(429).json({ success: false, error: 'Wait 1 minute between runs' });
     }
     _llmAgentLastTrigger[uid] = now;
+    const { getMarketPulse } = require('./services/market-pulse');
+    const { getTop3FullCached } = require('./services/market-scanner');
     const deps = {
-      User, Trade, runBacktest, getPerformanceStats, closeTrade, closeTradePartial, updateTradeLevels, fetchLivePrice,
+      User, Trade, runBacktest, getPerformanceStats, closeTrade, closeTradePartial, updateTradeLevels, fetchLivePrice, openTrade,
       fetchAllPrices, fetchAllCandles, fetchAllHistory, buildEngineOptions, analyzeAllCoins,
-      getScoreHistory, getRegimeTimeline
+      getScoreHistory, getRegimeTimeline, getMarketPulse, getTop3FullCached
     };
     const result = await runAgent(uid, deps);
     res.json(result);
@@ -3664,10 +3667,12 @@ async function runLlmAgentForUsers() {
   if (!dbConnected) return;
   try {
     const users = await User.find({ 'settings.llmAgentEnabled': true }).select('_id settings llmAgentLastRun').lean();
+    const { getMarketPulse } = require('./services/market-pulse');
+    const { getTop3FullCached } = require('./services/market-scanner');
     const deps = {
-      User, Trade, runBacktest, getPerformanceStats, closeTrade, closeTradePartial, updateTradeLevels, fetchLivePrice,
+      User, Trade, runBacktest, getPerformanceStats, closeTrade, closeTradePartial, updateTradeLevels, fetchLivePrice, openTrade,
       fetchAllPrices, fetchAllCandles, fetchAllHistory, buildEngineOptions, analyzeAllCoins,
-      getScoreHistory, getRegimeTimeline
+      getScoreHistory, getRegimeTimeline, getMarketPulse, getTop3FullCached
     };
     for (const u of users) {
       const intervalMin = u.settings?.llmAgentIntervalMinutes ?? 60;
