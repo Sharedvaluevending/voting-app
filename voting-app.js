@@ -35,6 +35,7 @@ const { runBacktest, runBacktestForCoin } = require('./services/backtest');
 const bitget = require('./services/bitget');
 const { getWebSocketPrice, getAllWebSocketPrices, addBrowserClient, isWebSocketConnected } = require('./services/websocket-prices');
 const { approveTrade, checkOllamaReachable } = require('./services/ollama-client');
+const { runAgent } = require('./services/llm-agent');
 const StrategyWeight = require('./models/StrategyWeight');
 
 const User = require('./models/User');
@@ -1216,6 +1217,14 @@ app.post('/account/settings', requireLogin, async (req, res) => {
     }
     if (req.body.ollamaModel != null && typeof req.body.ollamaModel === 'string') {
       s.ollamaModel = req.body.ollamaModel.trim() || 'llama3.2';
+    }
+    if (req.body.llmAgentEnabled !== undefined) {
+      const val = req.body.llmAgentEnabled;
+      s.llmAgentEnabled = val === 'true' || (Array.isArray(val) && val.includes('true'));
+    }
+    if (req.body.llmAgentIntervalMinutes != null) {
+      const v = Math.min(1440, Math.max(15, parseInt(req.body.llmAgentIntervalMinutes, 10) || 60));
+      s.llmAgentIntervalMinutes = v;
     }
     if (req.body.useFixedLeverage !== undefined) {
       const val = req.body.useFixedLeverage;
@@ -3279,6 +3288,26 @@ app.post('/api/trigger-score-check', requireLogin, async (req, res) => {
 });
 
 // ====================================================
+// LLM AGENT: Manual trigger
+// ====================================================
+const _llmAgentLastTrigger = {};
+app.post('/api/llm-agent/run', requireLogin, async (req, res) => {
+  try {
+    const uid = req.session.userId;
+    const now = Date.now();
+    if (_llmAgentLastTrigger[uid] && now - _llmAgentLastTrigger[uid] < 60000) {
+      return res.status(429).json({ success: false, error: 'Wait 1 minute between runs' });
+    }
+    _llmAgentLastTrigger[uid] = now;
+    const deps = { User, Trade, runBacktest, getPerformanceStats };
+    const result = await runAgent(uid, deps);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ====================================================
 // OLLAMA STATUS (check if local LLM is reachable)
 // ====================================================
 app.get('/api/ollama/status', requireLogin, async (req, res) => {
@@ -3570,6 +3599,35 @@ async function runAutoTrade() {
 setInterval(runAutoTrade, 2 * 60 * 1000);
 // First auto-trade check 45s after startup
 setTimeout(runAutoTrade, 45 * 1000);
+
+// ====================================================
+// LLM AGENT: Autonomous agent that can change settings, run backtests
+// Runs periodically for users with llmAgentEnabled
+// ====================================================
+async function runLlmAgentForUsers() {
+  if (!dbConnected) return;
+  try {
+    const users = await User.find({ 'settings.llmAgentEnabled': true }).select('_id settings llmAgentLastRun').lean();
+    const deps = { User, Trade, runBacktest, getPerformanceStats };
+    for (const u of users) {
+      const intervalMin = u.settings?.llmAgentIntervalMinutes ?? 60;
+      const lastRun = u.llmAgentLastRun?.at ? new Date(u.llmAgentLastRun.at).getTime() : 0;
+      if (Date.now() - lastRun < intervalMin * 60 * 1000) continue;
+      try {
+        const result = await runAgent(u._id, deps);
+        if (result.success && (result.actionsExecuted?.length || result.actionsFailed?.length)) {
+          console.log(`[LLMAgent] ${u._id}: ${result.actionsExecuted?.length || 0} ok, ${result.actionsFailed?.length || 0} failed`);
+        }
+      } catch (err) {
+        console.warn('[LLMAgent]', err.message);
+      }
+    }
+  } catch (err) {
+    console.warn('[LLMAgent]', err.message);
+  }
+}
+setInterval(runLlmAgentForUsers, 15 * 60 * 1000); // Check every 15 min
+setTimeout(runLlmAgentForUsers, 5 * 60 * 1000);   // First run 5 min after startup
 
 // ====================================================
 // SCORE HISTORY API (track score evolution per coin)

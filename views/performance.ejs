@@ -251,6 +251,50 @@
             }
           </script>
         </div>
+        <div style="flex-basis:100%;margin-top:12px;padding-top:12px;border-top:1px solid #1e2a3a;">
+          <h5 style="color:#8b5cf6;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px 0;">LLM Agent (Full Access)</h5>
+          <p style="font-size:11px;color:#6b7280;margin:0 0 8px 0;">Autonomous agent can change settings, run backtests, adjust risk per trade, and optimize. Uses same Ollama above.</p>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="hidden" name="llmAgentEnabled" value="false">
+              <input type="checkbox" name="llmAgentEnabled" id="llmAgentEnabled" value="true" <%= (user.settings && user.settings.llmAgentEnabled) ? 'checked' : '' %>>
+              <span style="font-size:12px;color:#9ca3af;">Enable LLM Agent</span>
+            </label>
+            <div>
+              <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:2px;">Run every (min)</label>
+              <input type="number" name="llmAgentIntervalMinutes" min="15" max="1440" value="<%= (user.settings && user.settings.llmAgentIntervalMinutes) || 60 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;">
+            </div>
+            <button type="button" id="llmAgentRunBtn" onclick="runLlmAgent()" style="padding:6px 14px;background:#8b5cf6;border:none;color:#fff;border-radius:6px;font-size:12px;cursor:pointer;">Run now</button>
+          </div>
+          <% if (user.llmAgentLastRun) { %>
+          <div style="margin-top:8px;padding:8px 12px;background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.3);border-radius:6px;font-size:11px;">
+            <strong>Last run:</strong> <%= user.llmAgentLastRun.at ? new Date(user.llmAgentLastRun.at).toLocaleString() : 'N/A' %>
+            <% if (user.llmAgentLastRun.reasoning) { %><br><em><%= user.llmAgentLastRun.reasoning %></em><% } %>
+            <% if (user.llmAgentLastRun.actionsExecuted && user.llmAgentLastRun.actionsExecuted.length) { %><br>Applied: <%= user.llmAgentLastRun.actionsExecuted.map(function(a){ return a.message; }).join('; ') %><% } %>
+            <% if (user.llmAgentLastRun.actionsFailed && user.llmAgentLastRun.actionsFailed.length) { %><br style="color:#ef4444;">Failed: <%= user.llmAgentLastRun.actionsFailed.map(function(a){ return a.message; }).join('; ') %><% } %>
+          </div>
+          <% } %>
+          <script>
+            async function runLlmAgent() {
+              var btn = document.getElementById('llmAgentRunBtn');
+              btn.disabled = true;
+              btn.textContent = 'Running...';
+              try {
+                var res = await fetch('/api/llm-agent/run', { method: 'POST', credentials: 'same-origin' });
+                var data = await res.json();
+                if (data.success) {
+                  location.reload();
+                } else {
+                  alert(data.error || 'Failed');
+                }
+              } catch (e) {
+                alert('Error: ' + e.message);
+              }
+              btn.disabled = false;
+              btn.textContent = 'Run now';
+            }
+          </script>
+        </div>
       </div>
     </div>
 

@@ -78,6 +78,8 @@ const userSchema = new mongoose.Schema({
     llmEnabled: { type: Boolean, default: false },
     ollamaUrl: { type: String, default: 'http://localhost:11434' },
     ollamaModel: { type: String, default: 'llama3.2' },
+    llmAgentEnabled: { type: Boolean, default: false },
+    llmAgentIntervalMinutes: { type: Number, default: 60, min: 15, max: 1440 },
     // Which coins to auto-trade: 'tracked' (20 only), 'tracked+top1' (20 + top market pick), 'top1' (only top market pick)
     autoTradeCoinsMode: { type: String, enum: ['tracked', 'tracked+top1', 'top1'], default: 'tracked' },
     // Signal source: 'original' = scoring engine, 'indicators' = Strategy Builder rules, 'both' = either
@@ -157,6 +159,8 @@ const userSchema = new mongoose.Schema({
     riskPerLiveTrade: { type: Number, default: 1, min: 0.5, max: 5 },
     autoOpenMinScore: { type: Number, default: 52, min: 50, max: 95 }
   },
+  llmAgentLastBacktest: { type: mongoose.Schema.Types.Mixed },
+  llmAgentLastRun: { type: mongoose.Schema.Types.Mixed },
   stats: {
     totalTrades: { type: Number, default: 0 },
     wins: { type: Number, default: 0 },

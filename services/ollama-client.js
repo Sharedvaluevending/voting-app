@@ -24,31 +24,40 @@ const TIMEOUT_MS = 15000;
  * @returns {Promise<boolean>} true = approve, false = reject or error
  */
 async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'llama3.2') {
-  const url = baseUrl.replace(/\/$/, '') + '/api/chat';
+  const base = baseUrl.replace(/\/$/, '');
   const prompt = buildPrompt(ctx);
+  const systemPrompt = 'You are a crypto trading advisor. Reply ONLY with JSON: {"approve":true} or {"approve":false,"reason":"..."}. No other text.';
 
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-    const res = await fetch(url, {
+    // Try /api/chat first (modern Ollama). Fallback to /api/generate (older versions).
+    let res = await fetch(base + '/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: model || 'llama3.2',
         messages: [
-          {
-            role: 'system',
-            content: 'You are a crypto trading advisor. Reply ONLY with JSON: {"approve":true} or {"approve":false,"reason":"..."}. No other text.'
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: prompt }
         ]
       }),
       signal: controller.signal
     });
+
+    if (res.status === 404) {
+      // Older Ollama: use /api/generate
+      res = await fetch(base + '/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: model || 'llama3.2',
+          prompt: systemPrompt + '\n\n' + prompt
+        }),
+        signal: controller.signal
+      });
+    }
 
     clearTimeout(timeout);
 
@@ -58,7 +67,7 @@ async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'llama3.2') {
     }
 
     const data = await res.json();
-    const text = data.message?.content || '';
+    const text = data.message?.content || data.response || '';
     const json = parseJsonResponse(text);
     if (json && json.approve === true) {
       return true;
