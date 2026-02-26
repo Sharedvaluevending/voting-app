@@ -33,10 +33,10 @@ function getHeaders(baseUrl) {
  * @param {string} ctx.regime - Market regime
  * @param {number} ctx.riskReward - R:R ratio
  * @param {string} baseUrl - Ollama base URL
- * @param {string} model - Ollama model name (default llama3.2)
+ * @param {string} model - Ollama model name (default gpt-oss:20b-cloud)
  * @returns {Promise<boolean>} true = approve, false = reject or error
  */
-async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'llama3.2') {
+async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'gpt-oss:20b-cloud') {
   const base = baseUrl.replace(/\/$/, '');
   const prompt = buildPrompt(ctx);
   const systemPrompt = 'You are a crypto trading advisor. Reply ONLY with JSON: {"approve":true} or {"approve":false,"reason":"..."}. No other text.';
@@ -47,13 +47,13 @@ async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'llama3.2') {
 
     const headers = getHeaders(base);
 
-    const generateBody = { model: model || 'llama3.2', prompt: systemPrompt + '\n\n' + prompt };
+    const generateBody = { model: model || 'gpt-oss:20b', prompt: systemPrompt + '\n\n' + prompt };
     const chatBody = {
-      model: model || 'llama3.2',
+      model: model || 'gpt-oss:20b',
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }]
     };
-    const openaiBody = { model: model || 'llama3.2', messages: chatBody.messages };
-    const responsesBody = { model: model || 'llama3.2', input: systemPrompt + '\n\n' + prompt };
+    const openaiBody = { model: model || 'gpt-oss:20b-cloud', messages: chatBody.messages };
+    const responsesBody = { model: model || 'gpt-oss:20b-cloud', input: systemPrompt + '\n\n' + prompt };
 
     // For ngrok: try multiple endpoints (some return 404 through ngrok)
     let res;
@@ -135,7 +135,7 @@ async function checkOllamaReachable(baseUrl = DEFAULT_URL) {
     const statusText = res.statusText || '';
     let error = `${res.status} ${statusText}`;
     if (res.status === 502) {
-      error += ' — ngrok can\'t reach Ollama. Is Ollama running? (ollama run llama3.2)';
+      error += ' — ngrok can\'t reach Ollama. Is Ollama running? (ollama run gpt-oss:20b-cloud)';
     } else if (res.status === 404) {
       error += ' — Wrong URL or Ollama version?';
     } else if (res.status === 403 || res.status === 401) {

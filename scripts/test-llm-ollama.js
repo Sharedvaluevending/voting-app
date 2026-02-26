@@ -39,7 +39,7 @@ async function main() {
 
   if (!r1.ok) {
     console.log('\n  Ollama not reachable - skipping approveTrade test.');
-    console.log('  Run: ollama run llama3.2  (or set OLLAMA_URL for ngrok)\n');
+    console.log('  Run: ollama run gpt-oss:20b-cloud  (or set OLLAMA_URL for ngrok)\n');
   } else {
     // 2. approveTrade (POST /api/chat or /api/generate)
   const r2 = await test('approveTrade (chat/generate)', async () => {
@@ -52,7 +52,7 @@ async function main() {
       strategy: 'Trend Following',
       regime: 'trending',
       riskReward: 1.8
-    }, OLLAMA_URL, 'llama3.2');
+    }, OLLAMA_URL, 'gpt-oss:20b-cloud');
     return typeof result === 'boolean' ? (result ? 'approved' : 'rejected') : 'error';
   });
   if (r2.ok) passed++; else failed++;

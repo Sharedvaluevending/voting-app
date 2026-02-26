@@ -1216,7 +1216,7 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       s.ollamaUrl = url || 'http://localhost:11434';
     }
     if (req.body.ollamaModel != null && typeof req.body.ollamaModel === 'string') {
-      s.ollamaModel = req.body.ollamaModel.trim() || 'llama3.2';
+      s.ollamaModel = req.body.ollamaModel.trim() || 'gpt-oss:20b-cloud';
     }
     if (req.body.llmAgentEnabled !== undefined) {
       const val = req.body.llmAgentEnabled;
@@ -3575,7 +3575,7 @@ async function runAutoTrade() {
                 strategy: useStratType,
                 regime: sig.regime || 'unknown',
                 riskReward: sig._bestStrat?.riskReward ?? sig.riskReward
-              }, user.settings?.ollamaUrl || 'http://localhost:11434', user.settings?.ollamaModel || 'llama3.2');
+              }, user.settings?.ollamaUrl || 'http://localhost:11434', user.settings?.ollamaModel || 'gpt-oss:20b-cloud');
               if (!approved) {
                 console.log(`[AutoTrade] LLM rejected ${tradeData.symbol} ${sig._direction} for ${user.username}`);
                 continue;

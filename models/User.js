@@ -77,7 +77,7 @@ const userSchema = new mongoose.Schema({
     autoTradeMinScore: { type: Number, default: 56, min: 30, max: 95 },
     llmEnabled: { type: Boolean, default: false },
     ollamaUrl: { type: String, default: 'http://localhost:11434' },
-    ollamaModel: { type: String, default: 'llama3.2' },
+    ollamaModel: { type: String, default: 'gpt-oss:20b-cloud' },
     llmAgentEnabled: { type: Boolean, default: false },
     llmAgentIntervalMinutes: { type: Number, default: 60, min: 15, max: 1440 },
     // Which coins to auto-trade: 'tracked' (20 only), 'tracked+top1' (20 + top market pick), 'top1' (only top market pick)
