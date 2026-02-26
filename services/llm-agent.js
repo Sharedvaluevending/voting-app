@@ -1,13 +1,23 @@
 /**
- * LLM Agent - autonomous agent that can change settings, run backtests, and optimize.
+ * LLM Agent - autonomous agent with FULL platform control.
  * Uses Ollama. Tools are validated and bounded for safety.
+ *
+ * The LLM has access to:
+ * - All feature toggles (turn on/off any trading feature)
+ * - All numeric settings (risk, leverage, scores, etc.)
+ * - Learning engine weights (read, adjust, optimize, reset)
+ * - Strategy comparison data (performance by strategy x regime)
+ * - Trade management (open, close, reduce, stops, TPs)
+ * - Backtesting (run historical sims with current settings)
+ * - Coin management (exclude, include, set weight allocation)
+ * - Full market context (signals, scores, confidence, breakdowns, indicators)
  */
 
 const fetch = require('node-fetch');
 
-const TIMEOUT_MS = 60000; // 60s for agent (backtest can be slow)
+const TIMEOUT_MS = 90000; // 90s for agent (backtest + weight ops can be slow)
 
-// Allowed settings with min/max bounds. Keys must match User.settings.
+// Allowed numeric settings with min/max bounds
 const SETTING_BOUNDS = {
   riskPerTrade: { min: 0.5, max: 10 },
   riskDollarsPerTrade: { min: 10, max: 10000 },
@@ -20,8 +30,43 @@ const SETTING_BOUNDS = {
   maxDailyLossPercent: { min: 0, max: 20 },
   drawdownThresholdPercent: { min: 5, max: 50 },
   scoreCheckGraceMinutes: { min: 0, max: 60 },
-  stopCheckGraceMinutes: { min: 0, max: 30 }
+  stopCheckGraceMinutes: { min: 0, max: 30 },
+  minVolume24hUsd: { min: 0, max: 500000000 },
+  minExpectancy: { min: -1, max: 2 },
+  trailingTpAtrMultiplier: { min: 0.5, max: 5 },
+  trailingTpFixedPercent: { min: 0.5, max: 10 },
+  dcaMaxAdds: { min: 1, max: 10 },
+  dcaDipPercent: { min: 0.5, max: 20 },
+  dcaAddSizePercent: { min: 25, max: 200 },
+  dcaMinScore: { min: 30, max: 95 },
+  makerFeePercent: { min: 0, max: 1 },
+  takerFeePercent: { min: 0, max: 1 },
+  llmAgentIntervalMinutes: { min: 15, max: 1440 }
 };
+
+const ENUM_SETTINGS = {
+  autoTradeCoinsMode: ['tracked', 'tracked+top1', 'top1'],
+  riskMode: ['percent', 'dollar'],
+  tpMode: ['fixed', 'trailing'],
+  trailingTpDistanceMode: ['atr', 'fixed'],
+  autoTradeSignalMode: ['original', 'indicators', 'both'],
+  autoTradeBothLogic: ['or', 'and'],
+  coinWeightStrength: ['conservative', 'moderate', 'aggressive']
+};
+
+const BOOLEAN_SETTINGS = [
+  'autoTrade', 'llmEnabled', 'autoExecuteActions', 'autoMoveBreakeven', 'autoTrailingStop',
+  'featureBtcFilter', 'featureBtcCorrelation', 'featureSessionFilter', 'featurePartialTP',
+  'featureLockIn', 'featureScoreRecheck', 'featureSlCap', 'featureMinSlDistance',
+  'featureConfidenceSizing', 'featureKellySizing', 'minRiskRewardEnabled', 'dcaEnabled',
+  'featureThemeDetector', 'featurePriceActionConfluence', 'featureVolatilityFilter',
+  'featureVolumeConfirmation', 'featureFundingRateFilter', 'correlationFilterEnabled',
+  'expectancyFilterEnabled', 'paperLiveSync', 'drawdownSizingEnabled', 'useFixedLeverage',
+  'disableLeverage', 'coinWeightEnabled', 'llmAgentEnabled'
+];
+
+// Valid weight dimensions that can be adjusted
+const WEIGHT_DIMENSIONS = ['trend', 'momentum', 'volume', 'structure', 'volatility', 'riskQuality'];
 
 function userSettingsToBacktestFeatures(s) {
   if (!s) return {};
@@ -59,24 +104,10 @@ function userSettingsToBacktestFeatures(s) {
   };
 }
 
-const ENUM_SETTINGS = {
-  autoTradeCoinsMode: ['tracked', 'tracked+top1', 'top1'],
-  riskMode: ['percent', 'dollar']
-};
+// ====================================================
+// Ollama call helpers
+// ====================================================
 
-const BOOLEAN_SETTINGS = [
-  'autoTrade', 'llmEnabled', 'autoExecuteActions', 'autoMoveBreakeven', 'autoTrailingStop',
-  'featureBtcFilter', 'featureBtcCorrelation', 'featureSessionFilter', 'featurePartialTP',
-  'featureLockIn', 'featureScoreRecheck', 'featureSlCap', 'featureMinSlDistance',
-  'featureConfidenceSizing', 'featureKellySizing', 'minRiskRewardEnabled', 'dcaEnabled',
-  'featureThemeDetector', 'featurePriceActionConfluence', 'featureVolatilityFilter',
-  'featureVolumeConfirmation', 'featureFundingRateFilter', 'correlationFilterEnabled',
-  'expectancyFilterEnabled', 'paperLiveSync'
-];
-
-/**
- * Call Ollama with agent prompt.
- */
 function isNgrokUrl(url) {
   return url && (url.includes('ngrok-free') || url.includes('ngrok.io'));
 }
@@ -133,15 +164,10 @@ function parseJsonResponse(text) {
   return null;
 }
 
-/**
- * Build context for the agent.
- * @param {Object} user
- * @param {Object} User - User model
- * @param {Object} Trade - Trade model
- * @param {Function} getPerformanceStats
- * @param {Function} fetchLivePrice
- * @param {Object} [extraDeps] - Optional: fetchAllPrices, fetchAllCandles, fetchAllHistory, buildEngineOptions, analyzeAllCoins, getScoreHistory, getRegimeTimeline, getMarketPulse, getTop3FullCached
- */
+// ====================================================
+// Context building (enriched with learning, badges, feature state)
+// ====================================================
+
 async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePrice, extraDeps) {
   const stats = await getPerformanceStats(user._id);
   const openTradesRaw = await Trade.find({ userId: user._id, status: 'OPEN' }).lean();
@@ -166,6 +192,10 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
       }
       pnlPercent = (pnl / (t.margin || t.positionSize)) * 100;
     }
+
+    const badges = (t.actions || []).map(a => a.type).filter(Boolean);
+    const lastAction = t.actions && t.actions.length > 0 ? t.actions[t.actions.length - 1] : null;
+
     openTrades.push({
       tradeId: t._id.toString(),
       symbol: t.symbol,
@@ -178,9 +208,26 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
       pnl,
       pnlPercent,
       score: t.score,
+      llmConfidence: t.llmConfidence,
       strategyType: t.strategyType,
       regime: t.regime,
-      entryTime: t.entryTime
+      entryTime: t.entryTime,
+      stopLoss: t.stopLoss,
+      takeProfit1: t.takeProfit1,
+      takeProfit2: t.takeProfit2,
+      takeProfit3: t.takeProfit3,
+      leverage: t.leverage,
+      breakevenHit: t.breakevenHit,
+      trailingActivated: t.trailingActivated,
+      reducedByScore: t.reducedByScore,
+      badges,
+      lastAction: lastAction ? { type: lastAction.type, description: lastAction.description, timestamp: lastAction.timestamp } : null,
+      scoreBreakdown: t.scoreBreakdownAtEntry,
+      reasoning: t.reasoning,
+      dcaCount: t.dcaCount || 0,
+      maxDrawdownPercent: t.maxDrawdownPercent || 0,
+      maxProfitPercent: t.maxProfitPercent || 0,
+      timeHeld: t.entryTime ? Math.round((Date.now() - new Date(t.entryTime).getTime()) / 60000) + 'min' : 'unknown'
     });
   }
 
@@ -198,14 +245,54 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
       pnlPercent: t.pnlPercent,
       status: t.status,
       strategyType: t.strategyType,
-      regime: t.regime
+      regime: t.regime,
+      score: t.score,
+      llmConfidence: t.llmConfidence,
+      badges: (t.actions || []).map(a => a.type).filter(Boolean),
+      closeReason: t.closeReason,
+      riskReward: t.margin > 0 ? Math.abs(t.pnl / t.margin) : 0
     })),
     settings: user.settings || {},
     lastBacktest: user.llmAgentLastBacktest || null,
     liveSignals: null,
     scoreHistory: null,
-    regimeTimeline: null
+    regimeTimeline: null,
+    strategyWeights: null,
+    featureToggles: null,
+    coinWeights: null
   };
+
+  // Collect feature toggle state for the LLM
+  const s = user.settings || {};
+  ctx.featureToggles = {};
+  for (const key of BOOLEAN_SETTINGS) {
+    ctx.featureToggles[key] = s[key] !== undefined ? s[key] : null;
+  }
+
+  // Coin weights
+  if (user.coinWeightEnabled && user.coinWeights && Object.keys(user.coinWeights).length > 0) {
+    ctx.coinWeights = { enabled: true, strength: user.coinWeightStrength || 'moderate', weights: user.coinWeights };
+  }
+
+  // Strategy weights from learning engine
+  try {
+    const StrategyWeight = require('../models/StrategyWeight');
+    const strategies = await StrategyWeight.find({ active: true }).lean();
+    ctx.strategyWeights = strategies.map(sw => ({
+      strategyId: sw.strategyId,
+      name: sw.name,
+      weights: sw.weights,
+      performance: {
+        totalTrades: sw.performance?.totalTrades || 0,
+        wins: sw.performance?.wins || 0,
+        losses: sw.performance?.losses || 0,
+        winRate: sw.performance?.winRate || 0,
+        avgRR: sw.performance?.avgRR || 0,
+        profitFactor: sw.performance?.profitFactor || 0,
+        byRegime: sw.performance?.byRegime || {}
+      }
+    }));
+  } catch (e) { /* ignore */ }
 
   // Full context: live signals, score history, regime timeline
   if (extraDeps?.fetchAllPrices && extraDeps?.fetchAllCandles && extraDeps?.fetchAllHistory &&
@@ -234,10 +321,18 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
           entry: s.entry,
           stopLoss: s.stopLoss,
           takeProfit1: s.takeProfit1,
-          riskReward: s.riskReward
+          riskReward: s.riskReward,
+          indicators: s.indicators ? {
+            rsi: s.indicators.rsi,
+            adx: s.indicators.adx,
+            trendDirection: s.indicators.trendDirection,
+            volatilityState: s.indicators.volatilityState,
+            marketStructure: s.indicators.marketStructure,
+            fundingRate: s.indicators.fundingRate,
+            relativeVolume: s.indicators.relativeVolume
+          } : null
         }));
 
-        // Score history for open-trade coins + top 3 from signals
         if (extraDeps.getScoreHistory) {
           const coinIds = new Set(openTrades.map(t => t.coinId));
           signals.slice(0, 3).forEach(s => { if (s.coin?.id) coinIds.add(s.coin.id); });
@@ -251,7 +346,6 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
           ctx.scoreHistory = Object.keys(scoreHistory).length ? scoreHistory : null;
         }
 
-        // Regime timeline (last 5 snapshots)
         if (extraDeps.getRegimeTimeline) {
           const tl = extraDeps.getRegimeTimeline() || [];
           ctx.regimeTimeline = tl.slice(-5).map(s => s.counts || {});
@@ -275,14 +369,15 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
   return ctx;
 }
 
-/**
- * Execute a single action. Returns { ok, message }.
- * @param {Object} actionContext - Optional: { fullSignals, top3MarketScan } for open_trade
- */
+// ====================================================
+// Action execution (all tools the LLM can use)
+// ====================================================
+
 async function executeAction(action, user, deps, actionContext = {}) {
   const { tool, key, value } = action;
   const { User, Trade, runBacktest, closeTrade, closeTradePartial, updateTradeLevels, fetchLivePrice, openTrade } = deps;
 
+  // ── change_setting ──
   if (tool === 'change_setting') {
     if (!key || typeof key !== 'string') return { ok: false, message: 'Missing key' };
     const bounds = SETTING_BOUNDS[key];
@@ -313,12 +408,38 @@ async function executeAction(action, user, deps, actionContext = {}) {
     return { ok: false, message: `Setting ${key} not allowed` };
   }
 
+  // ── toggle_feature ──
+  if (tool === 'toggle_feature') {
+    const feature = action.feature;
+    const enabled = action.enabled;
+    if (!feature || typeof feature !== 'string') return { ok: false, message: 'Missing feature name' };
+    if (!BOOLEAN_SETTINGS.includes(feature)) return { ok: false, message: `Feature ${feature} not recognized. Available: ${BOOLEAN_SETTINGS.join(', ')}` };
+    const boolVal = enabled === true || enabled === 'true' || enabled === 1;
+    user.settings = user.settings || {};
+    user.settings[feature] = boolVal;
+    await user.save();
+    return { ok: true, message: `${feature} = ${boolVal ? 'ON' : 'OFF'}` };
+  }
+
+  // ── run_backtest ──
   if (tool === 'run_backtest') {
-    const days = Math.min(14, Math.max(7, Number(action.days) || 14));
+    const days = Math.min(30, Math.max(7, Number(action.days) || 14));
     const endMs = Date.now();
     const startMs = endMs - days * 24 * 60 * 60 * 1000;
     const s = user.settings || {};
     const features = userSettingsToBacktestFeatures(s);
+
+    // Allow LLM to override specific settings for this backtest run
+    if (action.overrides && typeof action.overrides === 'object') {
+      for (const [ok, ov] of Object.entries(action.overrides)) {
+        if (SETTING_BOUNDS[ok]) {
+          const num = Number(ov);
+          if (Number.isFinite(num)) features[ok] = Math.max(SETTING_BOUNDS[ok].min, Math.min(SETTING_BOUNDS[ok].max, num));
+        }
+        if (typeof ov === 'boolean') features[ok] = ov;
+      }
+    }
+
     try {
       const result = await runBacktest(startMs, endMs, {
         features,
@@ -337,16 +458,112 @@ async function executeAction(action, user, deps, actionContext = {}) {
         losses: sm.losses || 0,
         winRate: totalTrades > 0 ? ((wins / totalTrades) * 100).toFixed(1) : 0,
         totalPnl: sm.totalPnl != null ? sm.totalPnl.toFixed(2) : 'N/A',
-        totalPnlPercent: sm.returnPct != null ? sm.returnPct.toFixed(2) : 'N/A'
+        totalPnlPercent: sm.returnPct != null ? sm.returnPct.toFixed(2) : 'N/A',
+        maxDrawdown: sm.maxDrawdownPct != null ? sm.maxDrawdownPct.toFixed(2) : 'N/A',
+        profitFactor: sm.profitFactor != null ? sm.profitFactor.toFixed(2) : 'N/A',
+        avgRR: sm.avgRR != null ? sm.avgRR.toFixed(2) : 'N/A',
+        bestTrade: sm.bestTrade != null ? sm.bestTrade.toFixed(2) : 'N/A',
+        worstTrade: sm.worstTrade != null ? sm.worstTrade.toFixed(2) : 'N/A',
+        byStrategy: sm.byStrategy || null,
+        overrides: action.overrides || null
       };
       user.llmAgentLastBacktest = { ...summary, at: new Date() };
       await user.save();
-      return { ok: true, message: `Backtest ${days}d: ${summary.totalTrades} trades, WR ${summary.winRate}%, PnL ${summary.totalPnlPercent}%` };
+      return { ok: true, message: `Backtest ${days}d: ${summary.totalTrades} trades, WR ${summary.winRate}%, PnL ${summary.totalPnlPercent}%, MDD ${summary.maxDrawdown}%, PF ${summary.profitFactor}` };
     } catch (err) {
       return { ok: false, message: `Backtest failed: ${err.message}` };
     }
   }
 
+  // ── adjust_weight ──
+  if (tool === 'adjust_weight') {
+    const strategyId = action.strategyId;
+    const weights = action.weights;
+    if (!strategyId || typeof strategyId !== 'string') return { ok: false, message: 'Missing strategyId' };
+    if (!weights || typeof weights !== 'object') return { ok: false, message: 'Missing weights object' };
+
+    try {
+      const StrategyWeight = require('../models/StrategyWeight');
+      const sw = await StrategyWeight.findOne({ strategyId });
+      if (!sw) return { ok: false, message: `Strategy ${strategyId} not found` };
+
+      for (const dim of WEIGHT_DIMENSIONS) {
+        if (weights[dim] != null) {
+          const val = Math.max(5, Math.min(45, Math.round(Number(weights[dim]))));
+          if (Number.isFinite(val)) sw.weights[dim] = val;
+        }
+      }
+
+      // Normalize to 100
+      const total = Object.values(sw.weights).reduce((a, b) => a + b, 0);
+      if (total > 0 && total !== 100) {
+        for (const k of Object.keys(sw.weights)) {
+          sw.weights[k] = Math.max(5, Math.round((sw.weights[k] / total) * 100));
+        }
+        const newTotal = Object.values(sw.weights).reduce((a, b) => a + b, 0);
+        if (newTotal !== 100) {
+          const largest = Object.entries(sw.weights).sort((a, b) => b[1] - a[1])[0][0];
+          sw.weights[largest] += (100 - newTotal);
+        }
+      }
+
+      sw.updatedAt = new Date();
+      sw.markModified('weights');
+      await sw.save();
+
+      return { ok: true, message: `Adjusted ${strategyId} weights: ${JSON.stringify(sw.weights)}` };
+    } catch (err) {
+      return { ok: false, message: `Weight adjustment failed: ${err.message}` };
+    }
+  }
+
+  // ── optimize_strategy ──
+  if (tool === 'optimize_strategy') {
+    const strategyId = action.strategyId;
+    if (!strategyId) return { ok: false, message: 'Missing strategyId' };
+
+    try {
+      const { adjustWeights } = require('./learning-engine');
+      await adjustWeights();
+      const StrategyWeight = require('../models/StrategyWeight');
+      const sw = await StrategyWeight.findOne({ strategyId }).lean();
+      if (!sw) return { ok: false, message: `Strategy ${strategyId} not found` };
+      return {
+        ok: true,
+        message: `Optimized ${strategyId}: weights=${JSON.stringify(sw.weights)}, WR=${(sw.performance?.winRate || 0).toFixed(1)}%, PF=${(sw.performance?.profitFactor || 0).toFixed(2)}`
+      };
+    } catch (err) {
+      return { ok: false, message: `Optimize failed: ${err.message}` };
+    }
+  }
+
+  // ── reset_learning ──
+  if (tool === 'reset_learning') {
+    try {
+      const { resetStrategyWeights } = require('./learning-engine');
+      await resetStrategyWeights();
+      return { ok: true, message: 'All strategy weights and performance data reset to defaults' };
+    } catch (err) {
+      return { ok: false, message: `Reset failed: ${err.message}` };
+    }
+  }
+
+  // ── set_coin_weight ──
+  if (tool === 'set_coin_weight') {
+    const coinId = action.coinId;
+    const weight = Number(action.weight);
+    if (!coinId || typeof coinId !== 'string') return { ok: false, message: 'Missing coinId' };
+    if (!Number.isFinite(weight) || weight < 0.1 || weight > 3.0) return { ok: false, message: 'weight must be 0.1-3.0 (1.0 = normal)' };
+
+    user.coinWeights = user.coinWeights || {};
+    user.coinWeights[coinId] = Math.round(weight * 100) / 100;
+    user.coinWeightEnabled = true;
+    user.markModified('coinWeights');
+    await user.save();
+    return { ok: true, message: `Coin weight ${coinId} = ${weight}x` };
+  }
+
+  // ── close_trade ──
   if (tool === 'close_trade') {
     const tradeId = action.tradeId;
     if (!tradeId) return { ok: false, message: 'Missing tradeId' };
@@ -359,10 +576,11 @@ async function executeAction(action, user, deps, actionContext = {}) {
     if (price == null || !Number.isFinite(price) || price <= 0) {
       price = trade.entryPrice;
     }
-    await closeTrade(user._id, trade._id, price, 'LLM_AGENT_CLOSE');
+    await closeTrade(user._id, trade._id, price, action.reason || 'LLM_AGENT_CLOSE');
     return { ok: true, message: `Closed ${trade.symbol} ${trade.direction}` };
   }
 
+  // ── reduce_position ──
   if (tool === 'reduce_position') {
     const tradeId = action.tradeId;
     const percent = Math.min(99, Math.max(10, Number(action.percent) || 50));
@@ -381,6 +599,7 @@ async function executeAction(action, user, deps, actionContext = {}) {
     return { ok: true, message: `Reduced ${trade.symbol} by ${percent}%` };
   }
 
+  // ── exclude_coin ──
   if (tool === 'exclude_coin') {
     const coinId = action.coinId;
     if (!coinId || typeof coinId !== 'string') return { ok: false, message: 'Missing coinId' };
@@ -393,6 +612,7 @@ async function executeAction(action, user, deps, actionContext = {}) {
     return { ok: true, message: `${coinId} already excluded` };
   }
 
+  // ── include_coin ──
   if (tool === 'include_coin') {
     const coinId = action.coinId;
     if (!coinId || typeof coinId !== 'string') return { ok: false, message: 'Missing coinId' };
@@ -402,6 +622,7 @@ async function executeAction(action, user, deps, actionContext = {}) {
     return { ok: true, message: `Included ${coinId} in auto-trade` };
   }
 
+  // ── move_stop_loss ──
   if (tool === 'move_stop_loss') {
     const tradeId = action.tradeId;
     const stopLoss = Number(action.stopLoss);
@@ -416,6 +637,7 @@ async function executeAction(action, user, deps, actionContext = {}) {
     return result.ok ? { ok: true, message: `Moved ${trade.symbol} stop to $${stopLoss.toFixed(2)}` } : result;
   }
 
+  // ── move_to_breakeven ──
   if (tool === 'move_to_breakeven') {
     const tradeId = action.tradeId;
     if (!tradeId) return { ok: false, message: 'Missing tradeId' };
@@ -432,6 +654,7 @@ async function executeAction(action, user, deps, actionContext = {}) {
     return result.ok ? { ok: true, message: `Moved ${trade.symbol} stop to breakeven` } : result;
   }
 
+  // ── update_take_profit ──
   if (tool === 'update_take_profit') {
     const tradeId = action.tradeId;
     if (!tradeId) return { ok: false, message: 'Missing tradeId' };
@@ -449,6 +672,7 @@ async function executeAction(action, user, deps, actionContext = {}) {
     return result.ok ? { ok: true, message: `Updated ${trade.symbol} take profit levels` } : result;
   }
 
+  // ── open_trade ──
   if (tool === 'open_trade') {
     const coinId = (action.coinId || '').toString().toLowerCase().trim();
     const direction = (action.direction || '').toUpperCase();
@@ -464,7 +688,6 @@ async function executeAction(action, user, deps, actionContext = {}) {
       registerScannerCoinMeta(coinId, top3Match.coin?.symbol || top3Match.coinData?.symbol);
     }
 
-    // Find signal from context (fullSignals = tracked coins, top3MarketScan = 80-coin scan)
     const fullSignals = actionContext.fullSignals || [];
     const wantBuy = direction === 'LONG';
     const matchSignal = (s) => {
@@ -537,6 +760,8 @@ async function executeAction(action, user, deps, actionContext = {}) {
       : (user.settings?.useFixedLeverage ? (user.settings?.defaultLeverage ?? 2)
         : (sig.suggestedLeverage || suggestLeverage(sig.score || 50, sig.regime || 'mixed', sig.indicators?.volatilityState || 'normal')));
 
+    const llmConfidence = Number(action.confidence) || null;
+
     const tradeData = {
       coinId,
       symbol,
@@ -559,12 +784,14 @@ async function executeAction(action, user, deps, actionContext = {}) {
       tpType: sig.tpType || 'R_multiple',
       tpLabel: sig.tpLabel || 'R multiples',
       strategyStats,
-      autoTriggered: false
+      autoTriggered: false,
+      llmConfidence,
+      llmReasoning: action.reasoning || ''
     };
 
     try {
       await openTrade(user._id, tradeData);
-      return { ok: true, message: `Opened ${direction} on ${symbol} at $${livePrice.toFixed(2)}` };
+      return { ok: true, message: `Opened ${direction} on ${symbol} at $${livePrice.toFixed(2)}${llmConfidence ? ` (confidence: ${llmConfidence})` : ''}` };
     } catch (err) {
       return { ok: false, message: `Open trade failed: ${err.message}` };
     }
@@ -573,9 +800,10 @@ async function executeAction(action, user, deps, actionContext = {}) {
   return { ok: false, message: `Unknown tool: ${tool}` };
 }
 
-/**
- * Save agent run to LlmAgentLog for the LLM Logs page.
- */
+// ====================================================
+// Agent log persistence
+// ====================================================
+
 async function saveAgentLog(userId, result, opts = {}) {
   try {
     const LlmAgentLog = require('../models/LlmAgentLog');
@@ -595,13 +823,108 @@ async function saveAgentLog(userId, result, opts = {}) {
   }
 }
 
-/**
- * Run the LLM agent for a user.
- * @param {string} userId
- * @param {Object} deps
- * @param {Object} [opts] - { userRequest?: string, source?: 'manual'|'scheduled'|'chat' }
- * @returns {Object} { success, actionsExecuted, actionsFailed, reasoning }
- */
+// ====================================================
+// System prompt: complete documentation of all capabilities
+// ====================================================
+
+function buildSystemPrompt() {
+  return `You are an autonomous crypto trading AI with FULL control over the platform. You have access to every signal, every setting, every strategy weight, and every trade. Your goal is to maximize profitability while managing risk.
+
+You have access to:
+1. Live signals with scores, CONFIDENCE (0-100), score breakdowns (trend/momentum/volume/structure/volatility/riskQuality), per-timeframe scores (1H/4H/1D), indicators (RSI, ADX, etc.), and engine reasoning
+2. Open trades with live P&L, action badges (BE=breakeven, TS=trailing stop, LOCK=profit locked, PP=partial profit, RP=reduced position, EXIT=auto-closed, DCA=averaged), stops, TPs, time held, drawdown/profit peaks
+3. Strategy weights from the learning engine (7 strategies with dimension weights and regime performance)
+4. ALL feature toggles (turn on/off any trading feature)
+5. Full performance stats (by strategy, by regime, streaks, drawdown)
+6. Market conditions (Fear & Greed, BTC dominance, market cap changes)
+7. Score history (how scores evolved over time for each coin)
+8. Regime timeline (trending/ranging/volatile/compression/mixed changes over time)
+9. Coin weights (boost/reduce allocation per coin)
+
+DECISION FRAMEWORK - Use ALL of these factors, not just score:
+- CONFIDENCE: High score + low confidence = unreliable, skip or reduce size
+- Score Breakdown: All dimensions aligned (good) vs carried by one dimension (risky)
+- Timeframe Agreement: 1H/4H/1D should agree for strong conviction
+- Strategy Performance: Check if strategy is profitable in current regime via strategyWeights
+- Action Badges: Trades with BE/TS already triggered are safer; trades with RP/EXIT signals are in trouble
+- Reasoning: The engine provides reasoning - use it to understand WHY the score is what it is
+- Market Conditions: Fear & Greed < 20 (extreme fear) = potential opportunity, > 80 = caution
+- Regime: Match strategy to regime (trend_follow in trending, mean_revert in ranging, etc.)
+- Coin Weights: Allocate more to historically profitable coins
+
+FEATURE TOGGLE STRATEGY for backtesting:
+- Turn features on/off to test different configurations
+- Run backtest after toggling to measure impact
+- Compare results to find optimal configuration
+- Key toggles: featurePartialTP, autoMoveBreakeven, autoTrailingStop, featureLockIn, featureScoreRecheck, featureKellySizing, featureConfidenceSizing, dcaEnabled
+
+WEIGHT ADJUSTMENT STRATEGY:
+- Check strategy performance by regime
+- If a strategy has 20+ trades and win rate < 40% in a regime, reduce its weights for that dimension
+- If a strategy has 15+ trades and win rate > 60%, boost its weights
+- Use adjust_weight to directly set dimension weights (trend/momentum/volume/structure/volatility/riskQuality)
+- Each weight: 5-45, all must sum to 100
+- Use optimize_strategy to let the engine auto-adjust based on historical performance
+
+Reply ONLY with valid JSON in this exact format (no other text):
+{
+  "reasoning": "Detailed explanation of analysis and decisions (reference specific data points)",
+  "actions": [
+    { "tool": "change_setting", "key": "settingName", "value": numberOrBooleanOrString },
+    { "tool": "toggle_feature", "feature": "featureName", "enabled": true },
+    { "tool": "run_backtest", "days": 14, "overrides": { "featurePartialTP": false } },
+    { "tool": "open_trade", "coinId": "ethereum", "direction": "LONG", "confidence": 85, "reasoning": "Why this trade" },
+    { "tool": "close_trade", "tradeId": "id", "reason": "LLM_RISK_EXIT" },
+    { "tool": "reduce_position", "tradeId": "id", "percent": 50 },
+    { "tool": "adjust_weight", "strategyId": "trend_follow", "weights": { "trend": 35, "momentum": 25, "volume": 10, "structure": 15, "volatility": 10, "riskQuality": 5 } },
+    { "tool": "optimize_strategy", "strategyId": "breakout" },
+    { "tool": "reset_learning" },
+    { "tool": "set_coin_weight", "coinId": "bitcoin", "weight": 1.2 },
+    { "tool": "exclude_coin", "coinId": "dogecoin" },
+    { "tool": "include_coin", "coinId": "ethereum" },
+    { "tool": "move_stop_loss", "tradeId": "id", "stopLoss": 95000 },
+    { "tool": "move_to_breakeven", "tradeId": "id" },
+    { "tool": "update_take_profit", "tradeId": "id", "takeProfit1": 100000, "takeProfit2": 105000 }
+  ]
+}
+
+Available tools:
+
+SETTINGS (change_setting):
+- Numeric: riskPerTrade (0.5-10), riskDollarsPerTrade (10-10000), maxOpenTrades (1-10), autoTradeMinScore (30-95), cooldownHours (0-168), defaultLeverage (1-20), minRiskReward (1-5), maxDailyLossPercent (0-20), drawdownThresholdPercent (5-50), minVolume24hUsd (0-500M), minExpectancy (-1 to 2), dcaMaxAdds (1-10), dcaDipPercent (0.5-20), dcaMinScore (30-95), llmAgentIntervalMinutes (15-1440)
+- Enum: autoTradeCoinsMode (tracked|tracked+top1|top1), riskMode (percent|dollar), tpMode (fixed|trailing), trailingTpDistanceMode (atr|fixed), autoTradeSignalMode (original|indicators|both), coinWeightStrength (conservative|moderate|aggressive)
+- Boolean: autoTrade, llmEnabled, autoMoveBreakeven, autoTrailingStop, paperLiveSync, useFixedLeverage, disableLeverage, coinWeightEnabled, llmAgentEnabled, and all feature toggles
+
+FEATURE TOGGLES (toggle_feature): feature = one of: ${BOOLEAN_SETTINGS.join(', ')}. enabled = true/false
+
+BACKTEST (run_backtest): days=7-30, optional overrides={} to test specific settings
+
+LEARNING ENGINE:
+- adjust_weight: strategyId (trend_follow|breakout|mean_revert|momentum|scalping|swing|position), weights={trend,momentum,volume,structure,volatility,riskQuality} (5-45 each, sum to 100)
+- optimize_strategy: strategyId - auto-adjust weights based on performance data
+- reset_learning: reset all weights and performance data to defaults
+
+TRADE MANAGEMENT:
+- open_trade: coinId, direction (LONG|SHORT), confidence (0-100), reasoning (string). Only for coins with actionable signals
+- close_trade: tradeId, reason (optional custom close reason)
+- reduce_position: tradeId, percent (10-99)
+- move_stop_loss: tradeId, stopLoss (price)
+- move_to_breakeven: tradeId
+- update_take_profit: tradeId, takeProfit1/takeProfit2/takeProfit3
+
+COIN MANAGEMENT:
+- set_coin_weight: coinId, weight (0.1-3.0, 1.0=normal, >1=more allocation, <1=less)
+- exclude_coin: coinId
+- include_coin: coinId
+
+If no changes needed, use "actions": [].
+IMPORTANT: Always provide detailed reasoning that references specific data points (scores, confidence, breakdown, regime, strategy performance, market pulse, etc.)`;
+}
+
+// ====================================================
+// Main agent entry point
+// ====================================================
+
 async function runAgent(userId, deps, opts = {}) {
   const { User, Trade, runBacktest, getPerformanceStats } = deps;
   const user = await User.findById(userId);
@@ -623,50 +946,46 @@ async function runAgent(userId, deps, opts = {}) {
   };
   const ctx = await buildContext(user, User, Trade, getPerformanceStats, deps.fetchLivePrice, extraDeps);
 
-  const systemPrompt = `You are an autonomous crypto trading assistant with full market and portfolio context. You have access to everything: live signals (tracked 20 coins + top 3 from 80-coin market scan), Market Pulse (Fear & Greed, dominance), open trades, performance stats, score history, regime timeline. You can change settings, run backtests, open new trades, close/reduce positions, move stops, and exclude/include coins.
-
-Reply ONLY with valid JSON in this exact format (no other text):
-{
-  "reasoning": "Brief explanation of what you're doing and why",
-  "actions": [
-    { "tool": "change_setting", "key": "settingName", "value": numberOrBoolean },
-    { "tool": "run_backtest", "days": 14 },
-    { "tool": "open_trade", "coinId": "ethereum", "direction": "LONG" },
-    { "tool": "close_trade", "tradeId": "trade_id_string" },
-    { "tool": "reduce_position", "tradeId": "trade_id_string", "percent": 50 },
-    { "tool": "exclude_coin", "coinId": "bitcoin" },
-    { "tool": "include_coin", "coinId": "bitcoin" },
-    { "tool": "move_stop_loss", "tradeId": "trade_id_string", "stopLoss": 95000 },
-    { "tool": "move_to_breakeven", "tradeId": "trade_id_string" },
-    { "tool": "update_take_profit", "tradeId": "trade_id_string", "takeProfit1": 100000, "takeProfit2": 105000 }
-  ]
-}
-
-Available tools:
-- change_setting: key = setting name, value = number, boolean, or string. Allowed: riskPerTrade (0.5-10), riskDollarsPerTrade (10-10000), maxOpenTrades (1-10), autoTradeMinScore (30-95), autoTrade (bool), cooldownHours (0-168), defaultLeverage (1-20), minRiskReward (1-5), maxDailyLossPercent (0-20), autoTradeCoinsMode (tracked|tracked+top1|top1), riskMode (percent|dollar), autoMoveBreakeven (bool), autoTrailingStop (bool).
-- run_backtest: days = 7 to 14. Runs historical simulation.
-- open_trade: coinId = coin id (e.g. ethereum, solana), direction = LONG or SHORT. Opens a new trade using the signal from liveSignals or top3MarketScan. Only use coins that have an actionable signal (BUY/STRONG_BUY for LONG, SELL/STRONG_SELL for SHORT) in the context.
-- close_trade: tradeId = id of open trade. Closes the entire position.
-- reduce_position: tradeId = id of open trade, percent = 10-99 (how much to close). Reduces position size.
-- exclude_coin: coinId = coin id. Excludes from auto-trade.
-- include_coin: coinId = coin id. Re-includes in auto-trade.
-- move_stop_loss: tradeId = id of open trade, stopLoss = new stop price (number). LONG: stop below entry. SHORT: stop above entry.
-- move_to_breakeven: tradeId = id of open trade. Moves stop to entry (with fee buffer).
-- update_take_profit: tradeId = id of open trade, takeProfit1/takeProfit2/takeProfit3 = new TP prices (provide at least one). LONG: TPs above entry. SHORT: TPs below entry.
-
-If no changes needed, use "actions": [].
-When opening: use open_trade when a coin has BUY/STRONG_BUY (for LONG) or SELL/STRONG_SELL (for SHORT), score >= autoTradeMinScore, and you have capacity. Only close or reduce when the trade is clearly against you or risk management demands it.`;
+  const systemPrompt = buildSystemPrompt();
 
   const promptParts = [
     `Current state:`,
-    `- Balance: $${ctx.balance} (initial $${ctx.initialBalance})`,
+    `- Balance: $${ctx.balance.toFixed(2)} (initial $${ctx.initialBalance.toFixed(2)}, return ${((ctx.balance - ctx.initialBalance) / ctx.initialBalance * 100).toFixed(2)}%)`,
     `- Stats: ${JSON.stringify(ctx.stats)}`,
     `- Open trades (${ctx.openTradesCount}): ${JSON.stringify(ctx.openTrades)}`,
-    `- Recent trades (last ${ctx.recentTrades.length}): ${JSON.stringify(ctx.recentTrades)}`,
-    `- Current settings: riskPerTrade=${ctx.settings.riskPerTrade}, riskDollarsPerTrade=${ctx.settings.riskDollarsPerTrade}, maxOpenTrades=${ctx.settings.maxOpenTrades}, autoTradeMinScore=${ctx.settings.autoTradeMinScore}, autoTrade=${ctx.settings.autoTrade}`,
-    ctx.lastBacktest ? `- Last backtest: ${JSON.stringify(ctx.lastBacktest)}` : '- No backtest run yet.'
+    `- Recent closed trades (last ${ctx.recentTrades.length}): ${JSON.stringify(ctx.recentTrades)}`
   ];
 
+  // All current settings
+  const s = ctx.settings;
+  promptParts.push(`- Settings: riskPerTrade=${s.riskPerTrade ?? 2}, riskMode=${s.riskMode || 'percent'}, riskDollarsPerTrade=${s.riskDollarsPerTrade ?? 200}, maxOpenTrades=${s.maxOpenTrades ?? 3}, autoTradeMinScore=${s.autoTradeMinScore ?? 56}, autoTrade=${s.autoTrade ?? false}, cooldownHours=${s.cooldownHours ?? 6}, defaultLeverage=${s.defaultLeverage ?? 2}, useFixedLeverage=${s.useFixedLeverage ?? false}, disableLeverage=${s.disableLeverage ?? false}, tpMode=${s.tpMode || 'fixed'}, autoTradeCoinsMode=${s.autoTradeCoinsMode || 'tracked'}, minRiskReward=${s.minRiskReward ?? 1.2}`);
+
+  // Feature toggle state
+  if (ctx.featureToggles) {
+    const togglesOn = Object.entries(ctx.featureToggles).filter(([, v]) => v === true).map(([k]) => k);
+    const togglesOff = Object.entries(ctx.featureToggles).filter(([, v]) => v === false).map(([k]) => k);
+    promptParts.push(`- Features ON: ${togglesOn.join(', ') || 'none'}`);
+    promptParts.push(`- Features OFF: ${togglesOff.join(', ') || 'none'}`);
+  }
+
+  // Strategy weights and performance from learning engine
+  if (ctx.strategyWeights && ctx.strategyWeights.length > 0) {
+    promptParts.push(`- Strategy Weights (learning engine):`);
+    for (const sw of ctx.strategyWeights) {
+      const p = sw.performance;
+      promptParts.push(`  ${sw.strategyId}: weights=${JSON.stringify(sw.weights)}, ${p.totalTrades}trades WR=${p.winRate.toFixed(1)}% avgRR=${p.avgRR.toFixed(2)} PF=${p.profitFactor.toFixed(2)} byRegime=${JSON.stringify(p.byRegime)}`);
+    }
+  }
+
+  // Coin weights
+  if (ctx.coinWeights) {
+    promptParts.push(`- Coin Weights (${ctx.coinWeights.strength}): ${JSON.stringify(ctx.coinWeights.weights)}`);
+  }
+
+  // Last backtest
+  promptParts.push(ctx.lastBacktest ? `- Last backtest: ${JSON.stringify(ctx.lastBacktest)}` : '- No backtest run yet.');
+
+  // Performance breakdowns
   if (ctx.stats?.riskByStrategyRegime) {
     const rbr = ctx.stats.riskByStrategyRegime;
     if (Object.keys(rbr.byStrategy || {}).length || Object.keys(rbr.byRegime || {}).length) {
@@ -678,25 +997,44 @@ When opening: use open_trade when a coin has BUY/STRONG_BUY (for LONG) or SELL/S
     promptParts.push(`- Win/loss by strategy: ${JSON.stringify(ctx.stats.byStrategy)}`);
   }
 
+  // Market pulse
   if (ctx.marketPulse) {
     const mp = ctx.marketPulse;
     const fg = mp.fearGreed;
     const g = mp.global || {};
     promptParts.push(`- Market Pulse: Fear & Greed ${fg?.value ?? 'N/A'} (${fg?.classification ?? 'N/A'}), BTC dom ${g.btcDominance != null ? g.btcDominance.toFixed(1) + '%' : 'N/A'}, ETH dom ${g.ethDominance != null ? g.ethDominance.toFixed(1) + '%' : 'N/A'}, mcap 24h ${g.marketCapChange24h != null ? (g.marketCapChange24h >= 0 ? '+' : '') + g.marketCapChange24h.toFixed(2) + '%' : 'N/A'}`);
   }
+
+  // Live signals (enriched)
   if (ctx.liveSignals && ctx.liveSignals.length > 0) {
-    promptParts.push(`- Live signals (tracked coins, top ${ctx.liveSignals.length}): ${JSON.stringify(ctx.liveSignals)}`);
+    promptParts.push(`- Live signals (top ${ctx.liveSignals.length}):`);
+    for (const sig of ctx.liveSignals) {
+      const parts = [`${sig.symbol} ${sig.signal} score=${sig.score}`];
+      if (sig.confidence != null) parts.push(`conf=${sig.confidence}`);
+      if (sig.regime) parts.push(`regime=${sig.regime}`);
+      if (sig.strategyName) parts.push(`strat=${sig.strategyName}`);
+      if (sig.riskReward != null) parts.push(`RR=${sig.riskReward.toFixed(2)}`);
+      if (sig.scoreBreakdown) parts.push(`breakdown=${JSON.stringify(sig.scoreBreakdown)}`);
+      if (sig.timeframes) parts.push(`TFs=${JSON.stringify(sig.timeframes)}`);
+      if (sig.indicators) parts.push(`ind=${JSON.stringify(sig.indicators)}`);
+      if (sig.reasoning) parts.push(`why: ${sig.reasoning}`);
+      promptParts.push(`  ${parts.join(' | ')}`);
+    }
+
     const actionable = ctx.liveSignals.filter(s => ['BUY', 'STRONG_BUY', 'SELL', 'STRONG_SELL'].includes(s.signal));
     if (actionable.length > 0) {
-      promptParts.push(`- Actionable for open_trade (use coinId + direction LONG for BUY/STRONG_BUY, SHORT for SELL/STRONG_SELL): ${JSON.stringify(actionable.map(s => ({ coinId: s.coinId, symbol: s.symbol, signal: s.signal, score: s.score, direction: (s.signal === 'BUY' || s.signal === 'STRONG_BUY') ? 'LONG' : 'SHORT' })))}`);
+      promptParts.push(`- Actionable for open_trade: ${JSON.stringify(actionable.map(s => ({ coinId: s.coinId, symbol: s.symbol, signal: s.signal, score: s.score, confidence: s.confidence, direction: (s.signal === 'BUY' || s.signal === 'STRONG_BUY') ? 'LONG' : 'SHORT' })))}`);
     }
   }
+
+  // Top 3 from market scan
   if (ctx.top3MarketScan && ctx.top3MarketScan.length > 0) {
     const top3 = ctx.top3MarketScan.map(s => ({
       coinId: s.coin?.id || s.coinData?.id,
       symbol: s.coin?.symbol || s.coinData?.symbol,
       signal: s.signal,
       score: s.score,
+      confidence: s.confidence,
       regime: s.regime,
       strategyName: s.strategyName,
       entry: s.entry,
@@ -705,8 +1043,10 @@ When opening: use open_trade when a coin has BUY/STRONG_BUY (for LONG) or SELL/S
       riskReward: s.riskReward,
       direction: ['BUY', 'STRONG_BUY'].includes(s.signal) ? 'LONG' : ['SELL', 'STRONG_SELL'].includes(s.signal) ? 'SHORT' : null
     }));
-    promptParts.push(`- Top 3 from 80-coin market scan (use coinId + direction for open_trade when signal is BUY/STRONG_BUY or SELL/STRONG_SELL): ${JSON.stringify(top3)}`);
+    promptParts.push(`- Top 3 from 80-coin market scan: ${JSON.stringify(top3)}`);
   }
+
+  // Score & regime history
   if (ctx.scoreHistory && Object.keys(ctx.scoreHistory).length > 0) {
     promptParts.push(`- Score history (recent): ${JSON.stringify(ctx.scoreHistory)}`);
   }
@@ -717,10 +1057,19 @@ When opening: use open_trade when a coin has BUY/STRONG_BUY (for LONG) or SELL/S
     promptParts.push(`- Excluded coins: ${JSON.stringify(user.excludedCoins)}`);
   }
 
+  // User request or default review
   if (opts.userRequest) {
-    promptParts.push(`\nUser request: "${opts.userRequest}"\n\nTake the appropriate actions. Use tradeId from open trades above. Reply with JSON only.`);
+    promptParts.push(`\nUser request: "${opts.userRequest}"\n\nAnalyze the situation using ALL available data (scores, confidence, breakdowns, strategy performance, regime, indicators, badges, market pulse). Take the appropriate actions. Use tradeId from open trades above. Include detailed reasoning referencing specific data points. Reply with JSON only.`);
   } else {
-    promptParts.push(`\nReview open trades, live signals, and performance. Should we OPEN any new trades (if signals are strong and under maxOpenTrades), close any, reduce any, move stops, change settings, exclude/include coins, or run a backtest? When signals have BUY/STRONG_BUY or SELL/STRONG_SELL and score >= autoTradeMinScore, consider open_trade. Reply with JSON only.`);
+    promptParts.push(`\nAUTONOMOUS REVIEW — Analyze everything:
+1. Open trades: Check P&L, badges, score evolution, regime fit. Close/reduce losers. Tighten stops on winners.
+2. Live signals: Any high-score + high-confidence opportunities? Check breakdown alignment and strategy regime fit.
+3. Feature toggles: Are current settings optimal? Consider toggling + backtest to validate.
+4. Strategy weights: Any strategy underperforming in current regime? Adjust weights or optimize.
+5. Risk settings: Is risk appropriate for current market conditions (Fear & Greed, volatility)?
+6. Coin weights: Any coins consistently winning/losing? Adjust allocation.
+
+Use confidence, score breakdown, and reasoning to make decisions — not just raw score. Reply with JSON only.`);
   }
 
   const prompt = promptParts.join('\n');
@@ -736,7 +1085,7 @@ When opening: use open_trade when a coin has BUY/STRONG_BUY (for LONG) or SELL/S
 
   const parsed = parseJsonResponse(text);
   if (!parsed || !Array.isArray(parsed.actions)) {
-    const failResult = { success: false, error: 'Invalid LLM response', raw: text?.slice(0, 200), at: new Date() };
+    const failResult = { success: false, error: 'Invalid LLM response', raw: text?.slice(0, 300), at: new Date() };
     await saveAgentLog(userId, failResult, opts);
     return failResult;
   }

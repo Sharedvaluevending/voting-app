@@ -53,6 +53,9 @@ async function main() {
       regime: 'trending',
       riskReward: 1.8
     }, OLLAMA_URL, 'qwen3-coder:480b-cloud');
+    if (result && typeof result === 'object' && 'approve' in result) {
+      return `${result.approve ? 'approved' : 'rejected'} conf=${result.confidence} reason=${result.reasoning || 'none'}`;
+    }
     return typeof result === 'boolean' ? (result ? 'approved' : 'rejected') : 'error';
   });
   if (r2.ok) passed++; else failed++;

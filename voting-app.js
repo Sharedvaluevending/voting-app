@@ -3638,20 +3638,71 @@ async function runAutoTrade() {
               autoTriggered: true
             };
 
-            // LLM approval gate (Ollama) — when enabled, ask local LLM before opening
+            // LLM approval gate (Ollama) — when enabled, ask local LLM with full context
             if (user.settings?.llmEnabled) {
-              const approved = await approveTrade({
+              let marketPulseForApproval = null;
+              try { const { getMarketPulse: gmp } = require('./services/market-pulse'); marketPulseForApproval = await gmp(); } catch (e) { /* ignore */ }
+
+              let stratPerf = null;
+              try {
+                const sp = strategyStatsForOpen[useStratType];
+                if (sp) {
+                  stratPerf = { ...sp };
+                  const StrategyWeight = require('./models/StrategyWeight');
+                  const sw = await StrategyWeight.findOne({ strategyId: useStratType }).lean();
+                  if (sw?.performance?.byRegime?.[sig.regime || 'mixed']) {
+                    const rd = sw.performance.byRegime[sig.regime || 'mixed'];
+                    const rdTotal = (rd.wins || 0) + (rd.losses || 0);
+                    stratPerf.regimeWinRate = rdTotal > 0 ? (rd.wins / rdTotal) * 100 : null;
+                    stratPerf.regimeTrades = rdTotal;
+                    stratPerf.profitFactor = sw.performance.profitFactor || 0;
+                  }
+                }
+              } catch (e) { /* ignore */ }
+
+              const openTradesCount = await Trade.countDocuments({ userId: user._id, status: 'OPEN' });
+
+              const llmResult = await approveTrade({
                 coinId,
                 symbol: tradeData.symbol,
                 direction: sig._direction,
                 score: sig._overallScore,
+                confidence: sig.confidence,
+                scoreBreakdown: sig.scoreBreakdown,
+                reasoning: sig.reasoning,
                 strategy: useStratType,
                 regime: sig.regime || 'unknown',
-                riskReward: sig._bestStrat?.riskReward ?? sig.riskReward
+                riskReward: sig._bestStrat?.riskReward ?? sig.riskReward,
+                indicators: sig.indicators,
+                marketPulse: marketPulseForApproval,
+                strategyPerformance: stratPerf,
+                openTradesCount,
+                maxOpenTrades: user.settings?.maxOpenTrades ?? 3,
+                balance: user.paperBalance ?? 10000,
+                timeframes: sig.timeframes ? { '1H': sig.timeframes['1H']?.score, '4H': sig.timeframes['4H']?.score, '1D': sig.timeframes['1D']?.score } : null,
+                entry: livePrice,
+                stopLoss: useSL,
+                takeProfit1: useTP1,
+                recentPerformance: {
+                  wins: user.stats?.wins || 0,
+                  losses: user.stats?.losses || 0,
+                  streak: user.stats?.currentStreak || 0
+                }
               }, user.settings?.ollamaUrl || 'http://localhost:11434', user.settings?.ollamaModel || 'qwen3-coder:480b-cloud');
-              if (!approved) {
-                console.log(`[AutoTrade] LLM rejected ${tradeData.symbol} ${sig._direction} for ${user.username}`);
+
+              if (!llmResult.approve) {
+                console.log(`[AutoTrade] LLM rejected ${tradeData.symbol} ${sig._direction} for ${user.username}: ${llmResult.reasoning || 'no reason'}`);
                 continue;
+              }
+
+              tradeData.llmConfidence = llmResult.confidence;
+              tradeData.llmReasoning = llmResult.reasoning;
+
+              // Modulate position via confidence: <50 confidence = reduce size by up to 30%
+              if (llmResult.confidence > 0 && llmResult.confidence < 50) {
+                const sizeMult = 0.7 + (llmResult.confidence / 50) * 0.3;
+                console.log(`[AutoTrade] LLM low confidence (${llmResult.confidence}) on ${tradeData.symbol} — sizing x${sizeMult.toFixed(2)}`);
+                tradeData.llmSizeMultiplier = sizeMult;
               }
             }
 

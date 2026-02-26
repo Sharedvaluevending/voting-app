@@ -312,16 +312,24 @@ async function openTrade(userId, signalData) {
     }
   }
 
+  // LLM confidence-based size adjustment: reduce position when LLM has low confidence
+  let finalPositionSize = positionSize;
+  let finalMargin = margin;
+  if (signalData.llmSizeMultiplier && signalData.llmSizeMultiplier < 1) {
+    finalPositionSize = Math.round(positionSize * signalData.llmSizeMultiplier * 100) / 100;
+    finalMargin = Math.round(margin * signalData.llmSizeMultiplier * 100) / 100;
+  }
+
   const trade = new Trade({
     userId,
     coinId: signalData.coinId,
     symbol: signalData.symbol,
     direction: signalData.direction,
     entryPrice,
-    positionSize,
-    originalPositionSize: positionSize,
+    positionSize: finalPositionSize,
+    originalPositionSize: finalPositionSize,
     leverage,
-    margin,
+    margin: finalMargin,
     stopLoss,
     originalStopLoss: stopLoss,
     takeProfit1: safeTP1,
@@ -338,6 +346,8 @@ async function openTrade(userId, signalData) {
     reasoning: signalData.reasoning || [],
     indicatorsAtEntry: signalData.indicators || {},
     scoreBreakdownAtEntry: signalData.scoreBreakdown || {},
+    llmConfidence: signalData.llmConfidence || null,
+    llmReasoning: signalData.llmReasoning || '',
     maxPrice: entryPrice,
     minPrice: entryPrice,
     tpMode,
@@ -347,7 +357,7 @@ async function openTrade(userId, signalData) {
 
   await trade.save();
 
-  console.log(`[OpenTrade] ${signalData.symbol} ${signalData.direction} | entry=$${entryPrice} | SL=$${stopLoss} | TP1=$${safeTP1} | TP2=$${safeTP2} | TP3=$${safeTP3} | size=$${positionSize.toFixed(2)} | lev=${leverage}x | score=${signalData.score} | strategy=${signalData.strategyType || 'default'} | auto=${!!signalData.autoTriggered}`);
+  console.log(`[OpenTrade] ${signalData.symbol} ${signalData.direction} | entry=$${entryPrice} | SL=$${stopLoss} | TP1=$${safeTP1} | TP2=$${safeTP2} | TP3=$${safeTP3} | size=$${finalPositionSize.toFixed(2)} | lev=${leverage}x | score=${signalData.score} | strategy=${signalData.strategyType || 'default'} | auto=${!!signalData.autoTriggered}${signalData.llmConfidence ? ` | llmConf=${signalData.llmConfidence}` : ''}`);
 
   // Atomic balance update — prevents race conditions between concurrent trade operations
   if (user.paperBalance == null) {
@@ -355,7 +365,7 @@ async function openTrade(userId, signalData) {
       $set: { paperBalance: balance, initialBalance: user.initialBalance || balance }
     });
   }
-  await User.findByIdAndUpdate(userId, { $inc: { paperBalance: -(margin + fees) } });
+  await User.findByIdAndUpdate(userId, { $inc: { paperBalance: -(finalMargin + fees) } });
 
   // === BITGET LIVE TRADING: execute on exchange if enabled and paper/live sync on ===
   try {
