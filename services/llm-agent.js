@@ -80,10 +80,7 @@ function isNgrokUrl(url) {
 
 function getOllamaHeaders(baseUrl) {
   const h = { 'Content-Type': 'application/json' };
-  if (isNgrokUrl(baseUrl)) {
-    h['ngrok-skip-browser-warning'] = 'true';
-    h['Host'] = 'localhost';
-  }
+  if (isNgrokUrl(baseUrl)) h['ngrok-skip-browser-warning'] = 'true';
   return h;
 }
 

@@ -15,10 +15,7 @@ function isNgrokUrl(url) {
 
 function getHeaders(baseUrl) {
   const h = { 'Content-Type': 'application/json' };
-  if (isNgrokUrl(baseUrl)) {
-    h['ngrok-skip-browser-warning'] = 'true';
-    h['Host'] = 'localhost'; // Ollama rejects requests with wrong Host; ngrok docs recommend this
-  }
+  if (isNgrokUrl(baseUrl)) h['ngrok-skip-browser-warning'] = 'true';
   return h;
 }
 
