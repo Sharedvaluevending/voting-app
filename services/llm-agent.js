@@ -78,36 +78,42 @@ function isNgrokUrl(url) {
   return url && (url.includes('ngrok-free') || url.includes('ngrok.io'));
 }
 
+function getOllamaHeaders(baseUrl) {
+  const h = { 'Content-Type': 'application/json' };
+  if (isNgrokUrl(baseUrl)) {
+    h['ngrok-skip-browser-warning'] = 'true';
+    h['Host'] = 'localhost';
+  }
+  return h;
+}
+
 async function callAgent(prompt, systemPrompt, baseUrl, model) {
   const base = baseUrl.replace(/\/$/, '');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  const headers = { 'Content-Type': 'application/json' };
-  if (isNgrokUrl(base)) headers['ngrok-skip-browser-warning'] = 'true';
+  const headers = getOllamaHeaders(base);
 
   const generateBody = { model: model || 'llama3.2', prompt: systemPrompt + '\n\n' + prompt };
   const chatBody = {
     model: model || 'llama3.2',
     messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }]
   };
+  const openaiBody = { model: model || 'llama3.2', messages: chatBody.messages };
 
   let res;
   if (isNgrokUrl(base)) {
     res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
-    if (res.status === 404) {
-      res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
-    }
+    if (res.status === 404) res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
+    if (res.status === 404) res = await fetch(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
   } else {
     res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
-    if (res.status === 404) {
-      res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
-    }
+    if (res.status === 404) res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
   }
 
   clearTimeout(timeout);
   if (!res.ok) throw new Error(`Ollama ${res.status}`);
   const data = await res.json();
-  return data.message?.content || data.response || '';
+  return data.message?.content || data.response || data.choices?.[0]?.message?.content || '';
 }
 
 function parseJsonResponse(text) {
