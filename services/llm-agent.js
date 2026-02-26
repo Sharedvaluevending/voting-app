@@ -93,13 +93,13 @@ async function callAgent(prompt, systemPrompt, baseUrl, model) {
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const headers = getOllamaHeaders(base);
 
-  const generateBody = { model: model || 'gpt-oss:20b-cloud', prompt: systemPrompt + '\n\n' + prompt };
+  const generateBody = { model: model || 'qwen3-coder:480b-cloud', prompt: systemPrompt + '\n\n' + prompt };
   const chatBody = {
-    model: model || 'gpt-oss:20b-cloud',
+    model: model || 'qwen3-coder:480b-cloud',
     messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }]
   };
-  const openaiBody = { model: model || 'gpt-oss:20b-cloud', messages: chatBody.messages };
-  const responsesBody = { model: model || 'gpt-oss:20b-cloud', input: systemPrompt + '\n\n' + prompt };
+  const openaiBody = { model: model || 'qwen3-coder:480b-cloud', messages: chatBody.messages };
+  const responsesBody = { model: model || 'qwen3-coder:480b-cloud', input: systemPrompt + '\n\n' + prompt };
 
   let res;
   if (isNgrokUrl(base)) {
@@ -309,7 +309,7 @@ async function runAgent(userId, deps) {
   if (!user) return { success: false, error: 'User not found' };
 
   const ollamaUrl = user.settings?.ollamaUrl || 'http://localhost:11434';
-  const model = user.settings?.ollamaModel || 'gpt-oss:20b-cloud';
+  const model = user.settings?.ollamaModel || 'qwen3-coder:480b-cloud';
 
   const ctx = await buildContext(user, User, Trade, getPerformanceStats, deps.fetchLivePrice);
 

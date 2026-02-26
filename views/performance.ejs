@@ -211,7 +211,7 @@
           </select>
         </div>
         <div style="flex-basis:100%;margin-top:8px;padding-top:12px;border-top:1px solid #1e2a3a;">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:6px;" title="Ask local Ollama LLM to approve each auto-trade before opening. Requires Ollama running (e.g. ollama run gpt-oss:20b).">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:6px;" title="Ask local Ollama LLM to approve each auto-trade before opening. Requires Ollama running (e.g. ollama run qwen3-coder:480b-cloud).">
             <input type="hidden" name="llmEnabled" value="false">
             <input type="checkbox" name="llmEnabled" id="llmEnabled" value="true" <%= (user.settings && user.settings.llmEnabled) ? 'checked' : '' %> onchange="document.getElementById('ollama-url-wrap').style.display=this.checked?'block':'none'">
             <span style="font-size:12px;color:#9ca3af;">Use LLM (Ollama) to approve trades</span>
@@ -227,7 +227,7 @@
               </div>
               <div>
                 <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:4px;">Model</label>
-                <input type="text" name="ollamaModel" placeholder="gpt-oss:20b-cloud" value="<%= (user.settings && user.settings.ollamaModel) || 'gpt-oss:20b-cloud' %>" style="width:220px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="e.g. gpt-oss:20b-cloud, qwen3-coder:480b-cloud, glm-4.6:cloud">
+                <input type="text" name="ollamaModel" placeholder="qwen3-coder:480b-cloud" value="<%= (user.settings && user.settings.ollamaModel) || 'qwen3-coder:480b-cloud' %>" style="width:220px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="e.g. qwen3-coder:480b-cloud, gpt-oss:20b-cloud, glm-4.6:cloud">
               </div>
             </div>
             <span id="ollama-status" style="font-size:11px;color:#6b7280;margin-top:4px;display:block;"></span>
