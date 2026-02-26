@@ -51,12 +51,12 @@ async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'llama3.2') {
     };
     const openaiBody = { model: model || 'llama3.2', messages: chatBody.messages };
 
-    // Try native endpoints first; for ngrok, add fallback to OpenAI-compatible /v1/chat/completions
+    // For ngrok: try /v1/chat/completions first (often works when /api/chat and /api/generate 404)
     let res;
     if (isNgrokUrl(base)) {
-      res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
+      res = await fetch(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
+      if (res.status === 404) res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
       if (res.status === 404) res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
-      if (res.status === 404) res = await fetch(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
     } else {
       res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
       if (res.status === 404) res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
