@@ -15,16 +15,22 @@
       <strong style="color:#a78bfa;">Examples:</strong><br>
       • "What's the market doing right now?"<br>
       • "Summarize my open trades and P&L"<br>
-      • "How's my performance? Win rate?"<br>
-      • "Should I be cautious given Fear & Greed?"<br>
+      • "Move my SOL stop to breakeven" <em style="color:#8b5cf6;">(check Execute actions)</em><br>
+      • "Close my BTC trade" <em style="color:#8b5cf6;">(check Execute actions)</em><br>
       • "What are my current risk settings?"
     </div>
   </div>
   <div style="padding:12px 16px;border-top:1px solid #1e2a3a;background:rgba(15,23,42,0.4);">
-    <form id="chat-form" style="display:flex;gap:8px;align-items:flex-end;">
+    <form id="chat-form" style="display:flex;flex-direction:column;gap:8px;">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-      <textarea id="chat-input" name="message" rows="2" placeholder="Ask about markets, trades, strategies..." style="flex:1;padding:10px 14px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#fff;font-size:14px;resize:none;min-height:44px;max-height:120px;" required></textarea>
-      <button type="submit" id="chat-send" class="btn btn-primary" style="padding:10px 20px;height:44px;">Send</button>
+      <div style="display:flex;gap:8px;align-items:flex-end;">
+        <textarea id="chat-input" name="message" rows="2" placeholder="Ask about markets, trades, strategies... Or: 'Move my SOL stop to breakeven', 'Close my BTC trade'" style="flex:1;padding:10px 14px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#fff;font-size:14px;resize:none;min-height:44px;max-height:120px;" required></textarea>
+        <button type="submit" id="chat-send" class="btn btn-primary" style="padding:10px 20px;height:44px;">Send</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:#9ca3af;">
+        <input type="checkbox" id="execute-actions" name="executeActions" style="accent-color:#8b5cf6;">
+        Execute actions (run agent to close trades, move stops, change settings, etc.)
+      </label>
     </form>
     <div id="chat-status" style="font-size:11px;color:#6b7280;margin-top:6px;"></div>
   </div>
@@ -34,6 +40,7 @@
 #chat-messages .msg-user { align-self:flex-end; max-width:85%; padding:10px 14px; background:rgba(59,130,246,0.2); border:1px solid rgba(59,130,246,0.3); border-radius:10px; color:#e5e7eb; font-size:14px; }
 #chat-messages .msg-assistant { align-self:flex-start; max-width:90%; padding:12px 16px; background:rgba(30,41,59,0.6); border:1px solid #334155; border-radius:10px; color:#e5e7eb; font-size:14px; line-height:1.5; white-space:pre-wrap; }
 #chat-messages .msg-error { align-self:flex-start; padding:10px 14px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); border-radius:8px; color:#fca5a5; font-size:13px; }
+#chat-messages .msg-agent { align-self:flex-start; max-width:90%; padding:12px 16px; background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.4); border-radius:10px; color:#c4b5fd; font-size:13px; }
 </style>
 
 <script>
@@ -63,10 +70,11 @@
     sendBtn.disabled = true;
     statusEl.textContent = 'Thinking...';
 
+    var executeActions = document.getElementById('execute-actions').checked;
     fetch('/api/llm-chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('input[name="_csrf"]').value },
-      body: JSON.stringify({ messages: history }),
+      body: JSON.stringify({ messages: history, executeActions: executeActions }),
       credentials: 'same-origin'
     })
     .then(function(r) { return r.json(); })
@@ -79,6 +87,25 @@
         div.className = 'msg-assistant';
         div.textContent = d.text;
         messagesEl.appendChild(div);
+        if (d.agentResult) {
+          var ar = d.agentResult;
+          var agentLines = [];
+          if (ar.reasoning) agentLines.push(ar.reasoning);
+          if (ar.actionsExecuted && ar.actionsExecuted.length) agentLines.push('Executed: ' + ar.actionsExecuted.map(function(a){ return a.message; }).join('; '));
+          if (ar.actionsFailed && ar.actionsFailed.length) agentLines.push('Failed: ' + ar.actionsFailed.map(function(a){ return a.message; }).join('; '));
+          if (agentLines.length) {
+            var agentDiv = document.createElement('div');
+            agentDiv.className = 'msg-agent';
+            agentDiv.textContent = agentLines.join('\n');
+            messagesEl.appendChild(agentDiv);
+          }
+        }
+        if (d.agentError) {
+          var errDiv = document.createElement('div');
+          errDiv.className = 'msg-error';
+          errDiv.textContent = 'Agent error: ' + d.agentError;
+          messagesEl.appendChild(errDiv);
+        }
       } else {
         history.pop();
         var errDiv = document.createElement('div');

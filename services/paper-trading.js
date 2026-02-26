@@ -581,6 +581,74 @@ function logTradeAction(trade, type, description, oldValue, newValue, marketPric
   });
 }
 
+/**
+ * Update stop loss and/or take profits on an open trade (for LLM agent).
+ * Validates levels are on correct side of entry for direction.
+ * Syncs to Bitget if trade is live.
+ * @param {string} userId
+ * @param {string} tradeId
+ * @param {Object} updates - { stopLoss?, takeProfit1?, takeProfit2?, takeProfit3? }
+ * @param {number} currentPrice - for logging
+ * @returns {Promise<{ok: boolean, message: string}>}
+ */
+async function updateTradeLevels(userId, tradeId, updates, currentPrice) {
+  const trade = await Trade.findOne({ _id: tradeId, userId, status: 'OPEN' });
+  if (!trade) return { ok: false, message: 'Trade not found or already closed' };
+  const entry = trade.entryPrice;
+  const isLong = trade.direction === 'LONG';
+
+  const validate = (val, mustBeAbove) => {
+    if (val == null || !Number.isFinite(val) || val <= 0) return null;
+    if (mustBeAbove && val <= entry) return null;
+    if (!mustBeAbove && val >= entry) return null;
+    return val;
+  };
+
+  let changed = false;
+  if (updates.stopLoss != null && Number.isFinite(updates.stopLoss)) {
+    const newSl = validate(updates.stopLoss, !isLong); // LONG: SL below entry; SHORT: SL above entry
+    if (newSl != null) {
+      const oldSl = trade.stopLoss;
+      trade.stopLoss = Math.round(newSl * 1000000) / 1000000;
+      logTradeAction(trade, 'LLM_SL', `Stop loss moved to $${trade.stopLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (LLM)`, oldSl, trade.stopLoss, currentPrice);
+      changed = true;
+      if (trade.isLive) {
+        try {
+          const liveUser = await User.findById(userId);
+          if (liveUser) await bitget.executeLiveStopUpdate(liveUser, trade, trade.stopLoss);
+        } catch (e) { console.error('[Bitget] LLM SL update error:', e.message); }
+      }
+    }
+  }
+  if (updates.takeProfit1 != null && Number.isFinite(updates.takeProfit1)) {
+    const newTp = validate(updates.takeProfit1, isLong);
+    if (newTp != null) {
+      trade.takeProfit1 = Math.round(newTp * 1000000) / 1000000;
+      changed = true;
+    }
+  }
+  if (updates.takeProfit2 != null && Number.isFinite(updates.takeProfit2)) {
+    const newTp = validate(updates.takeProfit2, isLong);
+    if (newTp != null) {
+      trade.takeProfit2 = Math.round(newTp * 1000000) / 1000000;
+      changed = true;
+    }
+  }
+  if (updates.takeProfit3 != null && Number.isFinite(updates.takeProfit3)) {
+    const newTp = validate(updates.takeProfit3, isLong);
+    if (newTp != null) {
+      trade.takeProfit3 = Math.round(newTp * 1000000) / 1000000;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    trade.updatedAt = new Date();
+    await trade.save();
+  }
+  return { ok: true, message: changed ? `Updated ${trade.symbol} levels` : 'No valid levels to update' };
+}
+
 let _stopsCheckRunning = false;
 async function checkStopsAndTPs(getCurrentPriceFunc, getSignalForCoinFunc) {
   // Prevent concurrent execution — avoids double partial closes and stale reads
@@ -2196,6 +2264,7 @@ module.exports = {
   openTrade,
   closeTrade,
   closeTradePartial,
+  updateTradeLevels,
   checkStopsAndTPs,
   recheckTradeScores,
   SCORE_RECHECK_MINUTES,

@@ -256,7 +256,7 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
  */
 async function executeAction(action, user, deps) {
   const { tool, key, value } = action;
-  const { User, Trade, runBacktest, closeTrade, closeTradePartial, fetchLivePrice } = deps;
+  const { User, Trade, runBacktest, closeTrade, closeTradePartial, updateTradeLevels, fetchLivePrice } = deps;
 
   if (tool === 'change_setting') {
     if (!key || typeof key !== 'string') return { ok: false, message: 'Missing key' };
@@ -377,14 +377,64 @@ async function executeAction(action, user, deps) {
     return { ok: true, message: `Included ${coinId} in auto-trade` };
   }
 
+  if (tool === 'move_stop_loss') {
+    const tradeId = action.tradeId;
+    const stopLoss = Number(action.stopLoss);
+    if (!tradeId) return { ok: false, message: 'Missing tradeId' };
+    if (!Number.isFinite(stopLoss) || stopLoss <= 0) return { ok: false, message: 'Invalid stopLoss price' };
+    const trade = await Trade.findOne({ _id: tradeId, userId: user._id, status: 'OPEN' });
+    if (!trade) return { ok: false, message: 'Trade not found or already closed' };
+    let price;
+    try { price = await fetchLivePrice(trade.coinId); } catch (e) { /* ignore */ }
+    const cp = price ?? trade.entryPrice;
+    const result = await updateTradeLevels(user._id, tradeId, { stopLoss }, cp);
+    return result.ok ? { ok: true, message: `Moved ${trade.symbol} stop to $${stopLoss.toFixed(2)}` } : result;
+  }
+
+  if (tool === 'move_to_breakeven') {
+    const tradeId = action.tradeId;
+    if (!tradeId) return { ok: false, message: 'Missing tradeId' };
+    const trade = await Trade.findOne({ _id: tradeId, userId: user._id, status: 'OPEN' });
+    if (!trade) return { ok: false, message: 'Trade not found or already closed' };
+    const BE_BUFFER = 0.003;
+    const newSl = trade.direction === 'LONG'
+      ? trade.entryPrice * (1 + BE_BUFFER)
+      : trade.entryPrice * (1 - BE_BUFFER);
+    let price;
+    try { price = await fetchLivePrice(trade.coinId); } catch (e) { /* ignore */ }
+    const cp = price ?? trade.entryPrice;
+    const result = await updateTradeLevels(user._id, tradeId, { stopLoss: newSl }, cp);
+    return result.ok ? { ok: true, message: `Moved ${trade.symbol} stop to breakeven` } : result;
+  }
+
+  if (tool === 'update_take_profit') {
+    const tradeId = action.tradeId;
+    if (!tradeId) return { ok: false, message: 'Missing tradeId' };
+    const trade = await Trade.findOne({ _id: tradeId, userId: user._id, status: 'OPEN' });
+    if (!trade) return { ok: false, message: 'Trade not found or already closed' };
+    const updates = {};
+    if (action.takeProfit1 != null && Number.isFinite(Number(action.takeProfit1))) updates.takeProfit1 = Number(action.takeProfit1);
+    if (action.takeProfit2 != null && Number.isFinite(Number(action.takeProfit2))) updates.takeProfit2 = Number(action.takeProfit2);
+    if (action.takeProfit3 != null && Number.isFinite(Number(action.takeProfit3))) updates.takeProfit3 = Number(action.takeProfit3);
+    if (Object.keys(updates).length === 0) return { ok: false, message: 'Provide at least one of takeProfit1, takeProfit2, takeProfit3' };
+    let price;
+    try { price = await fetchLivePrice(trade.coinId); } catch (e) { /* ignore */ }
+    const cp = price ?? trade.entryPrice;
+    const result = await updateTradeLevels(user._id, tradeId, updates, cp);
+    return result.ok ? { ok: true, message: `Updated ${trade.symbol} take profit levels` } : result;
+  }
+
   return { ok: false, message: `Unknown tool: ${tool}` };
 }
 
 /**
  * Run the LLM agent for a user.
+ * @param {string} userId
+ * @param {Object} deps
+ * @param {Object} [opts] - { userRequest?: string } - when provided, uses this as the main prompt (e.g. from chat)
  * @returns {Object} { success, actionsExecuted, actionsFailed, reasoning }
  */
-async function runAgent(userId, deps) {
+async function runAgent(userId, deps, opts = {}) {
   const { User, Trade, runBacktest, getPerformanceStats } = deps;
   const user = await User.findById(userId);
   if (!user) return { success: false, error: 'User not found' };
@@ -414,17 +464,23 @@ Reply ONLY with valid JSON in this exact format (no other text):
     { "tool": "close_trade", "tradeId": "trade_id_string" },
     { "tool": "reduce_position", "tradeId": "trade_id_string", "percent": 50 },
     { "tool": "exclude_coin", "coinId": "bitcoin" },
-    { "tool": "include_coin", "coinId": "bitcoin" }
+    { "tool": "include_coin", "coinId": "bitcoin" },
+    { "tool": "move_stop_loss", "tradeId": "trade_id_string", "stopLoss": 95000 },
+    { "tool": "move_to_breakeven", "tradeId": "trade_id_string" },
+    { "tool": "update_take_profit", "tradeId": "trade_id_string", "takeProfit1": 100000, "takeProfit2": 105000 }
   ]
 }
 
 Available tools:
-- change_setting: key = setting name, value = number, boolean, or string. Allowed: riskPerTrade (0.5-10), riskDollarsPerTrade (10-10000), maxOpenTrades (1-10), autoTradeMinScore (30-95), autoTrade (bool), cooldownHours (0-168), defaultLeverage (1-20), minRiskReward (1-5), maxDailyLossPercent (0-20), autoTradeCoinsMode (tracked|tracked+top1|top1), riskMode (percent|dollar).
+- change_setting: key = setting name, value = number, boolean, or string. Allowed: riskPerTrade (0.5-10), riskDollarsPerTrade (10-10000), maxOpenTrades (1-10), autoTradeMinScore (30-95), autoTrade (bool), cooldownHours (0-168), defaultLeverage (1-20), minRiskReward (1-5), maxDailyLossPercent (0-20), autoTradeCoinsMode (tracked|tracked+top1|top1), riskMode (percent|dollar), autoMoveBreakeven (bool), autoTrailingStop (bool).
 - run_backtest: days = 7 to 14. Runs historical simulation.
 - close_trade: tradeId = id of open trade. Closes the entire position.
 - reduce_position: tradeId = id of open trade, percent = 10-99 (how much to close). Reduces position size.
 - exclude_coin: coinId = coin id (e.g. bitcoin, ethereum). Excludes from auto-trade.
 - include_coin: coinId = coin id. Re-includes in auto-trade.
+- move_stop_loss: tradeId = id of open trade, stopLoss = new stop price (number). LONG: stop must be below entry. SHORT: stop must be above entry.
+- move_to_breakeven: tradeId = id of open trade. Moves stop to entry (with fee buffer).
+- update_take_profit: tradeId = id of open trade, takeProfit1/takeProfit2/takeProfit3 = new TP prices (provide at least one). LONG: TPs above entry. SHORT: TPs below entry.
 
 If no changes needed, use "actions": [].
 Be conservative. Only close or reduce when the trade is clearly against you or risk management demands it.`;
@@ -463,7 +519,11 @@ Be conservative. Only close or reduce when the trade is clearly against you or r
     promptParts.push(`- Excluded coins: ${JSON.stringify(user.excludedCoins)}`);
   }
 
-  promptParts.push(`\nReview open trades, live signals, and performance. Should we close any, reduce any, change settings, exclude/include coins, or run a backtest? Reply with JSON only.`);
+  if (opts.userRequest) {
+    promptParts.push(`\nUser request: "${opts.userRequest}"\n\nTake the appropriate actions. Use tradeId from open trades above. Reply with JSON only.`);
+  } else {
+    promptParts.push(`\nReview open trades, live signals, and performance. Should we close any, reduce any, move stops, change settings, exclude/include coins, or run a backtest? Reply with JSON only.`);
+  }
 
   const prompt = promptParts.join('\n');
 

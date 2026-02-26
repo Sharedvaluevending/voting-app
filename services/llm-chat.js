@@ -1,15 +1,16 @@
 /**
  * LLM Chat - interactive chat with full platform context.
  * User can ask about markets, trades, strategies, indicators, etc.
+ * When executeActions is true, also runs the agent to execute the user's request.
  */
 
 const { chat } = require('./ollama-client');
-const { buildContext } = require('./llm-agent');
+const { buildContext, runAgent } = require('./llm-agent');
 
 const CHAT_SYSTEM = `You are a crypto trading assistant with full access to this user's trading platform. You can see:
 - Market data: Fear & Greed, BTC/ETH dominance, market cap change, volume
 - Live signals: current scores, regimes, strategies for tracked coins
-- User's open trades with live P&L
+- User's open trades with live P&L (each has tradeId for actions)
 - Recent closed trades (extended history)
 - Performance stats (win rate, total PnL, drawdown, by strategy/regime)
 - Score history for key coins
@@ -17,16 +18,18 @@ const CHAT_SYSTEM = `You are a crypto trading assistant with full access to this
 - Current settings (risk, max trades, min score, auto-trade mode)
 - Last backtest results if any
 
-Answer questions about the market, trades, strategies, and platform. Be concise but helpful. Use the context provided. If asked to run a backtest or change settings, explain that the user can do that from the Performance page or LLM Agent.`;
+Answer questions about the market, trades, strategies, and platform. Be concise but helpful. Use the context provided.
+When the user asks to move stops, close trades, change settings, etc., you can tell them to use "Execute actions" - or if they have it enabled, the agent will run and perform the actions.`;
 
 /**
  * Run chat for a user. messages = [{role, content}, ...] (user + assistant history)
  * @param {string} userId
  * @param {Array<{role: string, content: string}>} messages
- * @param {Object} deps - { User, Trade, getPerformanceStats, fetchLivePrice, getMarketPulse, fetchAllPrices?, fetchAllCandles?, fetchAllHistory?, buildEngineOptions?, analyzeAllCoins?, getScoreHistory?, getRegimeTimeline? }
- * @returns {Promise<{success: boolean, text?: string, error?: string}>}
+ * @param {Object} deps - { User, Trade, getPerformanceStats, fetchLivePrice, getMarketPulse, ... }
+ * @param {Object} [opts] - { executeActions?: boolean } - when true, run agent with last user message
+ * @returns {Promise<{success: boolean, text?: string, agentResult?: Object, error?: string}>}
  */
-async function runChat(userId, messages, deps) {
+async function runChat(userId, messages, deps, opts = {}) {
   const { User, Trade, getPerformanceStats, fetchLivePrice, getMarketPulse } = deps;
   const user = await User.findById(userId);
   if (!user) return { success: false, error: 'User not found' };
@@ -68,7 +71,22 @@ async function runChat(userId, messages, deps) {
 
   try {
     const text = await chat(fullMessages, ollamaUrl, model);
-    return { success: true, text: text || '(No response)' };
+    const result = { success: true, text: text || '(No response)' };
+
+    if (opts.executeActions && messages.length > 0) {
+      const lastUser = messages.filter(m => m.role === 'user').pop();
+      const userRequest = lastUser?.content?.trim();
+      if (userRequest) {
+        try {
+          const agentResult = await runAgent(userId, deps, { userRequest });
+          result.agentResult = agentResult;
+        } catch (agentErr) {
+          result.agentError = agentErr.message;
+        }
+      }
+    }
+
+    return result;
   } catch (err) {
     return { success: false, error: err.message };
   }
