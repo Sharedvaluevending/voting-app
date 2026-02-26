@@ -9,6 +9,14 @@ const fetch = require('node-fetch');
 const DEFAULT_URL = 'http://localhost:11434';
 const TIMEOUT_MS = 15000;
 
+function isNgrokUrl(url) {
+  return url && (url.includes('ngrok-free') || url.includes('ngrok.io'));
+}
+
+function getHeaders() {
+  return { 'Content-Type': 'application/json' };
+}
+
 /**
  * Ask Ollama whether to approve opening a trade.
  * @param {Object} ctx - Trade context
@@ -32,37 +40,33 @@ async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'llama3.2') {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-    // Try /api/chat first (modern Ollama). Fallback to /api/generate (older versions).
-    let res = await fetch(base + '/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: model || 'llama3.2',
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: prompt }
-        ]
-      }),
-      signal: controller.signal
-    });
+    const headers = getHeaders();
+    if (isNgrokUrl(base)) headers['ngrok-skip-browser-warning'] = 'true';
 
-    if (res.status === 404) {
-      // Older Ollama: use /api/generate
-      res = await fetch(base + '/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: model || 'llama3.2',
-          prompt: systemPrompt + '\n\n' + prompt
-        }),
-        signal: controller.signal
-      });
+    const generateBody = { model: model || 'llama3.2', prompt: systemPrompt + '\n\n' + prompt };
+    const chatBody = {
+      model: model || 'llama3.2',
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }]
+    };
+
+    // For ngrok: try /api/generate first (often more reliable). Else try /api/chat, fallback to /api/generate on 404.
+    let res;
+    if (isNgrokUrl(base)) {
+      res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
+      if (res.status === 404) {
+        res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
+      }
+    } else {
+      res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
+      if (res.status === 404) {
+        res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
+      }
     }
 
     clearTimeout(timeout);
 
     if (!res.ok) {
-      console.warn('[Ollama]', res.status, res.statusText);
+      console.warn('[Ollama]', res.status, res.statusText, base.includes('ngrok') ? '(try updating Ollama: ollama update)' : '');
       return false;
     }
 
@@ -118,9 +122,11 @@ function parseJsonResponse(text) {
 async function checkOllamaReachable(baseUrl = DEFAULT_URL) {
   try {
     const url = baseUrl.replace(/\/$/, '') + '/api/tags';
+    const headers = {};
+    if (isNgrokUrl(baseUrl)) headers['ngrok-skip-browser-warning'] = 'true';
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { headers, signal: controller.signal });
     clearTimeout(t);
     return res.ok;
   } catch (e) {

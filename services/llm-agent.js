@@ -74,34 +74,34 @@ const BOOLEAN_SETTINGS = [
 /**
  * Call Ollama with agent prompt.
  */
+function isNgrokUrl(url) {
+  return url && (url.includes('ngrok-free') || url.includes('ngrok.io'));
+}
+
 async function callAgent(prompt, systemPrompt, baseUrl, model) {
   const base = baseUrl.replace(/\/$/, '');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const headers = { 'Content-Type': 'application/json' };
+  if (isNgrokUrl(base)) headers['ngrok-skip-browser-warning'] = 'true';
 
-  let res = await fetch(base + '/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: model || 'llama3.2',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt }
-      ]
-    }),
-    signal: controller.signal
-  });
+  const generateBody = { model: model || 'llama3.2', prompt: systemPrompt + '\n\n' + prompt };
+  const chatBody = {
+    model: model || 'llama3.2',
+    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }]
+  };
 
-  if (res.status === 404) {
-    res = await fetch(base + '/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: model || 'llama3.2',
-        prompt: systemPrompt + '\n\n' + prompt
-      }),
-      signal: controller.signal
-    });
+  let res;
+  if (isNgrokUrl(base)) {
+    res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
+    if (res.status === 404) {
+      res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
+    }
+  } else {
+    res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
+    if (res.status === 404) {
+      res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
+    }
   }
 
   clearTimeout(timeout);
