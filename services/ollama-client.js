@@ -148,8 +148,40 @@ async function checkOllamaReachable(baseUrl = DEFAULT_URL) {
   }
 }
 
+/**
+ * Chat with Ollama (multi-turn). messages = [{role, content}, ...]
+ * @param {Array<{role: string, content: string}>} messages
+ * @param {string} baseUrl
+ * @param {string} model
+ * @returns {Promise<string>}
+ */
+async function chat(messages, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud') {
+  const base = baseUrl.replace(/\/$/, '');
+  const headers = getHeaders(base);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+  const chatBody = { model: model || 'qwen3-coder:480b-cloud', messages };
+  const openaiBody = { model: model || 'qwen3-coder:480b-cloud', messages };
+  const lastUser = messages.filter(m => m.role === 'user').pop();
+  const responsesBody = { model: model || 'qwen3-coder:480b-cloud', input: (lastUser && lastUser.content) || '' };
+
+  let res;
+  if (isNgrokUrl(base)) {
+    res = await fetch(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
+    if (res.status === 404) res = await fetch(base + '/v1/responses', { method: 'POST', headers, body: JSON.stringify(responsesBody), signal: controller.signal });
+    if (res.status === 404) res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
+  } else {
+    res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
+  }
+  clearTimeout(timeout);
+  if (!res.ok) throw new Error(`Ollama ${res.status}`);
+  const data = await res.json();
+  return data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
+}
+
 module.exports = {
   approveTrade,
   checkOllamaReachable,
+  chat,
   DEFAULT_URL
 };

@@ -1075,6 +1075,13 @@ app.get('/themes', optionalUser, async (req, res) => {
 });
 
 // ====================================================
+// LLM CHAT (interactive chat with full platform context)
+// ====================================================
+app.get('/llm-chat', requireLogin, (req, res) => {
+  res.render('llm-chat', { activePage: 'llm-chat', pageTitle: 'LLM Chat' });
+});
+
+// ====================================================
 // MARKET PULSE (market-news-analyst skill inspired)
 // ====================================================
 app.get('/market-pulse', optionalUser, async (req, res) => {
@@ -3283,6 +3290,26 @@ app.post('/api/trigger-score-check', requireLogin, async (req, res) => {
     runScoreRecheck().catch(err => console.error('[ScoreCheck] Trigger error:', err.message));
     res.json({ success: true, message: 'Score check triggered. Refresh in 10–15 seconds.' });
   } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ====================================================
+// LLM CHAT API
+// ====================================================
+app.post('/api/llm-chat', requireLogin, async (req, res) => {
+  try {
+    const messages = req.body?.messages;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ success: false, error: 'messages array required' });
+    }
+    const { getMarketPulse } = require('./services/market-pulse');
+    const { runChat } = require('./services/llm-chat');
+    const deps = { User, Trade, getPerformanceStats, closeTrade, closeTradePartial, fetchLivePrice, getMarketPulse };
+    const result = await runChat(req.session.userId, messages, deps);
+    res.json(result);
+  } catch (err) {
+    console.error('[LLM-Chat] Error:', err);
     res.status(500).json({ success: false, error: err.message });
   }
 });

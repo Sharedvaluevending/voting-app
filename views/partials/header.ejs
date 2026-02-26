@@ -25,7 +25,10 @@
           <a href="/crypto-alerts" class="<%= typeof activePage !== 'undefined' && activePage === 'crypto-alerts' ? 'active' : '' %>">Crypto Alerts</a>
         <% } %>
         <a href="/themes" class="<%= typeof activePage !== 'undefined' && activePage === 'themes' ? 'active' : '' %>">Themes</a>
-        <a href="/market-pulse" class="<%= typeof activePage !== 'undefined' && activePage === 'market-pulse' ? 'active' : '' %>">Market Pulse</a>
+          <a href="/market-pulse" class="<%= typeof activePage !== 'undefined' && activePage === 'market-pulse' ? 'active' : '' %>">Market Pulse</a>
+        <% if (typeof user !== 'undefined' && user) { %>
+          <a href="/llm-chat" class="<%= typeof activePage !== 'undefined' && activePage === 'llm-chat' ? 'active' : '' %>">LLM Chat</a>
+        <% } %>
         <a href="/learn" class="<%= typeof activePage !== 'undefined' && activePage === 'learn' ? 'active' : '' %>">Learn</a>
         <a href="/learning" class="<%= typeof activePage !== 'undefined' && activePage === 'learning' ? 'active' : '' %>">Strategy Optimizer</a>
         <a href="/strategy-comparison" class="<%= typeof activePage !== 'undefined' && activePage === 'comparison' ? 'active' : '' %>">Compare</a>

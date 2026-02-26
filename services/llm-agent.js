@@ -385,6 +385,7 @@ Review open trades. Should we close any, reduce any, change settings, or run a b
 
 module.exports = {
   runAgent,
+  buildContext,
   SETTING_BOUNDS,
   BOOLEAN_SETTINGS
 };

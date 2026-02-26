@@ -1,0 +1,112 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">LLM Chat</h2>
+  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Ask about markets, trades, strategies, and your platform. The LLM has full access to your data.</p>
+</div>
+
+<div style="margin-bottom:12px;padding:12px 16px;background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.3);border-radius:8px;font-size:12px;color:#c4b5fd;">
+  Requires Ollama running with your model (e.g. qwen3-coder:480b-cloud). Configure URL and model in <a href="/performance" style="color:#a78bfa;">Performance</a>.
+</div>
+
+<div class="section" style="display:flex;flex-direction:column;height:calc(100vh - 220px);min-height:400px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;backdrop-filter:blur(8px);overflow:hidden;">
+  <div id="chat-messages" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;">
+    <div id="chat-welcome" style="padding:16px;background:rgba(30,41,59,0.5);border:1px solid #334155;border-radius:8px;color:#9ca3af;font-size:13px;">
+      <strong style="color:#a78bfa;">Examples:</strong><br>
+      • "What's the market doing right now?"<br>
+      • "Summarize my open trades and P&L"<br>
+      • "How's my performance? Win rate?"<br>
+      • "Should I be cautious given Fear & Greed?"<br>
+      • "What are my current risk settings?"
+    </div>
+  </div>
+  <div style="padding:12px 16px;border-top:1px solid #1e2a3a;background:rgba(15,23,42,0.4);">
+    <form id="chat-form" style="display:flex;gap:8px;align-items:flex-end;">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <textarea id="chat-input" name="message" rows="2" placeholder="Ask about markets, trades, strategies..." style="flex:1;padding:10px 14px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#fff;font-size:14px;resize:none;min-height:44px;max-height:120px;" required></textarea>
+      <button type="submit" id="chat-send" class="btn btn-primary" style="padding:10px 20px;height:44px;">Send</button>
+    </form>
+    <div id="chat-status" style="font-size:11px;color:#6b7280;margin-top:6px;"></div>
+  </div>
+</div>
+
+<style>
+#chat-messages .msg-user { align-self:flex-end; max-width:85%; padding:10px 14px; background:rgba(59,130,246,0.2); border:1px solid rgba(59,130,246,0.3); border-radius:10px; color:#e5e7eb; font-size:14px; }
+#chat-messages .msg-assistant { align-self:flex-start; max-width:90%; padding:12px 16px; background:rgba(30,41,59,0.6); border:1px solid #334155; border-radius:10px; color:#e5e7eb; font-size:14px; line-height:1.5; white-space:pre-wrap; }
+#chat-messages .msg-error { align-self:flex-start; padding:10px 14px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); border-radius:8px; color:#fca5a5; font-size:13px; }
+</style>
+
+<script>
+(function() {
+  var form = document.getElementById('chat-form');
+  var input = document.getElementById('chat-input');
+  var messagesEl = document.getElementById('chat-messages');
+  var welcomeEl = document.getElementById('chat-welcome');
+  var statusEl = document.getElementById('chat-status');
+  var sendBtn = document.getElementById('chat-send');
+  var history = [];
+
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    var text = (input.value || '').trim();
+    if (!text) return;
+
+    welcomeEl.style.display = 'none';
+    history.push({ role: 'user', content: text });
+    var userDiv = document.createElement('div');
+    userDiv.className = 'msg-user';
+    userDiv.textContent = text;
+    messagesEl.appendChild(userDiv);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    input.value = '';
+    sendBtn.disabled = true;
+    statusEl.textContent = 'Thinking...';
+
+    fetch('/api/llm-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('input[name="_csrf"]').value },
+      body: JSON.stringify({ messages: history }),
+      credentials: 'same-origin'
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      sendBtn.disabled = false;
+      statusEl.textContent = '';
+      if (d.success && d.text) {
+        history.push({ role: 'assistant', content: d.text });
+        var div = document.createElement('div');
+        div.className = 'msg-assistant';
+        div.textContent = d.text;
+        messagesEl.appendChild(div);
+      } else {
+        history.pop();
+        var errDiv = document.createElement('div');
+        errDiv.className = 'msg-error';
+        errDiv.textContent = d.error || 'Failed to get response';
+        messagesEl.appendChild(errDiv);
+      }
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    })
+    .catch(function(err) {
+      sendBtn.disabled = false;
+      statusEl.textContent = '';
+      history.pop();
+      var errDiv = document.createElement('div');
+      errDiv.className = 'msg-error';
+      errDiv.textContent = err.message || 'Network error';
+      messagesEl.appendChild(errDiv);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    });
+  });
+
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      form.dispatchEvent(new Event('submit'));
+    }
+  });
+})();
+</script>
+
+<%- include('partials/footer') %>
