@@ -648,7 +648,7 @@ Available tools:
 - update_take_profit: tradeId = id of open trade, takeProfit1/takeProfit2/takeProfit3 = new TP prices (provide at least one). LONG: TPs above entry. SHORT: TPs below entry.
 
 If no changes needed, use "actions": [].
-Be conservative. Only open trades when the signal is strong and fits your risk rules. Only close or reduce when the trade is clearly against you or risk management demands it.`;
+When opening: use open_trade when a coin has BUY/STRONG_BUY (for LONG) or SELL/STRONG_SELL (for SHORT), score >= autoTradeMinScore, and you have capacity. Only close or reduce when the trade is clearly against you or risk management demands it.`;
 
   const promptParts = [
     `Current state:`,
@@ -679,6 +679,10 @@ Be conservative. Only open trades when the signal is strong and fits your risk r
   }
   if (ctx.liveSignals && ctx.liveSignals.length > 0) {
     promptParts.push(`- Live signals (tracked coins, top ${ctx.liveSignals.length}): ${JSON.stringify(ctx.liveSignals)}`);
+    const actionable = ctx.liveSignals.filter(s => ['BUY', 'STRONG_BUY', 'SELL', 'STRONG_SELL'].includes(s.signal));
+    if (actionable.length > 0) {
+      promptParts.push(`- Actionable for open_trade (use coinId + direction LONG for BUY/STRONG_BUY, SHORT for SELL/STRONG_SELL): ${JSON.stringify(actionable.map(s => ({ coinId: s.coinId, symbol: s.symbol, signal: s.signal, score: s.score, direction: (s.signal === 'BUY' || s.signal === 'STRONG_BUY') ? 'LONG' : 'SHORT' })))}`);
+    }
   }
   if (ctx.top3MarketScan && ctx.top3MarketScan.length > 0) {
     const top3 = ctx.top3MarketScan.map(s => ({
@@ -691,9 +695,10 @@ Be conservative. Only open trades when the signal is strong and fits your risk r
       entry: s.entry,
       stopLoss: s.stopLoss,
       takeProfit1: s.takeProfit1,
-      riskReward: s.riskReward
+      riskReward: s.riskReward,
+      direction: ['BUY', 'STRONG_BUY'].includes(s.signal) ? 'LONG' : ['SELL', 'STRONG_SELL'].includes(s.signal) ? 'SHORT' : null
     }));
-    promptParts.push(`- Top 3 from 80-coin market scan (outside tracked 20): ${JSON.stringify(top3)}`);
+    promptParts.push(`- Top 3 from 80-coin market scan (use coinId + direction for open_trade when signal is BUY/STRONG_BUY or SELL/STRONG_SELL): ${JSON.stringify(top3)}`);
   }
   if (ctx.scoreHistory && Object.keys(ctx.scoreHistory).length > 0) {
     promptParts.push(`- Score history (recent): ${JSON.stringify(ctx.scoreHistory)}`);
@@ -708,7 +713,7 @@ Be conservative. Only open trades when the signal is strong and fits your risk r
   if (opts.userRequest) {
     promptParts.push(`\nUser request: "${opts.userRequest}"\n\nTake the appropriate actions. Use tradeId from open trades above. Reply with JSON only.`);
   } else {
-    promptParts.push(`\nReview open trades, live signals, and performance. Should we close any, reduce any, move stops, change settings, exclude/include coins, or run a backtest? Reply with JSON only.`);
+    promptParts.push(`\nReview open trades, live signals, and performance. Should we OPEN any new trades (if signals are strong and under maxOpenTrades), close any, reduce any, move stops, change settings, exclude/include coins, or run a backtest? When signals have BUY/STRONG_BUY or SELL/STRONG_SELL and score >= autoTradeMinScore, consider open_trade. Reply with JSON only.`);
   }
 
   const prompt = promptParts.join('\n');
