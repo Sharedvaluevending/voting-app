@@ -3325,7 +3325,11 @@ app.post('/api/llm-chat', requireLogin, async (req, res) => {
     }
     const { getMarketPulse } = require('./services/market-pulse');
     const { runChat } = require('./services/llm-chat');
-    const deps = { User, Trade, getPerformanceStats, closeTrade, closeTradePartial, fetchLivePrice, getMarketPulse };
+    const deps = {
+      User, Trade, getPerformanceStats, closeTrade, closeTradePartial, fetchLivePrice, getMarketPulse,
+      fetchAllPrices, fetchAllCandles, fetchAllHistory, buildEngineOptions, analyzeAllCoins,
+      getScoreHistory, getRegimeTimeline
+    };
     const result = await runChat(req.session.userId, messages, deps);
     res.json(result);
   } catch (err) {
@@ -3346,7 +3350,11 @@ app.post('/api/llm-agent/run', requireLogin, async (req, res) => {
       return res.status(429).json({ success: false, error: 'Wait 1 minute between runs' });
     }
     _llmAgentLastTrigger[uid] = now;
-    const deps = { User, Trade, runBacktest, getPerformanceStats, closeTrade, closeTradePartial, fetchLivePrice };
+    const deps = {
+      User, Trade, runBacktest, getPerformanceStats, closeTrade, closeTradePartial, fetchLivePrice,
+      fetchAllPrices, fetchAllCandles, fetchAllHistory, buildEngineOptions, analyzeAllCoins,
+      getScoreHistory, getRegimeTimeline
+    };
     const result = await runAgent(uid, deps);
     res.json(result);
   } catch (err) {

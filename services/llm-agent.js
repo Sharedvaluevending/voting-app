@@ -132,12 +132,19 @@ function parseJsonResponse(text) {
 
 /**
  * Build context for the agent.
+ * @param {Object} user
+ * @param {Object} User - User model
+ * @param {Object} Trade - Trade model
+ * @param {Function} getPerformanceStats
+ * @param {Function} fetchLivePrice
+ * @param {Object} [extraDeps] - Optional: fetchAllPrices, fetchAllCandles, fetchAllHistory, buildEngineOptions, analyzeAllCoins, getScoreHistory, getRegimeTimeline
  */
-async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePrice) {
+async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePrice, extraDeps) {
   const stats = await getPerformanceStats(user._id);
   const openTradesRaw = await Trade.find({ userId: user._id, status: 'OPEN' }).lean();
+  const recentLimit = extraDeps ? 30 : 10;
   const recentTrades = await Trade.find({ userId: user._id, status: { $ne: 'OPEN' } })
-    .sort({ exitTime: -1 }).limit(10).lean();
+    .sort({ exitTime: -1 }).limit(recentLimit).lean();
 
   const openTrades = [];
   for (const t of openTradesRaw) {
@@ -169,11 +176,12 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
       pnlPercent,
       score: t.score,
       strategyType: t.strategyType,
+      regime: t.regime,
       entryTime: t.entryTime
     });
   }
 
-  return {
+  const ctx = {
     balance: user.paperBalance ?? 10000,
     initialBalance: user.initialBalance ?? 10000,
     stats: stats || {},
@@ -181,14 +189,66 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
     openTradesCount: openTrades.length,
     recentTrades: recentTrades.map(t => ({
       symbol: t.symbol,
+      coinId: t.coinId,
       direction: t.direction,
       pnl: t.pnl,
       pnlPercent: t.pnlPercent,
-      status: t.status
+      status: t.status,
+      strategyType: t.strategyType,
+      regime: t.regime
     })),
     settings: user.settings || {},
-    lastBacktest: user.llmAgentLastBacktest || null
+    lastBacktest: user.llmAgentLastBacktest || null,
+    liveSignals: null,
+    scoreHistory: null,
+    regimeTimeline: null
   };
+
+  // Full context: live signals, score history, regime timeline
+  if (extraDeps?.fetchAllPrices && extraDeps?.fetchAllCandles && extraDeps?.fetchAllHistory &&
+      extraDeps?.buildEngineOptions && extraDeps?.analyzeAllCoins) {
+    try {
+      const [prices, allCandles, allHistory] = await Promise.all([
+        extraDeps.fetchAllPrices(),
+        Promise.resolve(extraDeps.fetchAllCandles()),
+        extraDeps.fetchAllHistory()
+      ]);
+      if (prices && prices.length > 0) {
+        const options = await extraDeps.buildEngineOptions(prices, allCandles, allHistory, user);
+        const signals = extraDeps.analyzeAllCoins(prices, allCandles, allHistory, options);
+        ctx.liveSignals = (signals || []).slice(0, 12).map(s => ({
+          symbol: s.coin?.symbol || s.coin?.id,
+          coinId: s.coin?.id,
+          signal: s.signal,
+          score: s.score,
+          regime: s.regime,
+          strategyName: s.strategyName
+        }));
+
+        // Score history for open-trade coins + top 3 from signals
+        if (extraDeps.getScoreHistory) {
+          const coinIds = new Set(openTrades.map(t => t.coinId));
+          signals.slice(0, 3).forEach(s => { if (s.coin?.id) coinIds.add(s.coin.id); });
+          const scoreHistory = {};
+          for (const cid of coinIds) {
+            const hist = extraDeps.getScoreHistory(cid) || [];
+            if (hist.length > 0) {
+              scoreHistory[cid] = hist.slice(-8).map(h => ({ score: h.score, signal: h.signal, regime: h.regime }));
+            }
+          }
+          ctx.scoreHistory = Object.keys(scoreHistory).length ? scoreHistory : null;
+        }
+
+        // Regime timeline (last 5 snapshots)
+        if (extraDeps.getRegimeTimeline) {
+          const tl = extraDeps.getRegimeTimeline() || [];
+          ctx.regimeTimeline = tl.slice(-5).map(s => s.counts || {});
+        }
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  return ctx;
 }
 
 /**
@@ -296,6 +356,27 @@ async function executeAction(action, user, deps) {
     return { ok: true, message: `Reduced ${trade.symbol} by ${percent}%` };
   }
 
+  if (tool === 'exclude_coin') {
+    const coinId = action.coinId;
+    if (!coinId || typeof coinId !== 'string') return { ok: false, message: 'Missing coinId' };
+    user.excludedCoins = user.excludedCoins || [];
+    if (!user.excludedCoins.includes(coinId)) {
+      user.excludedCoins.push(coinId);
+      await user.save();
+      return { ok: true, message: `Excluded ${coinId} from auto-trade` };
+    }
+    return { ok: true, message: `${coinId} already excluded` };
+  }
+
+  if (tool === 'include_coin') {
+    const coinId = action.coinId;
+    if (!coinId || typeof coinId !== 'string') return { ok: false, message: 'Missing coinId' };
+    user.excludedCoins = user.excludedCoins || [];
+    user.excludedCoins = user.excludedCoins.filter(c => c !== coinId);
+    await user.save();
+    return { ok: true, message: `Included ${coinId} in auto-trade` };
+  }
+
   return { ok: false, message: `Unknown tool: ${tool}` };
 }
 
@@ -311,9 +392,18 @@ async function runAgent(userId, deps) {
   const ollamaUrl = user.settings?.ollamaUrl || 'http://localhost:11434';
   const model = user.settings?.ollamaModel || 'qwen3-coder:480b-cloud';
 
-  const ctx = await buildContext(user, User, Trade, getPerformanceStats, deps.fetchLivePrice);
+  const extraDeps = {
+    fetchAllPrices: deps.fetchAllPrices,
+    fetchAllCandles: deps.fetchAllCandles,
+    fetchAllHistory: deps.fetchAllHistory,
+    buildEngineOptions: deps.buildEngineOptions,
+    analyzeAllCoins: deps.analyzeAllCoins,
+    getScoreHistory: deps.getScoreHistory,
+    getRegimeTimeline: deps.getRegimeTimeline
+  };
+  const ctx = await buildContext(user, User, Trade, getPerformanceStats, deps.fetchLivePrice, extraDeps);
 
-  const systemPrompt = `You are an autonomous crypto trading assistant. You can change settings, run backtests, monitor open trades, close them, or reduce positions.
+  const systemPrompt = `You are an autonomous crypto trading assistant with full market and portfolio context. You can change settings, run backtests, monitor open trades, close/reduce them, and exclude/include coins from auto-trade.
 
 Reply ONLY with valid JSON in this exact format (no other text):
 {
@@ -322,7 +412,9 @@ Reply ONLY with valid JSON in this exact format (no other text):
     { "tool": "change_setting", "key": "settingName", "value": numberOrBoolean },
     { "tool": "run_backtest", "days": 14 },
     { "tool": "close_trade", "tradeId": "trade_id_string" },
-    { "tool": "reduce_position", "tradeId": "trade_id_string", "percent": 50 }
+    { "tool": "reduce_position", "tradeId": "trade_id_string", "percent": 50 },
+    { "tool": "exclude_coin", "coinId": "bitcoin" },
+    { "tool": "include_coin", "coinId": "bitcoin" }
   ]
 }
 
@@ -331,19 +423,49 @@ Available tools:
 - run_backtest: days = 7 to 14. Runs historical simulation.
 - close_trade: tradeId = id of open trade. Closes the entire position.
 - reduce_position: tradeId = id of open trade, percent = 10-99 (how much to close). Reduces position size.
+- exclude_coin: coinId = coin id (e.g. bitcoin, ethereum). Excludes from auto-trade.
+- include_coin: coinId = coin id. Re-includes in auto-trade.
 
 If no changes needed, use "actions": [].
 Be conservative. Only close or reduce when the trade is clearly against you or risk management demands it.`;
 
-  const prompt = `Current state:
-- Balance: $${ctx.balance} (initial $${ctx.initialBalance})
-- Stats: ${JSON.stringify(ctx.stats)}
-- Open trades (${ctx.openTradesCount}): ${JSON.stringify(ctx.openTrades)}
-- Recent trades: ${JSON.stringify(ctx.recentTrades)}
-- Current settings (relevant): riskPerTrade=${ctx.settings.riskPerTrade}, riskDollarsPerTrade=${ctx.settings.riskDollarsPerTrade}, maxOpenTrades=${ctx.settings.maxOpenTrades}, autoTradeMinScore=${ctx.settings.autoTradeMinScore}, autoTrade=${ctx.settings.autoTrade}
-${ctx.lastBacktest ? `- Last backtest (${ctx.lastBacktest.at}): ${JSON.stringify(ctx.lastBacktest)}` : '- No backtest run yet.'}
+  const promptParts = [
+    `Current state:`,
+    `- Balance: $${ctx.balance} (initial $${ctx.initialBalance})`,
+    `- Stats: ${JSON.stringify(ctx.stats)}`,
+    `- Open trades (${ctx.openTradesCount}): ${JSON.stringify(ctx.openTrades)}`,
+    `- Recent trades (last ${ctx.recentTrades.length}): ${JSON.stringify(ctx.recentTrades)}`,
+    `- Current settings: riskPerTrade=${ctx.settings.riskPerTrade}, riskDollarsPerTrade=${ctx.settings.riskDollarsPerTrade}, maxOpenTrades=${ctx.settings.maxOpenTrades}, autoTradeMinScore=${ctx.settings.autoTradeMinScore}, autoTrade=${ctx.settings.autoTrade}`,
+    ctx.lastBacktest ? `- Last backtest: ${JSON.stringify(ctx.lastBacktest)}` : '- No backtest run yet.'
+  ];
 
-Review open trades. Should we close any, reduce any, change settings, or run a backtest? Reply with JSON only.`;
+  if (ctx.stats?.riskByStrategyRegime) {
+    const rbr = ctx.stats.riskByStrategyRegime;
+    if (Object.keys(rbr.byStrategy || {}).length || Object.keys(rbr.byRegime || {}).length) {
+      promptParts.push(`- Performance by strategy: ${JSON.stringify(rbr.byStrategy || {})}`);
+      promptParts.push(`- Performance by regime: ${JSON.stringify(rbr.byRegime || {})}`);
+    }
+  }
+  if (ctx.stats?.byStrategy && Object.keys(ctx.stats.byStrategy).length) {
+    promptParts.push(`- Win/loss by strategy: ${JSON.stringify(ctx.stats.byStrategy)}`);
+  }
+
+  if (ctx.liveSignals && ctx.liveSignals.length > 0) {
+    promptParts.push(`- Live signals (top ${ctx.liveSignals.length}): ${JSON.stringify(ctx.liveSignals)}`);
+  }
+  if (ctx.scoreHistory && Object.keys(ctx.scoreHistory).length > 0) {
+    promptParts.push(`- Score history (recent): ${JSON.stringify(ctx.scoreHistory)}`);
+  }
+  if (ctx.regimeTimeline && ctx.regimeTimeline.length > 0) {
+    promptParts.push(`- Regime timeline (recent): ${JSON.stringify(ctx.regimeTimeline)}`);
+  }
+  if (user.excludedCoins && user.excludedCoins.length > 0) {
+    promptParts.push(`- Excluded coins: ${JSON.stringify(user.excludedCoins)}`);
+  }
+
+  promptParts.push(`\nReview open trades, live signals, and performance. Should we close any, reduce any, change settings, exclude/include coins, or run a backtest? Reply with JSON only.`);
+
+  const prompt = promptParts.join('\n');
 
   let text;
   try {

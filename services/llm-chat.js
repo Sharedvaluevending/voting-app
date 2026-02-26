@@ -8,9 +8,12 @@ const { buildContext } = require('./llm-agent');
 
 const CHAT_SYSTEM = `You are a crypto trading assistant with full access to this user's trading platform. You can see:
 - Market data: Fear & Greed, BTC/ETH dominance, market cap change, volume
+- Live signals: current scores, regimes, strategies for tracked coins
 - User's open trades with live P&L
-- Recent closed trades
-- Performance stats (win rate, total PnL, drawdown)
+- Recent closed trades (extended history)
+- Performance stats (win rate, total PnL, drawdown, by strategy/regime)
+- Score history for key coins
+- Regime timeline
 - Current settings (risk, max trades, min score, auto-trade mode)
 - Last backtest results if any
 
@@ -20,7 +23,7 @@ Answer questions about the market, trades, strategies, and platform. Be concise 
  * Run chat for a user. messages = [{role, content}, ...] (user + assistant history)
  * @param {string} userId
  * @param {Array<{role: string, content: string}>} messages
- * @param {Object} deps - { User, Trade, getPerformanceStats, fetchLivePrice, getMarketPulse }
+ * @param {Object} deps - { User, Trade, getPerformanceStats, fetchLivePrice, getMarketPulse, fetchAllPrices?, fetchAllCandles?, fetchAllHistory?, buildEngineOptions?, analyzeAllCoins?, getScoreHistory?, getRegimeTimeline? }
  * @returns {Promise<{success: boolean, text?: string, error?: string}>}
  */
 async function runChat(userId, messages, deps) {
@@ -31,9 +34,21 @@ async function runChat(userId, messages, deps) {
   const ollamaUrl = user.settings?.ollamaUrl || 'http://localhost:11434';
   const model = user.settings?.ollamaModel || 'qwen3-coder:480b-cloud';
 
+  const extraDeps = (deps.fetchAllPrices && deps.buildEngineOptions && deps.analyzeAllCoins)
+    ? {
+        fetchAllPrices: deps.fetchAllPrices,
+        fetchAllCandles: deps.fetchAllCandles,
+        fetchAllHistory: deps.fetchAllHistory,
+        buildEngineOptions: deps.buildEngineOptions,
+        analyzeAllCoins: deps.analyzeAllCoins,
+        getScoreHistory: deps.getScoreHistory,
+        getRegimeTimeline: deps.getRegimeTimeline
+      }
+    : null;
+
   let ctx;
   try {
-    ctx = await buildContext(user, User, Trade, getPerformanceStats, fetchLivePrice);
+    ctx = await buildContext(user, User, Trade, getPerformanceStats, fetchLivePrice, extraDeps);
   } catch (e) {
     ctx = { balance: 0, stats: {}, openTrades: [], recentTrades: [], settings: {}, lastBacktest: null };
   }
@@ -74,9 +89,24 @@ function buildContextBlock(ctx, pulse) {
     parts.push('');
   }
 
+  if (ctx.liveSignals && ctx.liveSignals.length > 0) {
+    parts.push('Live signals (top coins):');
+    ctx.liveSignals.slice(0, 8).forEach(s => {
+      parts.push(`  ${s.symbol} ${s.signal} score=${s.score} regime=${s.regime || 'N/A'} strategy=${s.strategyName || 'N/A'}`);
+    });
+    parts.push('');
+  }
+
   parts.push(`Balance: $${(ctx.balance || 0).toLocaleString()} (initial $${(ctx.initialBalance || 0).toLocaleString()})`);
   if (ctx.stats && Object.keys(ctx.stats).length) {
     parts.push('Stats: ' + JSON.stringify(ctx.stats));
+  }
+  if (ctx.stats?.riskByStrategyRegime) {
+    const rbr = ctx.stats.riskByStrategyRegime;
+    if (Object.keys(rbr.byStrategy || {}).length || Object.keys(rbr.byRegime || {}).length) {
+      parts.push('By strategy: ' + JSON.stringify(rbr.byStrategy || {}));
+      parts.push('By regime: ' + JSON.stringify(rbr.byRegime || {}));
+    }
   }
 
   if (ctx.openTradesCount > 0) {
@@ -89,10 +119,17 @@ function buildContextBlock(ctx, pulse) {
 
   if (ctx.recentTrades && ctx.recentTrades.length) {
     parts.push('Recent closed:');
-    ctx.recentTrades.slice(0, 5).forEach(t => {
+    ctx.recentTrades.slice(0, 10).forEach(t => {
       parts.push(`  ${t.symbol} ${t.direction} P&L: $${(t.pnl || 0).toFixed(2)} (${(t.pnlPercent || 0)?.toFixed(1)}%)`);
     });
     parts.push('');
+  }
+
+  if (ctx.scoreHistory && Object.keys(ctx.scoreHistory).length > 0) {
+    parts.push('Score history (recent): ' + JSON.stringify(ctx.scoreHistory));
+  }
+  if (ctx.regimeTimeline && ctx.regimeTimeline.length > 0) {
+    parts.push('Regime timeline: ' + JSON.stringify(ctx.regimeTimeline.slice(-3)));
   }
 
   const s = ctx.settings || {};
