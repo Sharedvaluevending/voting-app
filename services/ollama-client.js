@@ -10,7 +10,7 @@
 const fetch = require('node-fetch');
 
 const DEFAULT_URL = 'http://localhost:11434';
-const TIMEOUT_MS = 20000;
+const TIMEOUT_MS = 45000; // 45s for trade approval (large models can be slow)
 
 function isNgrokUrl(url) {
   return url && (url.includes('ngrok-free') || url.includes('ngrok.io'));
@@ -259,7 +259,7 @@ async function chat(messages, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-c
   const base = baseUrl.replace(/\/$/, '');
   const headers = getHeaders(base);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
+  const timeout = setTimeout(() => controller.abort(), 120000); // 2 min for chat (large models)
   const chatBody = { model: model || 'qwen3-coder:480b-cloud', messages };
   const openaiBody = { model: model || 'qwen3-coder:480b-cloud', messages };
   const lastUser = messages.filter(m => m.role === 'user').pop();
