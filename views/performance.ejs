@@ -171,11 +171,135 @@
         </label>
         <div>
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Min score</label>
-          <input type="number" name="autoTradeMinScore" min="30" max="95" value="<%= (user.settings && user.settings.autoTradeMinScore) != null ? user.settings.autoTradeMinScore : 52 %>" title="Only auto-open when score >= this" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+          <input type="number" name="autoTradeMinScore" min="30" max="95" value="<%= (user.settings && user.settings.autoTradeMinScore) != null ? user.settings.autoTradeMinScore : 56 %>" title="Only auto-open when score >= this" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
         </div>
         <div>
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Cooldown (hours)</label>
-          <input type="number" name="cooldownHours" min="0" max="168" title="Wait before re-opening same coin/direction" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 4 %>" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+          <input type="number" name="cooldownHours" min="0" max="168" title="Wait before re-opening same coin/direction" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 6 %>" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Coins to trade</label>
+          <select name="autoTradeCoinsMode" title="Which coins to auto-trade" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
+            <option value="tracked" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'tracked' ? 'selected' : (!user.settings?.autoTradeCoinsMode && !user.settings?.autoTradeTopMarketPick) ? 'selected' : '' %>>20 tracked only</option>
+            <option value="tracked+top1" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'tracked+top1' ? 'selected' : (user.settings?.autoTradeTopMarketPick && !user.settings?.autoTradeCoinsMode) ? 'selected' : '' %>>20 + top 1 market pick</option>
+            <option value="top1" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'top1' ? 'selected' : '' %>>Top 1 market pick only</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Signal source</label>
+          <select name="autoTradeSignalMode" id="autoTradeSignalMode" title="Original = scoring engine. Indicators = Strategy Builder. Both = either can trigger." onchange="var v=this.value; document.getElementById('autoTradeBothLogicWrap').style.display=v==='both'?'block':'none'; document.getElementById('autoTradeStrategyWrap').style.display=(v==='indicators'||v==='both')?'block':'none';" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
+            <option value="original" <%= (user.settings && user.settings.autoTradeSignalMode) === 'original' ? 'selected' : !user.settings?.autoTradeSignalMode ? 'selected' : '' %>>Original (scoring engine)</option>
+            <option value="indicators" <%= (user.settings && user.settings.autoTradeSignalMode) === 'indicators' ? 'selected' : '' %>>Strategy Builder (indicators)</option>
+            <option value="both" <%= (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'selected' : '' %>>Both (OR or AND)</option>
+          </select>
+        </div>
+        <div id="autoTradeStrategyWrap" style="display:<%= (user.settings && user.settings.autoTradeSignalMode) === 'indicators' || (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'block' : 'none' %>;">
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Strategy (for indicators)</label>
+          <select name="autoTradeStrategyConfigId" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
+            <option value="">-- Select saved strategy --</option>
+            <% (savedStrategies || []).forEach(function(s) { %>
+            <option value="<%= s._id %>" <%= (user.settings && user.settings.autoTradeStrategyConfigId && user.settings.autoTradeStrategyConfigId.toString() === s._id.toString()) ? 'selected' : '' %>><%= s.name %></option>
+            <% }); %>
+          </select>
+          <a href="/strategy-builder" style="font-size:11px;color:#3b82f6;margin-left:8px;">Build & save strategies</a>
+        </div>
+        <div id="autoTradeBothLogicWrap" style="display:<%= (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'block' : 'none' %>;">
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">When both</label>
+          <select name="autoTradeBothLogic" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
+            <option value="or" <%= (user.settings && user.settings.autoTradeBothLogic) === 'or' ? 'selected' : '' %>>OR (either signals)</option>
+            <option value="and" <%= (user.settings && user.settings.autoTradeBothLogic) === 'and' ? 'selected' : '' %>>AND (both must agree)</option>
+          </select>
+        </div>
+        <div style="flex-basis:100%;margin-top:8px;padding-top:12px;border-top:1px solid #1e2a3a;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:6px;" title="Ask local Ollama LLM to approve each auto-trade before opening. Requires Ollama running (e.g. ollama run qwen3-coder:480b-cloud).">
+            <input type="hidden" name="llmEnabled" value="false">
+            <input type="checkbox" name="llmEnabled" id="llmEnabled" value="true" <%= (user.settings && user.settings.llmEnabled) ? 'checked' : '' %> onchange="document.getElementById('ollama-url-wrap').style.display=this.checked?'block':'none'">
+            <span style="font-size:12px;color:#9ca3af;">Use LLM (Ollama) to approve trades</span>
+          </label>
+          <div id="ollama-url-wrap" style="<%= (user.settings && user.settings.llmEnabled) ? '' : 'display:none;' %>">
+            <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:4px;">
+              <div>
+                <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:4px;">Ollama URL</label>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input type="text" name="ollamaUrl" id="ollamaUrlInput" placeholder="http://localhost:11434" value="<%= (user.settings && user.settings.ollamaUrl) || 'http://localhost:11434' %>" style="width:220px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;">
+                  <button type="button" onclick="testOllama()" style="padding:6px 12px;background:#1e2a3a;border:1px solid #334155;color:#e5e7eb;border-radius:6px;font-size:12px;cursor:pointer;">Test</button>
+                </div>
+              </div>
+              <div>
+                <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:4px;">Model</label>
+                <input type="text" name="ollamaModel" placeholder="qwen3-coder:480b-cloud" value="<%= (user.settings && user.settings.ollamaModel) || 'qwen3-coder:480b-cloud' %>" style="width:220px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="e.g. qwen3-coder:480b-cloud, gpt-oss:20b-cloud, glm-4.6:cloud">
+              </div>
+            </div>
+            <span id="ollama-status" style="font-size:11px;color:#6b7280;margin-top:4px;display:block;"></span>
+          </div>
+          <script>
+            function testOllama() {
+              var url = document.getElementById('ollamaUrlInput').value.trim() || 'http://localhost:11434';
+              var el = document.getElementById('ollama-status');
+              el.textContent = 'Checking...';
+              el.style.color = '#6b7280';
+              fetch('/api/ollama/status?url=' + encodeURIComponent(url))
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                  el.textContent = d.reachable ? 'Connected' : (d.error || 'Not reachable');
+                  el.style.color = d.reachable ? '#10b981' : '#ef4444';
+                })
+                .catch(function() {
+                  el.textContent = 'Error';
+                  el.style.color = '#ef4444';
+                });
+            }
+          </script>
+        </div>
+        <div style="flex-basis:100%;margin-top:12px;padding-top:12px;border-top:1px solid #1e2a3a;">
+          <h5 style="color:#8b5cf6;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px 0;">LLM Agent (Full Access)</h5>
+          <p style="font-size:11px;color:#6b7280;margin:0 0 8px 0;">Autonomous agent can change settings, run backtests, adjust risk per trade, move stops, and optimize. Uses same Ollama above.</p>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:8px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="Leave on for 24/7 autonomous runs. Save the form to apply.">
+              <input type="hidden" name="llmAgentEnabled" value="false">
+              <input type="checkbox" name="llmAgentEnabled" id="llmAgentEnabled" value="true" <%= (user.settings && user.settings.llmAgentEnabled) ? 'checked' : '' %>>
+              <span style="font-size:12px;color:#9ca3af;font-weight:600;">Run agent 24/7</span>
+            </label>
+            <div>
+              <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:2px;">Every (min)</label>
+              <input type="number" name="llmAgentIntervalMinutes" min="15" max="1440" value="<%= (user.settings && user.settings.llmAgentIntervalMinutes) || 60 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="How often to run (15–1440 min). 60 = hourly.">
+            </div>
+            <% if (user.settings && user.settings.llmAgentEnabled) { %>
+            <span style="font-size:11px;padding:4px 10px;background:rgba(16,185,129,0.2);color:#10b981;border-radius:6px;font-weight:600;">Running on schedule</span>
+            <% } else { %>
+            <span style="font-size:11px;padding:4px 10px;background:rgba(107,114,128,0.2);color:#6b7280;border-radius:6px;">Off — check above &amp; save</span>
+            <% } %>
+            <button type="button" id="llmAgentRunBtn" onclick="runLlmAgent()" style="padding:6px 14px;background:#8b5cf6;border:none;color:#fff;border-radius:6px;font-size:12px;cursor:pointer;" title="Run once now (manual trigger)">Run now</button>
+          </div>
+          <p style="font-size:11px;color:#6b7280;margin:0;">Check <strong>Run agent 24/7</strong> and click <strong>Save</strong> below to leave it running. It will run every N minutes automatically.</p>
+          <% if (user.llmAgentLastRun) { %>
+          <div style="margin-top:8px;padding:8px 12px;background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.3);border-radius:6px;font-size:11px;">
+            <strong>Last run:</strong> <%= user.llmAgentLastRun.at ? new Date(user.llmAgentLastRun.at).toLocaleString() : 'N/A' %>
+            <% if (user.llmAgentLastRun.reasoning) { %><br><em><%= user.llmAgentLastRun.reasoning %></em><% } %>
+            <% if (user.llmAgentLastRun.actionsExecuted && user.llmAgentLastRun.actionsExecuted.length) { %><br>Applied: <%= user.llmAgentLastRun.actionsExecuted.map(function(a){ return a.message; }).join('; ') %><% } %>
+            <% if (user.llmAgentLastRun.actionsFailed && user.llmAgentLastRun.actionsFailed.length) { %><br style="color:#ef4444;">Failed: <%= user.llmAgentLastRun.actionsFailed.map(function(a){ return a.message; }).join('; ') %><% } %>
+          </div>
+          <% } %>
+          <script>
+            async function runLlmAgent() {
+              var btn = document.getElementById('llmAgentRunBtn');
+              btn.disabled = true;
+              btn.textContent = 'Running...';
+              try {
+                var res = await fetch('/api/llm-agent/run', { method: 'POST', credentials: 'same-origin' });
+                var data = await res.json();
+                if (data.success) {
+                  location.reload();
+                } else {
+                  alert(data.error || 'Failed');
+                }
+              } catch (e) {
+                alert('Error: ' + e.message);
+              }
+              btn.disabled = false;
+              btn.textContent = 'Run now';
+            }
+          </script>
         </div>
       </div>
     </div>
@@ -223,24 +347,6 @@
       </div>
     </div>
 
-    <!-- 6. Notifications -->
-    <div style="margin-bottom:16px;">
-      <h4 style="color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px 0;">Notifications</h4>
-      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-          <input type="hidden" name="notifyTradeOpen" value="false">
-          <input type="checkbox" name="notifyTradeOpen" id="notifyTradeOpen" value="true" <%= (user.settings && user.settings.notifyTradeOpen) !== false ? 'checked' : '' %>>
-          <span style="font-size:12px;color:#9ca3af;">On trade open</span>
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-          <input type="hidden" name="notifyTradeClose" value="false">
-          <input type="checkbox" name="notifyTradeClose" id="notifyTradeClose" value="true" <%= (user.settings && user.settings.notifyTradeClose) !== false ? 'checked' : '' %>>
-          <span style="font-size:12px;color:#9ca3af;">On trade close</span>
-        </label>
-        <button type="button" id="enable-push-btn" class="btn btn-outline btn-sm">Enable Push</button>
-        <span id="push-status" style="font-size:11px;color:#6b7280;"></span>
-      </div>
-    </div>
 
     <button type="submit" class="btn btn-outline btn-sm">Save Settings</button>
   </form>
@@ -323,6 +429,41 @@
         </div>
       </div>
 
+      <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
+        <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Risk Controls</h4>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+          <div>
+            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Max Daily Loss % (0=off)</label>
+            <input type="number" name="maxDailyLossPercent" value="<%= (user.settings && user.settings.maxDailyLossPercent) != null ? user.settings.maxDailyLossPercent : 5 %>" min="0" max="20" step="1" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;" placeholder="0">
+          </div>
+          <div>
+            <label class="ft-toggle" title="Halve position size when in drawdown" style="margin-bottom:4px;">
+              <input type="checkbox" name="drawdownSizingEnabled" value="true" <%= (user.settings?.drawdownSizingEnabled ?? true) ? 'checked' : '' %> onchange="document.getElementById('dd-thresh-wrap').style.display=this.checked?'block':'none'"> <span class="ft-badge ft-risk">RISK</span> Drawdown Sizing
+            </label>
+            <div id="dd-thresh-wrap" style="display:<%= (user.settings?.drawdownSizingEnabled ?? true) ? 'block' : 'none' %>;margin-top:6px;">
+              <input type="number" name="drawdownThresholdPercent" value="<%= (user.settings && user.settings.drawdownThresholdPercent) ?? 10 %>" min="5" max="50" step="1" style="width:80px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;"> % threshold
+            </div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Min 24h Volume USD (0=off)</label>
+            <input type="number" name="minVolume24hUsd" value="<%= (user.settings && user.settings.minVolume24hUsd) ?? 0 %>" min="0" step="1000000" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;" placeholder="0">
+          </div>
+          <div>
+            <label class="ft-toggle" title="Block opening a trade if it's correlated with an open position (e.g. ETH + MATIC in same group)">
+              <input type="checkbox" name="correlationFilterEnabled" value="true" <%= (user.settings?.correlationFilterEnabled ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> Correlation Filter
+            </label>
+          </div>
+          <div>
+            <label class="ft-toggle" title="Block trades when strategy expectancy is below threshold (needs 10+ trades)" onchange="document.getElementById('minExp-wrap').style.display=this.checked?'block':'none'">
+              <input type="checkbox" name="expectancyFilterEnabled" value="true" id="expectancyFilterCb" <%= (user.settings?.expectancyFilterEnabled ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> Expectancy Filter
+            </label>
+            <div id="minExp-wrap" style="display:<%= (user.settings?.expectancyFilterEnabled ?? true) ? 'block' : 'none' %>;margin-top:6px;">
+              <input type="number" name="minExpectancy" value="<%= (user.settings && user.settings.minExpectancy) ?? 0.15 %>" min="-1" max="2" step="0.05" style="width:80px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;"> min expectancy
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
         <!-- Signal Filters -->
         <label class="ft-toggle" title="Block altcoin LONGs when BTC is STRONG_SELL, block SHORTs when BTC is STRONG_BUY">
@@ -335,9 +476,9 @@
           <input type="checkbox" name="featureSessionFilter" value="true" <%= (user.settings && user.settings.featureSessionFilter) !== false ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Session Filter (12-22 UTC)
         </label>
         <label class="ft-toggle" title="Hide signals with R:R below threshold. Dashboard and auto-trade only show signals meeting min R:R.">
-          <input type="checkbox" name="minRiskRewardEnabled" value="true" id="minRrEnabled" <%= (user.settings && user.settings.minRiskRewardEnabled) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Min R:R Filter
+          <input type="checkbox" name="minRiskRewardEnabled" value="true" id="minRrEnabled" <%= (user.settings?.minRiskRewardEnabled ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Min R:R Filter
         </label>
-        <div id="minRrValueWrap" style="display:<%= (user.settings && user.settings.minRiskRewardEnabled) === true ? 'flex' : 'none' %>;align-items:center;gap:8px;">
+        <div id="minRrValueWrap" style="display:<%= (user.settings?.minRiskRewardEnabled ?? true) ? 'flex' : 'none' %>;align-items:center;gap:8px;">
           <label style="font-size:12px;color:#9ca3af;">Min R:R</label>
           <input type="number" name="minRiskReward" id="minRiskRewardInput" min="1" max="5" step="0.1" value="<%= (user.settings && user.settings.minRiskReward) != null ? user.settings.minRiskReward : 1.2 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
         </div>
@@ -373,16 +514,25 @@
         <label class="ft-toggle" title="Higher score = slightly larger position (0.5 + score/100, cap 1.2x)">
           <input type="checkbox" name="featureConfidenceSizing" value="true" <%= (user.settings && user.settings.featureConfidenceSizing) !== false ? 'checked' : '' %>> <span class="ft-badge ft-cost">SIZE</span> Confidence Sizing
         </label>
+        <label class="ft-toggle" title="Blend 70% risk-based + 30% fractional Kelly based on strategy win rate & R:R. Requires 15+ trades.">
+          <input type="checkbox" name="featureKellySizing" value="true" <%= (user.settings && user.settings.featureKellySizing) !== false ? 'checked' : '' %>> <span class="ft-badge ft-cost">SIZE</span> Kelly Criterion Sizing
+        </label>
+        <label class="ft-toggle" title="Boost +2 score for coins in top 5 bullish sectors (CoinGecko categories). See Themes page.">
+          <input type="checkbox" name="featureThemeDetector" value="true" <%= (user.settings && user.settings.featureThemeDetector) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Theme Detector
+        </label>
 
         <!-- Quality Filters -->
         <label class="ft-toggle" title="Require at least one of: order block, FVG, or liquidity cluster. Reduces trades without structure.">
-          <input type="checkbox" name="featurePriceActionConfluence" value="true" <%= (user.settings && user.settings.featurePriceActionConfluence) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Price-Action Confluence (OB/FVG/Liq)
+          <input type="checkbox" name="featurePriceActionConfluence" value="true" <%= (user.settings?.featurePriceActionConfluence ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Price-Action Confluence (OB/FVG/Liq)
         </label>
         <label class="ft-toggle" title="Skip entries when volatility is extreme. Reduces blow-ups in chaotic markets.">
           <input type="checkbox" name="featureVolatilityFilter" value="true" <%= (user.settings && user.settings.featureVolatilityFilter) === true ? 'checked' : '' %>> <span class="ft-badge ft-risk">QUALITY</span> Volatility Filter (skip extreme)
         </label>
         <label class="ft-toggle" title="Require relative volume &gt; 1.0. Avoids entries on thin, low-conviction moves.">
-          <input type="checkbox" name="featureVolumeConfirmation" value="true" <%= (user.settings && user.settings.featureVolumeConfirmation) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Volume Confirmation
+          <input type="checkbox" name="featureVolumeConfirmation" value="true" <%= (user.settings?.featureVolumeConfirmation ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Volume Confirmation
+        </label>
+        <label class="ft-toggle" title="Skip LONG when funding &gt;0.15%, skip SHORT when funding &lt;-0.15% (crowded trades)">
+          <input type="checkbox" name="featureFundingRateFilter" value="true" <%= (user.settings?.featureFundingRateFilter ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Funding Rate Filter
         </label>
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -418,7 +568,7 @@
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;align-items:end;max-width:900px;">
     <div>
       <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Account balance ($)</label>
-      <input type="number" id="calc-balance" min="100" step="100" value="<%= stats.balance %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+      <input type="number" id="calc-balance" min="0" step="100" value="<%= Math.max(0, stats.totalEquity || stats.balance || 10000) %>" style="width:100%;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
     </div>
     <div>
       <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Risk per trade (%)</label>
@@ -445,13 +595,38 @@
   </div>
 </div>
 
+<% if (balanceAudit && balanceAudit.autoFixed) { %>
+<div style="margin-bottom:16px;padding:14px 18px;background:rgba(16,185,129,0.12);border:1px solid #10b981;border-radius:10px;">
+  <div style="font-size:14px;font-weight:600;color:#10b981;">Balance Auto-Corrected</div>
+  <div style="font-size:12px;color:#9ca3af;margin-top:4px;">
+    Was: <strong style="color:#ef4444;">$<%= balanceAudit.currentBalance.toFixed(2) %></strong> &nbsp;→&nbsp;
+    Now: <strong style="color:#10b981;">$<%= balanceAudit.expectedBalance.toFixed(2) %></strong> &nbsp;
+    (recovered $<%= Math.abs(balanceAudit.discrepancy).toFixed(2) %>)
+  </div>
+</div>
+<% } %>
+
 <div class="perf-grid">
-  <div class="perf-card">
-    <div class="perf-label">Balance</div>
-    <div class="perf-value">$<%= stats.balance.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) %></div>
+  <div class="perf-card" style="border:1px solid #10b981;">
+    <div class="perf-label" title="Total account value: available cash + margin locked in open trades + unrealized P&L">Total Equity</div>
+    <div class="perf-value" style="color:#10b981;">$<%= (stats.totalEquity || stats.balance).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) %></div>
   </div>
   <div class="perf-card">
-    <div class="perf-label">Total P&L</div>
+    <div class="perf-label" title="Available cash not locked in trades">Available Cash</div>
+    <div class="perf-value">$<%= stats.balance.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) %></div>
+  </div>
+  <% if (stats.openTrades > 0) { %>
+  <div class="perf-card">
+    <div class="perf-label" title="Margin locked in <%= stats.openTrades %> open trade(s)">Margin Locked</div>
+    <div class="perf-value" style="color:#eab308;">$<%= (stats.openMarginLocked || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) %></div>
+  </div>
+  <div class="perf-card">
+    <div class="perf-label">Unrealized P&L</div>
+    <div class="perf-value <%= (stats.openUnrealizedPnl || 0) >= 0 ? 'up' : 'down' %>"><%= (stats.openUnrealizedPnl || 0) >= 0 ? '+' : '' %>$<%= (stats.openUnrealizedPnl || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) %></div>
+  </div>
+  <% } %>
+  <div class="perf-card">
+    <div class="perf-label">Realized P&L</div>
     <div class="perf-value <%= (stats.totalPnl || 0) >= 0 ? 'up' : 'down' %>"><%= (stats.totalPnl || 0) >= 0 ? '+' : '' %>$<%= (stats.totalPnl || 0).toFixed(2) %></div>
   </div>
   <div class="perf-card">
@@ -537,7 +712,7 @@
 <% if (stats.equityCurve && stats.equityCurve.length > 1) { %>
 <div class="section">
   <h3>Equity Curve</h3>
-  <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">Account balance over time. Drawdown shaded in red.</p>
+  <p style="font-size:12px;color:#6b7280;margin-bottom:10px;">Total account equity over time (cash + margin + unrealized P&L). Drawdown shaded in red. Final point = live total equity.</p>
   <div class="equity-chart-wrap" style="position:relative;background:#0d1320;border-radius:8px;padding:12px;border:1px solid #1e2a3a;overflow:hidden;">
     <canvas id="equity-curve" style="width:100%;height:260px;display:block;"></canvas>
     <div id="equity-legend" style="font-size:11px;color:#6b7280;margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;"></div>
@@ -779,11 +954,13 @@
       if (data[data.length - 1].date) ctx.fillText(new Date(data[data.length - 1].date).toLocaleDateString(), pad.left + plotW, h - 4);
     }
 
-    // Build legend (clean — just current equity and max drawdown)
+    // Build legend — show total equity (live point) and max drawdown
     var legend = document.getElementById('equity-legend');
     var last = data[data.length - 1];
-    var legendHtml = '<span>Current: <strong style="color:#fff">$' + (last.equity || 0).toLocaleString() + '</strong></span>';
-    legendHtml += '<span>Max DD: <strong style="color:#ef4444">' + (last.drawdownPct || 0) + '%</strong></span>';
+    var totalEquity = <%= (stats.totalEquity || stats.balance) %>;
+    var legendHtml = '<span>Total Equity: <strong style="color:#10b981">$' + totalEquity.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</strong></span>';
+    legendHtml += '<span style="margin-left:12px;">Available: <strong style="color:#fff">$' + (<%= stats.balance %>).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</strong></span>';
+    legendHtml += '<span style="margin-left:12px;">Max DD: <strong style="color:#ef4444">' + (<%= stats.maxDrawdownPct %>).toFixed(1) + '%</strong></span>';
     legend.innerHTML = legendHtml;
 
     // Initial draw + resize handler
@@ -792,47 +969,6 @@
   })();
   <% } %>
 
-  // Push notifications
-  (function() {
-    var btn = document.getElementById('enable-push-btn');
-    var status = document.getElementById('push-status');
-    if (!btn) return;
-    function setStatus(txt) { if (status) status.textContent = txt; }
-    btn.addEventListener('click', function() {
-      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-        setStatus('Push not supported in this browser');
-        return;
-      }
-      setStatus('Requesting...');
-      navigator.serviceWorker.register('/sw.js').then(function(reg) {
-        return reg.pushManager.getSubscription().then(function(existingSub) {
-          if (existingSub) { setStatus('Already enabled'); return { sub: existingSub, isNew: false }; }
-          return fetch('/api/push/vapid-public').then(function(r) { return r.json(); }).then(function(d) {
-            if (!d.publicKey) { setStatus('Server not configured (set VAPID keys)'); return null; }
-            return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(d.publicKey) }).then(function(sub) { return { sub: sub, isNew: true }; });
-          });
-        });
-      }).then(function(result) {
-        if (!result || !result.sub) return;
-        if (result.isNew) {
-          return fetch('/api/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(result.sub), credentials: 'same-origin' }).then(function(r) {
-            if (r && r.ok) setStatus('Enabled');
-            else setStatus('Failed');
-          });
-        }
-      }).catch(function(e) {
-        setStatus('Error: ' + (e.message || 'denied'));
-      });
-    });
-    function urlBase64ToUint8Array(base64String) {
-      var padding = '='.repeat((4 - base64String.length % 4) % 4);
-      var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-      var rawData = window.atob(base64);
-      var outputArray = new Uint8Array(rawData.length);
-      for (var i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
-      return outputArray;
-    }
-  })();
 })();
 
 // Feature toggle helpers (global scope for onclick handlers)
@@ -872,6 +1008,7 @@ function setLiveToggles(val) {
     set('featureScoreRecheck', true);
     set('featureSlCap', true);
     set('featureConfidenceSizing', true);
+    set('featureKellySizing', true);
     set('featurePriceActionConfluence', true);
     set('featureVolatilityFilter', true);
     set('featureVolumeConfirmation', true);
@@ -919,15 +1056,24 @@ function setLiveToggles(val) {
         scoreRecheck: 'featureScoreRecheck',
         slCap: 'featureSlCap',
         confidenceSizing: 'featureConfidenceSizing',
+        kellySizing: 'featureKellySizing',
         priceActionConfluence: 'featurePriceActionConfluence',
         volatilityFilter: 'featureVolatilityFilter',
-        volumeConfirmation: 'featureVolumeConfirmation'
+        volumeConfirmation: 'featureVolumeConfirmation',
+        fundingRateFilter: 'featureFundingRateFilter',
+        minRiskRewardEnabled: 'minRiskRewardEnabled',
+        minRiskReward: 'minRiskReward',
+        correlationFilterEnabled: 'correlationFilterEnabled'
       };
       for (var key in mapping) {
         var input = document.querySelector('#feature-toggles-form input[name="' + mapping[key] + '"]');
         if (input && preset[key] !== undefined) {
-          input.checked = preset[key];
+          if (input.type === 'checkbox') input.checked = preset[key];
+          else input.value = preset[key];
         }
+      }
+      if (preset.minRiskRewardEnabled && document.getElementById('minRrValueWrap')) {
+        document.getElementById('minRrValueWrap').style.display = 'flex';
       }
       alert('Backtest preset loaded! Click "Save Toggles" to apply.');
     } catch (e) {

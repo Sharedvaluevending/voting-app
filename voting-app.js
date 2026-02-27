@@ -11,6 +11,8 @@
 //   - Learning engine (tracks outcomes, adjusts weights)
 // ====================================================
 
+require('dotenv').config();
+
 const express = require('express');
 const http = require('http');
 const mongoose = require('mongoose');
@@ -24,14 +26,16 @@ const MongoStore = require('connect-mongo');
 const crypto = require('crypto');
 const path = require('path');
 
-const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, isCandleFresh, getCandleSource, recordScoreHistory, getScoreHistory, recordRegimeSnapshot, getRegimeTimeline, pricesReadyPromise, TRACKED_COINS, COIN_META } = require('./services/crypto-api');
+const { fetchAllPrices, fetchAllCandles, fetchAllCandlesForCoin, fetchAllHistory, fetchCandles, getCurrentPrice, fetchLivePrice, isDataReady, getFundingRate, getAllFundingRates, isCandleFresh, getCandleSource, recordScoreHistory, getScoreHistory, recordRegimeSnapshot, getRegimeTimeline, pricesReadyPromise, TRACKED_COINS, COIN_META, registerScannerCoinMeta, getCoinMeta, fetchCoinDataForDetail } = require('./services/crypto-api');
 const { analyzeAllCoins, analyzeCoin } = require('./services/trading-engine');
 const { requireLogin, optionalUser, guestOnly } = require('./middleware/auth');
-const { openTrade, closeTrade, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage } = require('./services/paper-trading');
+const { openTrade, closeTrade, closeTradePartial, updateTradeLevels, checkStopsAndTPs, recheckTradeScores, SCORE_RECHECK_MINUTES, getOpenTrades, getTradeHistory, getPerformanceStats, resetAccount, suggestLeverage, reconcileBalance, fixBalance } = require('./services/paper-trading');
 const { initializeStrategies, getPerformanceReport, resetStrategyWeights } = require('./services/learning-engine');
 const { runBacktest, runBacktestForCoin } = require('./services/backtest');
 const bitget = require('./services/bitget');
 const { getWebSocketPrice, getAllWebSocketPrices, addBrowserClient, isWebSocketConnected } = require('./services/websocket-prices');
+const { approveTrade, checkOllamaReachable } = require('./services/ollama-client');
+const { runAgent } = require('./services/llm-agent');
 const StrategyWeight = require('./models/StrategyWeight');
 
 const User = require('./models/User');
@@ -134,29 +138,57 @@ if (!sessionConfig.store) {
 
 app.use(session(sessionConfig));
 
+const passport = require('passport');
+require('./config/passport');
+app.use(passport.initialize());
+app.use(passport.session());
 
 // Load user data into res.locals for all templates
 app.use(async (req, res, next) => {
   res.locals.user = null;
   res.locals.balance = 10000;
+  res.locals.totalEquity = 10000;
   res.locals.livePnl = null;
   if (!dbConnected || !req.session || !req.session.userId) return next();
   try {
     const user = await User.findById(req.session.userId).lean();
     if (user) {
       res.locals.user = user;
-      res.locals.balance = user.paperBalance;
+      const cashBalance = user.paperBalance != null ? user.paperBalance : 10000;
+      res.locals.balance = cashBalance;
       req.session.username = user.username;
-      // Compute live PNL from open trades using cached prices (no extra latency)
+      // Compute total equity = cash + margin locked + unrealized P&L
       try {
         const openTrades = await getOpenTrades(req.session.userId);
         if (openTrades.length > 0) {
           const prices = await fetchAllPrices();
           const priceMap = {};
           prices.forEach(p => { if (p && p.id != null) priceMap[p.id] = Number(p.price); });
+
+          // For non-tracked coins (top 3 market scan), fetch live prices
+          // so equity and PnL display correctly in the navbar
+          const missingCoinIds = [];
+          for (const t of openTrades) {
+            if (!priceMap[t.coinId] && t.coinId) {
+              if (!TRACKED_COINS.includes(t.coinId) && !getCoinMeta(t.coinId) && t.symbol) {
+                registerScannerCoinMeta(t.coinId, t.symbol);
+              }
+              missingCoinIds.push(t.coinId);
+            }
+          }
+          if (missingCoinIds.length > 0) {
+            const uniqueMissing = [...new Set(missingCoinIds)];
+            const lps = await Promise.all(uniqueMissing.map(id => fetchLivePrice(id)));
+            uniqueMissing.forEach((id, i) => {
+              if (lps[i] != null && Number.isFinite(lps[i]) && lps[i] > 0) priceMap[id] = lps[i];
+            });
+          }
+
           let totalPnl = 0;
+          let totalMargin = 0;
           let count = 0;
           for (const t of openTrades) {
+            totalMargin += t.margin || ((t.positionSize || 0) / (t.leverage || 1));
             const cp = priceMap[t.coinId];
             if (cp == null || !t.entryPrice || !t.positionSize) continue;
             const unrealized = t.direction === 'LONG'
@@ -166,10 +198,12 @@ app.use(async (req, res, next) => {
             count++;
           }
           if (count > 0) res.locals.livePnl = totalPnl;
+          res.locals.totalEquity = Math.round((cashBalance + totalMargin + totalPnl) * 100) / 100;
+        } else {
+          res.locals.totalEquity = cashBalance;
         }
-      } catch (e) { /* non-critical, client polling will fill in */ }
+      } catch (e) { res.locals.totalEquity = cashBalance; }
     } else {
-      // User no longer exists in DB — clear stale session
       delete req.session.userId;
       delete req.session.username;
     }
@@ -261,9 +295,29 @@ app.locals.formatBigNumber = formatBigNumber;
 // ====================================================
 // AUTH ROUTES
 // ====================================================
+const googleAuthEnabled = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+
 app.get('/login', guestOnly, (req, res) => {
-  res.render('login', { activePage: 'login', error: req.query.error || null, success: req.query.success || null });
+  res.render('login', { activePage: 'login', error: req.query.error || null, success: req.query.success || null, googleAuthEnabled });
 });
+
+app.get('/register', guestOnly, (req, res) => {
+  res.render('register', { activePage: 'register', error: null, googleAuthEnabled });
+});
+
+if (googleAuthEnabled) {
+  app.get('/auth/google', guestOnly, passport.authenticate('google', { scope: ['profile', 'email'] }));
+  app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: '/login?error=Google+sign-in+failed' }), (req, res) => {
+    req.session.userId = req.user._id;
+    req.session.username = req.user.username;
+    req.session.save((err) => {
+      if (err) console.error('[Auth] Session save error:', err.message);
+      res.redirect('/');
+    });
+  });
+} else {
+  app.get('/auth/google', guestOnly, (req, res) => res.redirect('/login?error=Google+sign-in+not+configured'));
+}
 
 app.post('/login', guestOnly, async (req, res) => {
   if (!dbConnected) {
@@ -292,26 +346,22 @@ app.post('/login', guestOnly, async (req, res) => {
   }
 });
 
-app.get('/register', guestOnly, (req, res) => {
-  res.render('register', { activePage: 'register', error: null });
-});
-
 app.post('/register', guestOnly, async (req, res) => {
   if (!dbConnected) {
-    return res.render('register', { activePage: 'register', error: 'Database not available. Registration requires MongoDB.' });
+    return res.render('register', { activePage: 'register', error: 'Database not available. Registration requires MongoDB.', googleAuthEnabled });
   }
   try {
     const { username, email, password } = req.body;
     if (!username || !email || !password) {
-      return res.render('register', { activePage: 'register', error: 'All fields are required' });
+      return res.render('register', { activePage: 'register', error: 'All fields are required', googleAuthEnabled });
     }
     if (password.length < 6) {
-      return res.render('register', { activePage: 'register', error: 'Password must be at least 6 characters' });
+      return res.render('register', { activePage: 'register', error: 'Password must be at least 6 characters', googleAuthEnabled });
     }
 
     const existing = await User.findOne({ $or: [{ email: email.toLowerCase().trim() }, { username: username.trim() }] });
     if (existing) {
-      return res.render('register', { activePage: 'register', error: 'Email or username already taken' });
+      return res.render('register', { activePage: 'register', error: 'Email or username already taken', googleAuthEnabled });
     }
 
     const user = new User({
@@ -326,12 +376,12 @@ app.post('/register', guestOnly, async (req, res) => {
     req.session.save((err) => {
       if (err) {
         console.error('[Register] Session save error:', err.message);
-        return res.render('register', { activePage: 'register', error: 'Account created but login failed. Please log in manually.' });
+        return res.render('register', { activePage: 'register', error: 'Account created but login failed. Please log in manually.', googleAuthEnabled });
       }
       res.redirect('/');
     });
   } catch (err) {
-    res.render('register', { activePage: 'register', error: err.message || 'Registration failed' });
+    res.render('register', { activePage: 'register', error: err.message || 'Registration failed', googleAuthEnabled });
   }
 });
 
@@ -417,12 +467,20 @@ async function buildEngineOptions(prices, allCandles, allHistory, user) {
   // Funding rates for contrarian signal
   const fundingRates = getAllFundingRates();
   const opts = { strategyWeights, strategyStats, btcSignal, btcCandles, btcDirection, fundingRates };
-  // User-specific quality filters (for paper/live)
+  // User-specific quality filters (for paper/live) - defaults ON for quality
   if (user?.settings) {
     const s = user.settings;
-    opts.featurePriceActionConfluence = s.featurePriceActionConfluence === true;
+    opts.featurePriceActionConfluence = (s.featurePriceActionConfluence ?? true) === true;
     opts.featureVolatilityFilter = s.featureVolatilityFilter === true;
-    opts.featureVolumeConfirmation = s.featureVolumeConfirmation === true;
+    opts.featureVolumeConfirmation = (s.featureVolumeConfirmation ?? true) === true;
+    opts.featureFundingRateFilter = (s.featureFundingRateFilter ?? true) === true;
+    // Theme detector: boost signals for coins in trending sectors (theme-detector skill inspired)
+    if (s.featureThemeDetector === true) {
+      try {
+        const { getHotThemeCoinIds } = require('./services/crypto-themes');
+        opts.hotThemeCoinIds = await getHotThemeCoinIds(5);
+      } catch (e) { /* ignore */ }
+    }
   }
   return opts;
 }
@@ -476,9 +534,9 @@ app.get('/', async (req, res) => {
     let monitoredSignals = dashUser
       ? signals.filter(s => !excludedCoins.includes(s.coin?.id))
       : signals;
-    // Min R:R filter: hide signals below threshold when enabled
-    if (dashUser?.settings?.minRiskRewardEnabled && dashUser.settings.minRiskReward != null) {
-      const minRr = Number(dashUser.settings.minRiskReward) || 1.2;
+    // Min R:R filter: hide signals below threshold when enabled (default ON)
+    if (dashUser?.settings?.minRiskRewardEnabled !== false) {
+      const minRr = Number(dashUser?.settings?.minRiskReward) || 1.2;
       monitoredSignals = monitoredSignals.filter(s => (s.riskReward || 0) >= minRr);
     }
 
@@ -503,6 +561,14 @@ app.get('/', async (req, res) => {
       return { id, symbol: sig?.coin?.symbol || meta?.symbol || id, name: sig?.coin?.name || meta?.name || id };
     }) : [];
 
+    let top3MarketPicks = [];
+    let marketHoldState = false;
+    try {
+      const scanner = require('./services/market-scanner');
+      top3MarketPicks = scanner.getTop3Cached();
+      marketHoldState = scanner.isMarketHoldState();
+    } catch (e) { /* ignore */ }
+
     res.render('dashboard', {
       activePage: 'dashboard',
       prices: pricesMerged,
@@ -513,6 +579,9 @@ app.get('/', async (req, res) => {
       excludedSignals,
       excludedCoinsFull,
       topPerformerCoins,
+      top3MarketPicks,
+      marketHoldState,
+      errorMsg: req.query.error || null,
       COIN_META
     });
   } catch (err) {
@@ -522,37 +591,62 @@ app.get('/', async (req, res) => {
 });
 
 // ====================================================
-// COIN DETAIL
+// COIN DETAIL (tracked 20 + top 3 market-scanner coins)
 // ====================================================
 app.get('/coin/:coinId', async (req, res) => {
   try {
     const coinId = req.params.coinId;
-    if (!TRACKED_COINS.includes(coinId)) {
-      return res.status(404).send('Coin not found. <a href="/">Back to Dashboard</a>');
-    }
+    let coinData, candles, history, prices, allCandles, allHistory;
+    let sig;
 
-    const [prices, allCandles, allHistory] = await Promise.all([
-      fetchAllPrices(),
-      Promise.resolve(fetchAllCandles()),
-      fetchAllHistory()
-    ]);
-    const coinData = prices.find(p => p.id === coinId);
-    if (!coinData) {
-      return res.status(404).send('Price data unavailable. <a href="/">Back to Dashboard</a>');
+    if (TRACKED_COINS.includes(coinId)) {
+      [prices, allCandles, allHistory] = await Promise.all([
+        fetchAllPrices(),
+        Promise.resolve(fetchAllCandles()),
+        fetchAllHistory()
+      ]);
+      coinData = prices.find(p => p.id === coinId);
+      if (!coinData) return res.redirect('/?error=price_unavailable');
+      candles = fetchCandles(coinId);
+      history = allHistory[coinId] || { prices: [], volumes: [] };
+      const options = await buildEngineOptions(prices, allCandles, allHistory, req.session?.userId ? await User.findById(req.session.userId).select('settings').lean() : null);
+      sig = analyzeCoin(coinData, candles, history, options);
+    } else {
+      // For scanner coins: use cached signal for consistency with dashboard
+      let cachedSig = null;
+      try {
+        const scannerFull = require('./services/market-scanner').getTop3FullCached();
+        cachedSig = scannerFull.find(s => (s.coin?.id || s.coinData?.id) === coinId);
+      } catch (e) { /* scanner not loaded */ }
+
+      if (cachedSig) {
+        // Use the exact same signal that was shown on the dashboard
+        sig = cachedSig;
+        if (!sig.coin && sig.coinData) sig.coin = sig.coinData;
+      } else {
+        // Fallback: fetch fresh data (coin may not be in top 3 cache anymore)
+        const fetched = await fetchCoinDataForDetail(coinId);
+        if (!fetched) return res.redirect('/?error=coin_not_found');
+        coinData = fetched.coinData;
+        history = fetched.history;
+        candles = await fetchAllCandlesForCoin(coinId);
+        prices = [coinData];
+        allCandles = candles ? { [coinId]: candles } : {};
+        allHistory = { [coinId]: history };
+        const options = await buildEngineOptions(prices, allCandles, allHistory, req.session?.userId ? await User.findById(req.session.userId).select('settings').lean() : null);
+        sig = analyzeCoin(coinData, candles, history, options);
+      }
     }
-    const options = await buildEngineOptions(prices, allCandles, allHistory);
-    const candles = fetchCandles(coinId);
-    const history = allHistory[coinId] || { prices: [], volumes: [] };
-    const sig = analyzeCoin(coinData, candles, history, options);
 
     res.render('coin-detail', {
       activePage: 'dashboard',
       pageTitle: sig.coin.name,
-      sig
+      sig,
+      isScannerCoin: !TRACKED_COINS.includes(coinId)
     });
   } catch (err) {
     console.error('[CoinDetail] Error:', err);
-    res.status(500).send('Error loading coin data. <a href="/">Back to Dashboard</a>');
+    res.redirect('/?error=load_failed');
   }
 });
 
@@ -561,12 +655,14 @@ app.get('/coin/:coinId', async (req, res) => {
 // ====================================================
 app.get('/chart/:coinId', async (req, res) => {
   const coinId = req.params.coinId;
-  if (!TRACKED_COINS.includes(coinId)) {
-    return res.status(404).send('Coin not found. <a href="/">Back to Dashboard</a>');
-  }
-  const meta = COIN_META[coinId];
+  let meta = getCoinMeta(coinId);
   if (!meta || !meta.bybit) {
-    return res.status(404).send('Chart not available for this coin. <a href="/">Back to Dashboard</a>');
+    if (!TRACKED_COINS.includes(coinId)) {
+      const fetched = await fetchCoinDataForDetail(coinId);
+      if (!fetched) return res.status(404).send('Coin not found. <a href="/">Back to Dashboard</a>');
+      meta = getCoinMeta(coinId);
+    }
+    if (!meta || !meta.bybit) return res.status(404).send('Chart not available for this coin. <a href="/">Back to Dashboard</a>');
   }
   // Use Bitget for TradingView symbol with Kraken fallback
   const TV_PAIRS = {
@@ -603,7 +699,8 @@ app.get('/chart/:coinId', async (req, res) => {
     }
   }
   // Calculate Fibonacci levels for chart overlay
-  const chartCandles = fetchCandles(coinId);
+  let chartCandles = fetchCandles(coinId);
+  if (!chartCandles && !TRACKED_COINS.includes(coinId)) chartCandles = await fetchAllCandlesForCoin(coinId);
   let fibLevels = null;
   if (chartCandles && chartCandles['4h'] && chartCandles['4h'].length >= 10) {
     const highs = chartCandles['4h'].map(c => c.high);
@@ -622,15 +719,17 @@ app.get('/chart/:coinId', async (req, res) => {
     }
   }
 
-  const currentCoinIndex = TRACKED_COINS.indexOf(coinId);
-  const prevCoinId = currentCoinIndex > 0 ? TRACKED_COINS[currentCoinIndex - 1] : TRACKED_COINS[TRACKED_COINS.length - 1];
-  const nextCoinId = currentCoinIndex < TRACKED_COINS.length - 1 && currentCoinIndex >= 0 ? TRACKED_COINS[currentCoinIndex + 1] : TRACKED_COINS[0];
-
-  const chartCoins = TRACKED_COINS.filter(id => COIN_META[id] && COIN_META[id].bybit).map(id => ({
-    id,
-    symbol: COIN_META[id].symbol,
-    name: COIN_META[id].name
+  const chartCoinsBase = TRACKED_COINS.filter(id => getCoinMeta(id)?.bybit).map(id => ({
+    id, symbol: getCoinMeta(id).symbol, name: getCoinMeta(id).name
   }));
+  let top3Picks = [];
+  try { top3Picks = require('./services/market-scanner').getTop3Cached(); } catch (e) {}
+  top3Picks.forEach(p => { if (p.coin?.id && p.coin?.symbol) registerScannerCoinMeta(p.coin.id, p.coin.symbol); });
+  const chartCoinsExtra = top3Picks.filter(p => !chartCoinsBase.some(c => c.id === p.coin?.id)).map(p => p.coin ? { id: p.coin.id, symbol: p.coin.symbol, name: p.coin.name } : null).filter(Boolean);
+  const chartCoins = [...chartCoinsBase, ...chartCoinsExtra];
+  const currentCoinIndex = chartCoins.findIndex(c => c.id === coinId);
+  const prevCoinId = currentCoinIndex > 0 ? chartCoins[currentCoinIndex - 1].id : (chartCoins[chartCoins.length - 1]?.id || coinId);
+  const nextCoinId = currentCoinIndex >= 0 && currentCoinIndex < chartCoins.length - 1 ? chartCoins[currentCoinIndex + 1].id : (chartCoins[0]?.id || coinId);
 
   res.render('chart', {
     activePage: 'dashboard',
@@ -665,19 +764,32 @@ app.get('/trades', requireLogin, async (req, res) => {
       fetchAllPrices(),
       User.findById(req.session.userId).lean()
     ]);
-    // If we have open trades, fetch live prices for those coins so initial PnL is accurate
-    // (avoids 0% or wrong PnL from stale cache right after opening)
-    let pricesToUse = Array.isArray(prices) ? prices : [];
-    if (trades.length > 0 && pricesToUse.length > 0) {
+    // Fetch live prices for all open-trade coins so PnL is accurate.
+    // For non-tracked coins (top 3 market scan), the bulk prices array won't
+    // have them, so we register their meta and ADD them to the array.
+    let pricesToUse = Array.isArray(prices) ? [...prices] : [];
+    if (trades.length > 0) {
       const coinIds = [...new Set(trades.map(t => t.coinId))];
-      const livePrices = await Promise.all(coinIds.map(id => fetchLivePrice(id)));
-      pricesToUse = pricesToUse.map(x => {
-        const idx = coinIds.indexOf(x.id);
-        if (idx >= 0 && livePrices[idx] != null && Number.isFinite(livePrices[idx]) && livePrices[idx] > 0) {
-          return { ...x, price: livePrices[idx] };
+      // Re-register scanner meta for non-tracked coins so fetchLivePrice works
+      for (const t of trades) {
+        if (!TRACKED_COINS.includes(t.coinId) && !getCoinMeta(t.coinId) && t.symbol) {
+          registerScannerCoinMeta(t.coinId, t.symbol);
         }
-        return x;
-      });
+      }
+      const livePrices = await Promise.all(coinIds.map(id => fetchLivePrice(id)));
+      for (let i = 0; i < coinIds.length; i++) {
+        const cid = coinIds[i];
+        const lp = livePrices[i];
+        if (lp == null || !Number.isFinite(lp) || lp <= 0) continue;
+        const existingIdx = pricesToUse.findIndex(x => x.id === cid);
+        if (existingIdx >= 0) {
+          pricesToUse[existingIdx] = { ...pricesToUse[existingIdx], price: lp };
+        } else {
+          // Coin not in tracked prices — add it so trades.ejs can find it
+          const trade = trades.find(t => t.coinId === cid);
+          pricesToUse.push({ id: cid, symbol: trade?.symbol || cid.toUpperCase(), price: lp });
+        }
+      }
     }
     res.render('trades', {
       activePage: 'trades',
@@ -700,30 +812,32 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       return res.redirect('/trades?error=' + encodeURIComponent('Missing trade data'));
     }
 
-    // Explicit coin whitelist: only tracked coins can be traded
-    if (!TRACKED_COINS.includes(coinId)) {
-      return res.redirect('/trades?error=' + encodeURIComponent('Invalid coin'));
-    }
-
     // Validate direction
     if (!['LONG', 'SHORT'].includes(direction)) {
       return res.redirect('/trades?error=' + encodeURIComponent('Invalid direction'));
     }
 
-    const prices = await fetchAllPrices();
-    const coinData = prices.find(p => p.id === coinId);
-    if (!coinData) {
-      return res.redirect('/trades?error=' + encodeURIComponent('Price data not available'));
+    let coinData, allCandles, allHistory, prices;
+    if (TRACKED_COINS.includes(coinId)) {
+      prices = await fetchAllPrices();
+      coinData = prices.find(p => p.id === coinId);
+      if (!coinData) return res.redirect('/trades?error=' + encodeURIComponent('Price data not available'));
+      [allCandles, allHistory] = await Promise.all([Promise.resolve(fetchAllCandles()), fetchAllHistory()]);
+    } else {
+      const fetched = await fetchCoinDataForDetail(coinId);
+      if (!fetched) return res.redirect('/trades?error=' + encodeURIComponent('Coin not available'));
+      coinData = fetched.coinData;
+      allHistory = { [coinId]: fetched.history };
+      allCandles = { [coinId]: await fetchAllCandlesForCoin(coinId) };
+      prices = [coinData];
     }
 
-    const [allCandles, allHistory, livePrice, user] = await Promise.all([
-      Promise.resolve(fetchAllCandles()),
-      fetchAllHistory(),
+    const [livePrice, user] = await Promise.all([
       fetchLivePrice(coinId),
       User.findById(req.session.userId).lean()
     ]);
-    const options = await buildEngineOptions(await fetchAllPrices(), allCandles, allHistory, user);
-    const candles = fetchCandles(coinId);
+    const options = await buildEngineOptions(prices, allCandles, allHistory, user);
+    const candles = allCandles[coinId] || fetchCandles(coinId);
     const history = allHistory[coinId] || { prices: [], volumes: [] };
     const signal = analyzeCoin(coinData, candles, history, options);
     const signalDir = (signal.signal === 'BUY' || signal.signal === 'STRONG_BUY') ? 'LONG'
@@ -737,7 +851,9 @@ app.post('/trades/open', requireLogin, async (req, res) => {
     const displayDir = (displaySignal === 'BUY' || displaySignal === 'STRONG_BUY') ? 'LONG'
       : (displaySignal === 'SELL' || displaySignal === 'STRONG_SELL') ? 'SHORT'
       : null;
-    const minConf = (signal.score || 0) >= 58 ? 1 : 2;
+    // Scanner/top3 coins use history-based analysis → often lower confluence. Relax to minConf=1.
+    const isScannerCoin = !TRACKED_COINS.includes(coinId);
+    const minConf = (signal.score || 0) >= 58 ? 1 : (isScannerCoin ? 1 : 2);
     const overallCanTrade = (signal.score || 0) >= 55 && (signal.confluenceLevel || 0) >= minConf;
 
     let selectedStrat = null;
@@ -807,7 +923,7 @@ app.post('/trades/open', requireLogin, async (req, res) => {
 
     const tradeData = {
       coinId,
-      symbol: COIN_META[coinId]?.symbol || coinId.toUpperCase(),
+      symbol: getCoinMeta(coinId)?.symbol || coinData?.symbol || coinId.toUpperCase(),
       direction,
       entry,
       stopLoss,
@@ -825,7 +941,8 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       stopLabel: signal.stopLabel || 'ATR + S/R + Fib',
       tpType: signal.tpType || 'R_multiple',
       tpLabel: signal.tpLabel || 'R multiples',
-      strategyStats: strategyStatsForKelly
+      strategyStats: strategyStatsForKelly,
+      volume24h: coinData?.volume24h
     };
 
     await openTrade(req.session.userId, tradeData);
@@ -841,6 +958,11 @@ app.post('/trades/close/:tradeId', requireLogin, async (req, res) => {
     const trade = await Trade.findOne({ _id: req.params.tradeId, userId: req.session.userId, status: 'OPEN' });
     if (!trade) {
       return res.redirect('/trades?error=' + encodeURIComponent('Trade not found'));
+    }
+
+    // Re-register scanner meta for non-tracked coins so fetchLivePrice can resolve
+    if (!TRACKED_COINS.includes(trade.coinId) && !getCoinMeta(trade.coinId) && trade.symbol) {
+      registerScannerCoinMeta(trade.coinId, trade.symbol);
     }
 
     // Use live price when closing so PnL matches reality (not stale cache)
@@ -859,27 +981,30 @@ app.post('/trades/close/:tradeId', requireLogin, async (req, res) => {
 });
 
 // ====================================================
-// PRICE ALERTS
+// CRYPTO ALERTS (price alerts — new URL to avoid Safe Browsing flag)
+// Old /alerts redirects to new URL (legacy bookmarks)
 // ====================================================
-app.get('/alerts', requireLogin, async (req, res) => {
+app.get('/alerts', requireLogin, (req, res) => res.redirect(301, '/crypto-alerts'));
+
+app.get('/crypto-alerts', requireLogin, async (req, res) => {
   try {
     const alerts = await Alert.find({ userId: req.session.userId }).sort({ createdAt: -1 }).lean();
-    res.render('alerts', { activePage: 'alerts', alerts, TRACKED_COINS, COIN_META });
+    res.render('crypto-alerts', { activePage: 'crypto-alerts', alerts, TRACKED_COINS, COIN_META });
   } catch (err) {
-    console.error('[Alerts] Error:', err);
+    console.error('[CryptoAlerts] Error:', err);
     res.status(500).send('Error loading alerts');
   }
 });
 
-app.post('/alerts', requireLogin, async (req, res) => {
+app.post('/crypto-alerts', requireLogin, async (req, res) => {
   try {
     const { coinId, condition, price } = req.body;
     if (!coinId || !TRACKED_COINS.includes(coinId) || !condition || !price) {
-      return res.redirect('/alerts?error=' + encodeURIComponent('Invalid alert: coin, condition, and price required'));
+      return res.redirect('/crypto-alerts?error=' + encodeURIComponent('Invalid alert: coin, condition, and price required'));
     }
     const p = parseFloat(price);
-    if (isNaN(p) || p <= 0) return res.redirect('/alerts?error=' + encodeURIComponent('Invalid price'));
-    if (condition !== 'above' && condition !== 'below') return res.redirect('/alerts?error=' + encodeURIComponent('Condition must be above or below'));
+    if (isNaN(p) || p <= 0) return res.redirect('/crypto-alerts?error=' + encodeURIComponent('Invalid price'));
+    if (condition !== 'above' && condition !== 'below') return res.redirect('/crypto-alerts?error=' + encodeURIComponent('Condition must be above or below'));
     const meta = COIN_META[coinId];
     await Alert.create({
       userId: req.session.userId,
@@ -888,20 +1013,20 @@ app.post('/alerts', requireLogin, async (req, res) => {
       condition,
       price: p
     });
-    res.redirect('/alerts?success=Alert+created');
+    res.redirect('/crypto-alerts?success=Alert+created');
   } catch (err) {
-    console.error('[Alerts Create] Error:', err);
-    res.redirect('/alerts?error=' + encodeURIComponent(err.message));
+    console.error('[CryptoAlerts Create] Error:', err);
+    res.redirect('/crypto-alerts?error=' + encodeURIComponent(err.message));
   }
 });
 
-app.post('/alerts/:id/delete', requireLogin, async (req, res) => {
+app.post('/crypto-alerts/:id/delete', requireLogin, async (req, res) => {
   try {
     await Alert.findOneAndDelete({ _id: req.params.id, userId: req.session.userId });
-    res.redirect('/alerts?success=Alert+deleted');
+    res.redirect('/crypto-alerts?success=Alert+deleted');
   } catch (err) {
-    console.error('[Alerts Delete] Error:', err);
-    res.redirect('/alerts?error=' + encodeURIComponent(err.message));
+    console.error('[CryptoAlerts Delete] Error:', err);
+    res.redirect('/crypto-alerts?error=' + encodeURIComponent(err.message));
   }
 });
 
@@ -923,7 +1048,7 @@ app.get('/history', requireLogin, async (req, res) => {
 // ====================================================
 app.get('/performance', requireLogin, async (req, res) => {
   try {
-    const [stats, user, journalAnalytics] = await Promise.all([
+    const [stats, user, journalAnalytics, savedStrategies] = await Promise.all([
       getPerformanceStats(req.session.userId),
       User.findById(req.session.userId).lean(),
       (async () => {
@@ -950,6 +1075,10 @@ app.get('/performance', requireLogin, async (req, res) => {
           }
         }
         return { byEmotion, byRules };
+      })(),
+      (async () => {
+        const StrategyConfig = require('./models/StrategyConfig');
+        return StrategyConfig.find({ userId: req.session.userId }).sort({ updatedAt: -1 }).select('_id name').lean();
       })()
     ]);
     const safeStats = stats || {
@@ -959,17 +1088,82 @@ app.get('/performance', requireLogin, async (req, res) => {
       byStrategy: {}, byCoin: {}, equityCurve: [],
       drawdownAnalysis: {}, riskByStrategyRegime: { byStrategy: {}, byRegime: {} }
     };
+
+    // Auto-fix balance if discrepancy detected — no manual action needed
+    let balanceAudit = null;
+    try {
+      const audit = await reconcileBalance(req.session.userId);
+      if (audit && Math.abs(audit.discrepancy) >= 1) {
+        await fixBalance(req.session.userId);
+        // Re-fetch stats with corrected balance
+        const freshStats = await getPerformanceStats(req.session.userId);
+        Object.assign(safeStats, freshStats || {});
+        balanceAudit = { ...audit, autoFixed: true };
+      }
+    } catch (e) { /* non-critical */ }
+
     res.render('performance', {
       activePage: 'performance',
       stats: safeStats,
       user: user || {},
       journalAnalytics: journalAnalytics || { byEmotion: {}, byRules: { followed: { wins: 0, total: 0 }, broke: { wins: 0, total: 0 } } },
+      savedStrategies: savedStrategies || [],
+      balanceAudit,
       success: req.query.success || null,
       error: req.query.error || null
     });
   } catch (err) {
     console.error('[Performance] Error:', err);
     res.status(500).send('Error loading performance');
+  }
+});
+
+// ====================================================
+// MARKET THEMES (theme-detector skill inspired)
+// ====================================================
+app.get('/themes', optionalUser, async (req, res) => {
+  try {
+    const { getCryptoThemes } = require('./services/crypto-themes');
+    const themes = await getCryptoThemes(15);
+    res.render('themes', { activePage: 'themes', themes });
+  } catch (err) {
+    console.error('[Themes] Error:', err);
+    res.render('themes', { activePage: 'themes', themes: [] });
+  }
+});
+
+// ====================================================
+// LLM CHAT (interactive chat with full platform context)
+// ====================================================
+app.get('/llm-chat', requireLogin, (req, res) => {
+  res.render('llm-chat', { activePage: 'llm-chat', pageTitle: 'LLM Chat' });
+});
+
+app.get('/llm-logs', requireLogin, async (req, res) => {
+  try {
+    const LlmAgentLog = require('./models/LlmAgentLog');
+    const logs = await LlmAgentLog.find({ userId: req.session.userId })
+      .sort({ at: -1 })
+      .limit(100)
+      .lean();
+    res.render('llm-logs', { activePage: 'llm-logs', pageTitle: 'LLM Logs', logs });
+  } catch (err) {
+    console.error('[LLM-Logs] Error:', err);
+    res.status(500).send('Error loading logs');
+  }
+});
+
+// ====================================================
+// MARKET PULSE (market-news-analyst skill inspired)
+// ====================================================
+app.get('/market-pulse', optionalUser, async (req, res) => {
+  try {
+    const { getMarketPulse } = require('./services/market-pulse');
+    const pulse = await getMarketPulse();
+    res.render('market-pulse', { activePage: 'market-pulse', pulse });
+  } catch (err) {
+    console.error('[MarketPulse] Error:', err);
+    res.render('market-pulse', { activePage: 'market-pulse', pulse: null });
   }
 });
 
@@ -1080,6 +1274,37 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       const v = Math.min(95, Math.max(30, parseInt(req.body.autoTradeMinScore, 10) || 52));
       s.autoTradeMinScore = v;
     }
+    if (req.body.autoTradeCoinsMode && ['tracked', 'tracked+top1', 'top1'].includes(req.body.autoTradeCoinsMode)) {
+      s.autoTradeCoinsMode = req.body.autoTradeCoinsMode;
+    }
+    if (req.body.autoTradeSignalMode && ['original', 'indicators', 'both'].includes(req.body.autoTradeSignalMode)) {
+      s.autoTradeSignalMode = req.body.autoTradeSignalMode;
+    }
+    if (req.body.autoTradeBothLogic && ['or', 'and'].includes(req.body.autoTradeBothLogic)) {
+      s.autoTradeBothLogic = req.body.autoTradeBothLogic;
+    }
+    if (req.body.autoTradeStrategyConfigId !== undefined) {
+      s.autoTradeStrategyConfigId = req.body.autoTradeStrategyConfigId || null;
+    }
+    if (req.body.llmEnabled !== undefined) {
+      const val = req.body.llmEnabled;
+      s.llmEnabled = val === 'true' || (Array.isArray(val) && val.includes('true'));
+    }
+    if (req.body.ollamaUrl != null && typeof req.body.ollamaUrl === 'string') {
+      const url = req.body.ollamaUrl.trim();
+      s.ollamaUrl = url || 'http://localhost:11434';
+    }
+    if (req.body.ollamaModel != null && typeof req.body.ollamaModel === 'string') {
+      s.ollamaModel = req.body.ollamaModel.trim() || 'qwen3-coder:480b-cloud';
+    }
+    if (req.body.llmAgentEnabled !== undefined) {
+      const val = req.body.llmAgentEnabled;
+      s.llmAgentEnabled = val === 'true' || (Array.isArray(val) && val.includes('true'));
+    }
+    if (req.body.llmAgentIntervalMinutes != null) {
+      const v = Math.min(1440, Math.max(15, parseInt(req.body.llmAgentIntervalMinutes, 10) || 60));
+      s.llmAgentIntervalMinutes = v;
+    }
     if (req.body.useFixedLeverage !== undefined) {
       const val = req.body.useFixedLeverage;
       s.useFixedLeverage = val === 'true' || (Array.isArray(val) && val.includes('true'));
@@ -1152,9 +1377,12 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
     s.featureSlCap = req.body.featureSlCap ? parseBool(req.body.featureSlCap) : false;
     s.featureMinSlDistance = req.body.featureMinSlDistance ? parseBool(req.body.featureMinSlDistance) : false;
     s.featureConfidenceSizing = req.body.featureConfidenceSizing ? parseBool(req.body.featureConfidenceSizing) : false;
+    s.featureKellySizing = req.body.featureKellySizing ? parseBool(req.body.featureKellySizing) : false;
+    s.featureThemeDetector = req.body.featureThemeDetector ? parseBool(req.body.featureThemeDetector) : false;
     s.featurePriceActionConfluence = req.body.featurePriceActionConfluence ? parseBool(req.body.featurePriceActionConfluence) : false;
     s.featureVolatilityFilter = req.body.featureVolatilityFilter ? parseBool(req.body.featureVolatilityFilter) : false;
     s.featureVolumeConfirmation = req.body.featureVolumeConfirmation ? parseBool(req.body.featureVolumeConfirmation) : false;
+    s.featureFundingRateFilter = req.body.featureFundingRateFilter ? parseBool(req.body.featureFundingRateFilter) : false;
     s.minRiskRewardEnabled = req.body.minRiskRewardEnabled ? parseBool(req.body.minRiskRewardEnabled) : false;
     const minRr = parseFloat(req.body.minRiskReward);
     s.minRiskReward = !isNaN(minRr) && minRr >= 1 && minRr <= 5 ? minRr : 1.2;
@@ -1189,6 +1417,19 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
     s.dcaAddSizePercent = !isNaN(addSizePct) && addSizePct >= 25 && addSizePct <= 200 ? addSizePct : 100;
     const dcaMinScr = parseInt(req.body.dcaMinScore, 10);
     s.dcaMinScore = !isNaN(dcaMinScr) && dcaMinScr >= 30 && dcaMinScr <= 95 ? dcaMinScr : 52;
+
+    // Risk controls (defaults: max daily 5%, drawdown sizing ON)
+    const maxDaily = parseFloat(req.body.maxDailyLossPercent);
+    s.maxDailyLossPercent = !isNaN(maxDaily) && maxDaily >= 0 && maxDaily <= 20 ? maxDaily : 5;
+    s.drawdownSizingEnabled = req.body.drawdownSizingEnabled ? parseBool(req.body.drawdownSizingEnabled) : false;
+    const ddThresh = parseFloat(req.body.drawdownThresholdPercent);
+    s.drawdownThresholdPercent = !isNaN(ddThresh) && ddThresh >= 5 && ddThresh <= 50 ? ddThresh : 10;
+    const minVol = parseFloat(req.body.minVolume24hUsd);
+    s.minVolume24hUsd = !isNaN(minVol) && minVol >= 0 ? minVol : 0;
+    s.correlationFilterEnabled = req.body.correlationFilterEnabled ? parseBool(req.body.correlationFilterEnabled) : false;
+    s.expectancyFilterEnabled = req.body.expectancyFilterEnabled ? parseBool(req.body.expectancyFilterEnabled) : false;
+    const minExp = parseFloat(req.body.minExpectancy);
+    s.minExpectancy = !isNaN(minExp) && minExp >= -1 && minExp <= 2 ? minExp : 0.15;
 
     u.settings = s;
     u.markModified('settings');
@@ -1363,6 +1604,33 @@ app.post('/account/set-balance', requireLogin, async (req, res) => {
   } catch (err) {
     console.error('[SetBalance] Error:', err.message);
     res.redirect('/performance');
+  }
+});
+
+// ====================================================
+// BALANCE RECONCILIATION — audit & fix corrupted balance
+// ====================================================
+app.get('/account/reconcile', requireLogin, async (req, res) => {
+  try {
+    const result = await reconcileBalance(req.session.userId);
+    res.json(result);
+  } catch (err) {
+    console.error('[Reconcile] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/account/reconcile', requireLogin, async (req, res) => {
+  try {
+    const result = await fixBalance(req.session.userId);
+    if (result.fixed) {
+      res.redirect('/performance?success=' + encodeURIComponent(`Balance reconciled: $${result.currentBalance.toFixed(2)} → $${result.newBalance.toFixed(2)} (recovered $${Math.abs(result.discrepancy).toFixed(2)})`));
+    } else {
+      res.redirect('/performance?success=' + encodeURIComponent('Balance is already correct — no adjustment needed'));
+    }
+  } catch (err) {
+    console.error('[Reconcile] Error:', err.message);
+    res.redirect('/performance?error=' + encodeURIComponent('Reconciliation failed: ' + err.message));
   }
 });
 
@@ -1781,6 +2049,86 @@ app.get('/backtest', (req, res) => {
 });
 
 // ====================================================
+// STRATEGY BUILDER (indicator-based custom strategies)
+// ====================================================
+app.get('/strategy-builder', optionalUser, async (req, res) => {
+  const { getAllPresets } = require('./services/strategy-builder/presets');
+  let savedStrategies = [];
+  if (req.session?.userId) {
+    const StrategyConfig = require('./models/StrategyConfig');
+    savedStrategies = await StrategyConfig.find({ userId: req.session.userId }).sort({ updatedAt: -1 }).lean();
+  }
+  const { getCatalog } = require('./services/strategy-builder/indicator-catalog');
+  res.render('strategy-builder', {
+    activePage: 'strategy-builder',
+    presets: getAllPresets(),
+    indicatorCatalog: getCatalog(),
+    savedStrategies,
+    TRACKED_COINS,
+    user: req.session?.userId ? await User.findById(req.session.userId).lean() : null
+  });
+});
+
+app.post('/api/strategy-builder/backtest', async (req, res) => {
+  try {
+    const { coinId, startDate, endDate, strategy, presetId } = req.body || {};
+    if (!strategy || !strategy.entry || !strategy.exit) {
+      return res.status(400).json({ error: 'Strategy entry and exit rules required' });
+    }
+    const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 365 * 24 * 3600000;
+    const endMs = endDate ? new Date(endDate).getTime() : Date.now();
+    const cid = coinId || 'bitcoin';
+    const { runCustomBacktest } = require('./services/strategy-builder/run-custom-backtest');
+    const result = await runCustomBacktest(cid, startMs, endMs, strategy, { initialBalance: 10000, leverage: 2 });
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.json({ success: true, ...result, presetId: presetId || null });
+  } catch (err) {
+    console.error('[StrategyBuilder] Backtest error:', err);
+    res.status(500).json({ error: err.message || 'Backtest failed' });
+  }
+});
+
+app.post('/api/strategy-builder/save', requireLogin, async (req, res) => {
+  try {
+    const StrategyConfig = require('./models/StrategyConfig');
+    const { name, presetId, timeframe, entry, exit } = req.body || {};
+    if (!name || !entry || !exit) {
+      return res.status(400).json({ error: 'Name, entry, and exit required' });
+    }
+    const doc = await StrategyConfig.findOneAndUpdate(
+      { userId: req.session.userId, name },
+      { presetId: presetId || null, timeframe: timeframe || '1h', entry, exit, updatedAt: new Date() },
+      { upsert: true, new: true }
+    );
+    res.json({ success: true, id: doc._id });
+  } catch (err) {
+    console.error('[StrategyBuilder] Save error:', err);
+    res.status(500).json({ error: err.message || 'Save failed' });
+  }
+});
+
+app.post('/api/strategy-builder/save-result', requireLogin, async (req, res) => {
+  try {
+    const StrategyBacktestResult = require('./models/StrategyBacktestResult');
+    const { strategyConfigId, coinId, startDate, endDate, summary, trades } = req.body || {};
+    if (!strategyConfigId || !coinId || !summary) return res.status(400).json({ error: 'Missing data' });
+    await StrategyBacktestResult.create({
+      strategyConfigId,
+      userId: req.session.userId,
+      coinId,
+      startDate: startDate ? new Date(startDate) : new Date(),
+      endDate: endDate ? new Date(endDate) : new Date(),
+      ...summary,
+      trades: trades || []
+    });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[StrategyBuilder] Save result error:', err);
+    res.status(500).json({ error: err.message || 'Save failed' });
+  }
+});
+
+// ====================================================
 // BACKTEST RESULTS (latest massive backtest)
 // ====================================================
 app.get('/backtest-results', (req, res) => {
@@ -1799,6 +2147,564 @@ app.get('/backtest-results', (req, res) => {
   } catch (err) {
     console.error('[BacktestResults] Error:', err);
     res.render('backtest-results', { activePage: 'backtest-results', error: err.message });
+  }
+});
+
+// ====================================================
+// TRENCH WARFARE - Shitcoin scalping hub (Solana memecoins)
+// ====================================================
+app.get('/trench-warfare', async (req, res) => {
+  const ScalpTrade = require('./models/ScalpTrade');
+  let openPositions = [];
+  const user = req.session?.userId ? await User.findById(req.session.userId).lean() : null;
+  if (user) {
+    openPositions = await ScalpTrade.find({ userId: user._id, status: 'OPEN' }).sort({ createdAt: -1 }).lean();
+  }
+  let botRunning = false;
+  if (user) {
+    const trenchAutoService = require('./services/trench-auto-trading');
+    botRunning = trenchAutoService.getBotStatus(user._id).running;
+  }
+  res.render('trench-warfare', {
+    activePage: 'trench-warfare',
+    pageTitle: 'Trench Warfare',
+    trendings: [],
+    user,
+    trenchPaperBalance: user ? (user.trenchPaperBalance ?? 1000) : 0,
+    openPositions,
+    trenchBot: user?.trenchBot || {},
+    trenchAuto: user?.trenchAuto || {},
+    botRunning
+  });
+});
+
+app.get('/api/trench-warfare/trendings', async (req, res) => {
+  const mobula = require('./services/mobula-api');
+  try {
+    const data = await (mobula.fetchMetaTrendingsMulti || mobula.fetchMetaTrendings)(req.query.blockchain || 'solana');
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/swap/quote', async (req, res) => {
+  const mobula = require('./services/mobula-api');
+  try {
+    const { tokenOut, amount, walletAddress, slippage } = req.body || {};
+    if (!tokenOut || !amount || !walletAddress) {
+      return res.status(400).json({ error: 'Missing tokenOut, amount, or walletAddress' });
+    }
+    const quote = await mobula.getSwapQuote(
+      'solana',
+      mobula.SOL_MINT,
+      tokenOut,
+      amount,
+      walletAddress,
+      { slippage: slippage ?? 5 }
+    );
+    res.json(quote);
+  } catch (e) {
+    console.error('[TrenchWarfare] Swap quote failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/paper/buy', requireLogin, async (req, res) => {
+  const ScalpTrade = require('./models/ScalpTrade');
+  try {
+    const { tokenAddress, tokenSymbol, tokenName, amountUsd, price } = req.body || {};
+    if (!tokenAddress || !tokenSymbol || !amountUsd || !price || price <= 0) {
+      return res.status(400).json({ error: 'Missing tokenAddress, tokenSymbol, amountUsd, or price' });
+    }
+    const amount = parseFloat(amountUsd);
+    const tokenPrice = parseFloat(price);
+    if (amount <= 0 || !Number.isFinite(amount)) {
+      return res.status(400).json({ error: 'Invalid amount' });
+    }
+    if (!tokenPrice || tokenPrice <= 0 || !Number.isFinite(tokenPrice)) {
+      return res.status(400).json({ error: 'Invalid token price. Refresh the page.' });
+    }
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const balance = user.trenchPaperBalance ?? 1000;
+    if (amount > balance) {
+      return res.status(400).json({ error: 'Insufficient trench paper balance. Need $' + amount.toFixed(2) + ', have $' + balance.toFixed(2) });
+    }
+    const tokenAmount = amount / tokenPrice;
+    user.trenchPaperBalance = Math.round((balance - amount) * 100) / 100;
+    await user.save();
+    await ScalpTrade.create({
+      userId: user._id,
+      walletAddress: 'paper',
+      isPaper: true,
+      tokenAddress,
+      tokenSymbol,
+      tokenName,
+      side: 'BUY',
+      amountIn: amount,
+      tokenAmount,
+      entryPrice: tokenPrice,
+      status: 'OPEN'
+    });
+    res.json({ success: true, trenchPaperBalance: user.trenchPaperBalance });
+  } catch (e) {
+    console.error('[TrenchWarfare] Paper buy failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/paper/sell', requireLogin, async (req, res) => {
+  const ScalpTrade = require('./models/ScalpTrade');
+  try {
+    const { positionId, currentPrice } = req.body || {};
+    if (!positionId || !currentPrice || currentPrice <= 0) {
+      return res.status(400).json({ error: 'Missing positionId or currentPrice' });
+    }
+    const pos = await ScalpTrade.findOne({ _id: positionId, userId: req.session.userId, isPaper: true, status: 'OPEN' });
+    if (!pos) return res.status(404).json({ error: 'Position not found' });
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const exitPrice = parseFloat(currentPrice);
+    const valueOut = pos.tokenAmount * exitPrice;
+    const pnl = Math.round((valueOut - pos.amountIn) * 100) / 100;
+    const pnlPct = pos.entryPrice > 0 ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
+    user.trenchPaperBalance = Math.round(((user.trenchPaperBalance ?? 1000) + valueOut) * 100) / 100;
+    user.trenchStats = user.trenchStats || {};
+    user.trenchStats.totalPnl = (user.trenchStats.totalPnl || 0) + pnl;
+    if (pnl > 0) {
+      user.trenchStats.wins = (user.trenchStats.wins || 0) + 1;
+      user.trenchStats.consecutiveLosses = 0;
+      user.trenchStats.bestTrade = Math.max(user.trenchStats.bestTrade || 0, pnl);
+    } else {
+      user.trenchStats.losses = (user.trenchStats.losses || 0) + 1;
+      user.trenchStats.consecutiveLosses = (user.trenchStats.consecutiveLosses || 0) + 1;
+      user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, pnl);
+    }
+    await user.save();
+    pos.exitPrice = exitPrice;
+    pos.amountOut = valueOut;
+    pos.pnl = pnl;
+    pos.pnlPercent = pnlPct;
+    pos.status = 'CLOSED';
+    pos.exitTime = new Date();
+    pos.exitReason = 'manual';
+    await pos.save();
+    res.json({ success: true, trenchPaperBalance: user.trenchPaperBalance, pnl });
+  } catch (e) {
+    console.error('[TrenchWarfare] Paper sell failed:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/paper/reset', requireLogin, async (req, res) => {
+  const ScalpTrade = require('./models/ScalpTrade');
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+
+    // Stop the bot if running
+    try {
+      const trenchAuto = require('./services/trench-auto-trading');
+      trenchAuto.stopBot(user._id);
+    } catch (e) { /* ignore */ }
+
+    // Force-close all open paper positions
+    await ScalpTrade.updateMany(
+      { userId: user._id, isPaper: true, status: 'OPEN' },
+      { $set: { status: 'CLOSED', exitTime: new Date(), exitReason: 'reset', pnl: 0, pnlPercent: 0 } }
+    );
+
+    // Reset balance and stats
+    user.trenchPaperBalance = 1000;
+    user.trenchPaperBalanceInitial = 1000;
+    user.trenchStats = { wins: 0, losses: 0, totalPnl: 0, totalPnlPercent: 0, bestTrade: 0, worstTrade: 0, consecutiveLosses: 0, dailyPnlStart: 1000, dailyPnlStartAt: new Date() };
+    user.trenchAuto = user.trenchAuto || {};
+    user.trenchAuto.lastPausedAt = undefined;
+    user.trenchAuto.pausedReason = '';
+    await user.save({ validateBeforeSave: false });
+
+    res.json({ success: true, trenchPaperBalance: 1000 });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/bot/connect', requireLogin, async (req, res) => {
+  const { encrypt } = require('./services/trench-auto-trading');
+  try {
+    const { privateKeyBase58 } = req.body || {};
+    if (!privateKeyBase58 || typeof privateKeyBase58 !== 'string') {
+      return res.status(400).json({ error: 'Provide privateKeyBase58 (export from Phantom)' });
+    }
+    const bs58 = require('bs58');
+    const { Keypair } = require('@solana/web3.js');
+    const secretKey = bs58.decode(privateKeyBase58.trim());
+    const kp = Keypair.fromSecretKey(secretKey);
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    user.trenchBot = {
+      privateKeyEncrypted: encrypt(privateKeyBase58.trim()),
+      publicKey: kp.publicKey.toBase58(),
+      connected: true
+    };
+    await user.save();
+    res.json({ success: true, publicKey: user.trenchBot.publicKey });
+  } catch (e) {
+    console.error('[TrenchWarfare] Bot connect failed:', e.message);
+    res.status(400).json({ error: 'Invalid private key. Export base58 from Phantom.' });
+  }
+});
+
+app.post('/api/trench-warfare/bot/disconnect', requireLogin, async (req, res) => {
+  const user = await User.findById(req.session.userId);
+  if (!user) return res.status(401).json({ error: 'Not logged in' });
+  user.trenchBot = { privateKeyEncrypted: '', publicKey: '', connected: false };
+  await user.save();
+  res.json({ success: true });
+});
+
+app.post('/api/trench-warfare/auto/settings', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const b = req.body || {};
+    if (b.enabled !== undefined) user.trenchAuto.enabled = !!b.enabled;
+    if (b.strategy !== undefined) user.trenchAuto.strategy = b.strategy === 'memecoin' ? 'memecoin' : 'scalping';
+    if (b.mode !== undefined) user.trenchAuto.mode = b.mode === 'live' ? 'live' : 'paper';
+    if (b.maxOpenPositions !== undefined) user.trenchAuto.maxOpenPositions = Math.max(1, Math.min(15, Number(b.maxOpenPositions)));
+    if (b.amountPerTradeUsd !== undefined) user.trenchAuto.amountPerTradeUsd = Math.max(5, Math.min(500, Number(b.amountPerTradeUsd)));
+    if (b.amountPerTradeSol !== undefined) user.trenchAuto.amountPerTradeSol = Math.max(0.01, Math.min(1, Number(b.amountPerTradeSol)));
+    if (b.tpPercent !== undefined) user.trenchAuto.tpPercent = Math.max(5, Math.min(50, Number(b.tpPercent)));
+    if (b.slPercent !== undefined) user.trenchAuto.slPercent = Math.max(3, Math.min(30, Number(b.slPercent)));
+    if (b.trailingStopPercent !== undefined) user.trenchAuto.trailingStopPercent = Math.max(3, Math.min(20, Number(b.trailingStopPercent)));
+    if (b.useTrailingStop !== undefined) user.trenchAuto.useTrailingStop = !!b.useTrailingStop;
+    if (b.breakevenAtPercent !== undefined) user.trenchAuto.breakevenAtPercent = Math.max(2, Math.min(15, Number(b.breakevenAtPercent)));
+    if (b.useBreakevenStop !== undefined) user.trenchAuto.useBreakevenStop = !!b.useBreakevenStop;
+    if (b.maxHoldMinutes !== undefined) user.trenchAuto.maxHoldMinutes = Math.max(5, Math.min(15, Number(b.maxHoldMinutes)));
+    if (b.minLiquidityUsd !== undefined) user.trenchAuto.minLiquidityUsd = Math.max(5000, Math.min(100000, Number(b.minLiquidityUsd)));
+    if (b.maxTop10HoldersPercent !== undefined) user.trenchAuto.maxTop10HoldersPercent = Math.max(50, Math.min(100, Number(b.maxTop10HoldersPercent)));
+    if (b.maxPriceChange24hPercent !== undefined) user.trenchAuto.maxPriceChange24hPercent = Math.max(100, Math.min(1000, Number(b.maxPriceChange24hPercent)));
+    if (b.cooldownHours !== undefined) user.trenchAuto.cooldownHours = Math.max(0.25, Math.min(4, Number(b.cooldownHours)));
+    if (b.useEntryFilters !== undefined) user.trenchAuto.useEntryFilters = !!b.useEntryFilters;
+    if (b.maxDailyLossPercent !== undefined) user.trenchAuto.maxDailyLossPercent = Math.max(5, Math.min(50, Number(b.maxDailyLossPercent)));
+    if (b.consecutiveLossesToPause !== undefined) user.trenchAuto.consecutiveLossesToPause = Math.max(2, Math.min(10, Number(b.consecutiveLossesToPause)));
+    if (b.minSolBalance !== undefined) user.trenchAuto.minSolBalance = Math.max(0.01, Math.min(1, Number(b.minSolBalance)));
+    if (b.profitPayoutAddress !== undefined) user.trenchAuto.profitPayoutAddress = String(b.profitPayoutAddress || '').trim();
+    if (b.profitPayoutPercent !== undefined) user.trenchAuto.profitPayoutPercent = Math.max(0, Math.min(100, Number(b.profitPayoutPercent)));
+    if (b.profitPayoutMinSol !== undefined) user.trenchAuto.profitPayoutMinSol = Math.max(0.01, Math.min(10, Number(b.profitPayoutMinSol)));
+    if (b.trenchNotifyTradeOpen !== undefined) user.trenchAuto.trenchNotifyTradeOpen = !!b.trenchNotifyTradeOpen;
+    if (b.trenchNotifyTradeClose !== undefined) user.trenchAuto.trenchNotifyTradeClose = !!b.trenchNotifyTradeClose;
+    if (b.useKellySizing !== undefined) user.trenchAuto.useKellySizing = !!b.useKellySizing;
+    if (b.themeFilterEnabled !== undefined) user.trenchAuto.themeFilterEnabled = !!b.themeFilterEnabled;
+    await user.save();
+    res.json({ success: true, trenchAuto: user.trenchAuto });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/blacklist/add', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const { tokenAddress } = req.body || {};
+    if (!tokenAddress || typeof tokenAddress !== 'string') return res.status(400).json({ error: 'Missing tokenAddress' });
+    const addr = tokenAddress.trim();
+    if (!user.trenchBlacklist) user.trenchBlacklist = [];
+    if (!user.trenchBlacklist.includes(addr)) {
+      user.trenchBlacklist.push(addr);
+      await user.save();
+    }
+    res.json({ success: true, trenchBlacklist: user.trenchBlacklist });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/blacklist/remove', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const { tokenAddress } = req.body || {};
+    if (!tokenAddress || typeof tokenAddress !== 'string') return res.status(400).json({ error: 'Missing tokenAddress' });
+    if (user.trenchBlacklist) {
+      user.trenchBlacklist = user.trenchBlacklist.filter(a => a !== tokenAddress.trim());
+      await user.save();
+    }
+    res.json({ success: true, trenchBlacklist: user.trenchBlacklist || [] });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/trench-warfare/analytics', requireLogin, async (req, res) => {
+  try {
+    const ScalpTrade = require('./models/ScalpTrade');
+    const user = await User.findById(req.session.userId).lean();
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const closed = await ScalpTrade.find({ userId: user._id, status: 'CLOSED' }).sort({ exitTime: -1 }).limit(100).lean();
+    const stats = user.trenchStats || {};
+    const totalTrades = (stats.wins || 0) + (stats.losses || 0);
+    const winRate = totalTrades > 0 ? ((stats.wins || 0) / totalTrades * 100).toFixed(1) : 0;
+    const initial = user.trenchPaperBalanceInitial ?? 1000;
+    const current = user.trenchPaperBalance ?? 1000;
+    const pnlPercent = initial > 0 ? (((current - initial) / initial) * 100).toFixed(2) : 0;
+
+    // Build equity curve from closed trades (oldest first for cumulative)
+    const closedAsc = [...closed].reverse().filter(t => t.exitTime);
+    const startDate = closedAsc.length > 0 ? new Date(closedAsc[0].createdAt || closedAsc[0].exitTime).toISOString() : new Date().toISOString();
+    const equityCurve = [{ equity: initial, date: startDate, drawdown: 0, drawdownPct: 0 }];
+    let peak = initial;
+    let maxDrawdownPct = 0;
+    for (const t of closedAsc) {
+      const prev = equityCurve[equityCurve.length - 1].equity;
+      const next = prev + (t.pnl || 0);
+      if (next > peak) peak = next;
+      const dd = Math.max(0, peak - next);
+      const ddPct = peak > 0 ? (dd / peak * 100) : 0;
+      if (ddPct > maxDrawdownPct) maxDrawdownPct = ddPct;
+      equityCurve.push({
+        equity: next,
+        date: t.exitTime,
+        drawdown: dd,
+        drawdownPct: Math.round(ddPct * 10) / 10
+      });
+    }
+    if (equityCurve.length > 1) {
+      equityCurve[equityCurve.length - 1].drawdownPct = Math.round(maxDrawdownPct * 10) / 10;
+    }
+
+    // Detailed analytics
+    const wins = closed.filter(t => (t.pnl || 0) > 0);
+    const losses = closed.filter(t => (t.pnl || 0) < 0);
+    const grossProfit = wins.reduce((s, t) => s + (t.pnl || 0), 0);
+    const grossLoss = Math.abs(losses.reduce((s, t) => s + (t.pnl || 0), 0));
+    const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : (grossProfit > 0 ? '∞' : '0');
+    const avgWin = wins.length > 0 ? (grossProfit / wins.length).toFixed(2) : 0;
+    const avgLoss = losses.length > 0 ? (grossLoss / losses.length).toFixed(2) : 0;
+    const expectancy = totalTrades > 0 ? ((stats.wins || 0) * parseFloat(avgWin) - (stats.losses || 0) * parseFloat(avgLoss)) / totalTrades : 0;
+
+    res.json({
+      trenchStats: stats,
+      winRate: parseFloat(winRate),
+      totalTrades,
+      totalPnl: stats.totalPnl || 0,
+      pnlPercent: parseFloat(pnlPercent),
+      bestTrade: stats.bestTrade || 0,
+      worstTrade: stats.worstTrade || 0,
+      consecutiveLosses: stats.consecutiveLosses || 0,
+      closedTrades: closed,
+      equityCurve: equityCurve.length > 1 ? equityCurve : [],
+      profitFactor,
+      avgWin: parseFloat(avgWin),
+      avgLoss: parseFloat(avgLoss),
+      expectancy: Math.round(expectancy * 100) / 100,
+      maxDrawdownPct: equityCurve.length > 1 ? (equityCurve[equityCurve.length - 1].drawdownPct || 0) : 0,
+      paused: !!user.trenchAuto?.lastPausedAt,
+      pausedReason: user.trenchAuto?.pausedReason || ''
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/trench-warfare/positions', requireLogin, async (req, res) => {
+  try {
+    const ScalpTrade = require('./models/ScalpTrade');
+    const dexscreener = require('./services/dexscreener-api');
+    const user = await User.findById(req.session.userId).lean();
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const open = await ScalpTrade.find({ userId: user._id, status: 'OPEN' }).lean();
+    if (open.length === 0) return res.json({ positions: [] });
+
+    const addresses = open.map(p => p.tokenAddress);
+    let prices = {};
+    try {
+      const pairs = await dexscreener.fetchTokensBulk('solana', addresses);
+      for (const p of pairs) {
+        if (p.tokenAddress && p.price > 0) prices[p.tokenAddress] = p.price;
+      }
+    } catch (e) { /* ignore */ }
+
+    const positions = open.map(p => {
+      const currentPrice = prices[p.tokenAddress] || 0;
+      const pnlPct = currentPrice > 0 && p.entryPrice > 0 ? ((currentPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
+      const currentValue = (p.tokenAmount || 0) * currentPrice;
+      const pnl = currentValue - (p.amountIn || 0);
+      const holdMinutes = (Date.now() - new Date(p.createdAt).getTime()) / 60000;
+      return {
+        _id: p._id,
+        tokenAddress: p.tokenAddress,
+        tokenSymbol: p.tokenSymbol,
+        tokenAmount: p.tokenAmount,
+        entryPrice: p.entryPrice,
+        currentPrice,
+        amountIn: p.amountIn,
+        currentValue,
+        pnl,
+        pnlPct,
+        holdMinutes: Math.round(holdMinutes),
+        isPaper: p.isPaper,
+        peakPrice: p.peakPrice || p.entryPrice
+      };
+    });
+    res.json({ positions, paperBalance: user.trenchPaperBalance ?? 1000 });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/unpause', requireLogin, async (req, res) => {
+  try {
+    await User.updateOne({ _id: req.session.userId }, {
+      $set: {
+        'trenchAuto.pausedReason': '',
+        'trenchStats.consecutiveLosses': 0
+      },
+      $unset: {
+        'trenchAuto.lastPausedAt': 1
+      }
+    });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/auto/start', requireLogin, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    if (!userId) return res.status(401).json({ error: 'Not logged in' });
+    const user = await User.findById(userId);
+    if (!user) return res.status(401).json({ error: 'User not found' });
+    if (!user.trenchAuto) user.trenchAuto = {};
+    user.trenchAuto.enabled = true;
+    user.trenchAuto.mode = (req.body?.mode || user.trenchAuto.mode || 'paper');
+    if (req.body?.strategy) user.trenchAuto.strategy = req.body.strategy === 'memecoin' ? 'memecoin' : 'scalping';
+    user.trenchAuto.lastPausedAt = null;
+    user.trenchAuto.pausedReason = '';
+    await user.save({ validateBeforeSave: false });
+    const trenchAuto = require('./services/trench-auto-trading');
+    const result = await trenchAuto.startBot(userId);
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error('[TrenchBot] Start error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/auto/stop', requireLogin, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    if (!userId) return res.status(401).json({ error: 'Not logged in' });
+    const user = await User.findById(userId);
+    if (user) {
+      user.trenchAuto.enabled = false;
+      await user.save({ validateBeforeSave: false });
+    }
+    const trenchAuto = require('./services/trench-auto-trading');
+    const result = trenchAuto.stopBot(userId);
+    res.json({ success: true, ...result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/trench-warfare/auto/status', requireLogin, async (req, res) => {
+  try {
+    const trenchAuto = require('./services/trench-auto-trading');
+    const status = trenchAuto.getBotStatus(req.session.userId);
+    res.json(status);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/auto/run-now', requireLogin, async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    if (!userId) return res.status(401).json({ error: 'Not logged in' });
+    const user = await User.findById(userId);
+    if (!user) return res.status(401).json({ error: 'User not found' });
+    if (!user.trenchAuto) user.trenchAuto = {};
+    user.trenchAuto.enabled = true;
+    user.trenchAuto.mode = (req.body?.mode || user.trenchAuto.mode || 'paper');
+    await user.save({ validateBeforeSave: false });
+    const trenchAuto = require('./services/trench-auto-trading');
+    const result = await trenchAuto.startBot(userId);
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error('[TrenchBot] Run-now error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/trench-warfare/auto/debug', requireLogin, async (req, res) => {
+  try {
+    const dexscreener = require('./services/dexscreener-api');
+    const User = require('./models/User');
+    const ScalpTrade = require('./models/ScalpTrade');
+    const user = await User.findById(req.session.userId);
+    if (!user) return res.status(401).json({ error: 'Not logged in' });
+    const trendings = await dexscreener.fetchSolanaTrendings(500);
+    const openCount = await ScalpTrade.countDocuments({ userId: user._id, status: 'OPEN' });
+    const balance = user.trenchPaperBalance ?? 1000;
+    const settings = user.trenchAuto || {};
+    const amountPerTrade = settings.amountPerTradeUsd ?? 50;
+    const maxPos = settings.maxOpenPositions ?? 3;
+    const canBuy = balance >= amountPerTrade && openCount < maxPos;
+    const trenchAuto = require('./services/trench-auto-trading');
+    const botStatus = trenchAuto.getBotStatus(req.session.userId);
+    res.json({
+      trendings: trendings.length,
+      sample: trendings[0],
+      balance,
+      openCount,
+      maxPositions: maxPos,
+      amountPerTrade,
+      canBuy,
+      autoEnabled: !!settings.enabled,
+      mode: settings.mode,
+      botRunning: botStatus.running
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/trench-warfare/swap/send', async (req, res) => {
+  const mobula = require('./services/mobula-api');
+  const ScalpTrade = require('./models/ScalpTrade');
+  try {
+    const { signedTransaction, tokenAddress, tokenSymbol, tokenName, amountIn, side, walletAddress } = req.body || {};
+    if (!signedTransaction) {
+      return res.status(400).json({ error: 'Missing signedTransaction' });
+    }
+    const result = await mobula.sendSwapTransaction('solana', signedTransaction);
+    const data = result.data || result;
+    if (data.success && data.transactionHash && (tokenAddress || tokenSymbol)) {
+      try {
+        await ScalpTrade.create({
+          userId: req.session?.userId || null,
+          walletAddress: walletAddress || '',
+          tokenAddress: tokenAddress || '',
+          tokenSymbol: tokenSymbol || '',
+          tokenName: tokenName || '',
+          side: side || 'BUY',
+          amountIn: amountIn || 0,
+          amountOut: 0,
+          txHash: data.transactionHash,
+          status: 'CONFIRMED'
+        });
+      } catch (logErr) {
+        console.warn('[TrenchWarfare] ScalpTrade log failed:', logErr.message);
+      }
+    }
+    res.json(result);
+  } catch (e) {
+    console.error('[TrenchWarfare] Swap send failed:', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -1899,11 +2805,22 @@ app.get('/api/prices', async (req, res) => {
         const openTrades = await getOpenTrades(req.session.userId);
         if (openTrades.length > 0) {
           const coinIds = [...new Set(openTrades.map(t => t.coinId))];
+          // Re-register scanner meta for non-tracked coins so fetchLivePrice works
+          for (const t of openTrades) {
+            if (!TRACKED_COINS.includes(t.coinId) && !getCoinMeta(t.coinId) && t.symbol) {
+              registerScannerCoinMeta(t.coinId, t.symbol);
+            }
+          }
           const livePrices = await Promise.all(coinIds.map(id => fetchLivePrice(id)));
           for (let i = 0; i < coinIds.length; i++) {
             if (livePrices[i] != null && Number.isFinite(livePrices[i]) && livePrices[i] > 0) {
               const idx = prices.findIndex(p => p.id === coinIds[i]);
-              if (idx >= 0) prices[idx] = { ...prices[idx], price: livePrices[i] };
+              if (idx >= 0) {
+                prices[idx] = { ...prices[idx], price: livePrices[i] };
+              } else {
+                const trade = openTrades.find(t => t.coinId === coinIds[i]);
+                prices.push({ id: coinIds[i], symbol: trade?.symbol || coinIds[i].toUpperCase(), price: livePrices[i] });
+              }
             }
           }
         }
@@ -2072,7 +2989,8 @@ app.post('/api/backtest', async (req, res) => {
     }
     let coinsToRun = coins && Array.isArray(coins) ? coins : (coinId ? [coinId] : undefined);
     if (!coinsToRun && TRACKED_COINS) {
-      coinsToRun = TRACKED_COINS.slice(0, 6);
+      // Limit to 3 coins by default to stay under typical 30s hosting timeout (Render, etc.)
+      coinsToRun = TRACKED_COINS.slice(0, 3);
     }
 
     // Fetch user settings when logged in (strategy weights, excluded coins, coin weights, maxOpenTrades)
@@ -2135,38 +3053,6 @@ app.post('/api/backtest', async (req, res) => {
   }
 });
 
-// Push notifications: get VAPID public key
-app.get('/api/push/vapid-public', (req, res) => {
-  try {
-    const { getVapidKeys } = require('./services/push-notifications');
-    const keys = getVapidKeys();
-    if (!keys) return res.json({ publicKey: null });
-    res.json({ publicKey: keys.publicKey });
-  } catch (e) {
-    res.json({ publicKey: null });
-  }
-});
-
-// Push notifications: subscribe (save subscription to user)
-app.post('/api/push/subscribe', requireLogin, async (req, res) => {
-  try {
-    const subscription = req.body;
-    if (!subscription || !subscription.endpoint) {
-      return res.status(400).json({ error: 'Invalid subscription' });
-    }
-    const user = await User.findById(req.session.userId);
-    if (!user) return res.status(401).json({ error: 'Not logged in' });
-    if (!Array.isArray(user.pushSubscriptions)) user.pushSubscriptions = [];
-    const exists = user.pushSubscriptions.some(s => s && s.endpoint === subscription.endpoint);
-    if (!exists) {
-      user.pushSubscriptions.push(subscription);
-      await user.save();
-    }
-    res.json({ success: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
 
 // Candles for chart (Lightweight Charts format)
 app.get('/api/candles/:coinId', async (req, res) => {
@@ -2345,10 +3231,24 @@ app.get('/api/candles/:coinId', async (req, res) => {
 async function runStopTPCheck() {
   if (!dbConnected) return; // Skip if no database
   try {
-    const openTrades = await Trade.find({ status: 'OPEN' }).select('coinId userId').lean();
+    const openTrades = await Trade.find({ status: 'OPEN' }).select('coinId symbol userId').lean();
     if (openTrades.length === 0) return;
-    // Fetch live prices from Bitget/Kraken for all coins with open trades
+
+    // Re-register scanner meta for non-tracked coins (top 3 market scan coins).
+    // scannerCoinMeta is in-memory and lost on restart, so we reconstruct it
+    // from the trade's stored symbol. Without this, fetchLivePrice can't find
+    // the Bitget ticker symbol, prices return null, and SL/TP/badges never fire.
     const coinIds = [...new Set(openTrades.map(t => t.coinId))];
+    for (const cid of coinIds) {
+      if (!TRACKED_COINS.includes(cid) && !getCoinMeta(cid)) {
+        const trade = openTrades.find(t => t.coinId === cid);
+        if (trade?.symbol) {
+          registerScannerCoinMeta(cid, trade.symbol);
+        }
+      }
+    }
+
+    // Fetch live prices from Bitget/Kraken for all coins with open trades
     const livePrices = await Promise.all(coinIds.map(id => fetchLivePrice(id)));
     const priceMap = {};
     coinIds.forEach((id, i) => {
@@ -2410,11 +3310,6 @@ async function checkPriceAlerts() {
         (alert.condition === 'below' && price <= alert.price);
       if (triggered) {
         await Alert.updateOne({ _id: alert._id }, { triggeredAt: new Date(), active: false });
-        try {
-          const { sendPushToUser } = require('./services/push-notifications');
-          const u = await User.findById(alert.userId).lean();
-          if (u) await sendPushToUser(u, `${alert.symbol} Alert`, `Price ${alert.condition} $${alert.price.toLocaleString()} (now $${price.toLocaleString()})`);
-        } catch (e) { /* non-critical */ }
       }
     }
   } catch (err) {
@@ -2423,6 +3318,18 @@ async function checkPriceAlerts() {
 }
 setInterval(checkPriceAlerts, 60 * 1000);
 setTimeout(checkPriceAlerts, 20 * 1000);
+
+// ====================================================
+// WHOLE-MARKET SCANNER (runs every 10 min)
+// Scans top 80 coins by market cap, scores with same engine as 20 tracked.
+// Caches top 3 for dashboard display.
+// ====================================================
+try {
+  const { scanMarket } = require('./services/market-scanner');
+  setInterval(() => scanMarket().catch(e => console.warn('[MarketScanner]', e.message)), 10 * 60 * 1000);
+  setTimeout(() => scanMarket().catch(() => {}), 30 * 1000);
+  console.log('[MarketScanner] Whole-market scan every 10 min');
+} catch (e) { console.warn('[MarketScanner] Not loaded:', e.message); }
 
 // ====================================================
 // TRADE SCORE RE-CHECK (runs every SCORE_RECHECK_MINUTES)
@@ -2445,6 +3352,27 @@ async function runScoreRecheck() {
       Promise.resolve(fetchAllCandles()),
       fetchAllHistory()
     ]);
+
+    // Re-register scanner meta for non-tracked coins with open trades
+    // so recheckTradeScores can fetch live prices for them
+    try {
+      const openTrades = await Trade.find({ status: 'OPEN' }).select('coinId symbol').lean();
+      for (const t of openTrades) {
+        if (!TRACKED_COINS.includes(t.coinId) && !getCoinMeta(t.coinId) && t.symbol) {
+          registerScannerCoinMeta(t.coinId, t.symbol);
+        }
+        // For non-tracked coins, try to fetch their data so score recheck works
+        if (!prices.find(p => p.id === t.coinId)) {
+          try {
+            const lp = await fetchLivePrice(t.coinId);
+            if (lp && Number.isFinite(lp) && lp > 0) {
+              prices.push({ id: t.coinId, symbol: t.symbol || t.coinId.toUpperCase(), price: lp });
+            }
+          } catch (e) { /* ignore */ }
+        }
+      }
+    } catch (e) { /* ignore */ }
+
     const options = await buildEngineOptions(prices, allCandles, allHistory);
 
     const signalCache = {};
@@ -2485,6 +3413,71 @@ app.post('/api/trigger-score-check', requireLogin, async (req, res) => {
 });
 
 // ====================================================
+// LLM CHAT API
+// ====================================================
+app.post('/api/llm-chat', requireLogin, async (req, res) => {
+  try {
+    const messages = req.body?.messages;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ success: false, error: 'messages array required' });
+    }
+    const { getMarketPulse } = require('./services/market-pulse');
+    const { getTop3FullCached } = require('./services/market-scanner');
+    const { runChat } = require('./services/llm-chat');
+    const deps = {
+      User, Trade, getPerformanceStats, closeTrade, closeTradePartial, updateTradeLevels, fetchLivePrice, openTrade,
+      fetchAllPrices, fetchAllCandles, fetchAllHistory, buildEngineOptions, analyzeAllCoins,
+      getScoreHistory, getRegimeTimeline, getMarketPulse, getTop3FullCached, runBacktest
+    };
+    const executeActions = req.body?.executeActions === true;
+    const result = await runChat(req.session.userId, messages, deps, { executeActions });
+    res.json(result);
+  } catch (err) {
+    console.error('[LLM-Chat] Error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ====================================================
+// LLM AGENT: Manual trigger
+// ====================================================
+const _llmAgentLastTrigger = {};
+app.post('/api/llm-agent/run', requireLogin, async (req, res) => {
+  try {
+    const uid = req.session.userId;
+    const now = Date.now();
+    if (_llmAgentLastTrigger[uid] && now - _llmAgentLastTrigger[uid] < 60000) {
+      return res.status(429).json({ success: false, error: 'Wait 1 minute between runs' });
+    }
+    _llmAgentLastTrigger[uid] = now;
+    const { getMarketPulse } = require('./services/market-pulse');
+    const { getTop3FullCached } = require('./services/market-scanner');
+    const deps = {
+      User, Trade, runBacktest, getPerformanceStats, closeTrade, closeTradePartial, updateTradeLevels, fetchLivePrice, openTrade,
+      fetchAllPrices, fetchAllCandles, fetchAllHistory, buildEngineOptions, analyzeAllCoins,
+      getScoreHistory, getRegimeTimeline, getMarketPulse, getTop3FullCached
+    };
+    const result = await runAgent(uid, deps, { source: 'manual' });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ====================================================
+// OLLAMA STATUS (check if local LLM is reachable)
+// ====================================================
+app.get('/api/ollama/status', requireLogin, async (req, res) => {
+  try {
+    const url = req.query.url || req.session?.ollamaUrl || 'http://localhost:11434';
+    const result = await checkOllamaReachable(url);
+    res.json({ success: true, reachable: result.ok, error: result.error });
+  } catch (err) {
+    res.status(500).json({ success: false, reachable: false, error: err.message });
+  }
+});
+
+// ====================================================
 // AUTO-TRADE: Periodically scan signals for users with autoTrade enabled
 // Opens paper trades (and live if Bitget connected) automatically
 // when signal score meets threshold. Runs every 2 minutes.
@@ -2508,8 +3501,55 @@ async function runAutoTrade() {
     for (const user of autoTradeUsers) {
       try {
         const options = await buildEngineOptions(prices, allCandles, allHistory, user);
-        const signals = analyzeAllCoins(prices, allCandles, allHistory, options);
-        if (!signals || signals.length === 0) continue;
+        const mode = user.settings?.autoTradeCoinsMode || (user.settings?.autoTradeTopMarketPick ? 'tracked+top1' : 'tracked');
+        let signals = [];
+
+        if (mode === 'tracked' || mode === 'tracked+top1') {
+          const analyzed = analyzeAllCoins(prices, allCandles, allHistory, options);
+          signals = analyzed || [];
+        }
+
+        if (mode === 'tracked+top1' || mode === 'top1') {
+          try {
+            const { getTop1ForAutoTrade } = require('./services/market-scanner');
+            const top1 = getTop1ForAutoTrade();
+            if (top1 && top1.coin) {
+              const c = top1.coin;
+              registerScannerCoinMeta(c.id, c.symbol);
+              const dir = (top1.signal === 'STRONG_BUY' || top1.signal === 'BUY') ? 'LONG'
+                : (top1.signal === 'STRONG_SELL' || top1.signal === 'SELL') ? 'SHORT' : null;
+              if (dir && (top1.score || 0) >= (user.settings?.autoTradeMinScore ?? 56)) {
+                signals = [...signals, { ...top1, _overallScore: top1.score, _bestStrat: top1.topStrategies?.[0] || { stopLoss: top1.stopLoss, takeProfit1: top1.takeProfit1, takeProfit2: top1.takeProfit2, takeProfit3: top1.takeProfit3, entry: top1.entry, riskReward: top1.riskReward, id: top1.strategyType }, _direction: dir, _coinId: c.id, _bestScore: top1.score }];
+              }
+            }
+          } catch (e) { /* scanner not ready */ }
+        }
+
+        const signalMode = user.settings?.autoTradeSignalMode || 'original';
+        if (signalMode === 'indicators' || signalMode === 'both') {
+          const StrategyConfig = require('./models/StrategyConfig');
+          const configId = user.settings?.autoTradeStrategyConfigId;
+          const config = configId ? await StrategyConfig.findById(configId).lean() : null;
+          if (config && config.entry && config.exit) {
+            const coinIds = (mode === 'top1') ? [] : TRACKED_COINS;
+            const { evaluateStrategyForAutoTrade } = require('./services/strategy-builder/run-custom-backtest');
+            const stratSignals = evaluateStrategyForAutoTrade({ entry: config.entry, exit: config.exit }, allCandles, coinIds, prices);
+            if (signalMode === 'indicators') {
+              signals = stratSignals;
+            } else {
+              const bothLogic = user.settings?.autoTradeBothLogic || 'or';
+              if (bothLogic === 'or') {
+                const origIds = new Set(signals.map(s => s._coinId));
+                for (const ss of stratSignals) {
+                  if (!origIds.has(ss._coinId)) signals.push(ss);
+                }
+              } else {
+                const stratIds = new Set(stratSignals.map(s => s._coinId));
+                signals = signals.filter(s => stratIds.has(s._coinId));
+              }
+            }
+          }
+        }
 
         const signalsWithBestStrategy = signals.map(sig => {
           const coinId = sig.coin?.id || sig.id;
@@ -2536,14 +3576,14 @@ async function runAutoTrade() {
           return { ...sig, _overallScore: overallScore, _bestStrat: bestStrat, _direction: direction, _coinId: coinId };
         });
         // Use paper trading min score from settings, fallback to exchange setting, then default 70
-        const minScore = user.settings?.autoTradeMinScore ?? user.liveTrading?.autoOpenMinScore ?? 52;
+        const minScore = user.settings?.autoTradeMinScore ?? user.liveTrading?.autoOpenMinScore ?? 56;
         const maxOpen = user.settings?.maxOpenTrades || 3;
         const openTrades = await Trade.find({ userId: user._id, status: 'OPEN' }).lean();
         if (openTrades.length >= maxOpen) continue;
 
         const openCoinIds = openTrades.map(t => t.coinId);
         // Cooldown check
-        const cooldownMs = (user.settings?.cooldownHours || 4) * 3600 * 1000;
+        const cooldownMs = (user.settings?.cooldownHours ?? 6) * 3600 * 1000;
         const recentTrades = await Trade.find({
           userId: user._id,
           status: { $ne: 'OPEN' },
@@ -2561,7 +3601,7 @@ async function runAutoTrade() {
           if (!coinWeightEnabled || baseW == null) return 1;
           return 1 + (baseW - 1) * strengthMult;
         };
-        const minRr = user.settings?.minRiskRewardEnabled ? (Number(user.settings.minRiskReward) || 1.2) : 0;
+        const minRr = (user.settings?.minRiskRewardEnabled ?? true) ? (Number(user.settings?.minRiskReward) || 1.2) : 0;
         const candidates = signalsWithBestStrategy.filter(sig => {
           if (sig._overallScore < minScore) return false;
           if (!sig._direction) return false; // HOLD signals ignored
@@ -2584,10 +3624,22 @@ async function runAutoTrade() {
         const slotsAvailable = maxOpen - openTrades.length;
         const toOpen = candidates.slice(0, slotsAvailable);
 
+        // Build strategy stats for expectancy filter (risk engine)
+        const allStratWeights = await StrategyWeight.find({ active: true }).lean();
+        const strategyStatsForOpen = {};
+        allStratWeights.forEach(s => {
+          strategyStatsForOpen[s.strategyId] = {
+            totalTrades: s.performance?.totalTrades || 0,
+            winRate: s.performance?.winRate || 0,
+            avgRR: s.performance?.avgRR || 0
+          };
+        });
+
         for (const sig of toOpen) {
           try {
             const coinId = sig._coinId;
-            const coinData = prices.find(p => p.id === coinId);
+            let coinData = prices.find(p => p.id === coinId);
+            if (!coinData && sig.coin) coinData = sig.coin; // Market-scanner top pick
             if (!coinData) continue;
             const livePrice = await fetchLivePrice(coinId);
             if (livePrice == null || !Number.isFinite(livePrice) || livePrice <= 0) continue;
@@ -2611,16 +3663,17 @@ async function runAutoTrade() {
 
             // Sanity: for LONG, TPs must be ABOVE entry; for SHORT, TPs must be BELOW entry.
             // If any TP is on the wrong side (from a direction mismatch), null it out.
+            const metaSym = getCoinMeta(coinId)?.symbol || coinData?.symbol || coinId;
             if (sig._direction === 'LONG') {
-              if (useTP1 && useTP1 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP1 $${useTP1} below entry $${livePrice} for LONG — removed`); useTP1 = null; }
-              if (useTP2 && useTP2 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP2 $${useTP2} below entry $${livePrice} for LONG — removed`); useTP2 = null; }
-              if (useTP3 && useTP3 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP3 $${useTP3} below entry $${livePrice} for LONG — removed`); useTP3 = null; }
-              if (useSL && useSL >= livePrice * 1.01) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: SL $${useSL} above entry $${livePrice} for LONG — removed`); useSL = null; }
+              if (useTP1 && useTP1 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${metaSym}: TP1 $${useTP1} below entry $${livePrice} for LONG — removed`); useTP1 = null; }
+              if (useTP2 && useTP2 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${metaSym}: TP2 $${useTP2} below entry $${livePrice} for LONG — removed`); useTP2 = null; }
+              if (useTP3 && useTP3 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${metaSym}: TP3 $${useTP3} below entry $${livePrice} for LONG — removed`); useTP3 = null; }
+              if (useSL && useSL >= livePrice * 1.01) { console.warn(`[AutoTrade] ${metaSym}: SL $${useSL} above entry $${livePrice} for LONG — removed`); useSL = null; }
             } else {
-              if (useTP1 && useTP1 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP1 $${useTP1} above entry $${livePrice} for SHORT — removed`); useTP1 = null; }
-              if (useTP2 && useTP2 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP2 $${useTP2} above entry $${livePrice} for SHORT — removed`); useTP2 = null; }
-              if (useTP3 && useTP3 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: TP3 $${useTP3} above entry $${livePrice} for SHORT — removed`); useTP3 = null; }
-              if (useSL && useSL <= livePrice * 0.99) { console.warn(`[AutoTrade] ${COIN_META[coinId]?.symbol}: SL $${useSL} below entry $${livePrice} for SHORT — removed`); useSL = null; }
+              if (useTP1 && useTP1 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${metaSym}: TP1 $${useTP1} above entry $${livePrice} for SHORT — removed`); useTP1 = null; }
+              if (useTP2 && useTP2 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${metaSym}: TP2 $${useTP2} above entry $${livePrice} for SHORT — removed`); useTP2 = null; }
+              if (useTP3 && useTP3 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${metaSym}: TP3 $${useTP3} above entry $${livePrice} for SHORT — removed`); useTP3 = null; }
+              if (useSL && useSL <= livePrice * 0.99) { console.warn(`[AutoTrade] ${metaSym}: SL $${useSL} below entry $${livePrice} for SHORT — removed`); useSL = null; }
             }
 
             // If no SL from strategy, calculate a default ATR-based one
@@ -2638,7 +3691,7 @@ async function runAutoTrade() {
               if (useTP1) useTP1 = parseFloat((useTP1 * ratio).toFixed(6));
               if (useTP2) useTP2 = parseFloat((useTP2 * ratio).toFixed(6));
               if (useTP3) useTP3 = parseFloat((useTP3 * ratio).toFixed(6));
-              console.log(`[AutoTrade] ${COIN_META[coinId]?.symbol}: Scaled levels by ${ratio.toFixed(4)} (analysis=$${analysisEntry} live=$${livePrice})`);
+              console.log(`[AutoTrade] ${metaSym}: Scaled levels by ${ratio.toFixed(4)} (analysis=$${analysisEntry} live=$${livePrice})`);
             }
 
             const signalLev = sig.suggestedLeverage || suggestLeverage(sig._bestScore, sig.regime || 'mixed', 'normal');
@@ -2646,13 +3699,14 @@ async function runAutoTrade() {
             const lev = user.settings?.disableLeverage ? 1 : (useFixed ? (user.settings?.defaultLeverage ?? 2) : signalLev);
             const tradeData = {
               coinId,
-              symbol: COIN_META[coinId]?.symbol || coinId.toUpperCase(),
+              symbol: getCoinMeta(coinId)?.symbol || coinData?.symbol || coinId.toUpperCase(),
               direction: sig._direction,
               entry: livePrice,
               stopLoss: useSL,
               takeProfit1: useTP1,
               takeProfit2: useTP2,
               takeProfit3: useTP3,
+              volume24h: coinData?.volume24h,
               leverage: lev,
               score: sig._overallScore,
               strategyType: useStratType,
@@ -2664,8 +3718,77 @@ async function runAutoTrade() {
               stopLabel: sig.stopLabel || 'ATR + S/R + Fib',
               tpType: sig.tpType || 'R_multiple',
               tpLabel: sig.tpLabel || 'R multiples',
+              strategyStats: strategyStatsForOpen,
               autoTriggered: true
             };
+
+            // LLM approval gate (Ollama) — when enabled, ask local LLM with full context
+            if (user.settings?.llmEnabled) {
+              let marketPulseForApproval = null;
+              try { const { getMarketPulse: gmp } = require('./services/market-pulse'); marketPulseForApproval = await gmp(); } catch (e) { /* ignore */ }
+
+              let stratPerf = null;
+              try {
+                const sp = strategyStatsForOpen[useStratType];
+                if (sp) {
+                  stratPerf = { ...sp };
+                  const StrategyWeight = require('./models/StrategyWeight');
+                  const sw = await StrategyWeight.findOne({ strategyId: useStratType }).lean();
+                  if (sw?.performance?.byRegime?.[sig.regime || 'mixed']) {
+                    const rd = sw.performance.byRegime[sig.regime || 'mixed'];
+                    const rdTotal = (rd.wins || 0) + (rd.losses || 0);
+                    stratPerf.regimeWinRate = rdTotal > 0 ? (rd.wins / rdTotal) * 100 : null;
+                    stratPerf.regimeTrades = rdTotal;
+                    stratPerf.profitFactor = sw.performance.profitFactor || 0;
+                  }
+                }
+              } catch (e) { /* ignore */ }
+
+              const openTradesCount = await Trade.countDocuments({ userId: user._id, status: 'OPEN' });
+
+              const llmResult = await approveTrade({
+                coinId,
+                symbol: tradeData.symbol,
+                direction: sig._direction,
+                score: sig._overallScore,
+                confidence: sig.confidence,
+                scoreBreakdown: sig.scoreBreakdown,
+                reasoning: sig.reasoning,
+                strategy: useStratType,
+                regime: sig.regime || 'unknown',
+                riskReward: sig._bestStrat?.riskReward ?? sig.riskReward,
+                indicators: sig.indicators,
+                marketPulse: marketPulseForApproval,
+                strategyPerformance: stratPerf,
+                openTradesCount,
+                maxOpenTrades: user.settings?.maxOpenTrades ?? 3,
+                balance: user.paperBalance ?? 10000,
+                timeframes: sig.timeframes ? { '1H': sig.timeframes['1H']?.score, '4H': sig.timeframes['4H']?.score, '1D': sig.timeframes['1D']?.score } : null,
+                entry: livePrice,
+                stopLoss: useSL,
+                takeProfit1: useTP1,
+                recentPerformance: {
+                  wins: user.stats?.wins || 0,
+                  losses: user.stats?.losses || 0,
+                  streak: user.stats?.currentStreak || 0
+                }
+              }, user.settings?.ollamaUrl || 'http://localhost:11434', user.settings?.ollamaModel || 'qwen3-coder:480b-cloud');
+
+              if (!llmResult.approve) {
+                console.log(`[AutoTrade] LLM rejected ${tradeData.symbol} ${sig._direction} for ${user.username}: ${llmResult.reasoning || 'no reason'}`);
+                continue;
+              }
+
+              tradeData.llmConfidence = llmResult.confidence;
+              tradeData.llmReasoning = llmResult.reasoning;
+
+              // Modulate position via confidence: <50 confidence = reduce size by up to 30%
+              if (llmResult.confidence > 0 && llmResult.confidence < 50) {
+                const sizeMult = 0.7 + (llmResult.confidence / 50) * 0.3;
+                console.log(`[AutoTrade] LLM low confidence (${llmResult.confidence}) on ${tradeData.symbol} — sizing x${sizeMult.toFixed(2)}`);
+                tradeData.llmSizeMultiplier = sizeMult;
+              }
+            }
 
             await openTrade(user._id, tradeData);
             console.log(`[AutoTrade] Opened ${sig._direction} on ${tradeData.symbol} (overall ${sig._overallScore}, strat: ${useStratType}) for user ${user.username}`);
@@ -2684,6 +3807,41 @@ async function runAutoTrade() {
 setInterval(runAutoTrade, 2 * 60 * 1000);
 // First auto-trade check 45s after startup
 setTimeout(runAutoTrade, 45 * 1000);
+
+// ====================================================
+// LLM AGENT: Autonomous agent that can change settings, run backtests
+// Runs periodically for users with llmAgentEnabled
+// ====================================================
+async function runLlmAgentForUsers() {
+  if (!dbConnected) return;
+  try {
+    const users = await User.find({ 'settings.llmAgentEnabled': true }).select('_id settings llmAgentLastRun').lean();
+    const { getMarketPulse } = require('./services/market-pulse');
+    const { getTop3FullCached } = require('./services/market-scanner');
+    const deps = {
+      User, Trade, runBacktest, getPerformanceStats, closeTrade, closeTradePartial, updateTradeLevels, fetchLivePrice, openTrade,
+      fetchAllPrices, fetchAllCandles, fetchAllHistory, buildEngineOptions, analyzeAllCoins,
+      getScoreHistory, getRegimeTimeline, getMarketPulse, getTop3FullCached
+    };
+    for (const u of users) {
+      const intervalMin = u.settings?.llmAgentIntervalMinutes ?? 60;
+      const lastRun = u.llmAgentLastRun?.at ? new Date(u.llmAgentLastRun.at).getTime() : 0;
+      if (Date.now() - lastRun < intervalMin * 60 * 1000) continue;
+      try {
+        const result = await runAgent(u._id, deps, { source: 'scheduled' });
+        if (result.success && (result.actionsExecuted?.length || result.actionsFailed?.length)) {
+          console.log(`[LLMAgent] ${u._id}: ${result.actionsExecuted?.length || 0} ok, ${result.actionsFailed?.length || 0} failed`);
+        }
+      } catch (err) {
+        console.warn('[LLMAgent]', err.message);
+      }
+    }
+  } catch (err) {
+    console.warn('[LLMAgent]', err.message);
+  }
+}
+setInterval(runLlmAgentForUsers, 15 * 60 * 1000); // Check every 15 min
+setTimeout(runLlmAgentForUsers, 5 * 60 * 1000);   // First run 5 min after startup
 
 // ====================================================
 // SCORE HISTORY API (track score evolution per coin)
@@ -2763,15 +3921,51 @@ app.get('/strategy-comparison', async (req, res) => {
       } catch (e) { /* ignore */ }
     }
     const options = await buildEngineOptions(pricesMerged, allCandles, allHistory, compUser);
-    const signals = analyzeAllCoins(pricesMerged, allCandles, allHistory, options);
+    let signals = analyzeAllCoins(pricesMerged, allCandles, allHistory, options) || [];
+
+    // Add top 3 market picks to comparison (they change each scan)
+    try {
+      const top3Full = require('./services/market-scanner').getTop3FullCached();
+      top3Full.forEach(s => {
+        if (s && s.coin && !signals.some(x => x.coin?.id === s.coin.id)) {
+          signals = [...signals, s];
+        }
+      });
+    } catch (e) { /* ignore */ }
 
     // Get learning engine data
     const strategies = await StrategyWeight.find({}).lean();
 
+    // Recommendation: most common regime + best strategy for that regime
+    const regimeCounts = {};
+    signals.forEach(s => {
+      const r = s.regime || 'unknown';
+      regimeCounts[r] = (regimeCounts[r] || 0) + 1;
+    });
+    const topRegime = Object.entries(regimeCounts).sort((a, b) => b[1] - a[1])[0];
+    let recommendation = 'Use default blended signal.';
+    if (topRegime && strategies.length > 0) {
+      const [regime, count] = topRegime;
+      const bestForRegime = strategies
+        .filter(s => s.performance?.byRegime?.[regime])
+        .map(s => {
+          const rd = s.performance.byRegime[regime];
+          const total = (rd.wins || 0) + (rd.losses || 0);
+          const wr = total > 0 ? (rd.wins / total) * 100 : 0;
+          return { name: s.name || s.strategyId, wr, total };
+        })
+        .filter(s => s.total >= 3)
+        .sort((a, b) => b.wr - a.wr)[0];
+      if (bestForRegime) {
+        recommendation = `${count} coin(s) in ${regime} regime. Best strategy: ${bestForRegime.name} (${bestForRegime.wr.toFixed(0)}% WR in ${regime}).`;
+      }
+    }
+
     res.render('strategy-comparison', {
       activePage: 'learning',
       signals,
-      strategies
+      strategies,
+      recommendation
     });
   } catch (err) {
     console.error('[StrategyComparison] Error:', err);
@@ -2827,11 +4021,24 @@ wss.on('connection', (ws) => {
 });
 
 // ====================================================
+// TRENCH AUTO-TRADE SCHEDULER - runs regardless of environment
+// ====================================================
+function startTrenchAutoTradeScheduler() {
+  const trenchAuto = require('./services/trench-auto-trading');
+  console.log('[TrenchAuto] Scheduler started — checking every 5 minutes');
+  setInterval(() => {
+    trenchAuto.runTrenchAutoTrade().catch(err => console.error('[TrenchAuto] Error:', err.message));
+  }, 5 * 60 * 1000);
+  setTimeout(() => trenchAuto.runTrenchAutoTrade().catch(() => {}), 60000);
+}
+
+// ====================================================
 // KEEP-ALIVE: Prevent Render free tier from sleeping (15 min inactivity timeout)
 // Self-pings every 14 minutes. Only runs when RENDER_EXTERNAL_URL is set.
 // ====================================================
 const KEEP_ALIVE_INTERVAL = 14 * 60 * 1000; // 14 minutes
 function startKeepAlive() {
+  startTrenchAutoTradeScheduler();
   const url = process.env.RENDER_EXTERNAL_URL || process.env.APP_URL;
   if (!url) {
     console.log('[KeepAlive] No RENDER_EXTERNAL_URL or APP_URL set — skipping keep-alive (local dev)');
@@ -2849,8 +4056,20 @@ function startKeepAlive() {
 }
 
 // Health endpoint for keep-alive pings (lightweight, no auth)
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
+app.get('/api/health', async (req, res) => {
+  const prices = await fetchAllPrices();
+  const candles = fetchAllCandles();
+  const candleCount = Object.keys(candles || {}).length;
+  res.json({
+    status: prices.length > 0 ? 'ok' : 'loading',
+    version: 'trench-scalp-v1',
+    uptime: Math.round(process.uptime()),
+    timestamp: new Date().toISOString(),
+    coins: prices.length,
+    coinsWithCandles: candleCount,
+    totalTracked: TRACKED_COINS.length,
+    memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
+  });
 });
 
 Promise.race([

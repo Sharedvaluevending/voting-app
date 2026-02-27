@@ -1,4 +1,4 @@
 node_modules/
+.env
 git-path.txt
-.vapid-keys.json
 data/backtest-cache/

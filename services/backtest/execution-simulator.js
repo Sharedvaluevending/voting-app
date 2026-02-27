@@ -16,13 +16,14 @@ const DEFAULT_TAKER_FEE = 0.001;
 function computeMarketSlippageBps(order, snapshot, config) {
   config = config || {};
   const minBps = config.minSlipBps ?? 5;
+  const mult = config.slippageMultiplier ?? 1;
   const k = config.slippageK ?? 3;
   const sizeFactor = config.sizeFactor ?? 1;
   const atr = snapshot?.indicators?.atr || snapshot?.coinData?.atr;
   const price = snapshot?.currentPrice || snapshot?.coinData?.price || order.entry;
   const atrPct = atr && price > 0 ? (atr / price) * 100 : 0;
   const sizeMult = Math.min(2, 1 + (order.size || 0) / 100000);
-  const slipBps = Math.max(minBps, k * atrPct * sizeFactor * sizeMult);
+  const slipBps = Math.max(minBps, k * atrPct * sizeFactor * sizeMult) * mult;
   return slipBps;
 }
 

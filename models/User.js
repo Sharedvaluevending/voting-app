@@ -4,9 +4,65 @@ const bcrypt = require('bcryptjs');
 const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   username: { type: String, required: true, unique: true, trim: true, minlength: 3, maxlength: 20 },
-  password: { type: String, required: true },
+  password: { type: String, default: '' }, // empty for OAuth-only users
+  googleId: { type: String, sparse: true, unique: true }, // for Google OAuth
   paperBalance: { type: Number, default: 10000 },
   initialBalance: { type: Number, default: 10000 },
+  trenchPaperBalance: { type: Number, default: 1000 },
+  trenchPaperBalanceInitial: { type: Number, default: 1000 },
+  trenchBot: {
+    privateKeyEncrypted: { type: String, default: '' },
+    publicKey: { type: String, default: '' },
+    connected: { type: Boolean, default: false }
+  },
+  trenchAuto: {
+    enabled: { type: Boolean, default: false },
+    mode: { type: String, enum: ['paper', 'live'], default: 'paper' },
+    minTrendingScore: { type: Number, default: 1, min: 0, max: 50 },
+    maxOpenPositions: { type: Number, default: 6, min: 1, max: 15 },
+    amountPerTradeUsd: { type: Number, default: 50, min: 5, max: 500 },
+    amountPerTradeSol: { type: Number, default: 0.05, min: 0.01, max: 1 },
+    checkIntervalMinutes: { type: Number, default: 15 },
+    lastRunAt: { type: Date },
+    tpPercent: { type: Number, default: 12, min: 5, max: 50 },
+    slPercent: { type: Number, default: 8, min: 3, max: 30 },
+    trailingStopPercent: { type: Number, default: 5, min: 3, max: 20 },
+    useTrailingStop: { type: Boolean, default: true },
+    breakevenAtPercent: { type: Number, default: 5, min: 2, max: 15 },
+    useBreakevenStop: { type: Boolean, default: true },
+    maxHoldMinutes: { type: Number, default: 12, min: 5, max: 30 },
+    minLiquidityUsd: { type: Number, default: 10000, min: 5000, max: 100000 },
+    maxTop10HoldersPercent: { type: Number, default: 80, min: 50, max: 100 },
+    maxPriceChange24hPercent: { type: Number, default: 500, min: 100, max: 1000 },
+    cooldownHours: { type: Number, default: 1, min: 0.25, max: 4 },
+    useEntryFilters: { type: Boolean, default: true },
+    maxDailyLossPercent: { type: Number, default: 15, min: 5, max: 50 },
+    consecutiveLossesToPause: { type: Number, default: 3, min: 2, max: 10 },
+    minSolBalance: { type: Number, default: 0.05, min: 0.01, max: 1 },
+    lastPausedAt: { type: Date },
+    pausedReason: { type: String, default: '' },
+    // Notifications
+    trenchNotifyTradeOpen: { type: Boolean, default: true },
+    trenchNotifyTradeClose: { type: Boolean, default: true },
+    // Profit payout (live mode only)
+    profitPayoutAddress: { type: String, default: '' },
+    profitPayoutPercent: { type: Number, default: 0, min: 0, max: 100 },
+    profitPayoutMinSol: { type: Number, default: 0.1, min: 0.01, max: 10 },
+    useKellySizing: { type: Boolean, default: false },
+    themeFilterEnabled: { type: Boolean, default: false }
+  },
+  trenchBlacklist: [{ type: String }],
+  trenchStats: {
+    wins: { type: Number, default: 0 },
+    losses: { type: Number, default: 0 },
+    totalPnl: { type: Number, default: 0 },
+    totalPnlPercent: { type: Number, default: 0 },
+    bestTrade: { type: Number, default: 0 },
+    worstTrade: { type: Number, default: 0 },
+    consecutiveLosses: { type: Number, default: 0 },
+    dailyPnlStart: { type: Number, default: 0 },
+    dailyPnlStartAt: { type: Date }
+  },
   tier: { type: String, enum: ['free', 'premium'], default: 'free' },
   settings: {
     defaultLeverage: { type: Number, default: 2, min: 1, max: 20 },
@@ -16,10 +72,21 @@ const userSchema = new mongoose.Schema({
     riskDollarsPerTrade: { type: Number, default: 200, min: 10, max: 10000 },
     maxOpenTrades: { type: Number, default: 3, min: 1, max: 10 },
     maxBalancePercentPerTrade: { type: Number, default: 25, min: 5, max: 100 },
-    cooldownHours: { type: Number, default: 4, min: 0, max: 168 },
+    cooldownHours: { type: Number, default: 6, min: 0, max: 168 },
     autoExecuteActions: { type: Boolean, default: false },
     autoTrade: { type: Boolean, default: false },
-    autoTradeMinScore: { type: Number, default: 52, min: 30, max: 95 },
+    autoTradeMinScore: { type: Number, default: 56, min: 30, max: 95 },
+    llmEnabled: { type: Boolean, default: false },
+    ollamaUrl: { type: String, default: 'http://localhost:11434' },
+    ollamaModel: { type: String, default: 'qwen3-coder:480b-cloud' },
+    llmAgentEnabled: { type: Boolean, default: false },
+    llmAgentIntervalMinutes: { type: Number, default: 60, min: 15, max: 1440 },
+    // Which coins to auto-trade: 'tracked' (20 only), 'tracked+top1' (20 + top market pick), 'top1' (only top market pick)
+    autoTradeCoinsMode: { type: String, enum: ['tracked', 'tracked+top1', 'top1'], default: 'tracked' },
+    // Signal source: 'original' = scoring engine, 'indicators' = Strategy Builder rules, 'both' = either
+    autoTradeSignalMode: { type: String, enum: ['original', 'indicators', 'both'], default: 'original' },
+    autoTradeBothLogic: { type: String, enum: ['or', 'and'], default: 'or' },
+    autoTradeStrategyConfigId: { type: mongoose.Schema.Types.ObjectId, ref: 'StrategyConfig', default: null },
     disableLeverage: { type: Boolean, default: false },
     autoMoveBreakeven: { type: Boolean, default: true },
     autoTrailingStop: { type: Boolean, default: true },
@@ -40,12 +107,15 @@ const userSchema = new mongoose.Schema({
     featureSlCap: { type: Boolean, default: true },
     featureMinSlDistance: { type: Boolean, default: true },
     featureConfidenceSizing: { type: Boolean, default: true },
+    featureKellySizing: { type: Boolean, default: true },
+    featureThemeDetector: { type: Boolean, default: false },
     // Quality filters: require price-action confluence, skip extreme vol, require volume
-    featurePriceActionConfluence: { type: Boolean, default: false },
+    featurePriceActionConfluence: { type: Boolean, default: true },
     featureVolatilityFilter: { type: Boolean, default: false },
-    featureVolumeConfirmation: { type: Boolean, default: false },
-    // Min R:R filter (default off) - hide/block signals below this R:R
-    minRiskRewardEnabled: { type: Boolean, default: false },
+    featureVolumeConfirmation: { type: Boolean, default: true },
+    featureFundingRateFilter: { type: Boolean, default: true },
+    // Min R:R filter - hide/block signals below this R:R
+    minRiskRewardEnabled: { type: Boolean, default: true },
     minRiskReward: { type: Number, default: 1.2, min: 1.0, max: 5.0 },
     // Take-Profit mode: 'fixed' = TP1/TP2/TP3, 'trailing' = trail from entry
     tpMode: { type: String, enum: ['fixed', 'trailing'], default: 'fixed' },
@@ -57,7 +127,15 @@ const userSchema = new mongoose.Schema({
     dcaMaxAdds: { type: Number, default: 3, min: 1, max: 10 },
     dcaDipPercent: { type: Number, default: 2, min: 0.5, max: 20 },
     dcaAddSizePercent: { type: Number, default: 100, min: 25, max: 200 },
-    dcaMinScore: { type: Number, default: 52, min: 30, max: 95 }
+    dcaMinScore: { type: Number, default: 52, min: 30, max: 95 },
+    // Risk controls
+    maxDailyLossPercent: { type: Number, default: 5, min: 0, max: 20 },
+    drawdownSizingEnabled: { type: Boolean, default: true },
+    drawdownThresholdPercent: { type: Number, default: 10, min: 5, max: 50 },
+    minVolume24hUsd: { type: Number, default: 0, min: 0, max: 500000000 },
+    expectancyFilterEnabled: { type: Boolean, default: true },
+    minExpectancy: { type: Number, default: 0.15, min: -1, max: 2 },
+    correlationFilterEnabled: { type: Boolean, default: true }
   },
   excludedCoins: [{ type: String }], // Coins excluded from auto-trade (e.g. ['dogecoin', 'cardano']),
   // Coin weights from backtest (1.0 = normal, 1.2 = 20% more allocation, 0.8 = 20% less)
@@ -66,7 +144,6 @@ const userSchema = new mongoose.Schema({
   coinWeightStrength: { type: String, enum: ['conservative', 'moderate', 'aggressive'], default: 'moderate' },
   resetToken: { type: String },
   resetTokenExpiry: { type: Date },
-  pushSubscriptions: [{ type: mongoose.Schema.Types.Mixed }],
   bitget: {
     apiKey: { type: String, default: '' },
     secretKey: { type: String, default: '' },
@@ -83,6 +160,8 @@ const userSchema = new mongoose.Schema({
     riskPerLiveTrade: { type: Number, default: 1, min: 0.5, max: 5 },
     autoOpenMinScore: { type: Number, default: 52, min: 50, max: 95 }
   },
+  llmAgentLastBacktest: { type: mongoose.Schema.Types.Mixed },
+  llmAgentLastRun: { type: mongoose.Schema.Types.Mixed },
   stats: {
     totalTrades: { type: Number, default: 0 },
     wins: { type: Number, default: 0 },
@@ -98,11 +177,14 @@ const userSchema = new mongoose.Schema({
 
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 12);
+  if (this.password && this.password.length > 0) {
+    this.password = await bcrypt.hash(this.password, 12);
+  }
   next();
 });
 
 userSchema.methods.comparePassword = async function(candidate) {
+  if (!this.password || this.password.length === 0) return false;
   return bcrypt.compare(candidate, this.password);
 };
 

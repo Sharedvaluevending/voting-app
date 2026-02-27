@@ -23,8 +23,29 @@ function getTakerFee(user) {
   return (Number.isFinite(pct) ? pct / 100 : DEFAULT_TAKER_FEE);
 }
 const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
-const DEFAULT_COOLDOWN_HOURS = 4;  // no same-direction re-entry on same coin within N hours
+const DEFAULT_COOLDOWN_HOURS = 6;  // no same-direction re-entry on same coin within N hours (matches schema default)
 const MIN_HOLD_MINUTES = 30;       // Don't score-exit trades within first 30 minutes
+
+// Correlated coin groups: avoid opening 2+ trades in same group (e.g. ETH + MATIC move together)
+const CORRELATED_GROUPS = [
+  ['ethereum', 'polygon', 'arbitrum', 'optimism', 'sui', 'avalanche-2'],
+  ['bitcoin', 'litecoin'],
+  ['solana', 'near']
+];
+function getCorrelatedGroup(coinId) {
+  for (const group of CORRELATED_GROUPS) {
+    if (group.includes(coinId)) return group;
+  }
+  return [coinId]; // Not in any group: only correlates with itself
+}
+function wouldExceedCorrelation(openTrades, newCoinId) {
+  const newGroup = getCorrelatedGroup(newCoinId);
+  for (const t of openTrades) {
+    const openGroup = getCorrelatedGroup(t.coinId);
+    if (newGroup.some(c => openGroup.includes(c))) return true;
+  }
+  return false;
+}
 
 // Feature flag helper: reads user's settings with defaults (all ON)
 function getFeatureFlags(user) {
@@ -40,7 +61,8 @@ function getFeatureFlags(user) {
     scoreRecheck: s.featureScoreRecheck !== false,
     slCap: s.featureSlCap !== false,
     minSlDistance: s.featureMinSlDistance !== false,
-    confidenceSizing: s.featureConfidenceSizing !== false
+    confidenceSizing: s.featureConfidenceSizing !== false,
+    kellySizing: s.featureKellySizing !== false
   };
 }
 
@@ -154,6 +176,36 @@ async function openTrade(userId, signalData) {
     throw new Error(`Max open trades reached (${user.settings?.maxOpenTrades || 3}). Close a trade first.`);
   }
 
+  const balance = (user.paperBalance != null && user.paperBalance >= 0) ? user.paperBalance : 10000;
+  const maxDailyLossPct = user.settings?.maxDailyLossPercent ?? 5;
+  if (maxDailyLossPct > 0) {
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const closedToday = await Trade.find({
+      userId,
+      status: { $ne: 'OPEN' },
+      exitTime: { $gte: todayStart }
+    }).select('pnl').lean();
+    const todayPnl = closedToday.reduce((s, t) => s + (t.pnl || 0), 0);
+    const maxLoss = balance * (maxDailyLossPct / 100);
+    if (todayPnl < -maxLoss) {
+      throw new Error(`Daily loss limit reached ($${Math.abs(todayPnl).toFixed(2)} today). Max ${maxDailyLossPct}% of balance. Resets at midnight UTC.`);
+    }
+  }
+
+  const minVol = user.settings?.minVolume24hUsd ?? 0;
+  if (minVol > 0 && signalData.volume24h != null && signalData.volume24h < minVol) {
+    throw new Error(`${signalData.symbol} volume $${(signalData.volume24h || 0).toLocaleString()} below minimum $${minVol.toLocaleString()}`);
+  }
+
+  // Correlation filter: avoid opening 2+ trades in same correlated group (e.g. ETH + MATIC)
+  if (user.settings?.correlationFilterEnabled !== false) {
+    const openTrades = await Trade.find({ userId, status: 'OPEN' }).select('coinId').lean();
+    if (wouldExceedCorrelation(openTrades, signalData.coinId)) {
+      throw new Error(`Correlation filter: ${signalData.symbol} is correlated with an open position. Close one first.`);
+    }
+  }
+
   const ff = getFeatureFlags(user);
 
   // Use RiskEngine.plan for sizing/levels (single-engine: same logic as backtest)
@@ -171,8 +223,10 @@ async function openTrade(userId, signalData) {
     indicators: signalData.indicators || {},
     suggestedLeverage: signalData.leverage || suggestLeverage(signalData.score, signalData.regime, signalData.indicators?.volatilityState)
   };
+  const peakEquity = Math.max(user.initialBalance || 10000, balance);
   const context = {
-    balance: user.paperBalance,
+    balance,
+    peakEquity,
     openTrades: [],
     streak: user.stats?.currentStreak || 0,
     strategyStats: signalData.strategyStats || {},
@@ -180,6 +234,10 @@ async function openTrade(userId, signalData) {
     userSettings: {
       riskPerTrade: user.settings?.riskPerTrade || 2,
       riskMode: user.settings?.riskMode || 'percent',
+      drawdownSizingEnabled: user.settings?.drawdownSizingEnabled ?? true,
+      drawdownThresholdPercent: user.settings?.drawdownThresholdPercent ?? 10,
+      expectancyFilterEnabled: user.settings?.expectancyFilterEnabled ?? true,
+      minExpectancy: user.settings?.minExpectancy ?? 0.15,
       riskDollarsPerTrade: user.settings?.riskDollarsPerTrade ?? 200,
       defaultLeverage: user.settings?.defaultLeverage || 1,
       useFixedLeverage: user.settings?.useFixedLeverage,
@@ -195,7 +253,26 @@ async function openTrade(userId, signalData) {
   };
   const orders = riskEnginePlan(decision, { coinData: { price: signalData.entry } }, context);
   if (!orders) {
-    throw new Error('Insufficient balance. Your paper balance is zero. Reset your paper account from the Performance page.');
+    // Diagnose why risk engine rejected the trade
+    if (!decision.entry || !decision.stopLoss) {
+      throw new Error(`Trade rejected: missing ${!decision.entry ? 'entry price' : 'stop loss'}. Signal may not have levels for this direction.`);
+    }
+    if (context.userSettings.expectancyFilterEnabled) {
+      const strat = context.strategyStats[decision.strategy];
+      if (strat && (strat.totalTrades || 0) >= 10 && strat.winRate > 0 && strat.avgRR > 0) {
+        const w = strat.winRate / 100;
+        const r = strat.avgRR;
+        const expectancy = (w * r) - (1 - w);
+        const minExp = context.userSettings.minExpectancy ?? 0.15;
+        if (expectancy < minExp) {
+          throw new Error(`Trade rejected: ${signalData.symbol} strategy "${signalData.strategyType}" expectancy ${expectancy.toFixed(2)} < min ${minExp}. Disable Expectancy Filter in Feature Toggles or lower the threshold.`);
+        }
+      }
+    }
+    if (balance <= 0) {
+      throw new Error('Insufficient balance. Your paper balance is zero. Reset your paper account from the Performance page.');
+    }
+    throw new Error(`Trade rejected by risk engine. Balance: $${balance.toFixed(2)}, Entry: $${(decision.entry || 0).toFixed(4)}, SL: $${(decision.stopLoss || 0).toFixed(4)}. Position may exceed max balance % or balance is too low.`);
   }
 
   const leverage = orders.leverage;
@@ -211,11 +288,11 @@ async function openTrade(userId, signalData) {
   let safeTP2 = orders.takeProfit2;
   let safeTP3 = orders.takeProfit3;
 
-  if (user.paperBalance <= 0) {
+  if (balance <= 0) {
     throw new Error('Insufficient balance. Your paper balance is zero. Reset your paper account from the Performance page.');
   }
-  if (required > user.paperBalance) {
-    throw new Error(`Insufficient balance. Need $${required.toFixed(2)}, have $${user.paperBalance.toFixed(2)}. Try resetting paper account.`);
+  if (required > balance) {
+    throw new Error(`Insufficient balance. Need $${required.toFixed(2)}, have $${balance.toFixed(2)}. Try resetting paper account.`);
   }
 
   if (tpMode === 'trailing') {
@@ -235,16 +312,24 @@ async function openTrade(userId, signalData) {
     }
   }
 
+  // LLM confidence-based size adjustment: reduce position when LLM has low confidence
+  let finalPositionSize = positionSize;
+  let finalMargin = margin;
+  if (signalData.llmSizeMultiplier && signalData.llmSizeMultiplier < 1) {
+    finalPositionSize = Math.round(positionSize * signalData.llmSizeMultiplier * 100) / 100;
+    finalMargin = Math.round(margin * signalData.llmSizeMultiplier * 100) / 100;
+  }
+
   const trade = new Trade({
     userId,
     coinId: signalData.coinId,
     symbol: signalData.symbol,
     direction: signalData.direction,
     entryPrice,
-    positionSize,
-    originalPositionSize: positionSize,
+    positionSize: finalPositionSize,
+    originalPositionSize: finalPositionSize,
     leverage,
-    margin,
+    margin: finalMargin,
     stopLoss,
     originalStopLoss: stopLoss,
     takeProfit1: safeTP1,
@@ -261,6 +346,8 @@ async function openTrade(userId, signalData) {
     reasoning: signalData.reasoning || [],
     indicatorsAtEntry: signalData.indicators || {},
     scoreBreakdownAtEntry: signalData.scoreBreakdown || {},
+    llmConfidence: signalData.llmConfidence || null,
+    llmReasoning: signalData.llmReasoning || '',
     maxPrice: entryPrice,
     minPrice: entryPrice,
     tpMode,
@@ -270,10 +357,15 @@ async function openTrade(userId, signalData) {
 
   await trade.save();
 
-  console.log(`[OpenTrade] ${signalData.symbol} ${signalData.direction} | entry=$${entryPrice} | SL=$${stopLoss} | TP1=$${safeTP1} | TP2=$${safeTP2} | TP3=$${safeTP3} | size=$${positionSize.toFixed(2)} | lev=${leverage}x | score=${signalData.score} | strategy=${signalData.strategyType || 'default'} | auto=${!!signalData.autoTriggered}`);
+  console.log(`[OpenTrade] ${signalData.symbol} ${signalData.direction} | entry=$${entryPrice} | SL=$${stopLoss} | TP1=$${safeTP1} | TP2=$${safeTP2} | TP3=$${safeTP3} | size=$${finalPositionSize.toFixed(2)} | lev=${leverage}x | score=${signalData.score} | strategy=${signalData.strategyType || 'default'} | auto=${!!signalData.autoTriggered}${signalData.llmConfidence ? ` | llmConf=${signalData.llmConfidence}` : ''}`);
 
-  user.paperBalance -= (margin + fees);
-  await user.save();
+  // Atomic balance update — prevents race conditions between concurrent trade operations
+  if (user.paperBalance == null) {
+    await User.findByIdAndUpdate(userId, {
+      $set: { paperBalance: balance, initialBalance: user.initialBalance || balance }
+    });
+  }
+  await User.findByIdAndUpdate(userId, { $inc: { paperBalance: -(finalMargin + fees) } });
 
   // === BITGET LIVE TRADING: execute on exchange if enabled and paper/live sync on ===
   try {
@@ -289,14 +381,6 @@ async function openTrade(userId, signalData) {
     console.error(`[Bitget] Live open error (paper trade still saved): ${bitgetErr.message}`);
   }
 
-  // Push notification
-  if (user.settings?.notifyTradeOpen !== false) {
-    try {
-      const { sendPushToUser } = require('./push-notifications');
-      const u = await User.findById(user._id).lean();
-      if (u) await sendPushToUser(u, `Trade opened: ${signalData.symbol} ${signalData.direction}`, `Entry $${entryPrice.toFixed(4)} | ${leverage}x`);
-    } catch (e) { /* non-critical */ }
-  }
 
   return trade;
 }
@@ -334,8 +418,7 @@ async function closeTradePartial(trade, exitPrice, portionSize, reason) {
   pnl -= exitFees;
 
   const marginPortion = portion / trade.leverage;
-  user.paperBalance = Math.max(0, user.paperBalance + marginPortion + pnl); // Prevent negative balance
-  await user.save();
+  await User.findByIdAndUpdate(trade.userId, { $inc: { paperBalance: marginPortion + pnl } });
 
   trade.positionSize -= portion;
   trade.margin -= marginPortion;
@@ -442,20 +525,37 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
 
   console.log(`[CloseTrade] ${trade.symbol} ${trade.direction} | entry=$${trade.entryPrice} exit=$${exitPrice} (fed price=$${currentPrice}) | reason=${reason} | PnL=$${totalPnl.toFixed(2)} (${pnlPercent.toFixed(1)}%) | duration=${Math.round((Date.now() - new Date(trade.createdAt).getTime()) / 60000)}min`);
 
-  user.paperBalance = Math.max(0, user.paperBalance + trade.margin + pnl); // Prevent negative balance
-  user.stats.totalTrades += 1;
+  // Atomic balance + stats update — prevents race conditions between concurrent operations
+  const balanceDelta = trade.margin + pnl;
+  const atomicUpdate = {
+    $inc: {
+      paperBalance: balanceDelta,
+      'stats.totalTrades': 1,
+      'stats.totalPnl': totalPnl
+    }
+  };
   if (totalPnl > 0) {
-    user.stats.wins += 1;
-    user.stats.currentStreak = Math.max(0, user.stats.currentStreak) + 1;
-    user.stats.bestStreak = Math.max(user.stats.bestStreak, user.stats.currentStreak);
-    user.stats.bestTrade = Math.max(user.stats.bestTrade, totalPnl);
+    atomicUpdate.$inc['stats.wins'] = 1;
   } else {
-    user.stats.losses += 1;
-    user.stats.currentStreak = Math.min(0, user.stats.currentStreak) - 1;
-    user.stats.worstTrade = Math.min(user.stats.worstTrade, totalPnl);
+    atomicUpdate.$inc['stats.losses'] = 1;
   }
-  user.stats.totalPnl += totalPnl;
-  await user.save();
+  await User.findByIdAndUpdate(userId, atomicUpdate);
+
+  // Streak tracking (separate update — less critical than balance)
+  const freshUser = await User.findById(userId);
+  if (totalPnl > 0) {
+    const newStreak = Math.max(0, freshUser.stats.currentStreak) + 1;
+    await User.findByIdAndUpdate(userId, {
+      $set: { 'stats.currentStreak': newStreak },
+      $max: { 'stats.bestStreak': newStreak, 'stats.bestTrade': totalPnl }
+    });
+  } else {
+    const newStreak = Math.min(0, freshUser.stats.currentStreak) - 1;
+    await User.findByIdAndUpdate(userId, {
+      $set: { 'stats.currentStreak': newStreak },
+      $min: { 'stats.worstTrade': totalPnl }
+    });
+  }
 
   recordTradeOutcome(trade)
     .then(() => adjustWeights().catch(err => console.error('[PaperTrading] AdjustWeights error:', err.message)))
@@ -475,14 +575,6 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
   }
 
   // Push notification
-  const notifyClose = user.settings?.notifyTradeClose !== false;
-  if (notifyClose) {
-    try {
-      const { sendPushToUser } = require('./push-notifications');
-      const u = await User.findById(userId).lean();
-      if (u) await sendPushToUser(u, `Trade closed: ${trade.symbol} ${trade.direction}`, `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${reason})`);
-    } catch (e) { /* non-critical */ }
-  }
 
   return trade;
 }
@@ -497,6 +589,74 @@ function logTradeAction(trade, type, description, oldValue, newValue, marketPric
     marketPrice: marketPrice != null ? marketPrice : undefined,
     timestamp: new Date()
   });
+}
+
+/**
+ * Update stop loss and/or take profits on an open trade (for LLM agent).
+ * Validates levels are on correct side of entry for direction.
+ * Syncs to Bitget if trade is live.
+ * @param {string} userId
+ * @param {string} tradeId
+ * @param {Object} updates - { stopLoss?, takeProfit1?, takeProfit2?, takeProfit3? }
+ * @param {number} currentPrice - for logging
+ * @returns {Promise<{ok: boolean, message: string}>}
+ */
+async function updateTradeLevels(userId, tradeId, updates, currentPrice) {
+  const trade = await Trade.findOne({ _id: tradeId, userId, status: 'OPEN' });
+  if (!trade) return { ok: false, message: 'Trade not found or already closed' };
+  const entry = trade.entryPrice;
+  const isLong = trade.direction === 'LONG';
+
+  const validate = (val, mustBeAbove) => {
+    if (val == null || !Number.isFinite(val) || val <= 0) return null;
+    if (mustBeAbove && val <= entry) return null;
+    if (!mustBeAbove && val >= entry) return null;
+    return val;
+  };
+
+  let changed = false;
+  if (updates.stopLoss != null && Number.isFinite(updates.stopLoss)) {
+    const newSl = validate(updates.stopLoss, !isLong); // LONG: SL below entry; SHORT: SL above entry
+    if (newSl != null) {
+      const oldSl = trade.stopLoss;
+      trade.stopLoss = Math.round(newSl * 1000000) / 1000000;
+      logTradeAction(trade, 'LLM_SL', `Stop loss moved to $${trade.stopLoss.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (LLM)`, oldSl, trade.stopLoss, currentPrice);
+      changed = true;
+      if (trade.isLive) {
+        try {
+          const liveUser = await User.findById(userId);
+          if (liveUser) await bitget.executeLiveStopUpdate(liveUser, trade, trade.stopLoss);
+        } catch (e) { console.error('[Bitget] LLM SL update error:', e.message); }
+      }
+    }
+  }
+  if (updates.takeProfit1 != null && Number.isFinite(updates.takeProfit1)) {
+    const newTp = validate(updates.takeProfit1, isLong);
+    if (newTp != null) {
+      trade.takeProfit1 = Math.round(newTp * 1000000) / 1000000;
+      changed = true;
+    }
+  }
+  if (updates.takeProfit2 != null && Number.isFinite(updates.takeProfit2)) {
+    const newTp = validate(updates.takeProfit2, isLong);
+    if (newTp != null) {
+      trade.takeProfit2 = Math.round(newTp * 1000000) / 1000000;
+      changed = true;
+    }
+  }
+  if (updates.takeProfit3 != null && Number.isFinite(updates.takeProfit3)) {
+    const newTp = validate(updates.takeProfit3, isLong);
+    if (newTp != null) {
+      trade.takeProfit3 = Math.round(newTp * 1000000) / 1000000;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    trade.updatedAt = new Date();
+    await trade.save();
+  }
+  return { ok: true, message: changed ? `Updated ${trade.symbol} levels` : 'No valid levels to update' };
 }
 
 let _stopsCheckRunning = false;
@@ -910,8 +1070,9 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
                 const addMargin = addSize / lev;
                 const addFees = addSize * getTakerFee(dcaUser);
                 const addRequired = addMargin + addFees;
+                const dcaBal = (dcaUser.paperBalance != null && dcaUser.paperBalance >= 0) ? dcaUser.paperBalance : 10000;
 
-                if (dcaUser.paperBalance >= addRequired) {
+                if (dcaBal >= addRequired) {
                   const oldAvg = trade.avgEntryPrice || trade.entryPrice;
                   const oldTotalCost = oldAvg * trade.positionSize;
                   const newTotalCost = oldTotalCost + (currentPrice * addSize);
@@ -927,14 +1088,13 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
                   trade.fees = (trade.fees || 0) + addFees;
                   trade.margin = (trade.margin || 0) + addMargin;
 
-                  dcaUser.paperBalance -= addRequired;
-                  await dcaUser.save();
+                  await User.findByIdAndUpdate(trade.userId, { $inc: { paperBalance: -addRequired } });
 
                   logTradeAction(trade, 'DCA', `DCA #${trade.dcaCount}: Added $${addSize.toFixed(2)} at $${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (avg entry now $${newAvgEntry.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}, dip ${dipPct.toFixed(1)}%)`, oldAvg, newAvgEntry, currentPrice);
                   await trade.save();
                   console.log(`[DCA] ${trade.symbol}: DCA #${trade.dcaCount} +$${addSize.toFixed(2)} at $${currentPrice} | avg $${newAvgEntry.toFixed(6)} | dip ${dipPct.toFixed(1)}% | score ${signal.score}`);
                 } else {
-                  console.log(`[DCA] ${trade.symbol}: DCA skipped — insufficient balance ($${dcaUser.paperBalance.toFixed(2)} < $${addRequired.toFixed(2)})`);
+                  console.log(`[DCA] ${trade.symbol}: DCA skipped — insufficient balance ($${dcaBal.toFixed(2)} < $${addRequired.toFixed(2)})`);
                 }
               }
             }
@@ -1857,6 +2017,8 @@ async function getPerformanceStats(userId) {
 
   // Sharpe, Sortino, max drawdown, equity curve
   const initialBalance = user.initialBalance || 10000;
+  const makerFeeRate = getMakerFee(user);
+  const takerFeeRate = getTakerFee(user);
   const sortedByExit = [...closedTrades].filter(t => t.exitTime).sort((a, b) => new Date(a.exitTime) - new Date(b.exitTime));
   let equity = initialBalance;
   let peak = initialBalance;
@@ -1865,7 +2027,14 @@ async function getPerformanceStats(userId) {
   const equityCurve = [{ date: new Date(0).toISOString(), equity: initialBalance, drawdown: 0, drawdownPct: 0 }];
 
   for (const t of sortedByExit) {
-    equity += t.pnl || 0;
+    // Subtract opening fees + DCA fees so the curve matches actual balance trajectory
+    const origSize = t.originalPositionSize || t.positionSize;
+    const openFee = origSize * makerFeeRate;
+    let dcaFees = 0;
+    if (t.dcaEntries && t.dcaEntries.length > 0) {
+      for (const dca of t.dcaEntries) { dcaFees += (dca.size || 0) * takerFeeRate; }
+    }
+    equity += (t.pnl || 0) - openFee - dcaFees;
     if (equity > peak) peak = equity;
     const dd = peak - equity;
     const ddPct = peak > 0 ? (dd / peak) * 100 : 0;
@@ -1911,8 +2080,56 @@ async function getPerformanceStats(userId) {
   const drawdownAnalysis = computeDrawdownAnalysis(equityCurve);
   const riskByStrategyRegime = computeRiskMetricsByStrategyAndRegime(closedTrades, initialBalance, equityCurve);
 
+  const balance = user.paperBalance != null ? user.paperBalance : 10000;
+
+  // Compute total equity: available cash + margin locked in open trades + unrealized P&L
+  let openMarginLocked = 0;
+  let openUnrealizedPnl = 0;
+  let openTradeDetails = [];
+  if (openTrades.length > 0) {
+    let priceMap = {};
+    try {
+      const { fetchAllPrices } = require('./crypto-api');
+      const prices = await fetchAllPrices();
+      prices.forEach(p => { if (p && p.id != null) priceMap[p.id] = Number(p.price); });
+    } catch (e) { /* prices may not be ready yet */ }
+
+    for (const t of openTrades) {
+      const m = t.margin || ((t.positionSize || 0) / (t.leverage || 1));
+      openMarginLocked += m;
+      const cp = priceMap[t.coinId];
+      if (cp && t.entryPrice && t.positionSize) {
+        const unrealized = t.direction === 'LONG'
+          ? ((cp - t.entryPrice) / t.entryPrice) * t.positionSize
+          : ((t.entryPrice - cp) / t.entryPrice) * t.positionSize;
+        openUnrealizedPnl += (t.partialPnl || 0) + unrealized;
+        openTradeDetails.push({ symbol: t.symbol, margin: m, unrealized: (t.partialPnl || 0) + unrealized });
+      } else {
+        openUnrealizedPnl += (t.partialPnl || 0);
+        openTradeDetails.push({ symbol: t.symbol, margin: m, unrealized: t.partialPnl || 0 });
+      }
+    }
+  }
+  const totalEquity = Math.round((balance + openMarginLocked + openUnrealizedPnl) * 100) / 100;
+
+  // Add live data point to equity curve showing actual current total equity
+  if (equityCurve.length > 0) {
+    equityCurve.push({
+      date: new Date().toISOString(),
+      equity: totalEquity,
+      drawdown: Math.max(0, Math.round((peak - totalEquity) * 100) / 100),
+      drawdownPct: peak > 0 ? Math.round(((peak - totalEquity) / peak) * 10000) / 100 : 0,
+      pnl: 0,
+      symbol: 'NOW',
+      isLive: true
+    });
+  }
+
   return {
-    balance: user.paperBalance,
+    balance,
+    totalEquity,
+    openMarginLocked: Math.round(openMarginLocked * 100) / 100,
+    openUnrealizedPnl: Math.round(openUnrealizedPnl * 100) / 100,
     initialBalance,
     totalPnl: Math.round(totalPnl * 100) / 100,
     totalPnlPercent: initialBalance > 0 ? ((totalPnl / initialBalance) * 100).toFixed(2) : '0',
@@ -1957,11 +2174,107 @@ async function resetAccount(userId) {
   return user;
 }
 
+// ====================================================
+// BALANCE RECONCILIATION
+// Recomputes the correct paperBalance from trade history.
+// Fixes corruption caused by past race conditions or clamping.
+// ====================================================
+async function reconcileBalance(userId) {
+  const user = await User.findById(userId);
+  if (!user) throw new Error('User not found');
+
+  const makerFee = getMakerFee(user);
+  const takerFee = getTakerFee(user);
+  const initialBalance = user.initialBalance || 10000;
+
+  const allTrades = await Trade.find({ userId });
+  const closedTrades = allTrades.filter(t => t.status !== 'OPEN');
+  const openTrades = allTrades.filter(t => t.status === 'OPEN');
+
+  let expectedBalance = initialBalance;
+  let totalOpenFees = 0;
+  let totalDcaFees = 0;
+
+  for (const trade of allTrades) {
+    const origSize = trade.originalPositionSize || trade.positionSize;
+    const openFee = origSize * makerFee;
+    totalOpenFees += openFee;
+
+    let dcaFees = 0;
+    if (trade.dcaEntries && trade.dcaEntries.length > 0) {
+      for (const dca of trade.dcaEntries) {
+        dcaFees += (dca.size || 0) * takerFee;
+      }
+    }
+    totalDcaFees += dcaFees;
+
+    if (trade.status !== 'OPEN') {
+      // Closed trade: net = trade.pnl - openFee - dcaFees
+      expectedBalance += (trade.pnl || 0) - openFee - dcaFees;
+    } else {
+      // Open trade: net = -currentMargin - openFee - dcaFees + partialPnl already returned
+      expectedBalance += -(trade.margin || 0) - openFee - dcaFees + (trade.partialPnl || 0);
+    }
+  }
+
+  expectedBalance = Math.round(expectedBalance * 100) / 100;
+  const currentBalance = user.paperBalance != null ? user.paperBalance : 10000;
+  const discrepancy = Math.round((currentBalance - expectedBalance) * 100) / 100;
+
+  // Recompute correct stats from trade data
+  const wins = closedTrades.filter(t => (t.pnl || 0) > 0);
+  const losses = closedTrades.filter(t => (t.pnl || 0) <= 0);
+  const totalPnl = closedTrades.reduce((s, t) => s + (t.pnl || 0), 0);
+  const bestTrade = closedTrades.reduce((best, t) => Math.max(best, t.pnl || 0), 0);
+  const worstTrade = closedTrades.reduce((worst, t) => Math.min(worst, t.pnl || 0), 0);
+
+  return {
+    currentBalance,
+    expectedBalance,
+    discrepancy,
+    initialBalance,
+    totalOpenFees: Math.round(totalOpenFees * 100) / 100,
+    totalDcaFees: Math.round(totalDcaFees * 100) / 100,
+    closedTradeCount: closedTrades.length,
+    openTradeCount: openTrades.length,
+    computedStats: {
+      totalTrades: closedTrades.length,
+      wins: wins.length,
+      losses: losses.length,
+      totalPnl: Math.round(totalPnl * 100) / 100,
+      bestTrade: Math.round(bestTrade * 100) / 100,
+      worstTrade: Math.round(worstTrade * 100) / 100
+    }
+  };
+}
+
+async function fixBalance(userId) {
+  const result = await reconcileBalance(userId);
+  if (Math.abs(result.discrepancy) >= 0.01) {
+    await User.findByIdAndUpdate(userId, {
+      $set: {
+        paperBalance: result.expectedBalance,
+        'stats.totalTrades': result.computedStats.totalTrades,
+        'stats.wins': result.computedStats.wins,
+        'stats.losses': result.computedStats.losses,
+        'stats.totalPnl': result.computedStats.totalPnl,
+        'stats.bestTrade': result.computedStats.bestTrade,
+        'stats.worstTrade': result.computedStats.worstTrade
+      }
+    });
+    console.log(`[Reconcile] Fixed balance for user ${userId}: $${result.currentBalance} → $${result.expectedBalance} (discrepancy: $${result.discrepancy})`);
+    return { fixed: true, ...result, newBalance: result.expectedBalance };
+  }
+  return { fixed: false, ...result };
+}
+
 module.exports = {
   suggestLeverage,
   calculatePositionSize,
   openTrade,
   closeTrade,
+  closeTradePartial,
+  updateTradeLevels,
   checkStopsAndTPs,
   recheckTradeScores,
   SCORE_RECHECK_MINUTES,
@@ -1969,5 +2282,7 @@ module.exports = {
   getTradeHistory,
   getPerformanceStats,
   resetAccount,
-  getFeatureFlags
+  getFeatureFlags,
+  reconcileBalance,
+  fixBalance
 };

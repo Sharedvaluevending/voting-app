@@ -45,6 +45,8 @@ const tradeSchema = new mongoose.Schema({
   reasoning: [String],
   indicatorsAtEntry: { type: mongoose.Schema.Types.Mixed },
   scoreBreakdownAtEntry: { type: mongoose.Schema.Types.Mixed },
+  llmConfidence: { type: Number, default: null },
+  llmReasoning: { type: String, default: '' },
   scoreCheck: { type: mongoose.Schema.Types.Mixed, default: null },
   scoreHistory: [{ type: mongoose.Schema.Types.Mixed }],
   lastExecutedActionId: { type: String },

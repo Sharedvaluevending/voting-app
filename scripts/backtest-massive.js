@@ -77,9 +77,25 @@ function aggregateCoinResults(monthlyResults) {
     if (t.pnl > 0) strategyBreakdown[s].wins++;
   });
 
+  // Year-by-year breakdown (backtest-expert: time robustness)
+  const byYear = {};
+  allTrades.forEach(t => {
+    const ts = t.exitTime || t.entryTime;
+    const year = ts ? new Date(typeof ts === 'number' ? (ts < 1e12 ? ts * 1000 : ts) : ts).getFullYear() : 'unknown';
+    if (!byYear[year]) byYear[year] = { trades: 0, pnl: 0, wins: 0 };
+    byYear[year].trades++;
+    byYear[year].pnl += t.pnl;
+    if (t.pnl > 0) byYear[year].wins++;
+  });
+
   // Sharpe (weighted avg of monthly Sharpes, or compute from combined returns)
   const sharpes = valid.map(r => r.sharpeRatio).filter(s => Number.isFinite(s) && s > 0);
   const avgSharpe = sharpes.length > 0 ? sharpes.reduce((a, b) => a + b, 0) / sharpes.length : 0;
+
+  // Backtest-expert evaluation
+  const { evaluateBacktest } = require('../services/backtest/analytics');
+  const summary = { totalTrades: allTrades.length, wins, losses, winRate, totalPnl, returnPct, profitFactor, maxDrawdownPct };
+  const evaluation = evaluateBacktest(summary, allTrades, { byYear });
 
   return {
     totalTrades: allTrades.length,
@@ -96,7 +112,9 @@ function aggregateCoinResults(monthlyResults) {
     grossProfit,
     grossLoss,
     strategyBreakdown,
-    sharpeRatio: avgSharpe
+    sharpeRatio: avgSharpe,
+    byYear,
+    evaluation
   };
 }
 

@@ -23,7 +23,7 @@
     <% } %>
     <a href="/trades" class="btn btn-outline btn-sm">Active Trades</a>
     <a href="/coin/<%= coinId %>" class="btn btn-outline btn-sm">Back to <%= coinName %></a>
-    <% if (typeof user !== 'undefined' && user) { %><a href="/alerts" class="btn btn-outline btn-sm" style="border-color:#a78bfa;color:#a78bfa;">Alerts</a><% } %>
+    <% if (typeof user !== 'undefined' && user) { %><a href="/crypto-alerts" class="btn btn-outline btn-sm" style="border-color:#a78bfa;color:#a78bfa;">Crypto Alerts</a><% } %>
   </div>
 
   <% if (entry != null || sl != null || tp1 != null || tp2 != null || tp3 != null) { %>
@@ -80,22 +80,22 @@
     <aside class="chart-tools-sidebar" id="chart-tools-sidebar">
       <div class="sidebar-label">Drawing</div>
       <div class="draw-tools draw-tools-vertical" id="draw-tools">
-        <button class="tool-btn tool-active" data-tool="cursor" title="Select">
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M3 1l10 6.5L8.5 9l-2 5.5L3 1z"/></svg>
+        <button class="tool-btn tool-active" data-tool="cursor" title="Select" aria-label="Select tool">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 1l10 6.5L8.5 9l-2 5.5L3 1z"/></svg>
         </button>
-        <button class="tool-btn" data-tool="trendline" title="Trend Line">
+        <button class="tool-btn" data-tool="trendline" title="Trend Line" aria-label="Draw trend line">
           <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><line x1="2" y1="13" x2="14" y2="3"/></svg>
         </button>
-        <button class="tool-btn" data-tool="hline" title="Horizontal Line">
-          <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><line x1="1" y1="8" x2="15" y2="8"/></svg>
+        <button class="tool-btn" data-tool="hline" title="Horizontal Line" aria-label="Draw horizontal line">
+          <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="1" y1="8" x2="15" y2="8"/></svg>
         </button>
-        <button class="tool-btn" data-tool="rect" title="Rectangle">
+        <button class="tool-btn" data-tool="rect" title="Rectangle" aria-label="Draw rectangle">
           <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5" fill="none"><rect x="2" y="3" width="12" height="10" rx="1"/></svg>
         </button>
-        <button class="tool-btn" data-tool="fibdraw" title="Fibonacci">
+        <button class="tool-btn" data-tool="fibdraw" title="Fibonacci" aria-label="Draw Fibonacci retracement">
           <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" fill="none" stroke-width="1.2"><line x1="1" y1="3" x2="15" y2="3" stroke-dasharray="2,2"/><line x1="1" y1="6.5" x2="15" y2="6.5" stroke-dasharray="2,2"/><line x1="1" y1="10" x2="15" y2="10" stroke-dasharray="2,2"/><line x1="1" y1="13" x2="15" y2="13" stroke-dasharray="2,2"/></svg>
         </button>
-        <button class="tool-btn" data-tool="ray" title="Ray">
+        <button class="tool-btn" data-tool="ray" title="Ray" aria-label="Draw ray">
           <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><line x1="2" y1="12" x2="14" y2="5"/><polygon points="14,5 10,5.5 12.5,7.5" fill="currentColor" stroke="none"/></svg>
         </button>
         <div class="toolbar-divider-horiz"></div>
@@ -111,10 +111,10 @@
           </span>
         </div>
         <div class="toolbar-divider-horiz"></div>
-        <button class="tool-btn tool-btn-danger" data-tool="delete" id="draw-delete-btn" title="Delete" disabled style="opacity:0.5;cursor:not-allowed;">
+        <button class="tool-btn tool-btn-danger" data-tool="delete" id="draw-delete-btn" title="Delete" aria-label="Delete selected drawing" disabled style="opacity:0.5;cursor:not-allowed;">
           <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><path d="M3 4h10v10H3zM6 4V2h4v2M6 7v4M10 7v4"/></svg>
         </button>
-        <button class="tool-btn tool-btn-danger" data-tool="clear" title="Clear all">
+        <button class="tool-btn tool-btn-danger" data-tool="clear" title="Clear all" aria-label="Clear all drawings">
           <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>
         </button>
       </div>
@@ -124,13 +124,20 @@
     <div class="chart-main">
       <!-- Top bar: Fit + dropdowns across -->
       <div class="chart-top-bar">
-        <button type="button" class="tool-btn chart-fit-btn" id="chart-fit-btn" title="Reset zoom / Fit content">
+        <button type="button" class="tool-btn chart-fit-btn" id="chart-fit-btn" title="Reset zoom / Fit content" aria-label="Fit chart to content">
           <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="2" width="6" height="6" rx="1"/><rect x="8" y="8" width="6" height="6" rx="1"/></svg>
           <span class="chart-fit-text">Fit</span>
+        </button>
+        <button type="button" class="tool-btn" id="chart-fullscreen-btn" title="Full screen" aria-label="Toggle full screen">
+          <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4"/></svg>
+        </button>
+        <button type="button" class="tool-btn" id="chart-screenshot-btn" title="Screenshot / Export" aria-label="Screenshot or export chart">
+          <svg width="18" height="18" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="4" width="12" height="9" rx="1"/><path d="M5 2h6v2H5zM6 11l2-2 2 2 2-2"/></svg>
         </button>
         <div class="indicators-dropdown-wrap" id="dropdown-overlays-wrap">
           <button type="button" class="tool-btn indicators-dropdown-btn" data-dropdown="overlays" title="Overlays">Overlays <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
           <div class="indicators-dropdown-panel">
+            <label class="toggle-label"><input type="checkbox" id="toggle-volume" checked> <span class="toggle-text">Volume</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-bb"> <span class="toggle-text">Bollinger Bands</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-ma"> <span class="toggle-text">Moving Averages</span></label>
             <label class="toggle-label"><input type="checkbox" id="toggle-keltner"> <span class="toggle-text">Keltner Channel</span></label>
@@ -226,7 +233,12 @@
 
   <!-- TradingView widget (fallback – always works) -->
   <div class="chart-container" id="tv-chart-container">
-    <div id="tv-loading" style="display:flex;align-items:center;justify-content:center;height:100%;color:#6b7280;font-size:14px;">Loading chart...</div>
+    <div id="tv-loading" class="chart-loading-wrap">
+      <svg class="chart-loading-spinner" viewBox="0 0 50 50" width="48" height="48" aria-hidden="true">
+        <circle class="chart-loading-spinner-path" cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="3"/>
+      </svg>
+      <span class="chart-loading-text">Loading chart…</span>
+    </div>
     <div class="tradingview-widget-container" id="tv-widget-wrap" style="width:100%;height:100%;display:none;">
       <div id="tradingview_widget" style="width:100%;height:100%;"></div>
     </div>
@@ -250,6 +262,17 @@
     <div class="chart-pattern-panel-title">Chart Patterns Detected</div>
     <div class="chart-pattern-panel-list" id="chart-pattern-list"></div>
   </div>
+
+  <!-- Chart Analysis Tips (technical-analyst skill) -->
+  <details class="chart-analysis-tips" style="margin-top:12px;padding:12px 16px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.25);border-radius:8px;">
+    <summary style="cursor:pointer;font-size:12px;font-weight:600;color:#93c5fd;">Chart Analysis Tips</summary>
+    <div style="margin-top:12px;font-size:12px;color:#9ca3af;line-height:1.6;">
+      <p><strong style="color:#e5e7eb;">Support &amp; Resistance</strong> — Mark horizontal levels where price has reversed. Use the drawing tools.</p>
+      <p><strong style="color:#e5e7eb;">Trend</strong> — Higher highs + higher lows = uptrend. Lower highs + lower lows = downtrend.</p>
+      <p><strong style="color:#e5e7eb;">Moving Averages</strong> — Price above MAs = bullish bias. Below = bearish. Crossovers signal shifts.</p>
+      <p><strong style="color:#e5e7eb;">Volume</strong> — Breakouts with volume confirm. Breakouts on low volume often fail.</p>
+    </div>
+  </details>
 
   <% if (tradeId) { %>
   <div class="chart-marker-legend">
@@ -323,24 +346,42 @@
 .chart-tf-bar { display: flex; align-items: center; justify-content: center; padding: 8px 12px; background: rgba(15,23,42,0.6); border-top: 1px solid #334155; }
 .chart-container { position: relative; width: 100%; flex: 1; height: calc(100vh - 380px); min-height: 380px; overflow: hidden; background: #0f172a; }
 .tf-selector { display: flex; gap: 4px; }
-.tf-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
-.tf-btn:hover { background: rgba(51,65,85,0.8); color: #e5e7eb; }
+.tf-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; transform: scale(1); }
+.tf-btn:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
+.tf-btn:hover { background: rgba(51,65,85,0.8); color: #e5e7eb; transform: scale(1.03); }
 .tf-btn.tf-active { background: rgba(59,130,246,0.25); border-color: #3b82f6; color: #93c5fd; }
 .chart-fit-btn { display: flex; align-items: center; gap: 4px; padding: 6px 10px; }
 .chart-fit-text { font-size: 12px; font-weight: 600; }
-.tool-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; min-width: 38px; min-height: 38px; }
+.tool-btn { background: rgba(30,41,59,0.8); border: 1px solid #334155; color: #9ca3af; padding: 6px 8px; border-radius: 6px; cursor: pointer; transition: all 0.2s ease; display: flex; align-items: center; justify-content: center; min-width: 38px; min-height: 38px; }
+.tool-btn:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
+.tool-btn svg { transition: transform 0.2s ease, opacity 0.2s ease; }
 .tool-btn:hover { background: rgba(51,65,85,0.8); color: #e5e7eb; }
+.tool-btn:hover svg { transform: scale(1.08); opacity: 1; }
 .tool-btn.tool-active { background: rgba(59,130,246,0.25); border-color: #3b82f6; color: #93c5fd; }
+.tool-btn.tool-active svg { opacity: 1; }
 .tool-btn-danger:hover { background: rgba(239,68,68,0.25); border-color: #ef4444; color: #fca5a5; }
 .draw-color-picker { display: flex; align-items: center; gap: 6px; position: relative; }
 .draw-color-picker input[type="color"] { width: 28px; height: 28px; padding: 2px; border: 1px solid #334155; border-radius: 6px; cursor: pointer; background: #1e293b; }
 .draw-color-swatches { display: flex; gap: 4px; }
-.color-swatch { width: 20px; height: 20px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; }
-.color-swatch:hover, .color-swatch.active { border-color: #fff; }
+.color-swatch { width: 20px; height: 20px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease; }
+.color-swatch:hover { transform: scale(1.15); border-color: rgba(255,255,255,0.6); box-shadow: 0 0 8px rgba(59,130,246,0.3); }
+.color-swatch.active { border-color: #fff; box-shadow: 0 0 6px rgba(59,130,246,0.4); }
 .toggle-label { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: #9ca3af; user-select: none; }
 .toggle-label input[type="checkbox"] { accent-color: #3b82f6; width: 14px; height: 14px; cursor: pointer; }
 .toggle-label:hover .toggle-text { color: #e5e7eb; }
 .candle-colors-wrap { position: relative; }
+/* SVG Animation: loading spinner (stroke-dasharray pattern) */
+.chart-loading-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 12px; color: #6b7280; }
+.chart-loading-spinner { color: #3b82f6; animation: chart-spinner-rotate 0.8s linear infinite; }
+.chart-loading-spinner-path { stroke-dasharray: 60 106; stroke-linecap: round; }
+@keyframes chart-spinner-rotate { to { transform: rotate(360deg); } }
+.chart-loading-text { font-size: 14px; }
+@media (prefers-reduced-motion: reduce) {
+  .chart-loading-spinner { animation: none; opacity: 0.7; }
+  .tool-btn svg { transition: none; }
+  .tf-btn { transition: none; }
+  .color-swatch { transition: none; }
+}
 /* Mobile: collapse sidebar, stack layout */
 @media (max-width: 768px) {
   .chart-page { padding: 0.5rem; }
@@ -352,7 +393,7 @@
   .draw-tools-vertical .tool-btn { min-width: 44px; min-height: 44px; }
   .draw-color-picker-vertical { flex-direction: row; }
   .draw-color-picker-vertical .draw-color-swatches { justify-content: flex-start; }
-  .chart-container { min-height: 300px; height: calc(100vh - 420px); }
+  .chart-container { min-height: 300px; height: calc(100vh - 420px); min-height: max(300px, 45vh); }
   .chart-tf-bar { padding: 10px; }
   .tf-btn { padding: 10px 16px; min-height: 44px; font-size: 14px; }
 }
@@ -1457,34 +1498,48 @@
           if (tvLoading) tvLoading.style.display = 'none';
           var initRetryCount = 0;
           var MAX_INIT_RETRIES = 20;
+          var initTimeout = null;
+          var resizeObs = null;
           var initChart = function() {
             try {
               var chartEl = document.getElementById('lw-chart');
-              if (!chartEl) { showTradingViewFallback(); return; }
+              var containerEl = document.getElementById('lw-chart-container');
+              if (!chartEl || !containerEl) { showTradingViewFallback(); return; }
 
-              // Ensure container has real dimensions before creating chart (retry if 0x0)
-              var containerRect = chartEl.getBoundingClientRect();
-              if (containerRect.width <= 0 || containerRect.height <= 0) {
+              // Use outer container + force reflow (offsetWidth/offsetHeight triggers layout)
+              var w = containerEl.offsetWidth || containerEl.clientWidth || chartEl.getBoundingClientRect().width || 0;
+              var h = containerEl.offsetHeight || containerEl.clientHeight || chartEl.getBoundingClientRect().height || 0;
+              if (w <= 0 || h <= 0) {
                 initRetryCount++;
                 if (initRetryCount >= MAX_INIT_RETRIES) {
-                  containerRect = { width: Math.max(containerRect.width, 320), height: Math.max(containerRect.height, 300) };
+                  var vw = window.innerWidth || 375;
+                  var vh = window.innerHeight || 500;
+                  w = Math.max(w, Math.min(vw - 32, 400));
+                  h = Math.max(h, Math.min(Math.floor(vh * 0.45), 350));
                 } else {
                   requestAnimationFrame(function() { requestAnimationFrame(initChart); });
                   return;
                 }
               }
+              if (resizeObs) { try { resizeObs.disconnect(); } catch(e) {} resizeObs = null; }
+              if (initTimeout) { clearTimeout(initTimeout); initTimeout = null; }
+              var isMobile = (window.innerWidth || 0) <= 768 || 'ontouchstart' in window;
               var chartOpts = {
                 layout: { background: { type: 'solid', color: '#0f172a' }, textColor: '#9ca3af' },
                 grid: { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
                 timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#334155', shiftVisibleRangeOnNewBar: false },
                 rightPriceScale: { borderColor: '#334155', scaleMargins: { top: 0.1, bottom: 0.25 } }
               };
-              if (containerRect.width > 0 && containerRect.height > 0) {
+              if (isMobile) {
+                chartOpts.width = Math.max(w, 280);
+                chartOpts.height = Math.max(h, 250);
+                chartOpts.autoSize = false;
+              } else if (w > 0 && h > 0) {
                 chartOpts.autoSize = true;
               } else {
-                chartOpts.width = Math.max(containerRect.width, 800);
-                chartOpts.height = Math.max(containerRect.height, 400);
-                chartOpts.autoSize = true;
+                chartOpts.width = Math.max(w, 800);
+                chartOpts.height = Math.max(h, 400);
+                chartOpts.autoSize = false;
               }
               var chart = LightweightCharts.createChart(chartEl, chartOpts);
               var candleColors = getCandleColors();
@@ -1535,18 +1590,76 @@
                 .catch(function() {});
               // Set up drawing overlay after chart is ready
               setTimeout(function() { resizeDrawCanvas(); hookChartRedraw(); }, 100);
+              // Mobile portrait fix: force resize after layout settles (candles may not render until container has final dimensions)
+              [350, 600, 1000].forEach(function(delay) {
+                setTimeout(function() {
+                  var c = document.getElementById('lw-chart-container');
+                  if (c && chartRef.chart && !tvFallbackAttempted) {
+                    var r = c.getBoundingClientRect();
+                    if (r.width > 50 && r.height > 50) {
+                      try {
+                        chartRef.chart.resize(r.width, r.height);
+                        chartRef.chart.timeScale().fitContent();
+                        resizeDrawCanvas();
+                      } catch (e) {}
+                    }
+                  }
+                }, delay);
+              });
             } catch (chartErr) {
               console.error('Chart init error:', chartErr);
               showTradingViewFallback();
             }
           };
-          setTimeout(function() {
-            if (typeof requestAnimationFrame === 'function') {
-              requestAnimationFrame(function() { requestAnimationFrame(initChart); });
-            } else {
-              setTimeout(initChart, 0);
+          var tryInitAttempts = 0;
+          var tryInit = function() {
+            var containerEl = document.getElementById('lw-chart-container');
+            if (!containerEl) return;
+            var r = containerEl.getBoundingClientRect();
+            if (r.width > 50 && r.height > 50) {
+              initChart();
+              return;
             }
-          }, 100);
+            tryInitAttempts++;
+            if (tryInitAttempts >= 60) {
+              initChart();
+              return;
+            }
+            if (typeof requestAnimationFrame === 'function') {
+              requestAnimationFrame(function() { requestAnimationFrame(tryInit); });
+            } else {
+              setTimeout(tryInit, 50);
+            }
+          };
+          if (typeof ResizeObserver !== 'undefined') {
+            resizeObs = new ResizeObserver(function() {
+              var containerEl = document.getElementById('lw-chart-container');
+              if (!containerEl || chartRef.chart) return;
+              var r = containerEl.getBoundingClientRect();
+              if (r.width > 50 && r.height > 50) {
+                if (resizeObs) { try { resizeObs.disconnect(); } catch(e) {} resizeObs = null; }
+                if (initTimeout) { clearTimeout(initTimeout); initTimeout = null; }
+                initChart();
+              }
+            });
+            resizeObs.observe(lwContainer);
+            initTimeout = setTimeout(function() {
+              if (!chartRef.chart && resizeObs) {
+                resizeObs.disconnect();
+                resizeObs = null;
+                initTimeout = null;
+                initChart();
+              }
+            }, 3000);
+          } else {
+            setTimeout(function() {
+              if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(function() { requestAnimationFrame(tryInit); });
+              } else {
+                tryInit();
+              }
+            }, 150);
+          }
         } else {
           // Timeframe switch or new-candle refresh — update data
           try {
@@ -1587,6 +1700,59 @@
     fitBtn.addEventListener('click', function() {
       if (chartRef.chart) {
         try { chartRef.chart.timeScale().fitContent(); } catch(e) {}
+      }
+    });
+  }
+
+  // Full-screen toggle
+  var fullscreenBtn = document.getElementById('chart-fullscreen-btn');
+  var chartLayout = document.querySelector('.chart-layout');
+  if (fullscreenBtn && chartLayout) {
+    fullscreenBtn.addEventListener('click', function() {
+      if (!document.fullscreenElement) {
+        chartLayout.requestFullscreen ? chartLayout.requestFullscreen() : chartLayout.webkitRequestFullscreen && chartLayout.webkitRequestFullscreen();
+      } else {
+        document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen && document.webkitExitFullscreen();
+      }
+    });
+  }
+
+  // Screenshot / export (uses canvas or chart export if available)
+  var screenshotBtn = document.getElementById('chart-screenshot-btn');
+  if (screenshotBtn) {
+    screenshotBtn.addEventListener('click', function() {
+      var container = document.getElementById('lw-chart-container');
+      if (container && chartRef.chart && typeof chartRef.chart.takeScreenshot === 'function') {
+        try {
+          var dataUrl = chartRef.chart.takeScreenshot();
+          if (dataUrl) {
+            var a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = 'chart-' + (coinId || 'chart') + '-' + new Date().toISOString().slice(0,10) + '.png';
+            a.click();
+          }
+        } catch (e) {
+          try {
+            var canvas = container.querySelector('canvas');
+            if (canvas) {
+              var a = document.createElement('a');
+              a.href = canvas.toDataURL('image/png');
+              a.download = 'chart-' + (coinId || 'chart') + '-' + new Date().toISOString().slice(0,10) + '.png';
+              a.click();
+            }
+          } catch (e2) { alert('Screenshot not available'); }
+        }
+      } else {
+        var canvases = document.querySelectorAll('#lw-chart-container canvas');
+        if (canvases.length > 0) {
+          try {
+            var c = canvases[0];
+            var a = document.createElement('a');
+            a.href = c.toDataURL('image/png');
+            a.download = 'chart-' + (coinId || 'chart') + '-' + new Date().toISOString().slice(0,10) + '.png';
+            a.click();
+          } catch (e) { alert('Screenshot failed'); }
+        } else { alert('Chart not ready'); }
       }
     });
   }
@@ -1756,7 +1922,8 @@
         body: JSON.stringify(payload),
         credentials: 'same-origin'
       }).then(function(r) { return r.json();       }).then(function(data) {
-        if (data.success) {
+        var savedEl = document.getElementById('trade-levels-saved');
+        if (data && data.success) {
           if (key === 'sl') levels.sl = obj.price;
           else if (key === 'tp1') levels.tp1 = obj.price;
           else if (key === 'tp2') levels.tp2 = obj.price;
@@ -1771,14 +1938,28 @@
               break;
             }
           }
-          var savedEl = document.getElementById('trade-levels-saved');
           if (savedEl) {
             savedEl.style.display = 'inline';
+            savedEl.style.color = '#10b981';
             savedEl.textContent = 'Saved';
             setTimeout(function() { savedEl.style.display = 'none'; }, 2000);
           }
+        } else if (savedEl) {
+          savedEl.style.display = 'inline';
+          savedEl.style.color = '#ef4444';
+          savedEl.textContent = 'Save failed';
+          setTimeout(function() { savedEl.style.display = 'none'; }, 3000);
         }
-      }).catch(function(err) { console.warn('Live modify failed:', err); });
+      }).catch(function(err) {
+        console.warn('Live modify failed:', err);
+        var savedEl = document.getElementById('trade-levels-saved');
+        if (savedEl) {
+          savedEl.style.display = 'inline';
+          savedEl.style.color = '#ef4444';
+          savedEl.textContent = 'Save failed';
+          setTimeout(function() { savedEl.style.display = 'none'; }, 3000);
+        }
+      });
     }
 
     if (liveModifyCheck && lwChartContainer) {
@@ -1786,13 +1967,18 @@
       liveModifyCheck.addEventListener('change', function() {
         if (this.checked) {
           lwChartContainer.style.cursor = 'ns-resize';
+          lwChartContainer.style.touchAction = 'none';
           if (drawOverlay) drawOverlay.style.pointerEvents = 'none';
         } else {
           lwChartContainer.style.cursor = '';
+          lwChartContainer.style.touchAction = '';
           if (drawOverlay) drawOverlay.style.pointerEvents = '';
         }
       });
-      if (liveModifyCheck.checked && drawOverlay) drawOverlay.style.pointerEvents = 'none';
+      if (liveModifyCheck.checked) {
+        lwChartContainer.style.touchAction = 'none';
+        if (drawOverlay) drawOverlay.style.pointerEvents = 'none';
+      }
       var useCapture = true;
       lwChartContainer.addEventListener('mousedown', onModifyMouseDown, useCapture);
       lwChartContainer.addEventListener('touchstart', function(e) { onModifyMouseDown(e); }, { passive: false, capture: true });
@@ -1806,6 +1992,12 @@
 
   // ---- Toggle listeners and drawing tools (wrapped so chart load is never blocked) ----
   try {
+  var toggleVolEl = document.getElementById('toggle-volume');
+  if (toggleVolEl) toggleVolEl.addEventListener('change', function() {
+    if (chartRef.volumeSeries) {
+      try { chartRef.volumeSeries.applyOptions({ visible: this.checked }); } catch(e) {}
+    }
+  });
   var toggleBBEl = document.getElementById('toggle-bb');
   if (toggleBBEl) toggleBBEl.addEventListener('change', function() { toggleBBLines(this.checked); });
   var toggleMAEl = document.getElementById('toggle-ma');
@@ -2534,7 +2726,31 @@
   });
   updateDeleteButton();
 
-  window.addEventListener('resize', function() { resizeDrawCanvas(); });
+  window.addEventListener('resize', function() { forceChartResize(); resizeDrawCanvas(); });
+
+  // Mobile: force chart resize on orientation change (fixes candles not showing in portrait until rotate)
+  function forceChartResize() {
+    if (!chartRef.chart || tvFallbackAttempted) return;
+    var container = document.getElementById('lw-chart-container');
+    if (!container) return;
+    var rect = container.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      try {
+        chartRef.chart.resize(rect.width, rect.height);
+        chartRef.chart.timeScale().fitContent();
+      } catch (e) {}
+    }
+    resizeDrawCanvas();
+  }
+  window.addEventListener('orientationchange', function() {
+    setTimeout(forceChartResize, 100);
+  });
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function() { forceChartResize(); });
+  }
+  document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') setTimeout(forceChartResize, 150);
+  });
 
 })();
 </script>

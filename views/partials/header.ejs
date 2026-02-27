@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <title><%= typeof pageTitle !== 'undefined' ? pageTitle + ' | ' : '' %>CryptoSignals Pro</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0a0e17">
+  <meta name="color-scheme" content="dark">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -20,17 +22,25 @@
           <a href="/analytics" class="<%= typeof activePage !== 'undefined' && activePage === 'analytics' ? 'active' : '' %>">Analytics</a>
           <a href="/exchange" class="<%= typeof activePage !== 'undefined' && activePage === 'exchange' ? 'active' : '' %>">Exchange</a>
           <a href="/journal" class="<%= typeof activePage !== 'undefined' && activePage === 'journal' ? 'active' : '' %>">Journal</a>
-          <a href="/alerts" class="<%= typeof activePage !== 'undefined' && activePage === 'alerts' ? 'active' : '' %>">Alerts</a>
+          <a href="/crypto-alerts" class="<%= typeof activePage !== 'undefined' && activePage === 'crypto-alerts' ? 'active' : '' %>">Crypto Alerts</a>
+        <% } %>
+        <a href="/themes" class="<%= typeof activePage !== 'undefined' && activePage === 'themes' ? 'active' : '' %>">Themes</a>
+          <a href="/market-pulse" class="<%= typeof activePage !== 'undefined' && activePage === 'market-pulse' ? 'active' : '' %>">Market Pulse</a>
+        <% if (typeof user !== 'undefined' && user) { %>
+          <a href="/llm-chat" class="<%= typeof activePage !== 'undefined' && activePage === 'llm-chat' ? 'active' : '' %>">LLM Chat</a>
+          <a href="/llm-logs" class="<%= typeof activePage !== 'undefined' && activePage === 'llm-logs' ? 'active' : '' %>">LLM Logs</a>
         <% } %>
         <a href="/learn" class="<%= typeof activePage !== 'undefined' && activePage === 'learn' ? 'active' : '' %>">Learn</a>
         <a href="/learning" class="<%= typeof activePage !== 'undefined' && activePage === 'learning' ? 'active' : '' %>">Strategy Optimizer</a>
         <a href="/strategy-comparison" class="<%= typeof activePage !== 'undefined' && activePage === 'comparison' ? 'active' : '' %>">Compare</a>
+        <a href="/strategy-builder" class="<%= typeof activePage !== 'undefined' && activePage === 'strategy-builder' ? 'active' : '' %>">Strategy Builder</a>
         <a href="/backtest" class="<%= typeof activePage !== 'undefined' && activePage === 'backtest' ? 'active' : '' %>">Backtest</a>
         <a href="/backtest-results" class="<%= typeof activePage !== 'undefined' && activePage === 'backtest-results' ? 'active' : '' %>">Results</a>
+        <a href="/trench-warfare" class="<%= typeof activePage !== 'undefined' && activePage === 'trench-warfare' ? 'active' : '' %>">Trench Warfare</a>
       </div>
       <div class="nav-right">
         <% if (typeof user !== 'undefined' && user) { %>
-          <span class="nav-balance">$<%= typeof balance !== 'undefined' ? balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '10,000.00' %></span>
+          <span class="nav-balance" title="Total equity: cash + margin + unrealized P&L<%= (typeof balance === 'number' && balance === 0) ? ' — Reset from Performance page' : '' %>">$<%= (typeof totalEquity === 'number' && !isNaN(totalEquity) && totalEquity >= 0) ? totalEquity.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : ((typeof balance === 'number' && !isNaN(balance) && balance >= 0) ? balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '10,000.00') %></span><% if (typeof balance === 'number' && balance === 0) { %><a href="/performance" style="margin-left:6px;font-size:11px;color:#f59e0b;" title="Reset paper account">Reset</a><% } %>
           <% if (typeof livePnl !== 'undefined' && livePnl !== null) { %>
           <span class="nav-pnl <%= livePnl > 0.01 ? 'pnl-positive' : (livePnl < -0.01 ? 'pnl-negative' : 'pnl-zero') %>" id="nav-live-pnl"><%= livePnl >= 0 ? '+' : '' %>$<%= livePnl.toFixed(2) %> PNL</span>
           <% } else { %>

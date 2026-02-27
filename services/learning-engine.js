@@ -73,10 +73,13 @@ async function getActiveStrategies() {
   return strategies;
 }
 
+const STRATEGY_ID_ALIASES = { mean_reversion: 'mean_revert' };
+
 async function recordTradeOutcome(trade) {
   if (!trade.strategyType) return;
+  const strategyId = STRATEGY_ID_ALIASES[trade.strategyType] || trade.strategyType;
 
-  const strategy = await StrategyWeight.findOne({ strategyId: trade.strategyType });
+  const strategy = await StrategyWeight.findOne({ strategyId });
   if (!strategy) return;
 
   const isWin = trade.pnl > 0;

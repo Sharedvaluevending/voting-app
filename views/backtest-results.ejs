@@ -96,6 +96,35 @@
 </div>
 <% } %>
 
+<!-- Robustness Evaluation (backtest-expert: #1 coin) -->
+<% if (topCoin && topCoin.evaluation) { %>
+<% var ev = topCoin.evaluation; %>
+<div class="section" style="margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #334155;border-radius:8px;padding:16px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Robustness Check (<%= topCoin.symbol %>)</h3>
+  <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:12px;">
+    <span style="padding:4px 10px;border-radius:6px;font-weight:600;font-size:12px;background:<%= ev.verdict === 'deploy' ? 'rgba(16,185,129,0.2)' : ev.verdict === 'refine' ? 'rgba(234,179,8,0.2)' : 'rgba(239,68,68,0.2)' %>;color:<%= ev.verdict === 'deploy' ? '#10b981' : ev.verdict === 'refine' ? '#eab308' : '#ef4444' %>;">
+      <%= ev.verdict.toUpperCase() %>
+    </span>
+    <% if (ev.sampleSizeOk) { %><span style="font-size:11px;color:#10b981;">✓ Sample size OK</span><% } else { %><span style="font-size:11px;color:#eab308;">⚠ Low sample</span><% } %>
+    <% if (ev.regimeRobust) { %><span style="font-size:11px;color:#10b981;">✓ Regime robust</span><% } else { %><span style="font-size:11px;color:#eab308;">⚠ Regime dependent</span><% } %>
+  </div>
+  <% if (ev.redFlags && ev.redFlags.length > 0) { %>
+  <div style="font-size:12px;color:#fca5a5;margin-bottom:10px;">
+    <% ev.redFlags.forEach(function(f) { %><div>• <%= f.msg %></div><% }); %>
+  </div>
+  <% } %>
+  <% if (ev.byYear && Object.keys(ev.byYear).filter(k => k !== 'unknown').length > 0) { %>
+  <div style="font-size:11px;color:#9ca3af;margin-top:8px;">Year-by-year:</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">
+    <% Object.keys(ev.byYear).filter(k => k !== 'unknown').sort().forEach(function(y) {
+      var d = ev.byYear[y]; %>
+    <span style="padding:4px 8px;border-radius:4px;background:rgba(30,41,59,0.8);font-size:11px;color:<%= (d.pnl || 0) >= 0 ? '#10b981' : '#ef4444' %>;"><%= y %>: $<%= (d.pnl || 0).toFixed(0) %> (<%= d.trades %>)</span>
+    <% }); %>
+  </div>
+  <% } %>
+</div>
+<% } %>
+
 <!-- Config -->
 <div class="section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Backtest Config</h3>

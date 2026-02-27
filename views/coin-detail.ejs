@@ -1,11 +1,15 @@
 <%- include('partials/header') %>
 <%
   var displaySignal = sig.signal;
+  var displayStrategyType = sig.strategyType || '';
   if (sig.signal === 'HOLD' && (sig.score || 0) >= 52 && sig.topStrategies && sig.topStrategies.length > 0) {
     var bestStrat = sig.topStrategies.find(function(s) {
       return (s.signal === 'BUY' || s.signal === 'STRONG_BUY' || s.signal === 'SELL' || s.signal === 'STRONG_SELL') && (s.score || 0) >= 55;
     });
-    if (bestStrat) displaySignal = bestStrat.signal;
+    if (bestStrat) {
+      displaySignal = bestStrat.signal;
+      displayStrategyType = bestStrat.id || displayStrategyType;
+    }
   }
 %>
 <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -147,7 +151,7 @@
     <% if (sig.indicators.structure) { %><div class="perf-card"><div class="perf-label">Structure</div><div class="perf-value" style="font-size:16px;"><%= sig.indicators.structure %></div></div><% } %>
     <% if (sig.indicators.vwap) { %><div class="perf-card"><div class="perf-label">VWAP</div><div class="perf-value">$<%= formatPrice(sig.indicators.vwap) %></div></div><% } %>
     <% if (sig.indicators.macdHistogram !== undefined) { %><div class="perf-card"><div class="perf-label">MACD Hist</div><div class="perf-value <%= sig.indicators.macdHistogram >= 0 ? 'up' : 'down' %>"><%= sig.indicators.macdHistogram %></div></div><% } %>
-    <% if (sig.indicators.stochK !== undefined) { %><div class="perf-card"><div class="perf-label">Stoch K/D</div><div class="perf-value"><%= sig.indicators.stochK %>/<%= sig.indicators.stochD %></div></div><% } %>
+    <% if (sig.indicators.stochK != null && sig.indicators.stochD != null) { %><div class="perf-card"><div class="perf-label">Stoch K/D</div><div class="perf-value"><%= sig.indicators.stochK %>/<%= sig.indicators.stochD %></div></div><% } %>
     <% if (sig.indicators.atr) { %><div class="perf-card"><div class="perf-label">ATR</div><div class="perf-value">$<%= formatPrice(sig.indicators.atr) %></div></div><% } %>
     <% if (sig.indicators.bollingerUpper) { %><div class="perf-card"><div class="perf-label">BB Range</div><div class="perf-value" style="font-size:14px;">$<%= formatPrice(sig.indicators.bollingerLower) %> - $<%= formatPrice(sig.indicators.bollingerUpper) %></div></div><% } %>
     <% if (sig.indicators.support) { %><div class="perf-card"><div class="perf-label">Support</div><div class="perf-value">$<%= formatPrice(sig.indicators.support) %></div></div><% } %>
@@ -206,7 +210,7 @@
 </div>
 <% } } %>
 
-<% var scr = sig.score || 0; var conf = sig.confluenceLevel || 0; var minConf = scr >= 58 ? 1 : 2; var canTrade = typeof user !== 'undefined' && user && displaySignal !== 'HOLD' && scr >= 55 && conf >= minConf; %>
+<% var scr = sig.score || 0; var conf = sig.confluenceLevel || 0; var isScanner = typeof isScannerCoin !== 'undefined' && isScannerCoin; var minConf = scr >= 58 ? 1 : (isScanner ? 1 : 2); var canTrade = typeof user !== 'undefined' && user && displaySignal !== 'HOLD' && scr >= 55 && conf >= minConf; %>
 <% if (typeof user !== 'undefined' && user) { %>
 <div class="section">
   <h3>Take This Trade</h3>
@@ -219,7 +223,7 @@
         <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
         <input type="hidden" name="direction" value="LONG">
         <input type="hidden" name="score" value="<%= sig.score %>">
-        <input type="hidden" name="strategyType" value="<%= sig.strategyType || '' %>">
+        <input type="hidden" name="strategyType" value="<%= displayStrategyType %>">
         <button type="submit" class="btn btn-buy">Open Long – <%= sig.strategyName || 'Main' %></button>
       </form>
     <% } %>
@@ -229,7 +233,7 @@
         <input type="hidden" name="coinId" value="<%= sig.coin.id %>">
         <input type="hidden" name="direction" value="SHORT">
         <input type="hidden" name="score" value="<%= sig.score %>">
-        <input type="hidden" name="strategyType" value="<%= sig.strategyType || '' %>">
+        <input type="hidden" name="strategyType" value="<%= displayStrategyType %>">
         <button type="submit" class="btn btn-sell">Open Short – <%= sig.strategyName || 'Main' %></button>
       </form>
     <% } %>

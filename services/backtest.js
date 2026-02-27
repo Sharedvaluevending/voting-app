@@ -143,11 +143,13 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
  * Coins are processed in parallel batches to stay within API rate limits
  * while keeping total time well under Render's 30s request timeout.
  */
-const PER_COIN_BACKTEST_TIMEOUT = 20000; // 20s max per coin simulation
-const PARALLEL_BATCH_SIZE = 3; // process 3 coins at a time (avoids Bitget rate limits)
+const PER_COIN_BACKTEST_TIMEOUT = 12000; // 12s max per coin (fits ~30s hosting timeout)
+const PARALLEL_BATCH_SIZE = 2; // 2 coins at a time (stays under Render/Heroku 30s limit)
 
 async function runBacktest(startMs, endMs, options) {
   options = options || {};
+  options.startMs = startMs;
+  options.endMs = endMs;
   const coins = options.coins || TRACKED_COINS;
   const results = [];
   const failed = [];
@@ -224,6 +226,31 @@ async function runBacktest(startMs, endMs, options) {
   const returnPct = totalCapital > 0 ? (totalPnl / totalCapital) * 100 : 0;
 
   const totalBars = successResults.reduce((s, r) => s + (r.bars || 0), 0);
+
+  // Aggregate equity curve: sort all trades by exit time, build combined curve
+  const tradesWithExit = allTrades.filter(t => t.exitBar != null || t.exitTime);
+  const byExit = [...tradesWithExit].sort((a, b) => {
+    const ta = a.exitTime ?? (a.exitBar != null ? startMs + (a.exitBar || 0) * 3600000 : 0);
+    const tb = b.exitTime ?? (b.exitBar != null ? startMs + (b.exitBar || 0) * 3600000 : 0);
+    return ta - tb;
+  });
+  const equityCurve = [{ t: 0, equity: totalCapital, date: startMs }];
+  let eq = totalCapital;
+  byExit.forEach((t, i) => {
+    eq += t.pnl || 0;
+    equityCurve.push({ t: i + 1, equity: Math.max(0, eq), date: t.exitTime || startMs, trade: i + 1, pnl: t.pnl });
+  });
+
+  // Regime breakdown
+  const regimeBreakdown = {};
+  allTrades.forEach(t => {
+    const r = t.regime || 'unknown';
+    if (!regimeBreakdown[r]) regimeBreakdown[r] = { trades: 0, wins: 0, pnl: 0 };
+    regimeBreakdown[r].trades += 1;
+    if ((t.pnl || 0) > 0) regimeBreakdown[r].wins += 1;
+    regimeBreakdown[r].pnl += t.pnl || 0;
+  });
+
   return {
     results,
     failed,
@@ -239,6 +266,9 @@ async function runBacktest(startMs, endMs, options) {
       coinsFailed: failed.length,
       totalBars
     },
+    equityCurve,
+    regimeBreakdown,
+    allTrades,
     startMs,
     endMs
   };
