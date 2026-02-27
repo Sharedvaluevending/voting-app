@@ -164,6 +164,26 @@ app.use(async (req, res, next) => {
           const prices = await fetchAllPrices();
           const priceMap = {};
           prices.forEach(p => { if (p && p.id != null) priceMap[p.id] = Number(p.price); });
+
+          // For non-tracked coins (top 3 market scan), fetch live prices
+          // so equity and PnL display correctly in the navbar
+          const missingCoinIds = [];
+          for (const t of openTrades) {
+            if (!priceMap[t.coinId] && t.coinId) {
+              if (!TRACKED_COINS.includes(t.coinId) && !getCoinMeta(t.coinId) && t.symbol) {
+                registerScannerCoinMeta(t.coinId, t.symbol);
+              }
+              missingCoinIds.push(t.coinId);
+            }
+          }
+          if (missingCoinIds.length > 0) {
+            const uniqueMissing = [...new Set(missingCoinIds)];
+            const lps = await Promise.all(uniqueMissing.map(id => fetchLivePrice(id)));
+            uniqueMissing.forEach((id, i) => {
+              if (lps[i] != null && Number.isFinite(lps[i]) && lps[i] > 0) priceMap[id] = lps[i];
+            });
+          }
+
           let totalPnl = 0;
           let totalMargin = 0;
           let count = 0;
@@ -744,19 +764,32 @@ app.get('/trades', requireLogin, async (req, res) => {
       fetchAllPrices(),
       User.findById(req.session.userId).lean()
     ]);
-    // If we have open trades, fetch live prices for those coins so initial PnL is accurate
-    // (avoids 0% or wrong PnL from stale cache right after opening)
-    let pricesToUse = Array.isArray(prices) ? prices : [];
-    if (trades.length > 0 && pricesToUse.length > 0) {
+    // Fetch live prices for all open-trade coins so PnL is accurate.
+    // For non-tracked coins (top 3 market scan), the bulk prices array won't
+    // have them, so we register their meta and ADD them to the array.
+    let pricesToUse = Array.isArray(prices) ? [...prices] : [];
+    if (trades.length > 0) {
       const coinIds = [...new Set(trades.map(t => t.coinId))];
-      const livePrices = await Promise.all(coinIds.map(id => fetchLivePrice(id)));
-      pricesToUse = pricesToUse.map(x => {
-        const idx = coinIds.indexOf(x.id);
-        if (idx >= 0 && livePrices[idx] != null && Number.isFinite(livePrices[idx]) && livePrices[idx] > 0) {
-          return { ...x, price: livePrices[idx] };
+      // Re-register scanner meta for non-tracked coins so fetchLivePrice works
+      for (const t of trades) {
+        if (!TRACKED_COINS.includes(t.coinId) && !getCoinMeta(t.coinId) && t.symbol) {
+          registerScannerCoinMeta(t.coinId, t.symbol);
         }
-        return x;
-      });
+      }
+      const livePrices = await Promise.all(coinIds.map(id => fetchLivePrice(id)));
+      for (let i = 0; i < coinIds.length; i++) {
+        const cid = coinIds[i];
+        const lp = livePrices[i];
+        if (lp == null || !Number.isFinite(lp) || lp <= 0) continue;
+        const existingIdx = pricesToUse.findIndex(x => x.id === cid);
+        if (existingIdx >= 0) {
+          pricesToUse[existingIdx] = { ...pricesToUse[existingIdx], price: lp };
+        } else {
+          // Coin not in tracked prices — add it so trades.ejs can find it
+          const trade = trades.find(t => t.coinId === cid);
+          pricesToUse.push({ id: cid, symbol: trade?.symbol || cid.toUpperCase(), price: lp });
+        }
+      }
     }
     res.render('trades', {
       activePage: 'trades',
@@ -925,6 +958,11 @@ app.post('/trades/close/:tradeId', requireLogin, async (req, res) => {
     const trade = await Trade.findOne({ _id: req.params.tradeId, userId: req.session.userId, status: 'OPEN' });
     if (!trade) {
       return res.redirect('/trades?error=' + encodeURIComponent('Trade not found'));
+    }
+
+    // Re-register scanner meta for non-tracked coins so fetchLivePrice can resolve
+    if (!TRACKED_COINS.includes(trade.coinId) && !getCoinMeta(trade.coinId) && trade.symbol) {
+      registerScannerCoinMeta(trade.coinId, trade.symbol);
     }
 
     // Use live price when closing so PnL matches reality (not stale cache)
@@ -2767,11 +2805,22 @@ app.get('/api/prices', async (req, res) => {
         const openTrades = await getOpenTrades(req.session.userId);
         if (openTrades.length > 0) {
           const coinIds = [...new Set(openTrades.map(t => t.coinId))];
+          // Re-register scanner meta for non-tracked coins so fetchLivePrice works
+          for (const t of openTrades) {
+            if (!TRACKED_COINS.includes(t.coinId) && !getCoinMeta(t.coinId) && t.symbol) {
+              registerScannerCoinMeta(t.coinId, t.symbol);
+            }
+          }
           const livePrices = await Promise.all(coinIds.map(id => fetchLivePrice(id)));
           for (let i = 0; i < coinIds.length; i++) {
             if (livePrices[i] != null && Number.isFinite(livePrices[i]) && livePrices[i] > 0) {
               const idx = prices.findIndex(p => p.id === coinIds[i]);
-              if (idx >= 0) prices[idx] = { ...prices[idx], price: livePrices[i] };
+              if (idx >= 0) {
+                prices[idx] = { ...prices[idx], price: livePrices[i] };
+              } else {
+                const trade = openTrades.find(t => t.coinId === coinIds[i]);
+                prices.push({ id: coinIds[i], symbol: trade?.symbol || coinIds[i].toUpperCase(), price: livePrices[i] });
+              }
             }
           }
         }
@@ -3182,10 +3231,24 @@ app.get('/api/candles/:coinId', async (req, res) => {
 async function runStopTPCheck() {
   if (!dbConnected) return; // Skip if no database
   try {
-    const openTrades = await Trade.find({ status: 'OPEN' }).select('coinId userId').lean();
+    const openTrades = await Trade.find({ status: 'OPEN' }).select('coinId symbol userId').lean();
     if (openTrades.length === 0) return;
-    // Fetch live prices from Bitget/Kraken for all coins with open trades
+
+    // Re-register scanner meta for non-tracked coins (top 3 market scan coins).
+    // scannerCoinMeta is in-memory and lost on restart, so we reconstruct it
+    // from the trade's stored symbol. Without this, fetchLivePrice can't find
+    // the Bitget ticker symbol, prices return null, and SL/TP/badges never fire.
     const coinIds = [...new Set(openTrades.map(t => t.coinId))];
+    for (const cid of coinIds) {
+      if (!TRACKED_COINS.includes(cid) && !getCoinMeta(cid)) {
+        const trade = openTrades.find(t => t.coinId === cid);
+        if (trade?.symbol) {
+          registerScannerCoinMeta(cid, trade.symbol);
+        }
+      }
+    }
+
+    // Fetch live prices from Bitget/Kraken for all coins with open trades
     const livePrices = await Promise.all(coinIds.map(id => fetchLivePrice(id)));
     const priceMap = {};
     coinIds.forEach((id, i) => {
@@ -3289,6 +3352,27 @@ async function runScoreRecheck() {
       Promise.resolve(fetchAllCandles()),
       fetchAllHistory()
     ]);
+
+    // Re-register scanner meta for non-tracked coins with open trades
+    // so recheckTradeScores can fetch live prices for them
+    try {
+      const openTrades = await Trade.find({ status: 'OPEN' }).select('coinId symbol').lean();
+      for (const t of openTrades) {
+        if (!TRACKED_COINS.includes(t.coinId) && !getCoinMeta(t.coinId) && t.symbol) {
+          registerScannerCoinMeta(t.coinId, t.symbol);
+        }
+        // For non-tracked coins, try to fetch their data so score recheck works
+        if (!prices.find(p => p.id === t.coinId)) {
+          try {
+            const lp = await fetchLivePrice(t.coinId);
+            if (lp && Number.isFinite(lp) && lp > 0) {
+              prices.push({ id: t.coinId, symbol: t.symbol || t.coinId.toUpperCase(), price: lp });
+            }
+          } catch (e) { /* ignore */ }
+        }
+      }
+    } catch (e) { /* ignore */ }
+
     const options = await buildEngineOptions(prices, allCandles, allHistory);
 
     const signalCache = {};
