@@ -1302,7 +1302,7 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       s.llmAgentEnabled = val === 'true' || (Array.isArray(val) && val.includes('true'));
     }
     if (req.body.llmAgentIntervalMinutes != null) {
-      const v = Math.min(1440, Math.max(15, parseInt(req.body.llmAgentIntervalMinutes, 10) || 60));
+      const v = Math.min(1440, Math.max(5, parseInt(req.body.llmAgentIntervalMinutes, 10) || 60));
       s.llmAgentIntervalMinutes = v;
     }
     if (req.body.useFixedLeverage !== undefined) {
@@ -3840,7 +3840,7 @@ async function runLlmAgentForUsers() {
     console.warn('[LLMAgent]', err.message);
   }
 }
-setInterval(runLlmAgentForUsers, 15 * 60 * 1000); // Check every 15 min
+setInterval(runLlmAgentForUsers, 5 * 60 * 1000);  // Check every 5 min (supports 5/10/15+ min intervals)
 setTimeout(runLlmAgentForUsers, 5 * 60 * 1000);   // First run 5 min after startup
 
 // ====================================================

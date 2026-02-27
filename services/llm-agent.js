@@ -41,7 +41,7 @@ const SETTING_BOUNDS = {
   dcaMinScore: { min: 30, max: 95 },
   makerFeePercent: { min: 0, max: 1 },
   takerFeePercent: { min: 0, max: 1 },
-  llmAgentIntervalMinutes: { min: 15, max: 1440 }
+  llmAgentIntervalMinutes: { min: 5, max: 1440 }
 };
 
 const ENUM_SETTINGS = {
@@ -891,7 +891,7 @@ Reply ONLY with valid JSON in this exact format (no other text):
 Available tools:
 
 SETTINGS (change_setting):
-- Numeric: riskPerTrade (0.5-10), riskDollarsPerTrade (10-10000), maxOpenTrades (1-10), autoTradeMinScore (30-95), cooldownHours (0-168), defaultLeverage (1-20), minRiskReward (1-5), maxDailyLossPercent (0-20), drawdownThresholdPercent (5-50), minVolume24hUsd (0-500M), minExpectancy (-1 to 2), dcaMaxAdds (1-10), dcaDipPercent (0.5-20), dcaMinScore (30-95), llmAgentIntervalMinutes (15-1440)
+- Numeric: riskPerTrade (0.5-10), riskDollarsPerTrade (10-10000), maxOpenTrades (1-10), autoTradeMinScore (30-95), cooldownHours (0-168), defaultLeverage (1-20), minRiskReward (1-5), maxDailyLossPercent (0-20), drawdownThresholdPercent (5-50), minVolume24hUsd (0-500M), minExpectancy (-1 to 2), dcaMaxAdds (1-10), dcaDipPercent (0.5-20), dcaMinScore (30-95), llmAgentIntervalMinutes (5-1440)
 - Enum: autoTradeCoinsMode (tracked|tracked+top1|top1), riskMode (percent|dollar), tpMode (fixed|trailing), trailingTpDistanceMode (atr|fixed), autoTradeSignalMode (original|indicators|both), coinWeightStrength (conservative|moderate|aggressive)
 - Boolean: autoTrade, llmEnabled, autoMoveBreakeven, autoTrailingStop, paperLiveSync, useFixedLeverage, disableLeverage, coinWeightEnabled, llmAgentEnabled, and all feature toggles
 
