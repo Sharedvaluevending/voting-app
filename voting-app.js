@@ -3767,6 +3767,17 @@ async function runAutoTrade() {
                 entry: livePrice,
                 stopLoss: useSL,
                 takeProfit1: useTP1,
+                takeProfit2: useTP2,
+                takeProfit3: useTP3,
+                atr: sig.indicators?.atr,
+                userDefaults: {
+                  tpMode: user.settings?.tpMode || 'fixed',
+                  trailingTpDistanceMode: user.settings?.trailingTpDistanceMode || 'atr',
+                  trailingTpAtrMultiplier: user.settings?.trailingTpAtrMultiplier ?? 1.5,
+                  trailingTpFixedPercent: user.settings?.trailingTpFixedPercent ?? 2,
+                  useFixedLeverage: user.settings?.useFixedLeverage ?? false,
+                  defaultLeverage: user.settings?.defaultLeverage ?? 2
+                },
                 recentPerformance: {
                   wins: user.stats?.wins || 0,
                   losses: user.stats?.losses || 0,
@@ -3781,6 +3792,17 @@ async function runAutoTrade() {
 
               tradeData.llmConfidence = llmResult.confidence;
               tradeData.llmReasoning = llmResult.reasoning;
+
+              // Apply LLM overrides (stop, TPs, tpMode, trailing, leverage) for this trade
+              if (llmResult.overrides && Object.keys(llmResult.overrides).length > 0) {
+                tradeData.llmOverrides = llmResult.overrides;
+                if (llmResult.overrides.stopLoss != null) tradeData.stopLoss = llmResult.overrides.stopLoss;
+                if (llmResult.overrides.takeProfit1 != null) tradeData.takeProfit1 = llmResult.overrides.takeProfit1;
+                if (llmResult.overrides.takeProfit2 != null) tradeData.takeProfit2 = llmResult.overrides.takeProfit2;
+                if (llmResult.overrides.takeProfit3 != null) tradeData.takeProfit3 = llmResult.overrides.takeProfit3;
+                if (llmResult.overrides.leverage != null) tradeData.leverage = llmResult.overrides.leverage;
+                console.log(`[AutoTrade] LLM overrides for ${tradeData.symbol}:`, JSON.stringify(llmResult.overrides));
+              }
 
               // Modulate position via confidence: <50 confidence = reduce size by up to 30%
               if (llmResult.confidence > 0 && llmResult.confidence < 50) {

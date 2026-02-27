@@ -224,6 +224,38 @@ async function openTrade(userId, signalData) {
     suggestedLeverage: signalData.leverage || suggestLeverage(signalData.score, signalData.regime, signalData.indicators?.volatilityState)
   };
   const peakEquity = Math.max(user.initialBalance || 10000, balance);
+  const userSettings = {
+    riskPerTrade: user.settings?.riskPerTrade || 2,
+    riskMode: user.settings?.riskMode || 'percent',
+    drawdownSizingEnabled: user.settings?.drawdownSizingEnabled ?? true,
+    drawdownThresholdPercent: user.settings?.drawdownThresholdPercent ?? 10,
+    expectancyFilterEnabled: user.settings?.expectancyFilterEnabled ?? true,
+    minExpectancy: user.settings?.minExpectancy ?? 0.15,
+    riskDollarsPerTrade: user.settings?.riskDollarsPerTrade ?? 200,
+    defaultLeverage: user.settings?.defaultLeverage || 1,
+    useFixedLeverage: user.settings?.useFixedLeverage,
+    disableLeverage: user.settings?.disableLeverage,
+    maxBalancePercentPerTrade: user.settings?.maxBalancePercentPerTrade ?? 25,
+    makerFeePercent: user.settings?.makerFeePercent,
+    takerFeePercent: user.settings?.takerFeePercent,
+    tpMode: user.settings?.tpMode || 'fixed',
+    trailingTpDistanceMode: user.settings?.trailingTpDistanceMode || 'atr',
+    trailingTpAtrMultiplier: user.settings?.trailingTpAtrMultiplier ?? 1.5,
+    trailingTpFixedPercent: user.settings?.trailingTpFixedPercent ?? 2
+  };
+  // Apply LLM per-trade overrides (stop, TPs, tpMode, trailing, leverage)
+  const llmOverrides = signalData.llmOverrides;
+  if (llmOverrides) {
+    if (llmOverrides.tpMode) userSettings.tpMode = llmOverrides.tpMode;
+    if (llmOverrides.trailingTpDistanceMode) userSettings.trailingTpDistanceMode = llmOverrides.trailingTpDistanceMode;
+    if (llmOverrides.trailingTpAtrMultiplier != null) userSettings.trailingTpAtrMultiplier = llmOverrides.trailingTpAtrMultiplier;
+    if (llmOverrides.trailingTpFixedPercent != null) userSettings.trailingTpFixedPercent = llmOverrides.trailingTpFixedPercent;
+    if (llmOverrides.useFixedLeverage !== undefined) userSettings.useFixedLeverage = llmOverrides.useFixedLeverage;
+    if (llmOverrides.leverage != null) {
+      userSettings.useFixedLeverage = true;
+      userSettings.defaultLeverage = llmOverrides.leverage;
+    }
+  }
   const context = {
     balance,
     peakEquity,
@@ -231,25 +263,7 @@ async function openTrade(userId, signalData) {
     streak: user.stats?.currentStreak || 0,
     strategyStats: signalData.strategyStats || {},
     featureFlags: ff,
-    userSettings: {
-      riskPerTrade: user.settings?.riskPerTrade || 2,
-      riskMode: user.settings?.riskMode || 'percent',
-      drawdownSizingEnabled: user.settings?.drawdownSizingEnabled ?? true,
-      drawdownThresholdPercent: user.settings?.drawdownThresholdPercent ?? 10,
-      expectancyFilterEnabled: user.settings?.expectancyFilterEnabled ?? true,
-      minExpectancy: user.settings?.minExpectancy ?? 0.15,
-      riskDollarsPerTrade: user.settings?.riskDollarsPerTrade ?? 200,
-      defaultLeverage: user.settings?.defaultLeverage || 1,
-      useFixedLeverage: user.settings?.useFixedLeverage,
-      disableLeverage: user.settings?.disableLeverage,
-      maxBalancePercentPerTrade: user.settings?.maxBalancePercentPerTrade ?? 25,
-      makerFeePercent: user.settings?.makerFeePercent,
-      takerFeePercent: user.settings?.takerFeePercent,
-      tpMode: user.settings?.tpMode || 'fixed',
-      trailingTpDistanceMode: user.settings?.trailingTpDistanceMode || 'atr',
-      trailingTpAtrMultiplier: user.settings?.trailingTpAtrMultiplier ?? 1.5,
-      trailingTpFixedPercent: user.settings?.trailingTpFixedPercent ?? 2
-    }
+    userSettings
   };
   const orders = riskEnginePlan(decision, { coinData: { price: signalData.entry } }, context);
   if (!orders) {

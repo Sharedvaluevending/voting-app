@@ -49,9 +49,11 @@ function getHeaders(baseUrl) {
  * @param {number} [ctx.stopLoss] - Intended stop loss
  * @param {number} [ctx.takeProfit1] - First take profit level
  * @param {Object} [ctx.recentPerformance] - { wins, losses, streak, dailyPnl }
+ * @param {Object} [ctx.userDefaults] - User's default settings: tpMode, trailingTpDistanceMode, trailingTpAtrMultiplier, trailingTpFixedPercent, useFixedLeverage, defaultLeverage
+ * @param {number} [ctx.atr] - ATR value for trailing TP (when trailingTpDistanceMode is atr)
  * @param {string} baseUrl
  * @param {string} model
- * @returns {Promise<{approve: boolean, confidence: number, reasoning: string}>}
+ * @returns {Promise<{approve: boolean, confidence: number, reasoning: string, overrides?: Object}>}
  */
 async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud') {
   const base = baseUrl.replace(/\/$/, '');
@@ -59,6 +61,16 @@ async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480
   const systemPrompt = `You are an expert crypto trading risk advisor. Analyze the trade candidate using ALL provided data: score, confidence, score breakdown by dimension, reasoning from the scoring engine, indicators, market conditions, strategy historical performance, portfolio state, and risk/reward.
 
 Your job is to decide whether this trade should be opened AND assign a confidence level (0-100) for how good this trade is.
+
+OPTIONALLY, you may adjust trade parameters for this specific setup. If you approve, you can include an "overrides" object to tailor the trade for current conditions:
+- stopLoss: adjust price (e.g. wider in volatile markets, tighter in ranging)
+- takeProfit1, takeProfit2, takeProfit3: adjust TP levels
+- tpMode: "fixed" (use TP1/TP2/TP3) or "trailing" (ride trend with trailing ATR)
+- trailingTpDistanceMode: "atr" (dynamic) or "fixed" (fixed %)
+- trailingTpAtrMultiplier: 0.5-5 (only when tpMode=trailing and trailingTpDistanceMode=atr)
+- trailingTpFixedPercent: 0.5-10 (only when tpMode=trailing and trailingTpDistanceMode=fixed)
+- useFixedLeverage: true/false
+- leverage: 1-20 (when useFixedLeverage, or to override default)
 
 Consider:
 - Score breakdown: Are all dimensions aligned or is the score carried by one dimension?
@@ -69,13 +81,14 @@ Consider:
 - Risk/Reward: Is the R:R adequate for the confidence level?
 - Timeframe alignment: Do 1H, 4H, 1D agree?
 - Reasoning: Do the scoring engine reasons make sense?
+- Volatility: High volatility = wider stops, trailing TP may be better. Low volatility = fixed TPs may work.
 
 Reply ONLY with valid JSON:
-{"approve":true,"confidence":85,"reasoning":"Strong trend alignment across all timeframes, momentum confirmed by volume..."}
+{"approve":true,"confidence":85,"reasoning":"...","overrides":{"stopLoss":95000,"tpMode":"trailing","trailingTpAtrMultiplier":2}}
 or
-{"approve":false,"confidence":30,"reasoning":"Score inflated by single dimension, strategy underperforms in ranging regime..."}
+{"approve":false,"confidence":30,"reasoning":"..."}
 
-confidence must be 0-100. Higher = more certain the trade will be profitable.`;
+confidence must be 0-100. Higher = more certain the trade will be profitable. Omit "overrides" when defaults are fine.`;
 
   try {
     const controller = new AbortController();
@@ -117,7 +130,8 @@ confidence must be 0-100. Higher = more certain the trade will be profitable.`;
       const reasoning = json.reasoning || json.reason || '';
 
       if (json.approve === true) {
-        return { approve: true, confidence, reasoning };
+        const overrides = validateOverrides(json.overrides, ctx);
+        return { approve: true, confidence, reasoning, overrides };
       }
       if (json.reason) {
         console.log('[Ollama] Rejected:', json.reason);
@@ -179,6 +193,16 @@ function buildPrompt(ctx) {
   if (ctx.entry != null) parts.push(`- Entry: $${ctx.entry.toFixed(2)}`);
   if (ctx.stopLoss != null) parts.push(`- Stop Loss: $${ctx.stopLoss.toFixed(2)}`);
   if (ctx.takeProfit1 != null) parts.push(`- Take Profit 1: $${ctx.takeProfit1.toFixed(2)}`);
+  if (ctx.takeProfit2 != null) parts.push(`- Take Profit 2: $${ctx.takeProfit2.toFixed(2)}`);
+  if (ctx.takeProfit3 != null) parts.push(`- Take Profit 3: $${ctx.takeProfit3.toFixed(2)}`);
+
+  if (ctx.userDefaults) {
+    const ud = ctx.userDefaults;
+    parts.push(`- User defaults: tpMode=${ud.tpMode || 'fixed'}, trailingTpDistanceMode=${ud.trailingTpDistanceMode || 'atr'}, trailingTpAtrMultiplier=${ud.trailingTpAtrMultiplier ?? 1.5}, trailingTpFixedPercent=${ud.trailingTpFixedPercent ?? 2}, useFixedLeverage=${ud.useFixedLeverage ?? false}, leverage=${ud.defaultLeverage ?? 2}`);
+  }
+  if (ctx.atr != null && ctx.atr > 0) {
+    parts.push(`- ATR: $${ctx.atr.toFixed(6)} (for trailing TP distance)`);
+  }
 
   if (ctx.marketPulse) {
     const mp = ctx.marketPulse;
@@ -207,9 +231,64 @@ function buildPrompt(ctx) {
   }
 
   parts.push('');
-  parts.push('Analyze ALL dimensions above. Reply with JSON: {"approve":true/false,"confidence":0-100,"reasoning":"..."}');
+  parts.push('Analyze ALL dimensions above. Reply with JSON: {"approve":true/false,"confidence":0-100,"reasoning":"...","overrides":{...} (optional)}');
 
   return parts.join('\n');
+}
+
+/**
+ * Validate and clamp LLM overrides. Returns sanitized overrides or null if invalid.
+ */
+function validateOverrides(overrides, ctx) {
+  if (!overrides || typeof overrides !== 'object') return null;
+  const entry = ctx.entry;
+  const direction = ctx.direction;
+  const isLong = direction === 'LONG';
+  const out = {};
+
+  if (overrides.stopLoss != null && Number.isFinite(Number(overrides.stopLoss)) && entry > 0) {
+    const sl = Number(overrides.stopLoss);
+    const valid = isLong ? sl < entry : sl > entry;
+    if (valid) out.stopLoss = parseFloat(sl.toFixed(6));
+  }
+  if (overrides.takeProfit1 != null && Number.isFinite(Number(overrides.takeProfit1)) && entry > 0) {
+    const tp = Number(overrides.takeProfit1);
+    const valid = isLong ? tp > entry : tp < entry;
+    if (valid) out.takeProfit1 = parseFloat(tp.toFixed(6));
+  }
+  if (overrides.takeProfit2 != null && Number.isFinite(Number(overrides.takeProfit2)) && entry > 0) {
+    const tp = Number(overrides.takeProfit2);
+    const valid = isLong ? tp > entry : tp < entry;
+    if (valid) out.takeProfit2 = parseFloat(tp.toFixed(6));
+  }
+  if (overrides.takeProfit3 != null && Number.isFinite(Number(overrides.takeProfit3)) && entry > 0) {
+    const tp = Number(overrides.takeProfit3);
+    const valid = isLong ? tp > entry : tp < entry;
+    if (valid) out.takeProfit3 = parseFloat(tp.toFixed(6));
+  }
+  if (overrides.tpMode === 'fixed' || overrides.tpMode === 'trailing') {
+    out.tpMode = overrides.tpMode;
+  }
+  if (overrides.trailingTpDistanceMode === 'atr' || overrides.trailingTpDistanceMode === 'fixed') {
+    out.trailingTpDistanceMode = overrides.trailingTpDistanceMode;
+  }
+  if (overrides.trailingTpAtrMultiplier != null) {
+    const v = Math.max(0.5, Math.min(5, Number(overrides.trailingTpAtrMultiplier) || 1.5));
+    out.trailingTpAtrMultiplier = v;
+  }
+  if (overrides.trailingTpFixedPercent != null) {
+    const v = Math.max(0.5, Math.min(10, Number(overrides.trailingTpFixedPercent) || 2));
+    out.trailingTpFixedPercent = v;
+  }
+  if (overrides.useFixedLeverage === true || overrides.useFixedLeverage === false) {
+    out.useFixedLeverage = overrides.useFixedLeverage;
+  }
+  if (overrides.leverage != null) {
+    const v = Math.max(1, Math.min(20, Math.round(Number(overrides.leverage)) || 2));
+    out.leverage = v;
+  }
+
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 function parseJsonResponse(text) {
