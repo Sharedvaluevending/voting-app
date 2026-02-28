@@ -7,6 +7,7 @@ require('dotenv').config();
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY || '';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1:8b';
 
 async function test(name, fn) {
   const start = Date.now();
@@ -24,7 +25,7 @@ async function test(name, fn) {
 
 async function main() {
   console.log('\n=== LLM/Ollama connectivity & agent test ===\n');
-  console.log(`  URL: ${OLLAMA_URL}${OLLAMA_API_KEY ? ' (with API key)' : ''}\n`);
+  console.log(`  URL: ${OLLAMA_URL} | Model: ${OLLAMA_MODEL}${OLLAMA_API_KEY ? ' (with API key)' : ''}\n`);
 
   let passed = 0;
   let failed = 0;
@@ -40,7 +41,7 @@ async function main() {
 
   if (!r1.ok) {
     console.log('\n  Ollama not reachable - skipping approveTrade test.');
-    console.log('  Run: ollama run qwen3-coder:480b-cloud  (or set OLLAMA_URL for ngrok)\n');
+    console.log('  Run: ollama run llama3.1:8b  (or set OLLAMA_URL, OLLAMA_MODEL)\n');
   } else {
     // 2. approveTrade (POST /api/chat or /api/generate)
   const r2 = await test('approveTrade (chat/generate)', async () => {
@@ -53,7 +54,7 @@ async function main() {
       strategy: 'Trend Following',
       regime: 'trending',
       riskReward: 1.8
-    }, OLLAMA_URL, 'qwen3-coder:480b-cloud', OLLAMA_API_KEY);
+    }, OLLAMA_URL, OLLAMA_MODEL, OLLAMA_API_KEY);
     if (result && typeof result === 'object' && 'approve' in result) {
       return `${result.approve ? 'approved' : 'rejected'} conf=${result.confidence} reason=${result.reasoning || 'none'}`;
     }

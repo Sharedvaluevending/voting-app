@@ -1295,7 +1295,7 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       s.ollamaUrl = url || 'http://localhost:11434';
     }
     if (req.body.ollamaModel != null && typeof req.body.ollamaModel === 'string') {
-      s.ollamaModel = req.body.ollamaModel.trim() || 'qwen3-coder:480b-cloud';
+      s.ollamaModel = req.body.ollamaModel.trim() || 'llama3.1:8b';
     }
     if (req.body.ollamaApiKey != null && typeof req.body.ollamaApiKey === 'string') {
       s.ollamaApiKey = req.body.ollamaApiKey.trim();
@@ -3907,7 +3907,7 @@ async function runAutoTrade() {
                   losses: user.stats?.losses || 0,
                   streak: user.stats?.currentStreak || 0
                 }
-              }, user.settings?.ollamaUrl || 'http://localhost:11434', user.settings?.ollamaModel || 'qwen3-coder:480b-cloud', user.settings?.ollamaApiKey || '');
+              }, user.settings?.ollamaUrl || 'http://localhost:11434', user.settings?.ollamaModel || 'llama3.1:8b', user.settings?.ollamaApiKey || '');
 
               if (!llmResult.approve) {
                 console.log(`[AutoTrade] LLM rejected ${tradeData.symbol} ${sig._direction} for ${user.username}: ${llmResult.reasoning || 'no reason'}`);

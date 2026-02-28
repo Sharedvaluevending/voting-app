@@ -42,7 +42,7 @@ async function runChat(userId, messages, deps, opts = {}) {
 
   const ollamaUrl = user.settings?.ollamaUrl || 'http://localhost:11434';
   const ollamaApiKey = user.settings?.ollamaApiKey || '';
-  const model = user.settings?.ollamaModel || 'qwen3-coder:480b-cloud';
+  const model = user.settings?.ollamaModel || 'llama3.1:8b';
 
   const extraDeps = (deps.fetchAllPrices && deps.buildEngineOptions && deps.analyzeAllCoins)
     ? {

@@ -76,10 +76,10 @@ async function fetchWithRetry(url, opts, retries = NGROK_429_RETRIES) {
  * @param {string} [apiKey] - X-API-Key for Open WebUI / remote LLM
  * @returns {Promise<{approve: boolean, confidence: number, reasoning: string, overrides?: Object}>}
  */
-async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud', apiKey) {
+async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', apiKey) {
   return enqueue(() => approveTradeImpl(ctx, baseUrl, model, apiKey));
 }
-async function approveTradeImpl(ctx, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud', apiKey) {
+async function approveTradeImpl(ctx, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', apiKey) {
   const base = baseUrl.replace(/\/$/, '');
   const prompt = buildPrompt(ctx);
   const systemPrompt = `You are an expert crypto trading risk advisor. Analyze the trade candidate using ALL provided data: score, confidence, score breakdown by dimension, reasoning from the scoring engine, indicators, market conditions, strategy historical performance, portfolio state, and risk/reward.
@@ -120,12 +120,12 @@ confidence must be 0-100. Higher = more certain the trade will be profitable. Om
     const headers = getHeaders(base, apiKey);
 
     const chatBody = {
-      model: model || 'qwen3-coder:480b-cloud',
+      model: model || 'llama3.1:8b',
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }]
     };
-    const openaiBody = { model: model || 'qwen3-coder:480b-cloud', messages: chatBody.messages };
-    const generateBody = { model: model || 'qwen3-coder:480b-cloud', prompt: systemPrompt + '\n\n' + prompt };
-    const responsesBody = { model: model || 'qwen3-coder:480b-cloud', input: systemPrompt + '\n\n' + prompt };
+    const openaiBody = { model: model || 'llama3.1:8b', messages: chatBody.messages };
+    const generateBody = { model: model || 'llama3.1:8b', prompt: systemPrompt + '\n\n' + prompt };
+    const responsesBody = { model: model || 'llama3.1:8b', input: systemPrompt + '\n\n' + prompt };
 
     const doFetch = (path, body) => isNgrokUrl(base)
       ? fetchWithRetry(base + path, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal })
@@ -371,7 +371,7 @@ async function checkOllamaReachable(baseUrl = DEFAULT_URL, apiKey) {
   if (res.status === 429) {
     error += ' — Rate limit. Server throttling. Wait a minute and retry.';
   } else if (res.status === 502) {
-    error += ' — ngrok can\'t reach Ollama. Is Ollama running? (ollama run qwen3-coder:480b-cloud)';
+    error += ' — ngrok can\'t reach Ollama. Is Ollama running? (ollama run llama3.1:8b)';
   } else if (res.status === 404) {
     error += ' — Wrong URL or Ollama/Open WebUI not ready.';
   } else if (res.status === 403 || res.status === 401) {
@@ -383,18 +383,18 @@ async function checkOllamaReachable(baseUrl = DEFAULT_URL, apiKey) {
 /**
  * Chat with Ollama (multi-turn). messages = [{role, content}, ...]
  */
-async function chat(messages, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud', apiKey) {
+async function chat(messages, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', apiKey) {
   return enqueue(() => chatImpl(messages, baseUrl, model, apiKey));
 }
-async function chatImpl(messages, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud', apiKey) {
+async function chatImpl(messages, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', apiKey) {
   const base = baseUrl.replace(/\/$/, '');
   const headers = getHeaders(base, apiKey);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120000); // 2 min for chat (large models)
-  const chatBody = { model: model || 'qwen3-coder:480b-cloud', messages };
-  const openaiBody = { model: model || 'qwen3-coder:480b-cloud', messages };
+  const chatBody = { model: model || 'llama3.1:8b', messages };
+  const openaiBody = { model: model || 'llama3.1:8b', messages };
   const lastUser = messages.filter(m => m.role === 'user').pop();
-  const responsesBody = { model: model || 'qwen3-coder:480b-cloud', input: (lastUser && lastUser.content) || '' };
+  const responsesBody = { model: model || 'llama3.1:8b', input: (lastUser && lastUser.content) || '' };
 
   let res;
   if (isNgrokUrl(base)) {

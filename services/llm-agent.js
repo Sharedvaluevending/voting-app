@@ -147,13 +147,13 @@ async function callAgentImpl(prompt, systemPrompt, baseUrl, model, apiKey) {
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const headers = getOllamaHeaders(base, apiKey);
 
-  const generateBody = { model: model || 'qwen3-coder:480b-cloud', prompt: systemPrompt + '\n\n' + prompt };
+  const generateBody = { model: model || 'llama3.1:8b', prompt: systemPrompt + '\n\n' + prompt };
   const chatBody = {
-    model: model || 'qwen3-coder:480b-cloud',
+    model: model || 'llama3.1:8b',
     messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }]
   };
-  const openaiBody = { model: model || 'qwen3-coder:480b-cloud', messages: chatBody.messages };
-  const responsesBody = { model: model || 'qwen3-coder:480b-cloud', input: systemPrompt + '\n\n' + prompt };
+  const openaiBody = { model: model || 'llama3.1:8b', messages: chatBody.messages };
+  const responsesBody = { model: model || 'llama3.1:8b', input: systemPrompt + '\n\n' + prompt };
 
   const doFetch = (path, body) => isNgrokUrl(base)
     ? fetchWithRetry(base + path, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal })
@@ -956,7 +956,7 @@ async function runAgent(userId, deps, opts = {}) {
 
   const ollamaUrl = user.settings?.ollamaUrl || 'http://localhost:11434';
   const ollamaApiKey = user.settings?.ollamaApiKey || '';
-  const model = user.settings?.ollamaModel || 'qwen3-coder:480b-cloud';
+  const model = user.settings?.ollamaModel || 'llama3.1:8b';
 
   const extraDeps = {
     fetchAllPrices: deps.fetchAllPrices,
