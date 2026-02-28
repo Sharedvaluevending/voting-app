@@ -212,11 +212,16 @@
           </select>
         </div>
         <div style="flex-basis:100%;margin-top:8px;padding-top:12px;border-top:1px solid #1e2a3a;">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:6px;" title="Ask local Ollama LLM to approve each auto-trade before opening. Requires Ollama running (e.g. ollama run llama3.1:8b).">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:6px;" title="<% if (typeof useDeepSeek !== 'undefined' && useDeepSeek) { %>Ask DeepSeek to approve each auto-trade before opening. Uses DEEPSEEK_API_KEY from env.<% } else { %>Ask local Ollama LLM to approve each auto-trade before opening. Requires Ollama running (e.g. ollama run llama3.1:8b).<% } %>">
             <input type="hidden" name="llmEnabled" value="false">
-            <input type="checkbox" name="llmEnabled" id="llmEnabled" value="true" <%= (user.settings && user.settings.llmEnabled) ? 'checked' : '' %> onchange="document.getElementById('ollama-url-wrap').style.display=this.checked?'block':'none'">
-            <span style="font-size:12px;color:#9ca3af;">Use LLM (Ollama) to approve trades</span>
+            <input type="checkbox" name="llmEnabled" id="llmEnabled" value="true" <%= (user.settings && user.settings.llmEnabled) ? 'checked' : '' %> onchange="var w=document.getElementById('ollama-url-wrap');if(w)w.style.display=this.checked?'block':'none'">
+            <span style="font-size:12px;color:#9ca3af;">Use LLM (<% if (typeof useDeepSeek !== 'undefined' && useDeepSeek) { %>DeepSeek<% } else { %>Ollama<% } %>) to approve trades</span>
           </label>
+          <% if (typeof useDeepSeek !== 'undefined' && useDeepSeek) { %>
+          <div id="ollama-url-wrap" style="<%= (user.settings && user.settings.llmEnabled) ? '' : 'display:none;' %>">
+            <p style="font-size:11px;color:#10b981;margin:4px 0 0 0;">Using DeepSeek — API key from DEEPSEEK_API_KEY (Render env)</p>
+          </div>
+          <% } else { %>
           <div id="ollama-url-wrap" style="<%= (user.settings && user.settings.llmEnabled) ? '' : 'display:none;' %>">
             <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:4px;">
               <div>
@@ -237,6 +242,7 @@
             </div>
             <span id="ollama-status" style="font-size:11px;color:#6b7280;margin-top:4px;display:block;"></span>
           </div>
+          <% } %>
           <script>
             function testOllama() {
               var url = document.getElementById('ollamaUrlInput').value.trim() || 'http://localhost:11434';
