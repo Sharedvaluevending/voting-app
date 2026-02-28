@@ -15,6 +15,7 @@
 
 const fetch = require('node-fetch');
 const { enqueue } = require('./ollama-queue');
+const { parseNdjsonContent } = require('./ollama-client');
 
 const TIMEOUT_MS = 90000; // 90s for agent (backtest + weight ops can be slow)
 const NGROK_429_RETRIES = 3;
@@ -174,8 +175,20 @@ async function callAgentImpl(prompt, systemPrompt, baseUrl, model, apiKey) {
 
   clearTimeout(timeout);
   if (!res.ok) throw new Error(res.status === 429 ? 'Rate limit (429). Server throttling. Wait and retry.' : `Ollama ${res.status}`);
-  const data = await res.json();
-  return data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
+  const raw = await res.text();
+  let text = '';
+  try {
+    if (raw.includes('\n')) {
+      text = parseNdjsonContent(raw);
+    }
+    if (!text) {
+      const data = JSON.parse(raw);
+      text = data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
+    }
+  } catch (parseErr) {
+    text = parseNdjsonContent(raw);
+  }
+  return text;
 }
 
 function parseJsonResponse(text) {

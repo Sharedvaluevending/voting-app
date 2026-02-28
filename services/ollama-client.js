@@ -479,5 +479,6 @@ module.exports = {
   approveTrade,
   checkOllamaReachable,
   chat,
+  parseNdjsonContent,
   DEFAULT_URL
 };
