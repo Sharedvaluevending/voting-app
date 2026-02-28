@@ -147,12 +147,13 @@ async function callAgentImpl(prompt, systemPrompt, baseUrl, model, apiKey) {
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const headers = getOllamaHeaders(base, apiKey);
 
-  const generateBody = { model: model || 'llama3.1:8b', prompt: systemPrompt + '\n\n' + prompt };
+  const generateBody = { model: model || 'llama3.1:8b', prompt: systemPrompt + '\n\n' + prompt, stream: false };
   const chatBody = {
     model: model || 'llama3.1:8b',
-    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }]
+    messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }],
+    stream: false
   };
-  const openaiBody = { model: model || 'llama3.1:8b', messages: chatBody.messages };
+  const openaiBody = { model: model || 'llama3.1:8b', messages: chatBody.messages, stream: false };
   const responsesBody = { model: model || 'llama3.1:8b', input: systemPrompt + '\n\n' + prompt };
 
   const doFetch = (path, body) => isNgrokUrl(base)

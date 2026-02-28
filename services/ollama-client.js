@@ -11,7 +11,7 @@ const fetch = require('node-fetch');
 const { enqueue } = require('./ollama-queue');
 
 const DEFAULT_URL = 'http://localhost:11434';
-const TIMEOUT_MS = 45000; // 45s for trade approval (large models can be slow)
+const TIMEOUT_MS = 90000; // 90s for trade approval (remote/slow models)
 const NGROK_429_RETRIES = 3;     // Retry up to 3 times on 429 (ngrok free tier rate limit)
 const NGROK_429_WAIT_MS = 30000; // Wait 30s before retry (ngrok per-minute limit = 4k req/min)
 
@@ -121,10 +121,11 @@ confidence must be 0-100. Higher = more certain the trade will be profitable. Om
 
     const chatBody = {
       model: model || 'llama3.1:8b',
-      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }]
+      messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }],
+      stream: false
     };
-    const openaiBody = { model: model || 'llama3.1:8b', messages: chatBody.messages };
-    const generateBody = { model: model || 'llama3.1:8b', prompt: systemPrompt + '\n\n' + prompt };
+    const openaiBody = { model: model || 'llama3.1:8b', messages: chatBody.messages, stream: false };
+    const generateBody = { model: model || 'llama3.1:8b', prompt: systemPrompt + '\n\n' + prompt, stream: false };
     const responsesBody = { model: model || 'llama3.1:8b', input: systemPrompt + '\n\n' + prompt };
 
     const doFetch = (path, body) => isNgrokUrl(base)
@@ -152,8 +153,19 @@ confidence must be 0-100. Higher = more certain the trade will be profitable. Om
       return { approve: false, confidence: 0, reasoning: msg };
     }
 
-    const data = await res.json();
-    const text = data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
+    const raw = await res.text();
+    let text = '';
+    try {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('x-ndjson') || contentType.includes('stream')) {
+        text = parseNdjsonContent(raw);
+      } else {
+        const data = JSON.parse(raw);
+        text = data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
+      }
+    } catch (parseErr) {
+      text = parseNdjsonContent(raw) || raw;
+    }
     const json = parseJsonResponse(text);
 
     if (json) {
@@ -322,6 +334,21 @@ function validateOverrides(overrides, ctx) {
   return Object.keys(out).length > 0 ? out : null;
 }
 
+/** Parse Ollama NDJSON stream, return concatenated message content */
+function parseNdjsonContent(raw) {
+  let out = '';
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const obj = JSON.parse(trimmed);
+      const c = obj.message?.content ?? obj.response ?? obj.output_text ?? obj.choices?.[0]?.message?.content ?? '';
+      if (c) out += c;
+    } catch (e) { /* skip invalid lines */ }
+  }
+  return out;
+}
+
 function parseJsonResponse(text) {
   try {
     const trimmed = text.trim();
@@ -371,7 +398,7 @@ async function checkOllamaReachable(baseUrl = DEFAULT_URL, apiKey) {
   if (res.status === 429) {
     error += ' — Rate limit. Server throttling. Wait a minute and retry.';
   } else if (res.status === 502) {
-    error += ' — ngrok can\'t reach Ollama. Is Ollama running? (ollama run llama3.1:8b)';
+    error += ' — Server can\'t reach Ollama backend. Is Ollama running? (ollama run llama3.1:8b)';
   } else if (res.status === 404) {
     error += ' — Wrong URL or Ollama/Open WebUI not ready.';
   } else if (res.status === 403 || res.status === 401) {
@@ -391,8 +418,8 @@ async function chatImpl(messages, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', 
   const headers = getHeaders(base, apiKey);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120000); // 2 min for chat (large models)
-  const chatBody = { model: model || 'llama3.1:8b', messages };
-  const openaiBody = { model: model || 'llama3.1:8b', messages };
+  const chatBody = { model: model || 'llama3.1:8b', messages, stream: false };
+  const openaiBody = { model: model || 'llama3.1:8b', messages, stream: false };
   const lastUser = messages.filter(m => m.role === 'user').pop();
   const responsesBody = { model: model || 'llama3.1:8b', input: (lastUser && lastUser.content) || '' };
 
