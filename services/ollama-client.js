@@ -439,8 +439,17 @@ async function chatImpl(messages, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', 
     const msg = res.status === 429 ? 'Rate limit (429). Server throttling. Wait and retry.' : `Ollama ${res.status}`;
     throw new Error(msg);
   }
-  const data = await res.json();
-  return data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
+  const raw = await res.text();
+  try {
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('x-ndjson') || contentType.includes('stream')) {
+      return parseNdjsonContent(raw);
+    }
+    const data = JSON.parse(raw);
+    return data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
+  } catch (parseErr) {
+    return parseNdjsonContent(raw) || raw;
+  }
 }
 
 module.exports = {
