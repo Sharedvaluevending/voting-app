@@ -124,15 +124,24 @@ function userSettingsToBacktestFeatures(s) {
 // ====================================================
 
 function isNgrokUrl(url) {
-  return url && (url.includes('ngrok-free') || url.includes('ngrok.io'));
+  return url && (url.includes('ngrok-free') || url.includes('ngrok.io') || url.includes('ngrok'));
+}
+
+/** Remote URL (not localhost) - may be Open WebUI, try OpenAI-compat paths */
+function isRemoteUrl(url) {
+  if (!url) return false;
+  const u = url.toLowerCase();
+  return !u.includes('localhost') && !u.includes('127.0.0.1');
 }
 
 function getOllamaHeaders(baseUrl, apiKey) {
   const h = { 'Content-Type': 'application/json' };
   if (apiKey && typeof apiKey === 'string' && apiKey.trim()) {
-    h['X-API-Key'] = apiKey.trim();
+    const key = apiKey.trim();
+    h['X-API-Key'] = key;
+    h['Authorization'] = 'Bearer ' + key; // Open WebUI uses Bearer
   }
-  if (isNgrokUrl(baseUrl)) {
+  if (isNgrokUrl(baseUrl) || isRemoteUrl(baseUrl)) {
     h['ngrok-skip-browser-warning'] = '1';
     h['User-Agent'] = 'VotingApp-Ollama/1.0';
   }
@@ -163,8 +172,10 @@ async function callAgentImpl(prompt, systemPrompt, baseUrl, model, apiKey) {
     : fetch(base + path, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
 
   let res;
-  if (isNgrokUrl(base)) {
+  if (isNgrokUrl(base) || isRemoteUrl(base)) {
+    // Open WebUI / OpenAI-compat: try non-stream first for cleaner JSON
     res = await doFetch('/v1/chat/completions', openaiBody);
+    if (res.status === 404) res = await doFetch('/api/chat/completions', openaiBody);
     if (res.status === 404) res = await doFetch('/v1/responses', responsesBody);
     if (res.status === 404) res = await doFetch('/api/generate', generateBody);
     if (res.status === 404) res = await doFetch('/api/chat', chatBody);
@@ -191,16 +202,58 @@ async function callAgentImpl(prompt, systemPrompt, baseUrl, model, apiKey) {
   return text;
 }
 
-function parseJsonResponse(text) {
-  try {
-    const trimmed = text.trim();
-    const start = trimmed.indexOf('{');
-    const end = trimmed.lastIndexOf('}') + 1;
-    if (start >= 0 && end > start) {
-      return JSON.parse(trimmed.slice(start, end));
+/** Robustly extract agent JSON from model output (handles markdown, code blocks, extra text) */
+function parseAgentResponse(text) {
+  if (!text || typeof text !== 'string') return null;
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  // 1. Try ```json ... ``` or ``` ... ``` block first
+  const codeBlockMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    try {
+      const block = codeBlockMatch[1].trim();
+      const start = block.indexOf('{');
+      const end = block.lastIndexOf('}') + 1;
+      if (start >= 0 && end > start) {
+        const parsed = JSON.parse(block.slice(start, end));
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch (e) { /* fall through */ }
+  }
+
+  // 2. Find JSON object with "actions" key (handles multiple objects or extra text)
+  const jsonCandidates = [];
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < trimmed.length; i++) {
+    if (trimmed[i] === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (trimmed[i] === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        try {
+          const obj = JSON.parse(trimmed.slice(start, i + 1));
+          if (obj && typeof obj === 'object' && 'actions' in obj) return obj;
+          jsonCandidates.push(obj);
+        } catch (e) { /* skip */ }
+        start = -1;
+      }
     }
-  } catch (e) { /* ignore */ }
-  return null;
+  }
+
+  // 3. Fallback: first { to last }
+  const fallbackStart = trimmed.indexOf('{');
+  const fallbackEnd = trimmed.lastIndexOf('}') + 1;
+  if (fallbackStart >= 0 && fallbackEnd > fallbackStart) {
+    try {
+      const parsed = JSON.parse(trimmed.slice(fallbackStart, fallbackEnd));
+      if (parsed && typeof parsed === 'object') return parsed;
+    } catch (e) { /* ignore */ }
+  }
+
+  return jsonCandidates.length > 0 ? jsonCandidates[0] : null;
 }
 
 // ====================================================
@@ -1123,17 +1176,19 @@ Use confidence, score breakdown, and reasoning to make decisions — not just ra
     return failResult;
   }
 
-  const parsed = parseJsonResponse(text);
-  if (!parsed || !Array.isArray(parsed.actions)) {
-    const failResult = { success: false, error: 'Invalid LLM response', raw: text?.slice(0, 300), at: new Date() };
+  const parsed = parseAgentResponse(text);
+  if (!parsed || typeof parsed !== 'object') {
+    const failResult = { success: false, error: 'Invalid LLM response', raw: text?.slice(0, 500), at: new Date() };
     await saveAgentLog(userId, failResult, opts);
     return failResult;
   }
+  // Normalize actions: must be array (model sometimes omits or returns wrong type)
+  const actions = Array.isArray(parsed.actions) ? parsed.actions : (parsed.actions ? [parsed.actions] : []);
 
   const actionsExecuted = [];
   const actionsFailed = [];
   const actionContext = { fullSignals: ctx.fullSignals || [], top3MarketScan: ctx.top3MarketScan || [] };
-  for (const action of parsed.actions) {
+  for (const action of actions) {
     if (!action.tool) continue;
     const result = await executeAction(action, user, deps, actionContext);
     if (result.ok) {
