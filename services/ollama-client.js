@@ -11,6 +11,8 @@ const fetch = require('node-fetch');
 
 const DEFAULT_URL = 'http://localhost:11434';
 const TIMEOUT_MS = 45000; // 45s for trade approval (large models can be slow)
+const NGROK_429_RETRIES = 3;     // Retry up to 3 times on 429 (ngrok free tier rate limit)
+const NGROK_429_WAIT_MS = 30000; // Wait 30s before retry (ngrok per-minute limit = 4k req/min)
 
 function isNgrokUrl(url) {
   return url && (url.includes('ngrok-free') || url.includes('ngrok.io'));
@@ -23,6 +25,18 @@ function getHeaders(baseUrl) {
     h['User-Agent'] = 'VotingApp-Ollama/1.0';
   }
   return h;
+}
+
+/** Fetch with retry on 429 (ngrok free tier rate limit). */
+async function fetchWithRetry(url, opts, retries = NGROK_429_RETRIES) {
+  let res = await fetch(url, opts);
+  while (res.status === 429 && retries > 0) {
+    console.warn('[Ollama] 429 rate limited by ngrok — waiting', NGROK_429_WAIT_MS / 1000, 's before retry');
+    await new Promise(r => setTimeout(r, NGROK_429_WAIT_MS));
+    retries--;
+    res = await fetch(url, opts);
+  }
+  return res;
 }
 
 /**
@@ -103,12 +117,16 @@ confidence must be 0-100. Higher = more certain the trade will be profitable. Om
     const generateBody = { model: model || 'qwen3-coder:480b-cloud', prompt: systemPrompt + '\n\n' + prompt };
     const responsesBody = { model: model || 'qwen3-coder:480b-cloud', input: systemPrompt + '\n\n' + prompt };
 
+    const doFetch = (path, body) => isNgrokUrl(base)
+      ? fetchWithRetry(base + path, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal })
+      : fetch(base + path, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
+
     let res;
     if (isNgrokUrl(base)) {
-      res = await fetch(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
-      if (res.status === 404) res = await fetch(base + '/v1/responses', { method: 'POST', headers, body: JSON.stringify(responsesBody), signal: controller.signal });
-      if (res.status === 404) res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
-      if (res.status === 404) res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
+      res = await doFetch('/v1/chat/completions', openaiBody);
+      if (res.status === 404) res = await doFetch('/v1/responses', responsesBody);
+      if (res.status === 404) res = await doFetch('/api/generate', generateBody);
+      if (res.status === 404) res = await doFetch('/api/chat', chatBody);
     } else {
       res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
       if (res.status === 404) res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
@@ -117,8 +135,9 @@ confidence must be 0-100. Higher = more certain the trade will be profitable. Om
     clearTimeout(timeout);
 
     if (!res.ok) {
-      console.warn('[Ollama]', res.status, res.statusText, base.includes('ngrok') ? '(try updating Ollama: ollama update)' : '');
-      return { approve: false, confidence: 0, reasoning: `LLM error: ${res.status}` };
+      const msg = res.status === 429 ? 'ngrok rate limit (429). Free tier: 4k req/min. Try paid plan or reduce LLM usage.' : `LLM error: ${res.status}`;
+      console.warn('[Ollama]', res.status, res.statusText, base.includes('ngrok') ? msg : '');
+      return { approve: false, confidence: 0, reasoning: msg };
     }
 
     const data = await res.json();
@@ -317,7 +336,9 @@ async function checkOllamaReachable(baseUrl = DEFAULT_URL) {
     if (res.ok) return { ok: true };
     const statusText = res.statusText || '';
     let error = `${res.status} ${statusText}`;
-    if (res.status === 502) {
+    if (res.status === 429) {
+      error += ' — ngrok rate limit. Free tier: 4k req/min. Wait or upgrade.';
+    } else if (res.status === 502) {
       error += ' — ngrok can\'t reach Ollama. Is Ollama running? (ollama run qwen3-coder:480b-cloud)';
     } else if (res.status === 404) {
       error += ' — Wrong URL or Ollama version?';
@@ -346,14 +367,17 @@ async function chat(messages, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-c
 
   let res;
   if (isNgrokUrl(base)) {
-    res = await fetch(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
-    if (res.status === 404) res = await fetch(base + '/v1/responses', { method: 'POST', headers, body: JSON.stringify(responsesBody), signal: controller.signal });
-    if (res.status === 404) res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
+    res = await fetchWithRetry(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
+    if (res.status === 404) res = await fetchWithRetry(base + '/v1/responses', { method: 'POST', headers, body: JSON.stringify(responsesBody), signal: controller.signal });
+    if (res.status === 404) res = await fetchWithRetry(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
   } else {
     res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
   }
   clearTimeout(timeout);
-  if (!res.ok) throw new Error(`Ollama ${res.status}`);
+  if (!res.ok) {
+    const msg = res.status === 429 ? 'ngrok rate limit (429). Free tier: 4k req/min.' : `Ollama ${res.status}`;
+    throw new Error(msg);
+  }
   const data = await res.json();
   return data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
 }

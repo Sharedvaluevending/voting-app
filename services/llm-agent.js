@@ -16,6 +16,19 @@
 const fetch = require('node-fetch');
 
 const TIMEOUT_MS = 90000; // 90s for agent (backtest + weight ops can be slow)
+const NGROK_429_RETRIES = 3;
+const NGROK_429_WAIT_MS = 30000;
+
+async function fetchWithRetry(url, opts, retries = NGROK_429_RETRIES) {
+  let res = await fetch(url, opts);
+  while (res.status === 429 && retries > 0) {
+    console.warn('[LLMAgent] 429 ngrok rate limit — waiting', NGROK_429_WAIT_MS / 1000, 's');
+    await new Promise(r => setTimeout(r, NGROK_429_WAIT_MS));
+    retries--;
+    res = await fetch(url, opts);
+  }
+  return res;
+}
 
 // Allowed numeric settings with min/max bounds
 const SETTING_BOUNDS = {
@@ -135,19 +148,23 @@ async function callAgent(prompt, systemPrompt, baseUrl, model) {
   const openaiBody = { model: model || 'qwen3-coder:480b-cloud', messages: chatBody.messages };
   const responsesBody = { model: model || 'qwen3-coder:480b-cloud', input: systemPrompt + '\n\n' + prompt };
 
+  const doFetch = (path, body) => isNgrokUrl(base)
+    ? fetchWithRetry(base + path, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal })
+    : fetch(base + path, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal });
+
   let res;
   if (isNgrokUrl(base)) {
-    res = await fetch(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
-    if (res.status === 404) res = await fetch(base + '/v1/responses', { method: 'POST', headers, body: JSON.stringify(responsesBody), signal: controller.signal });
-    if (res.status === 404) res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
-    if (res.status === 404) res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
+    res = await doFetch('/v1/chat/completions', openaiBody);
+    if (res.status === 404) res = await doFetch('/v1/responses', responsesBody);
+    if (res.status === 404) res = await doFetch('/api/generate', generateBody);
+    if (res.status === 404) res = await doFetch('/api/chat', chatBody);
   } else {
     res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
     if (res.status === 404) res = await fetch(base + '/api/generate', { method: 'POST', headers, body: JSON.stringify(generateBody), signal: controller.signal });
   }
 
   clearTimeout(timeout);
-  if (!res.ok) throw new Error(`Ollama ${res.status}`);
+  if (!res.ok) throw new Error(res.status === 429 ? 'ngrok rate limit (429). Free tier: 4k req/min.' : `Ollama ${res.status}`);
   const data = await res.json();
   return data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
 }
