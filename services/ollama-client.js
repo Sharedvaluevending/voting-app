@@ -15,13 +15,15 @@ const NGROK_429_RETRIES = 3;     // Retry up to 3 times on 429 (ngrok free tier 
 const NGROK_429_WAIT_MS = 30000; // Wait 30s before retry (ngrok per-minute limit = 4k req/min)
 
 function isNgrokUrl(url) {
-  return url && (url.includes('ngrok-free') || url.includes('ngrok.io'));
+  return url && (url.includes('ngrok-free') || url.includes('ngrok.io') || url.includes('ngrok'));
 }
 
 function getHeaders(baseUrl, apiKey) {
   const h = { 'Content-Type': 'application/json' };
   if (apiKey && typeof apiKey === 'string' && apiKey.trim()) {
-    h['X-API-Key'] = apiKey.trim();
+    const key = apiKey.trim();
+    h['X-API-Key'] = key;
+    h['Authorization'] = 'Bearer ' + key; // Open WebUI uses Bearer
   }
   if (isNgrokUrl(baseUrl)) {
     h['ngrok-skip-browser-warning'] = '1';
@@ -127,7 +129,9 @@ confidence must be 0-100. Higher = more certain the trade will be profitable. Om
 
     let res;
     if (isNgrokUrl(base)) {
-      res = await doFetch('/v1/chat/completions', openaiBody);
+      // Open WebUI: /api/chat/completions (OpenAI-compatible); fallbacks for other proxies
+      res = await doFetch('/api/chat/completions', openaiBody);
+      if (res.status === 404) res = await doFetch('/v1/chat/completions', openaiBody);
       if (res.status === 404) res = await doFetch('/v1/responses', responsesBody);
       if (res.status === 404) res = await doFetch('/api/generate', generateBody);
       if (res.status === 404) res = await doFetch('/api/chat', chatBody);
@@ -327,33 +331,49 @@ function parseJsonResponse(text) {
 }
 
 /**
- * Check if Ollama is reachable.
+ * Check if Ollama / Open WebUI is reachable.
+ * Tries multiple paths: Open WebUI (/ollama/api/tags), direct Ollama (/api/tags), OpenAI (/api/v1/models).
  */
 async function checkOllamaReachable(baseUrl = DEFAULT_URL, apiKey) {
-  try {
-    const url = baseUrl.replace(/\/$/, '') + '/api/tags';
-    const headers = getHeaders(baseUrl, apiKey);
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 8000);
-    const res = await fetch(url, { headers, signal: controller.signal });
-    clearTimeout(t);
-    if (res.ok) return { ok: true };
-    const statusText = res.statusText || '';
-    let error = `${res.status} ${statusText}`;
-    if (res.status === 429) {
-      error += ' — ngrok rate limit. Free tier: 4k req/min. Wait or upgrade.';
-    } else if (res.status === 502) {
-      error += ' — ngrok can\'t reach Ollama. Is Ollama running? (ollama run qwen3-coder:480b-cloud)';
-    } else if (res.status === 404) {
-      error += ' — Wrong URL or Ollama version?';
-    } else if (res.status === 403 || res.status === 401) {
-      error += ' — Access denied (ngrok/auth?)';
+  const base = baseUrl.replace(/\/$/, '');
+  const headers = getHeaders(baseUrl, apiKey);
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 8000);
+  const paths = isNgrokUrl(base)
+    ? ['/ollama/api/tags', '/api/tags', '/api/v1/models']  // Open WebUI first, then Ollama, then OpenAI
+    : ['/api/tags'];
+  let lastRes = null;
+  for (const path of paths) {
+    try {
+      const res = await fetch(base + path, { headers, signal: controller.signal });
+      lastRes = res;
+      if (res.ok) {
+        clearTimeout(t);
+        return { ok: true };
+      }
+      if (res.status !== 404) break; // 404 = try next path
+    } catch (e) {
+      if (e.name === 'AbortError') break;
     }
-    return { ok: false, status: res.status, statusText, error };
-  } catch (e) {
-    const msg = e.name === 'AbortError' ? 'Timeout (8s)' : e.message || 'Connection failed';
+  }
+  clearTimeout(t);
+  const res = lastRes;
+  if (!res) {
+    const msg = controller.signal?.aborted ? 'Timeout (8s)' : 'Connection failed';
     return { ok: false, error: msg };
   }
+  const statusText = res.statusText || '';
+  let error = `${res.status} ${statusText}`;
+  if (res.status === 429) {
+    error += ' — ngrok rate limit. Free tier: 4k req/min. Wait or upgrade.';
+  } else if (res.status === 502) {
+    error += ' — ngrok can\'t reach Ollama. Is Ollama running? (ollama run qwen3-coder:480b-cloud)';
+  } else if (res.status === 404) {
+    error += ' — Wrong URL or Ollama/Open WebUI not ready.';
+  } else if (res.status === 403 || res.status === 401) {
+    error += ' — Access denied. Add API key (Settings > Account in Open WebUI).';
+  }
+  return { ok: false, status: res.status, statusText, error };
 }
 
 /**
@@ -371,7 +391,9 @@ async function chat(messages, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-c
 
   let res;
   if (isNgrokUrl(base)) {
-    res = await fetchWithRetry(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
+    // Open WebUI: /api/chat/completions first
+    res = await fetchWithRetry(base + '/api/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
+    if (res.status === 404) res = await fetchWithRetry(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
     if (res.status === 404) res = await fetchWithRetry(base + '/v1/responses', { method: 'POST', headers, body: JSON.stringify(responsesBody), signal: controller.signal });
     if (res.status === 404) res = await fetchWithRetry(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
   } else {
