@@ -147,11 +147,12 @@ async function callAgentImpl(prompt, systemPrompt, baseUrl, model, apiKey) {
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
   const headers = getOllamaHeaders(base, apiKey);
 
-  const generateBody = { model: model || 'llama3.1:8b', prompt: systemPrompt + '\n\n' + prompt, stream: false };
+  const generateBody = { model: model || 'llama3.1:8b', prompt: systemPrompt + '\n\n' + prompt, stream: true, options: { num_ctx: 4096, num_predict: 1024 } };
   const chatBody = {
     model: model || 'llama3.1:8b',
     messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }],
-    stream: false
+    stream: true,
+    options: { num_ctx: 4096, num_predict: 1024 }
   };
   const openaiBody = { model: model || 'llama3.1:8b', messages: chatBody.messages, stream: false };
   const responsesBody = { model: model || 'llama3.1:8b', input: systemPrompt + '\n\n' + prompt };

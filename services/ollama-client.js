@@ -122,10 +122,11 @@ confidence must be 0-100. Higher = more certain the trade will be profitable. Om
     const chatBody = {
       model: model || 'llama3.1:8b',
       messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }],
-      stream: false
+      stream: true,
+      options: { num_ctx: 4096, num_predict: 256 }
     };
-    const openaiBody = { model: model || 'llama3.1:8b', messages: chatBody.messages, stream: false };
-    const generateBody = { model: model || 'llama3.1:8b', prompt: systemPrompt + '\n\n' + prompt, stream: false };
+    const openaiBody = { model: model || 'llama3.1:8b', messages: chatBody.messages };
+    const generateBody = { model: model || 'llama3.1:8b', prompt: systemPrompt + '\n\n' + prompt, stream: true, options: { num_ctx: 4096, num_predict: 256 } };
     const responsesBody = { model: model || 'llama3.1:8b', input: systemPrompt + '\n\n' + prompt };
 
     const doFetch = (path, body) => isNgrokUrl(base)
@@ -418,8 +419,8 @@ async function chatImpl(messages, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', 
   const headers = getHeaders(base, apiKey);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120000); // 2 min for chat (large models)
-  const chatBody = { model: model || 'llama3.1:8b', messages, stream: false };
-  const openaiBody = { model: model || 'llama3.1:8b', messages, stream: false };
+  const chatBody = { model: model || 'llama3.1:8b', messages, stream: true, options: { num_ctx: 4096, num_predict: 512 } };
+  const openaiBody = { model: model || 'llama3.1:8b', messages };
   const lastUser = messages.filter(m => m.role === 'user').pop();
   const responsesBody = { model: model || 'llama3.1:8b', input: (lastUser && lastUser.content) || '' };
 
