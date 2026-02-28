@@ -73,8 +73,8 @@ async function runChat(userId, messages, deps, opts = {}) {
 
   const contextBlock = buildContextBlock(ctx, pulse);
   const systemContent = CHAT_SYSTEM + '\n\n---\nCurrent platform context (use this to answer):\n' + contextBlock;
-  // Cap context to ~5k chars to avoid slowing the model (big context = slow inference)
-  const systemContentTrimmed = systemContent.length > 5000 ? systemContent.slice(0, 5000) + '\n...[truncated]' : systemContent;
+  // Cap context to ~8k chars (5k was too aggressive, cut off trades)
+  const systemContentTrimmed = systemContent.length > 8000 ? systemContent.slice(0, 8000) + '\n...[truncated]' : systemContent;
 
   const fullMessages = [
     { role: 'system', content: systemContentTrimmed },
@@ -86,22 +86,28 @@ async function runChat(userId, messages, deps, opts = {}) {
     if (!text || !text.trim()) {
       console.warn('[LLMChat] Empty response, raw length:', fullMessages.reduce((a, m) => a + (m.content?.length || 0), 0), 'chars input');
     }
-    const result = { success: true, text: (text && text.trim()) || '(No response)' };
-
+    const result = { success: true };
+    let displayText = (text && text.trim()) || '';
     if (opts.executeActions && messages.length > 0) {
       const lastUser = messages.filter(m => m.role === 'user').pop();
       const userRequest = lastUser?.content?.trim();
       if (userRequest) {
         try {
-          // Brief pause so server can release resources before next LLM request
+          if (!displayText) displayText = 'Executing your request...';
           await new Promise(r => setTimeout(r, 2000));
           const agentResult = await runAgent(userId, deps, { userRequest, source: 'chat' });
+          if (agentResult?.success && displayText === 'Executing your request...') {
+            const actions = agentResult.actionsExecuted?.map(a => a.message).filter(Boolean);
+            displayText = actions?.length ? actions.join('; ') : (agentResult.reasoning || 'Done.');
+          }
           result.agentResult = agentResult;
         } catch (agentErr) {
           result.agentError = agentErr.message;
+          if (!displayText) displayText = 'Agent error: ' + agentErr.message;
         }
       }
     }
+    result.text = displayText || '(No response)';
 
     return result;
   } catch (err) {
@@ -111,6 +117,23 @@ async function runChat(userId, messages, deps, opts = {}) {
 
 function buildContextBlock(ctx, pulse) {
   const parts = [];
+
+  // Open trades first (most important for "close trade" etc.)
+  if (ctx.openTradesCount > 0) {
+    parts.push(`Open trades (${ctx.openTradesCount}):`);
+    ctx.openTrades.forEach(t => {
+      const badgeStr = t.badges?.length > 0 ? (t.badges.length > 3 ? `${t.badges[0]} x${t.badges.length}` : t.badges.join(',')) : '';
+      const tradeParts = [
+        `${t.symbol} ${t.direction} @ $${t.entryPrice?.toFixed(2)}`,
+        `P&L: $${(t.pnl || 0).toFixed(2)} (${(t.pnlPercent || 0).toFixed(1)}%)`,
+        `Score: ${t.score}`
+      ];
+      if (badgeStr) tradeParts.push(`Badges: ${badgeStr}`);
+      if (t.stopLoss) tradeParts.push(`SL: $${t.stopLoss.toFixed(2)}`);
+      parts.push(`  ${tradeParts.join(' | ')}`);
+    });
+    parts.push('');
+  }
 
   // Market pulse
   if (pulse) {
@@ -125,37 +148,37 @@ function buildContextBlock(ctx, pulse) {
     parts.push('');
   }
 
-  // Live signals (slimmed - full detail slows the model)
+  // Live signals with compact breakdown + indicators
   if (ctx.liveSignals && ctx.liveSignals.length > 0) {
     parts.push('Live signals (top 5):');
     ctx.liveSignals.slice(0, 5).forEach(s => {
-      parts.push(`  ${s.symbol} ${s.signal} score=${s.score} conf=${s.confidence ?? '?'} RR=${s.riskReward?.toFixed(2) ?? '?'}`);
+      const bd = s.scoreBreakdown ? ` [${[s.scoreBreakdown.trend,s.scoreBreakdown.momentum,s.scoreBreakdown.volume,s.scoreBreakdown.structure].map(v=>v??'?').join(',')}]` : '';
+      const ind = s.indicators ? ` RSI=${s.indicators.rsi?.toFixed(0)??'?'} ADX=${s.indicators.adx?.toFixed(0)??'?'}` : '';
+      parts.push(`  ${s.symbol} ${s.signal} ${s.score} conf=${s.confidence??'?'} RR=${s.riskReward?.toFixed(2)??'?'}${bd}${ind}`);
     });
     parts.push('');
+  }
+
+  // Strategy weights (compact)
+  if (ctx.strategyWeights && ctx.strategyWeights.length > 0) {
+    parts.push('Strategy perf: ' + ctx.strategyWeights.slice(0, 5).map(sw => `${sw.strategyId}: ${sw.performance?.totalTrades ?? 0}t WR=${(sw.performance?.winRate ?? 0).toFixed(0)}%`).join('; '));
+  }
+
+  // Last backtest (one line)
+  if (ctx.lastBacktest) {
+    parts.push(`Backtest: ${ctx.lastBacktest.days}d ${ctx.lastBacktest.totalTrades}t WR=${ctx.lastBacktest.winRate}% PnL=${ctx.lastBacktest.totalPnlPercent}%`);
+  }
+
+  // Features on/off
+  if (ctx.featureToggles) {
+    const on = Object.entries(ctx.featureToggles).filter(([, v]) => v === true).map(([k]) => k).slice(0, 8);
+    if (on.length) parts.push(`Features ON: ${on.join(', ')}`);
   }
 
   // Balance and stats (slimmed)
   parts.push(`Balance: $${(ctx.balance || 0).toLocaleString()} (return ${ctx.initialBalance > 0 ? ((ctx.balance - ctx.initialBalance) / ctx.initialBalance * 100).toFixed(1) : '0'}%)`);
   if (ctx.stats && (ctx.stats.wins != null || ctx.stats.totalTrades != null)) {
     parts.push(`Stats: ${ctx.stats.wins ?? 0}W/${ctx.stats.losses ?? 0}L, WR ${ctx.stats.winRate ?? 0}%, PnL $${(ctx.stats.totalPnl ?? 0).toFixed(0)}`);
-  }
-
-  // Open trades with badges
-  if (ctx.openTradesCount > 0) {
-    parts.push(`\nOpen trades (${ctx.openTradesCount}):`);
-    ctx.openTrades.forEach(t => {
-      const tradeParts = [
-        `${t.symbol} ${t.direction} @ $${t.entryPrice?.toFixed(2)}`,
-        `P&L: $${(t.pnl || 0).toFixed(2)} (${(t.pnlPercent || 0).toFixed(1)}%)`,
-        `Score: ${t.score}`
-      ];
-      if (t.llmConfidence) tradeParts.push(`LLM_conf: ${t.llmConfidence}`);
-      if (t.badges && t.badges.length > 0) tradeParts.push(`Badges: [${t.badges.join(',')}]`);
-      if (t.timeHeld) tradeParts.push(`Held: ${t.timeHeld}`);
-      if (t.stopLoss) tradeParts.push(`SL: $${t.stopLoss.toFixed(2)}`);
-      parts.push(`  ${tradeParts.join(' | ')}`);
-    });
-    parts.push('');
   }
 
   // Recent closed (last 5)
