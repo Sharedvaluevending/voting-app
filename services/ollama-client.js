@@ -422,7 +422,7 @@ async function chatImpl(messages, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', 
   const headers = getHeaders(base, apiKey);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120000); // 2 min for chat (large models)
-  const chatBody = { model: model || 'llama3.1:8b', messages, stream: true, options: { num_ctx: 4096, num_predict: 512 } };
+  const chatBody = { model: model || 'llama3.1:8b', messages, stream: true, options: { num_ctx: 4096, num_predict: 1024 } };
   const openaiBody = { model: model || 'llama3.1:8b', messages };
   const lastUser = messages.filter(m => m.role === 'user').pop();
   const responsesBody = { model: model || 'llama3.1:8b', input: (lastUser && lastUser.content) || '' };
