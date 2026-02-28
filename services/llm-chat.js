@@ -87,6 +87,8 @@ async function runChat(userId, messages, deps, opts = {}) {
       const userRequest = lastUser?.content?.trim();
       if (userRequest) {
         try {
+          // Brief pause so server can release resources before next LLM request
+          await new Promise(r => setTimeout(r, 2000));
           const agentResult = await runAgent(userId, deps, { userRequest, source: 'chat' });
           result.agentResult = agentResult;
         } catch (agentErr) {

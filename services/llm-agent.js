@@ -14,6 +14,7 @@
  */
 
 const fetch = require('node-fetch');
+const { enqueue } = require('./ollama-queue');
 
 const TIMEOUT_MS = 90000; // 90s for agent (backtest + weight ops can be slow)
 const NGROK_429_RETRIES = 3;
@@ -138,6 +139,9 @@ function getOllamaHeaders(baseUrl, apiKey) {
 }
 
 async function callAgent(prompt, systemPrompt, baseUrl, model, apiKey) {
+  return enqueue(() => callAgentImpl(prompt, systemPrompt, baseUrl, model, apiKey));
+}
+async function callAgentImpl(prompt, systemPrompt, baseUrl, model, apiKey) {
   const base = baseUrl.replace(/\/$/, '');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -167,7 +171,7 @@ async function callAgent(prompt, systemPrompt, baseUrl, model, apiKey) {
   }
 
   clearTimeout(timeout);
-  if (!res.ok) throw new Error(res.status === 429 ? 'ngrok rate limit (429). Free tier: 4k req/min.' : `Ollama ${res.status}`);
+  if (!res.ok) throw new Error(res.status === 429 ? 'Rate limit (429). Server throttling. Wait and retry.' : `Ollama ${res.status}`);
   const data = await res.json();
   return data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
 }

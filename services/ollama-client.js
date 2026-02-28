@@ -8,6 +8,7 @@
  */
 
 const fetch = require('node-fetch');
+const { enqueue } = require('./ollama-queue');
 
 const DEFAULT_URL = 'http://localhost:11434';
 const TIMEOUT_MS = 45000; // 45s for trade approval (large models can be slow)
@@ -76,6 +77,9 @@ async function fetchWithRetry(url, opts, retries = NGROK_429_RETRIES) {
  * @returns {Promise<{approve: boolean, confidence: number, reasoning: string, overrides?: Object}>}
  */
 async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud', apiKey) {
+  return enqueue(() => approveTradeImpl(ctx, baseUrl, model, apiKey));
+}
+async function approveTradeImpl(ctx, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud', apiKey) {
   const base = baseUrl.replace(/\/$/, '');
   const prompt = buildPrompt(ctx);
   const systemPrompt = `You are an expert crypto trading risk advisor. Analyze the trade candidate using ALL provided data: score, confidence, score breakdown by dimension, reasoning from the scoring engine, indicators, market conditions, strategy historical performance, portfolio state, and risk/reward.
@@ -143,7 +147,7 @@ confidence must be 0-100. Higher = more certain the trade will be profitable. Om
     clearTimeout(timeout);
 
     if (!res.ok) {
-      const msg = res.status === 429 ? 'ngrok rate limit (429). Free tier: 4k req/min. Try paid plan or reduce LLM usage.' : `LLM error: ${res.status}`;
+      const msg = res.status === 429 ? 'Rate limit (429). Server is throttling requests. Wait a minute and try again.' : `LLM error: ${res.status}`;
       console.warn('[Ollama]', res.status, res.statusText, base.includes('ngrok') ? msg : '');
       return { approve: false, confidence: 0, reasoning: msg };
     }
@@ -365,7 +369,7 @@ async function checkOllamaReachable(baseUrl = DEFAULT_URL, apiKey) {
   const statusText = res.statusText || '';
   let error = `${res.status} ${statusText}`;
   if (res.status === 429) {
-    error += ' — ngrok rate limit. Free tier: 4k req/min. Wait or upgrade.';
+    error += ' — Rate limit. Server throttling. Wait a minute and retry.';
   } else if (res.status === 502) {
     error += ' — ngrok can\'t reach Ollama. Is Ollama running? (ollama run qwen3-coder:480b-cloud)';
   } else if (res.status === 404) {
@@ -380,6 +384,9 @@ async function checkOllamaReachable(baseUrl = DEFAULT_URL, apiKey) {
  * Chat with Ollama (multi-turn). messages = [{role, content}, ...]
  */
 async function chat(messages, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud', apiKey) {
+  return enqueue(() => chatImpl(messages, baseUrl, model, apiKey));
+}
+async function chatImpl(messages, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud', apiKey) {
   const base = baseUrl.replace(/\/$/, '');
   const headers = getHeaders(base, apiKey);
   const controller = new AbortController();
@@ -401,7 +408,7 @@ async function chat(messages, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-c
   }
   clearTimeout(timeout);
   if (!res.ok) {
-    const msg = res.status === 429 ? 'ngrok rate limit (429). Free tier: 4k req/min.' : `Ollama ${res.status}`;
+    const msg = res.status === 429 ? 'Rate limit (429). Server throttling. Wait and retry.' : `Ollama ${res.status}`;
     throw new Error(msg);
   }
   const data = await res.json();
