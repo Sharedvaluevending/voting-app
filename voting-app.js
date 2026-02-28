@@ -3478,6 +3478,126 @@ app.get('/api/ollama/status', requireLogin, async (req, res) => {
 });
 
 // ====================================================
+// AUTO-TRADE DEBUG: Diagnose why no trades are opening
+// ====================================================
+app.get('/api/auto-trade-debug', requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId).lean();
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const autoTradeOn = user.settings?.autoTrade === true;
+    const minScore = user.settings?.autoTradeMinScore ?? user.liveTrading?.autoOpenMinScore ?? 56;
+    const maxOpen = user.settings?.maxOpenTrades || 3;
+    const cooldownHours = user.settings?.cooldownHours ?? 6;
+    const llmEnabled = user.settings?.llmEnabled === true;
+    const mode = user.settings?.autoTradeCoinsMode || (user.settings?.autoTradeTopMarketPick ? 'tracked+top1' : 'tracked');
+
+    const openTrades = await Trade.find({ userId: user._id, status: 'OPEN' }).lean();
+    const openCount = openTrades.length;
+    const cooldownMs = cooldownHours * 3600 * 1000;
+    const recentTrades = await Trade.find({
+      userId: user._id,
+      status: { $ne: 'OPEN' },
+      closedAt: { $gte: new Date(Date.now() - cooldownMs) }
+    }).select('coinId direction exitTime').lean();
+
+    const [prices, allCandles, allHistory] = await Promise.all([
+      fetchAllPrices(),
+      Promise.resolve(fetchAllCandles()),
+      fetchAllHistory()
+    ]);
+
+    let signals = [];
+    if (mode === 'tracked' || mode === 'tracked+top1') {
+      const options = await buildEngineOptions(prices, allCandles, allHistory, user);
+      signals = analyzeAllCoins(prices, allCandles, allHistory, options) || [];
+    }
+    if (mode === 'tracked+top1' || mode === 'top1') {
+      try {
+        const { getTop1ForAutoTrade } = require('./services/market-scanner');
+        const top1 = getTop1ForAutoTrade();
+        if (top1 && top1.coin && (top1.score || 0) >= minScore) {
+          const dir = (top1.signal === 'STRONG_BUY' || top1.signal === 'BUY') ? 'LONG' : (top1.signal === 'STRONG_SELL' || top1.signal === 'SELL') ? 'SHORT' : null;
+          if (dir) signals.push({ ...top1, _overallScore: top1.score, _direction: dir, _coinId: top1.coin.id });
+        }
+      } catch (e) { /* ignore */ }
+    }
+
+    const signalsWithDir = signals.map(sig => {
+      const coinId = sig.coin?.id || sig.id;
+      let direction = null;
+      if (sig.topStrategies?.length) {
+        for (const s of sig.topStrategies) {
+          if (['STRONG_BUY','BUY','STRONG_SELL','SELL'].includes(s.signal)) {
+            direction = s.signal.includes('BUY') ? 'LONG' : 'SHORT';
+            break;
+          }
+        }
+      }
+      if (!direction && (sig.signal === 'STRONG_BUY' || sig.signal === 'BUY')) direction = 'LONG';
+      if (!direction && (sig.signal === 'STRONG_SELL' || sig.signal === 'SELL')) direction = 'SHORT';
+      return { ...sig, _overallScore: sig.score || 0, _direction: direction, _coinId: coinId };
+    });
+
+    const actionableCount = signalsWithDir.filter(s => s._direction && (s._overallScore || 0) >= minScore).length;
+    const openCoinIds = openTrades.map(t => t.coinId);
+    const cooldownSet = new Set(recentTrades.map(t => `${t.coinId}_${t.direction}`));
+    const excluded = user.excludedCoins || [];
+    const minRr = (user.settings?.minRiskRewardEnabled ?? true) ? (Number(user.settings?.minRiskReward) || 1.2) : 0;
+
+    const blockedReasons = [];
+    if (!autoTradeOn) blockedReasons.push('Auto-trade is OFF. Enable it in Performance settings.');
+    if (openCount >= maxOpen) blockedReasons.push(`Max open trades (${maxOpen}) reached. Close a trade first.`);
+    if (!prices || prices.length === 0) blockedReasons.push('No price data. API may be down or cold start.');
+    if (signals.length === 0) blockedReasons.push(`No signals from engine. Mode=${mode}. Check candles/history.`);
+    if (actionableCount === 0 && signals.length > 0) blockedReasons.push(`No signals meet minScore ${minScore} or all are HOLD.`);
+    if (llmEnabled) blockedReasons.push('LLM approval is ON. Ollama may be rejecting trades. Try disabling to test.');
+
+    const topSignals = signalsWithDir
+      .filter(s => s._direction)
+      .sort((a, b) => (b._overallScore || 0) - (a._overallScore || 0))
+      .slice(0, 10)
+      .map(s => {
+        const rr = s.riskReward ?? s.topStrategies?.[0]?.riskReward ?? 0;
+        return {
+          coin: s._coinId,
+          score: s._overallScore,
+          direction: s._direction,
+          signal: s.signal,
+          riskReward: rr,
+          blockedBy: [
+            (s._overallScore || 0) < minScore ? `score<${minScore}` : null,
+            openCoinIds.includes(s._coinId) ? 'already_open' : null,
+            cooldownSet.has(`${s._coinId}_${s._direction}`) ? 'cooldown' : null,
+            excluded.includes(s._coinId) ? 'excluded' : null,
+            minRr > 0 && rr < minRr ? `rr<${minRr}` : null
+          ].filter(Boolean)
+        };
+      });
+
+    res.json({
+      autoTradeOn,
+      mode,
+      minScore,
+      maxOpen,
+      openCount,
+      cooldownHours,
+      llmEnabled,
+      pricesCount: prices?.length || 0,
+      signalsCount: signals.length,
+      actionableCount,
+      recentTradesInCooldown: recentTrades.length,
+      blockedReasons,
+      topSignals,
+      suggestion: blockedReasons.length > 0 ? blockedReasons[0] : (topSignals.length === 0 ? 'No actionable signals. Try lowering minScore to 52 or shortening cooldown.' : 'Signals exist. If still no trades: check Expectancy Filter (Feature Toggles), LLM rejection, or correlation filter.')
+    });
+  } catch (err) {
+    console.error('[AutoTrade-Debug]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ====================================================
 // AUTO-TRADE: Periodically scan signals for users with autoTrade enabled
 // Opens paper trades (and live if Bitget connected) automatically
 // when signal score meets threshold. Runs every 2 minutes.
