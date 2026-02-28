@@ -19,6 +19,12 @@ function isNgrokUrl(url) {
   return url && (url.includes('ngrok-free') || url.includes('ngrok.io') || url.includes('ngrok'));
 }
 
+function isRemoteUrl(url) {
+  if (!url) return false;
+  const u = url.toLowerCase();
+  return !u.includes('localhost') && !u.includes('127.0.0.1');
+}
+
 function getHeaders(baseUrl, apiKey) {
   const h = { 'Content-Type': 'application/json' };
   if (apiKey && typeof apiKey === 'string' && apiKey.trim()) {
@@ -26,7 +32,7 @@ function getHeaders(baseUrl, apiKey) {
     h['X-API-Key'] = key;
     h['Authorization'] = 'Bearer ' + key; // Open WebUI uses Bearer
   }
-  if (isNgrokUrl(baseUrl)) {
+  if (isNgrokUrl(baseUrl) || isRemoteUrl(baseUrl)) {
     h['ngrok-skip-browser-warning'] = '1';
     h['User-Agent'] = 'VotingApp-Ollama/1.0';
   }
@@ -399,11 +405,11 @@ async function chatImpl(messages, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', 
   const responsesBody = { model: model || 'llama3.1:8b', input: (lastUser && lastUser.content) || '' };
 
   let res;
-  if (isNgrokUrl(base)) {
-    // Open WebUI: /api/chat/completions first
-    res = await fetchWithRetry(base + '/api/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
-    if (res.status === 404) res = await fetchWithRetry(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiBody), signal: controller.signal });
-    if (res.status === 404) res = await fetchWithRetry(base + '/v1/responses', { method: 'POST', headers, body: JSON.stringify(responsesBody), signal: controller.signal });
+  if (isNgrokUrl(base) || isRemoteUrl(base)) {
+    // Open WebUI / remote: try OpenAI-compat paths first (non-stream for reliability)
+    const openaiNoStream = { ...openaiBody, stream: false };
+    res = await fetchWithRetry(base + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiNoStream), signal: controller.signal });
+    if (res.status === 404) res = await fetchWithRetry(base + '/api/chat/completions', { method: 'POST', headers, body: JSON.stringify(openaiNoStream), signal: controller.signal });
     if (res.status === 404) res = await fetchWithRetry(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
   } else {
     res = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBody), signal: controller.signal });
