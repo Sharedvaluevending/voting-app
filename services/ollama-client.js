@@ -456,6 +456,22 @@ async function chatImpl(messages, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', 
   } catch (parseErr) {
     text = parseNdjsonContent(raw);
   }
+  if (!text && !isNgrokUrl(base)) {
+    const c2 = new AbortController();
+    const t2 = setTimeout(() => c2.abort(), 120000);
+    const chatBodyNoStream = { model: chatBody.model, messages: chatBody.messages, stream: false, options: chatBody.options };
+    const res2 = await fetch(base + '/api/chat', { method: 'POST', headers, body: JSON.stringify(chatBodyNoStream), signal: c2.signal });
+    clearTimeout(t2);
+    if (res2.ok) {
+      const raw2 = await res2.text();
+      try {
+        const data = JSON.parse(raw2);
+        text = data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
+      } catch (e) {
+        text = parseNdjsonContent(raw2);
+      }
+    }
+  }
   return text;
 }
 
