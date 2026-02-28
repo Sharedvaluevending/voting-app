@@ -208,53 +208,24 @@ function buildPrompt(ctx) {
 
   if (ctx.scoreBreakdown) {
     const sb = ctx.scoreBreakdown;
-    parts.push(`- Score Breakdown: trend=${sb.trend ?? '?'}, momentum=${sb.momentum ?? '?'}, volume=${sb.volume ?? '?'}, structure=${sb.structure ?? '?'}, volatility=${sb.volatility ?? '?'}, riskQuality=${sb.riskQuality ?? '?'}`);
+    parts.push(`- Breakdown: T=${sb.trend ?? '?'}, M=${sb.momentum ?? '?'}, V=${sb.volume ?? '?'}, S=${sb.structure ?? '?'}, Vol=${sb.volatility ?? '?'}, Risk=${sb.riskQuality ?? '?'}`);
   }
 
   if (ctx.timeframes) {
     const tf = ctx.timeframes;
-    parts.push(`- Timeframe Scores: 1H=${tf['1H'] ?? '?'}, 4H=${tf['4H'] ?? '?'}, 1D=${tf['1D'] ?? '?'}`);
-  }
-
-  if (ctx.reasoning && Array.isArray(ctx.reasoning) && ctx.reasoning.length > 0) {
-    parts.push(`- Engine Reasoning: ${ctx.reasoning.join('; ')}`);
+    parts.push(`- TFs: 1H=${tf['1H'] ?? '?'}, 4H=${tf['4H'] ?? '?'}, 1D=${tf['1D'] ?? '?'}`);
   }
 
   if (ctx.indicators) {
     const ind = ctx.indicators;
-    const indParts = [];
-    if (ind.rsi != null) indParts.push(`RSI=${ind.rsi.toFixed(1)}`);
-    if (ind.adx != null) indParts.push(`ADX=${ind.adx.toFixed(1)}`);
-    if (ind.trendDirection) indParts.push(`trend=${ind.trendDirection}`);
-    if (ind.volatilityState) indParts.push(`vol=${ind.volatilityState}`);
-    if (ind.fundingRate != null) indParts.push(`funding=${(ind.fundingRate * 100).toFixed(4)}%`);
-    if (ind.relativeVolume != null) indParts.push(`relVol=${ind.relativeVolume.toFixed(1)}x`);
-    if (ind.bbSqueeze) indParts.push('BB_SQUEEZE');
-    if (ind.marketStructure) indParts.push(`structure=${ind.marketStructure}`);
-    if (indParts.length > 0) parts.push(`- Indicators: ${indParts.join(', ')}`);
-  }
-
-  if (ctx.entry != null) parts.push(`- Entry: $${ctx.entry.toFixed(2)}`);
-  if (ctx.stopLoss != null) parts.push(`- Stop Loss: $${ctx.stopLoss.toFixed(2)}`);
-  if (ctx.takeProfit1 != null) parts.push(`- Take Profit 1: $${ctx.takeProfit1.toFixed(2)}`);
-  if (ctx.takeProfit2 != null) parts.push(`- Take Profit 2: $${ctx.takeProfit2.toFixed(2)}`);
-  if (ctx.takeProfit3 != null) parts.push(`- Take Profit 3: $${ctx.takeProfit3.toFixed(2)}`);
-
-  if (ctx.userDefaults) {
-    const ud = ctx.userDefaults;
-    parts.push(`- User defaults: tpMode=${ud.tpMode || 'fixed'}, trailingTpDistanceMode=${ud.trailingTpDistanceMode || 'atr'}, trailingTpAtrMultiplier=${ud.trailingTpAtrMultiplier ?? 1.5}, trailingTpFixedPercent=${ud.trailingTpFixedPercent ?? 2}, useFixedLeverage=${ud.useFixedLeverage ?? false}, leverage=${ud.defaultLeverage ?? 2}`);
-  }
-  if (ctx.atr != null && ctx.atr > 0) {
-    parts.push(`- ATR: $${ctx.atr.toFixed(6)} (for trailing TP distance)`);
+    parts.push(`- Ind: RSI=${ind.rsi?.toFixed(0) ?? '?'}, ADX=${ind.adx?.toFixed(0) ?? '?'}, ${ind.trendDirection || ''}, ${ind.volatilityState || ''}`);
   }
 
   if (ctx.marketPulse) {
     const mp = ctx.marketPulse;
-    const mpParts = [];
-    if (mp.fearGreed?.value != null) mpParts.push(`Fear&Greed=${mp.fearGreed.value} (${mp.fearGreed.classification || ''})`);
-    if (mp.global?.btcDominance != null) mpParts.push(`BTC_dom=${mp.global.btcDominance.toFixed(1)}%`);
-    if (mp.global?.marketCapChange24h != null) mpParts.push(`mcap_24h=${mp.global.marketCapChange24h >= 0 ? '+' : ''}${mp.global.marketCapChange24h.toFixed(2)}%`);
-    if (mpParts.length > 0) parts.push(`- Market Conditions: ${mpParts.join(', ')}`);
+    const fg = mp.fearGreed;
+    const g = mp.global || {};
+    parts.push(`- Market: F&G ${fg?.value ?? '?'} (${fg?.classification || ''}), BTC ${g.btcDominance?.toFixed(0)}%, ETH ${g.ethDominance?.toFixed(0)}%`);
   }
 
   if (ctx.strategyPerformance) {

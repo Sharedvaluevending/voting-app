@@ -621,16 +621,26 @@ async function updateTradeLevels(userId, tradeId, updates, currentPrice) {
   const entry = trade.entryPrice;
   const isLong = trade.direction === 'LONG';
 
-  const validate = (val, mustBeAbove) => {
+  const validateTP = (val, isLong) => {
     if (val == null || !Number.isFinite(val) || val <= 0) return null;
-    if (mustBeAbove && val <= entry) return null;
-    if (!mustBeAbove && val >= entry) return null;
+    if (isLong && val <= entry) return null;
+    if (!isLong && val >= entry) return null;
+    return val;
+  };
+
+  const validateSL = (val, isLong) => {
+    if (val == null || !Number.isFinite(val) || val <= 0) return null;
+    // Allow SL in profit (trailing), but ensure it doesn't immediately trigger
+    if (currentPrice && Number.isFinite(currentPrice) && currentPrice > 0) {
+      if (isLong && val >= currentPrice) return null; // SL must be below current price for LONG
+      if (!isLong && val <= currentPrice) return null; // SL must be above current price for SHORT
+    }
     return val;
   };
 
   let changed = false;
   if (updates.stopLoss != null && Number.isFinite(updates.stopLoss)) {
-    const newSl = validate(updates.stopLoss, !isLong); // LONG: SL below entry; SHORT: SL above entry
+    const newSl = validateSL(updates.stopLoss, isLong);
     if (newSl != null) {
       const oldSl = trade.stopLoss;
       trade.stopLoss = Math.round(newSl * 1000000) / 1000000;
@@ -645,21 +655,21 @@ async function updateTradeLevels(userId, tradeId, updates, currentPrice) {
     }
   }
   if (updates.takeProfit1 != null && Number.isFinite(updates.takeProfit1)) {
-    const newTp = validate(updates.takeProfit1, isLong);
+    const newTp = validateTP(updates.takeProfit1, isLong);
     if (newTp != null) {
       trade.takeProfit1 = Math.round(newTp * 1000000) / 1000000;
       changed = true;
     }
   }
   if (updates.takeProfit2 != null && Number.isFinite(updates.takeProfit2)) {
-    const newTp = validate(updates.takeProfit2, isLong);
+    const newTp = validateTP(updates.takeProfit2, isLong);
     if (newTp != null) {
       trade.takeProfit2 = Math.round(newTp * 1000000) / 1000000;
       changed = true;
     }
   }
   if (updates.takeProfit3 != null && Number.isFinite(updates.takeProfit3)) {
-    const newTp = validate(updates.takeProfit3, isLong);
+    const newTp = validateTP(updates.takeProfit3, isLong);
     if (newTp != null) {
       trade.takeProfit3 = Math.round(newTp * 1000000) / 1000000;
       changed = true;

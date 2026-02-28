@@ -17,7 +17,7 @@ const fetch = require('node-fetch');
 const { enqueue } = require('./ollama-queue');
 const { parseNdjsonContent } = require('./ollama-client');
 
-const TIMEOUT_MS = 90000; // 90s for agent (backtest + weight ops can be slow)
+const TIMEOUT_MS = 120000; // 120s for agent (remote models can be slow)
 const NGROK_429_RETRIES = 3;
 const NGROK_429_WAIT_MS = 30000;
 
@@ -920,97 +920,49 @@ async function saveAgentLog(userId, result, opts = {}) {
 // ====================================================
 
 function buildSystemPrompt() {
-  return `You are an autonomous crypto trading AI with FULL control over the platform. You have access to every signal, every setting, every strategy weight, and every trade. Your goal is to maximize profitability while managing risk.
+  return `You are an autonomous crypto trading AI. You have FULL control over the platform.
+GOAL: Maximize profitability while managing risk.
 
-You have access to:
-1. Live signals with scores, CONFIDENCE (0-100), score breakdowns (trend/momentum/volume/structure/volatility/riskQuality), per-timeframe scores (1H/4H/1D), indicators (RSI, ADX, etc.), and engine reasoning
-2. Open trades with live P&L, action badges (BE=breakeven, TS=trailing stop, LOCK=profit locked, PP=partial profit, RP=reduced position, EXIT=auto-closed, DCA=averaged), stops, TPs, time held, drawdown/profit peaks
-3. Strategy weights from the learning engine (7 strategies with dimension weights and regime performance)
-4. ALL feature toggles (turn on/off any trading feature)
-5. Full performance stats (by strategy, by regime, streaks, drawdown)
-6. Market conditions (Fear & Greed, BTC dominance, market cap changes)
-7. Score history (how scores evolved over time for each coin)
-8. Regime timeline (trending/ranging/volatile/compression/mixed changes over time)
-9. Coin weights (boost/reduce allocation per coin)
+CONTEXT:
+1. Live signals with scores, CONFIDENCE (0-100), breakdowns (trend/momentum/volume/structure), indicators.
+2. Open trades (P&L, badges: BE=breakeven, TS=trailing, RP=reduced, EXIT=closed).
+3. Strategy weights (learning engine) and performance stats.
+4. Feature toggles (turn on/off features).
+5. Market conditions (Fear & Greed, BTC dominance).
 
-DECISION FRAMEWORK - Use ALL of these factors, not just score:
-- CONFIDENCE: High score + low confidence = unreliable, skip or reduce size
-- Score Breakdown: All dimensions aligned (good) vs carried by one dimension (risky)
-- Timeframe Agreement: 1H/4H/1D should agree for strong conviction
-- Strategy Performance: Check if strategy is profitable in current regime via strategyWeights
-- Action Badges: Trades with BE/TS already triggered are safer; trades with RP/EXIT signals are in trouble
-- Reasoning: The engine provides reasoning - use it to understand WHY the score is what it is
-- Market Conditions: Fear & Greed < 20 (extreme fear) = potential opportunity, > 80 = caution
-- Regime: Match strategy to regime (trend_follow in trending, mean_revert in ranging, etc.)
-- Coin Weights: Allocate more to historically profitable coins
+DECISION LOGIC:
+- CONFIDENCE: High score + low confidence = unreliable.
+- BREAKDOWN: All dimensions aligned is best.
+- REGIME: Match strategy to regime (e.g. Trend Following in 'trending').
+- BADGES: Respect existing trade states (BE, TS).
+- MARKET: Fear < 20 = opportunity? Fear > 80 = caution?
 
-FEATURE TOGGLE STRATEGY for backtesting:
-- Turn features on/off to test different configurations
-- Run backtest after toggling to measure impact
-- Compare results to find optimal configuration
-- Key toggles: featurePartialTP, autoMoveBreakeven, autoTrailingStop, featureLockIn, featureScoreRecheck, featureKellySizing, featureConfidenceSizing, dcaEnabled
-
-WEIGHT ADJUSTMENT STRATEGY:
-- Check strategy performance by regime
-- If a strategy has 20+ trades and win rate < 40% in a regime, reduce its weights for that dimension
-- If a strategy has 15+ trades and win rate > 60%, boost its weights
-- Use adjust_weight to directly set dimension weights (trend/momentum/volume/structure/volatility/riskQuality)
-- Each weight: 5-45, all must sum to 100
-- Use optimize_strategy to let the engine auto-adjust based on historical performance
-
-Reply ONLY with valid JSON in this exact format (no other text):
+OUTPUT FORMAT:
+Reply ONLY with valid JSON. No markdown. No explanations outside JSON.
 {
-  "reasoning": "Detailed explanation of analysis and decisions (reference specific data points)",
+  "reasoning": "Detailed analysis referencing specific data points",
   "actions": [
-    { "tool": "change_setting", "key": "settingName", "value": numberOrBooleanOrString },
+    { "tool": "change_setting", "key": "settingName", "value": "val" },
     { "tool": "toggle_feature", "feature": "featureName", "enabled": true },
-    { "tool": "run_backtest", "days": 14, "overrides": { "featurePartialTP": false } },
-    { "tool": "open_trade", "coinId": "ethereum", "direction": "LONG", "confidence": 85, "reasoning": "Why this trade" },
-    { "tool": "close_trade", "tradeId": "id", "reason": "LLM_RISK_EXIT" },
+    { "tool": "open_trade", "coinId": "btc", "direction": "LONG", "confidence": 85, "reasoning": "..." },
+    { "tool": "close_trade", "tradeId": "id", "reason": "RISK_EXIT" },
     { "tool": "reduce_position", "tradeId": "id", "percent": 50 },
-    { "tool": "adjust_weight", "strategyId": "trend_follow", "weights": { "trend": 35, "momentum": 25, "volume": 10, "structure": 15, "volatility": 10, "riskQuality": 5 } },
-    { "tool": "optimize_strategy", "strategyId": "breakout" },
-    { "tool": "reset_learning" },
-    { "tool": "set_coin_weight", "coinId": "bitcoin", "weight": 1.2 },
-    { "tool": "exclude_coin", "coinId": "dogecoin" },
-    { "tool": "include_coin", "coinId": "ethereum" },
+    { "tool": "adjust_weight", "strategyId": "trend_follow", "weights": { "trend": 30, "momentum": 30, "volume": 20, "structure": 20 } },
     { "tool": "move_stop_loss", "tradeId": "id", "stopLoss": 95000 },
     { "tool": "move_to_breakeven", "tradeId": "id" },
-    { "tool": "update_take_profit", "tradeId": "id", "takeProfit1": 100000, "takeProfit2": 105000 }
+    { "tool": "update_take_profit", "tradeId": "id", "takeProfit1": 100000 }
   ]
 }
 
-Available tools:
+TOOLS:
+- change_setting: riskPerTrade, maxOpenTrades, autoTradeMinScore, cooldownHours, defaultLeverage, autoTrade, llmEnabled
+- toggle_feature: featurePartialTP, autoMoveBreakeven, autoTrailingStop, featureLockIn, featureScoreRecheck, dcaEnabled
+- open_trade, close_trade, reduce_position
+- move_stop_loss, move_to_breakeven, update_take_profit
+- adjust_weight, reset_learning
+- set_coin_weight, exclude_coin, include_coin
 
-SETTINGS (change_setting):
-- Numeric: riskPerTrade (0.5-10), riskDollarsPerTrade (10-10000), maxOpenTrades (1-10), autoTradeMinScore (30-95), cooldownHours (0-168), defaultLeverage (1-20), minRiskReward (1-5), maxDailyLossPercent (0-20), drawdownThresholdPercent (5-50), minVolume24hUsd (0-500M), minExpectancy (-1 to 2), dcaMaxAdds (1-10), dcaDipPercent (0.5-20), dcaMinScore (30-95), llmAgentIntervalMinutes (5-1440)
-- Enum: autoTradeCoinsMode (tracked|tracked+top1|top1), riskMode (percent|dollar), tpMode (fixed|trailing), trailingTpDistanceMode (atr|fixed), autoTradeSignalMode (original|indicators|both), coinWeightStrength (conservative|moderate|aggressive)
-- Boolean: autoTrade, llmEnabled, autoMoveBreakeven, autoTrailingStop, paperLiveSync, useFixedLeverage, disableLeverage, coinWeightEnabled, llmAgentEnabled, and all feature toggles
-
-FEATURE TOGGLES (toggle_feature): feature = one of: ${BOOLEAN_SETTINGS.join(', ')}. enabled = true/false
-
-BACKTEST (run_backtest): days=7-30, optional overrides={} to test specific settings
-
-LEARNING ENGINE:
-- adjust_weight: strategyId (trend_follow|breakout|mean_revert|momentum|scalping|swing|position), weights={trend,momentum,volume,structure,volatility,riskQuality} (5-45 each, sum to 100)
-- optimize_strategy: strategyId - auto-adjust weights based on performance data
-- reset_learning: reset all weights and performance data to defaults
-
-TRADE MANAGEMENT:
-- open_trade: coinId, direction (LONG|SHORT), confidence (0-100), reasoning (string). Only for coins with actionable signals
-- close_trade: tradeId, reason (optional custom close reason)
-- reduce_position: tradeId, percent (10-99)
-- move_stop_loss: tradeId, stopLoss (price)
-- move_to_breakeven: tradeId
-- update_take_profit: tradeId, takeProfit1/takeProfit2/takeProfit3
-
-COIN MANAGEMENT:
-- set_coin_weight: coinId, weight (0.1-3.0, 1.0=normal, >1=more allocation, <1=less)
-- exclude_coin: coinId
-- include_coin: coinId
-
-If no changes needed, use "actions": [].
-IMPORTANT: Always provide detailed reasoning that references specific data points (scores, confidence, breakdown, regime, strategy performance, market pulse, etc.)`;
+If no action needed, return "actions": [].`;
 }
 
 // ====================================================
@@ -1043,80 +995,54 @@ async function runAgent(userId, deps, opts = {}) {
 
   const promptParts = [
     `Current state:`,
-    `- Balance: $${ctx.balance.toFixed(2)} (initial $${ctx.initialBalance.toFixed(2)}, return ${((ctx.balance - ctx.initialBalance) / ctx.initialBalance * 100).toFixed(2)}%)`,
+    `- Balance: $${ctx.balance.toFixed(0)} (Ret: ${((ctx.balance - ctx.initialBalance) / ctx.initialBalance * 100).toFixed(1)}%)`,
     `- Stats: ${JSON.stringify(ctx.stats)}`,
-    `- Open trades (${ctx.openTradesCount}): ${JSON.stringify(ctx.openTrades)}`,
-    `- Recent closed trades (last ${ctx.recentTrades.length}): ${JSON.stringify(ctx.recentTrades)}`
+    `- Open trades (${ctx.openTradesCount}): ${JSON.stringify(ctx.openTrades.map(t => ({ id: t.tradeId, s: t.symbol, pnl: t.pnl.toFixed(0), score: t.score })))}`,
+    `- Recent: ${JSON.stringify(ctx.recentTrades.slice(0, 3).map(t => ({ s: t.symbol, pnl: t.pnl.toFixed(0) })))}`
   ];
 
-  // All current settings
+  // All current settings (compact)
   const s = ctx.settings;
-  promptParts.push(`- Settings: riskPerTrade=${s.riskPerTrade ?? 2}, riskMode=${s.riskMode || 'percent'}, riskDollarsPerTrade=${s.riskDollarsPerTrade ?? 200}, maxOpenTrades=${s.maxOpenTrades ?? 3}, autoTradeMinScore=${s.autoTradeMinScore ?? 56}, autoTrade=${s.autoTrade ?? false}, cooldownHours=${s.cooldownHours ?? 6}, defaultLeverage=${s.defaultLeverage ?? 2}, useFixedLeverage=${s.useFixedLeverage ?? false}, disableLeverage=${s.disableLeverage ?? false}, tpMode=${s.tpMode || 'fixed'}, autoTradeCoinsMode=${s.autoTradeCoinsMode || 'tracked'}, minRiskReward=${s.minRiskReward ?? 1.2}`);
+  promptParts.push(`- Settings: risk=${s.riskPerTrade ?? 2}%, maxTr=${s.maxOpenTrades ?? 3}, minSc=${s.autoTradeMinScore ?? 56}, auto=${s.autoTrade ?? false}, cd=${s.cooldownHours ?? 6}h, lev=${s.defaultLeverage ?? 2}x`);
 
-  // Feature toggle state
+  // Feature toggle state (compact)
   if (ctx.featureToggles) {
-    const togglesOn = Object.entries(ctx.featureToggles).filter(([, v]) => v === true).map(([k]) => k);
-    const togglesOff = Object.entries(ctx.featureToggles).filter(([, v]) => v === false).map(([k]) => k);
-    promptParts.push(`- Features ON: ${togglesOn.join(', ') || 'none'}`);
-    promptParts.push(`- Features OFF: ${togglesOff.join(', ') || 'none'}`);
+    const on = Object.entries(ctx.featureToggles).filter(([, v]) => v === true).map(([k]) => k.replace('feature', ''));
+    promptParts.push(`- Features ON: ${on.join(',') || 'none'}`);
   }
 
-  // Strategy weights and performance from learning engine
+  // Strategy weights (compact)
   if (ctx.strategyWeights && ctx.strategyWeights.length > 0) {
-    promptParts.push(`- Strategy Weights (learning engine):`);
-    for (const sw of ctx.strategyWeights) {
-      const p = sw.performance;
-      promptParts.push(`  ${sw.strategyId}: weights=${JSON.stringify(sw.weights)}, ${p.totalTrades}trades WR=${p.winRate.toFixed(1)}% avgRR=${p.avgRR.toFixed(2)} PF=${p.profitFactor.toFixed(2)} byRegime=${JSON.stringify(p.byRegime)}`);
-    }
+    promptParts.push(`- Strat wts: ` + ctx.strategyWeights.map(sw => `${sw.strategyId.slice(0, 3)}=${JSON.stringify(sw.weights)} WR=${sw.performance?.winRate.toFixed(0)}%`).join('; '));
   }
 
   // Coin weights
   if (ctx.coinWeights) {
-    promptParts.push(`- Coin Weights (${ctx.coinWeights.strength}): ${JSON.stringify(ctx.coinWeights.weights)}`);
+    promptParts.push(`- Coin wts: ${JSON.stringify(ctx.coinWeights.weights)}`);
   }
 
-  // Last backtest
-  promptParts.push(ctx.lastBacktest ? `- Last backtest: ${JSON.stringify(ctx.lastBacktest)}` : '- No backtest run yet.');
-
-  // Performance breakdowns
-  if (ctx.stats?.riskByStrategyRegime) {
-    const rbr = ctx.stats.riskByStrategyRegime;
-    if (Object.keys(rbr.byStrategy || {}).length || Object.keys(rbr.byRegime || {}).length) {
-      promptParts.push(`- Performance by strategy: ${JSON.stringify(rbr.byStrategy || {})}`);
-      promptParts.push(`- Performance by regime: ${JSON.stringify(rbr.byRegime || {})}`);
-    }
-  }
-  if (ctx.stats?.byStrategy && Object.keys(ctx.stats.byStrategy).length) {
-    promptParts.push(`- Win/loss by strategy: ${JSON.stringify(ctx.stats.byStrategy)}`);
-  }
-
-  // Market pulse
+  // Market pulse (compact)
   if (ctx.marketPulse) {
     const mp = ctx.marketPulse;
     const fg = mp.fearGreed;
     const g = mp.global || {};
-    promptParts.push(`- Market Pulse: Fear & Greed ${fg?.value ?? 'N/A'} (${fg?.classification ?? 'N/A'}), BTC dom ${g.btcDominance != null ? g.btcDominance.toFixed(1) + '%' : 'N/A'}, ETH dom ${g.ethDominance != null ? g.ethDominance.toFixed(1) + '%' : 'N/A'}, mcap 24h ${g.marketCapChange24h != null ? (g.marketCapChange24h >= 0 ? '+' : '') + g.marketCapChange24h.toFixed(2) + '%' : 'N/A'}`);
+    promptParts.push(`- Market: F&G ${fg?.value ?? '?'} (${fg?.classification ?? '?'}), BTC ${g.btcDominance?.toFixed(0)}%, ETH ${g.ethDominance?.toFixed(0)}%`);
   }
 
-  // Live signals (enriched)
+  // Live signals (enriched, compact)
   if (ctx.liveSignals && ctx.liveSignals.length > 0) {
     promptParts.push(`- Live signals (top ${ctx.liveSignals.length}):`);
     for (const sig of ctx.liveSignals) {
-      const parts = [`${sig.symbol} ${sig.signal} score=${sig.score}`];
+      const parts = [`${sig.symbol} ${sig.signal} sc=${sig.score}`];
       if (sig.confidence != null) parts.push(`conf=${sig.confidence}`);
-      if (sig.regime) parts.push(`regime=${sig.regime}`);
-      if (sig.strategyName) parts.push(`strat=${sig.strategyName}`);
-      if (sig.riskReward != null) parts.push(`RR=${sig.riskReward.toFixed(2)}`);
-      if (sig.scoreBreakdown) parts.push(`breakdown=${JSON.stringify(sig.scoreBreakdown)}`);
-      if (sig.timeframes) parts.push(`TFs=${JSON.stringify(sig.timeframes)}`);
+      if (sig.scoreBreakdown) parts.push(`bd=${JSON.stringify(sig.scoreBreakdown)}`);
       if (sig.indicators) parts.push(`ind=${JSON.stringify(sig.indicators)}`);
-      if (sig.reasoning) parts.push(`why: ${sig.reasoning}`);
       promptParts.push(`  ${parts.join(' | ')}`);
     }
 
     const actionable = ctx.liveSignals.filter(s => ['BUY', 'STRONG_BUY', 'SELL', 'STRONG_SELL'].includes(s.signal));
     if (actionable.length > 0) {
-      promptParts.push(`- Actionable for open_trade: ${JSON.stringify(actionable.map(s => ({ coinId: s.coinId, symbol: s.symbol, signal: s.signal, score: s.score, confidence: s.confidence, direction: (s.signal === 'BUY' || s.signal === 'STRONG_BUY') ? 'LONG' : 'SHORT' })))}`);
+      promptParts.push(`- Actionable: ${JSON.stringify(actionable.map(s => ({ coinId: s.coinId, sym: s.symbol, sig: s.signal, sc: s.score, conf: s.confidence, dir: (s.signal.includes('BUY')) ? 'LONG' : 'SHORT' })))}`);
     }
   }
 
