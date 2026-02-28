@@ -1297,6 +1297,9 @@ app.post('/account/settings', requireLogin, async (req, res) => {
     if (req.body.ollamaModel != null && typeof req.body.ollamaModel === 'string') {
       s.ollamaModel = req.body.ollamaModel.trim() || 'qwen3-coder:480b-cloud';
     }
+    if (req.body.ollamaApiKey != null && typeof req.body.ollamaApiKey === 'string') {
+      s.ollamaApiKey = req.body.ollamaApiKey.trim();
+    }
     if (req.body.llmAgentEnabled !== undefined) {
       const val = req.body.llmAgentEnabled;
       s.llmAgentEnabled = val === 'true' || (Array.isArray(val) && val.includes('true'));
@@ -3470,7 +3473,8 @@ app.post('/api/llm-agent/run', requireLogin, async (req, res) => {
 app.get('/api/ollama/status', requireLogin, async (req, res) => {
   try {
     const url = req.query.url || req.session?.ollamaUrl || 'http://localhost:11434';
-    const result = await checkOllamaReachable(url);
+    const apiKey = req.query.apiKey || req.session?.ollamaApiKey || '';
+    const result = await checkOllamaReachable(url, apiKey);
     res.json({ success: true, reachable: result.ok, error: result.error });
   } catch (err) {
     res.status(500).json({ success: false, reachable: false, error: err.message });
@@ -3903,7 +3907,7 @@ async function runAutoTrade() {
                   losses: user.stats?.losses || 0,
                   streak: user.stats?.currentStreak || 0
                 }
-              }, user.settings?.ollamaUrl || 'http://localhost:11434', user.settings?.ollamaModel || 'qwen3-coder:480b-cloud');
+              }, user.settings?.ollamaUrl || 'http://localhost:11434', user.settings?.ollamaModel || 'qwen3-coder:480b-cloud', user.settings?.ollamaApiKey || '');
 
               if (!llmResult.approve) {
                 console.log(`[AutoTrade] LLM rejected ${tradeData.symbol} ${sig._direction} for ${user.username}: ${llmResult.reasoning || 'no reason'}`);

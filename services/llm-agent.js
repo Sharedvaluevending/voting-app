@@ -125,8 +125,11 @@ function isNgrokUrl(url) {
   return url && (url.includes('ngrok-free') || url.includes('ngrok.io'));
 }
 
-function getOllamaHeaders(baseUrl) {
+function getOllamaHeaders(baseUrl, apiKey) {
   const h = { 'Content-Type': 'application/json' };
+  if (apiKey && typeof apiKey === 'string' && apiKey.trim()) {
+    h['X-API-Key'] = apiKey.trim();
+  }
   if (isNgrokUrl(baseUrl)) {
     h['ngrok-skip-browser-warning'] = '1';
     h['User-Agent'] = 'VotingApp-Ollama/1.0';
@@ -134,11 +137,11 @@ function getOllamaHeaders(baseUrl) {
   return h;
 }
 
-async function callAgent(prompt, systemPrompt, baseUrl, model) {
+async function callAgent(prompt, systemPrompt, baseUrl, model, apiKey) {
   const base = baseUrl.replace(/\/$/, '');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  const headers = getOllamaHeaders(base);
+  const headers = getOllamaHeaders(base, apiKey);
 
   const generateBody = { model: model || 'qwen3-coder:480b-cloud', prompt: systemPrompt + '\n\n' + prompt };
   const chatBody = {
@@ -948,6 +951,7 @@ async function runAgent(userId, deps, opts = {}) {
   if (!user) return { success: false, error: 'User not found' };
 
   const ollamaUrl = user.settings?.ollamaUrl || 'http://localhost:11434';
+  const ollamaApiKey = user.settings?.ollamaApiKey || '';
   const model = user.settings?.ollamaModel || 'qwen3-coder:480b-cloud';
 
   const extraDeps = {
@@ -1093,7 +1097,7 @@ Use confidence, score breakdown, and reasoning to make decisions — not just ra
 
   let text;
   try {
-    text = await callAgent(prompt, systemPrompt, ollamaUrl, model);
+    text = await callAgent(prompt, systemPrompt, ollamaUrl, model, ollamaApiKey);
   } catch (err) {
     const failResult = { success: false, error: err.message, at: new Date() };
     await saveAgentLog(userId, failResult, opts);

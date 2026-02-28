@@ -41,6 +41,7 @@ async function runChat(userId, messages, deps, opts = {}) {
   if (!user) return { success: false, error: 'User not found' };
 
   const ollamaUrl = user.settings?.ollamaUrl || 'http://localhost:11434';
+  const ollamaApiKey = user.settings?.ollamaApiKey || '';
   const model = user.settings?.ollamaModel || 'qwen3-coder:480b-cloud';
 
   const extraDeps = (deps.fetchAllPrices && deps.buildEngineOptions && deps.analyzeAllCoins)
@@ -78,7 +79,7 @@ async function runChat(userId, messages, deps, opts = {}) {
   ];
 
   try {
-    const text = await chat(fullMessages, ollamaUrl, model);
+    const text = await chat(fullMessages, ollamaUrl, model, ollamaApiKey);
     const result = { success: true, text: text || '(No response)' };
 
     if (opts.executeActions && messages.length > 0) {

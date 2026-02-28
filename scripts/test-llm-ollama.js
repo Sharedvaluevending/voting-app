@@ -6,6 +6,7 @@
 require('dotenv').config();
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+const OLLAMA_API_KEY = process.env.OLLAMA_API_KEY || '';
 
 async function test(name, fn) {
   const start = Date.now();
@@ -23,7 +24,7 @@ async function test(name, fn) {
 
 async function main() {
   console.log('\n=== LLM/Ollama connectivity & agent test ===\n');
-  console.log(`  URL: ${OLLAMA_URL}\n`);
+  console.log(`  URL: ${OLLAMA_URL}${OLLAMA_API_KEY ? ' (with API key)' : ''}\n`);
 
   let passed = 0;
   let failed = 0;
@@ -31,7 +32,7 @@ async function main() {
   // 1. Ollama reachable (/api/tags)
   const r1 = await test('Ollama reachable (GET /api/tags)', async () => {
     const { checkOllamaReachable } = require('../services/ollama-client');
-    const result = await checkOllamaReachable(OLLAMA_URL);
+    const result = await checkOllamaReachable(OLLAMA_URL, OLLAMA_API_KEY);
     if (!result.ok) throw new Error(result.error || 'Ollama not reachable');
     return 'connected';
   });
@@ -52,7 +53,7 @@ async function main() {
       strategy: 'Trend Following',
       regime: 'trending',
       riskReward: 1.8
-    }, OLLAMA_URL, 'qwen3-coder:480b-cloud');
+    }, OLLAMA_URL, 'qwen3-coder:480b-cloud', OLLAMA_API_KEY);
     if (result && typeof result === 'object' && 'approve' in result) {
       return `${result.approve ? 'approved' : 'rejected'} conf=${result.confidence} reason=${result.reasoning || 'none'}`;
     }

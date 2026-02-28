@@ -18,8 +18,11 @@ function isNgrokUrl(url) {
   return url && (url.includes('ngrok-free') || url.includes('ngrok.io'));
 }
 
-function getHeaders(baseUrl) {
+function getHeaders(baseUrl, apiKey) {
   const h = { 'Content-Type': 'application/json' };
+  if (apiKey && typeof apiKey === 'string' && apiKey.trim()) {
+    h['X-API-Key'] = apiKey.trim();
+  }
   if (isNgrokUrl(baseUrl)) {
     h['ngrok-skip-browser-warning'] = '1';
     h['User-Agent'] = 'VotingApp-Ollama/1.0';
@@ -67,9 +70,10 @@ async function fetchWithRetry(url, opts, retries = NGROK_429_RETRIES) {
  * @param {number} [ctx.atr] - ATR value for trailing TP (when trailingTpDistanceMode is atr)
  * @param {string} baseUrl
  * @param {string} model
+ * @param {string} [apiKey] - X-API-Key for Open WebUI / remote LLM
  * @returns {Promise<{approve: boolean, confidence: number, reasoning: string, overrides?: Object}>}
  */
-async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud') {
+async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud', apiKey) {
   const base = baseUrl.replace(/\/$/, '');
   const prompt = buildPrompt(ctx);
   const systemPrompt = `You are an expert crypto trading risk advisor. Analyze the trade candidate using ALL provided data: score, confidence, score breakdown by dimension, reasoning from the scoring engine, indicators, market conditions, strategy historical performance, portfolio state, and risk/reward.
@@ -107,7 +111,7 @@ confidence must be 0-100. Higher = more certain the trade will be profitable. Om
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    const headers = getHeaders(base);
+    const headers = getHeaders(base, apiKey);
 
     const chatBody = {
       model: model || 'qwen3-coder:480b-cloud',
@@ -325,10 +329,10 @@ function parseJsonResponse(text) {
 /**
  * Check if Ollama is reachable.
  */
-async function checkOllamaReachable(baseUrl = DEFAULT_URL) {
+async function checkOllamaReachable(baseUrl = DEFAULT_URL, apiKey) {
   try {
     const url = baseUrl.replace(/\/$/, '') + '/api/tags';
-    const headers = getHeaders(baseUrl);
+    const headers = getHeaders(baseUrl, apiKey);
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), 8000);
     const res = await fetch(url, { headers, signal: controller.signal });
@@ -355,9 +359,9 @@ async function checkOllamaReachable(baseUrl = DEFAULT_URL) {
 /**
  * Chat with Ollama (multi-turn). messages = [{role, content}, ...]
  */
-async function chat(messages, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud') {
+async function chat(messages, baseUrl = DEFAULT_URL, model = 'qwen3-coder:480b-cloud', apiKey) {
   const base = baseUrl.replace(/\/$/, '');
-  const headers = getHeaders(base);
+  const headers = getHeaders(base, apiKey);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120000); // 2 min for chat (large models)
   const chatBody = { model: model || 'qwen3-coder:480b-cloud', messages };

@@ -78,6 +78,7 @@ const userSchema = new mongoose.Schema({
     autoTradeMinScore: { type: Number, default: 56, min: 30, max: 95 },
     llmEnabled: { type: Boolean, default: false },
     ollamaUrl: { type: String, default: 'http://localhost:11434' },
+    ollamaApiKey: { type: String, default: '' },
     ollamaModel: { type: String, default: 'qwen3-coder:480b-cloud' },
     llmAgentEnabled: { type: Boolean, default: false },
     llmAgentIntervalMinutes: { type: Number, default: 60, min: 5, max: 1440 },
