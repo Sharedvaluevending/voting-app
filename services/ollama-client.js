@@ -335,16 +335,19 @@ function validateOverrides(overrides, ctx) {
   return Object.keys(out).length > 0 ? out : null;
 }
 
-/** Parse Ollama NDJSON stream, return concatenated message content */
+/** Parse Ollama/OpenAI NDJSON or SSE stream, return concatenated message content */
 function parseNdjsonContent(raw) {
   let out = '';
   for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
+    let trimmed = line.trim();
     if (!trimmed) continue;
+    if (trimmed.startsWith('data: ')) trimmed = trimmed.slice(6);
+    if (trimmed === '[DONE]' || trimmed === '') continue;
     try {
       const obj = JSON.parse(trimmed);
-      const c = obj.message?.content ?? obj.response ?? obj.output_text ?? obj.choices?.[0]?.message?.content ?? '';
-      if (c) out += c;
+      const c = obj.message?.content ?? obj.response ?? obj.output_text
+        ?? obj.choices?.[0]?.message?.content ?? obj.choices?.[0]?.delta?.content ?? '';
+      if (c && typeof c === 'string') out += c;
     } catch (e) { /* skip invalid lines */ }
   }
   return out;
@@ -440,16 +443,20 @@ async function chatImpl(messages, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', 
     throw new Error(msg);
   }
   const raw = await res.text();
+  let text = '';
   try {
     const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('x-ndjson') || contentType.includes('stream')) {
-      return parseNdjsonContent(raw);
+    if (contentType.includes('x-ndjson') || contentType.includes('stream') || raw.includes('\n')) {
+      text = parseNdjsonContent(raw);
     }
-    const data = JSON.parse(raw);
-    return data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
+    if (!text) {
+      const data = JSON.parse(raw);
+      text = data.message?.content || data.response || data.output_text || data.choices?.[0]?.message?.content || '';
+    }
   } catch (parseErr) {
-    return parseNdjsonContent(raw) || raw;
+    text = parseNdjsonContent(raw);
   }
+  return text;
 }
 
 module.exports = {
