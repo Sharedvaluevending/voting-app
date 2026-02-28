@@ -291,7 +291,7 @@
         </div>
         <div style="flex-basis:100%;margin-top:12px;padding-top:12px;border-top:1px solid #1e2a3a;">
           <h5 style="color:#8b5cf6;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px 0;">LLM Agent (Full Access)</h5>
-          <p style="font-size:11px;color:#6b7280;margin:0 0 8px 0;">Autonomous agent can change settings, run backtests, adjust risk per trade, move stops, and optimize. Uses same Ollama above.</p>
+          <p style="font-size:11px;color:#6b7280;margin:0 0 8px 0;">Autonomous agent can change settings, run backtests, adjust risk per trade, move stops, and optimize. <% if (typeof useDeepSeek !== 'undefined' && useDeepSeek) { %><strong>Using DeepSeek</strong> (DEEPSEEK_API_KEY set).<% } else { %>Uses same Ollama above.<% } %></p>
           <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:8px;">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="Leave on for 24/7 autonomous runs. Save the form to apply.">
               <input type="hidden" name="llmAgentEnabled" value="false">
@@ -300,7 +300,7 @@
             </label>
             <div>
               <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:2px;">Every (min)</label>
-              <input type="number" name="llmAgentIntervalMinutes" min="5" max="1440" value="<%= (user.settings && user.settings.llmAgentIntervalMinutes) || 60 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="How often to run (5–1440 min). 60 = hourly.">
+              <input type="number" name="llmAgentIntervalMinutes" min="5" max="1440" value="<%= (user.settings && user.settings.llmAgentIntervalMinutes) || 15 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="How often to run (5–1440 min). 15 = every 15 min.">
             </div>
             <% if (user.settings && user.settings.llmAgentEnabled) { %>
             <span style="font-size:11px;padding:4px 10px;background:rgba(16,185,129,0.2);color:#10b981;border-radius:6px;font-weight:600;">Running on schedule</span>

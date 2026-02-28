@@ -51,6 +51,40 @@ async function fetchWithRetry(url, opts, retries = NGROK_429_RETRIES) {
   return res;
 }
 
+const DEEPSEEK_URL = 'https://api.deepseek.com/v1/chat/completions';
+const DEEPSEEK_MODEL = 'deepseek-chat';
+
+/** Call DeepSeek API (OpenAI-compatible). messages = [{role, content}, ...]. Returns text. */
+async function callDeepSeek(messages, opts = {}) {
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key || typeof key !== 'string' || !key.trim()) {
+    throw new Error('DEEPSEEK_API_KEY not set');
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), opts.timeoutMs || 120000);
+  const res = await fetch(DEEPSEEK_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + key.trim()
+    },
+    body: JSON.stringify({
+      model: opts.model || DEEPSEEK_MODEL,
+      messages,
+      stream: false,
+      max_tokens: opts.maxTokens || 1024
+    }),
+    signal: controller.signal
+  });
+  clearTimeout(timeout);
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(res.status === 429 ? 'DeepSeek rate limit (429)' : `DeepSeek ${res.status}: ${err?.slice(0, 200) || res.statusText}`);
+  }
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || data.message?.content || '';
+}
+
 /**
  * Ask Ollama whether to approve opening a trade.
  * @param {Object} ctx - Trade context (enriched)
@@ -86,6 +120,47 @@ async function approveTrade(ctx, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', a
   return enqueue(() => approveTradeImpl(ctx, baseUrl, model, apiKey));
 }
 async function approveTradeImpl(ctx, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', apiKey) {
+  if (process.env.DEEPSEEK_API_KEY) {
+    const prompt = buildPrompt(ctx);
+    const systemPrompt = `You are an expert crypto trading risk advisor. Analyze the trade candidate using ALL provided data: score, confidence, score breakdown by dimension, reasoning from the scoring engine, indicators, market conditions, strategy historical performance, portfolio state, and risk/reward.
+
+Your job is to decide whether this trade should be opened AND assign a confidence level (0-100) for how good this trade is.
+
+OPTIONALLY, you may adjust trade parameters for this specific setup. If you approve, you can include an "overrides" object to tailor the trade for current conditions:
+- stopLoss: adjust price (e.g. wider in volatile markets, tighter in ranging)
+- takeProfit1, takeProfit2, takeProfit3: adjust TP levels
+- tpMode: "fixed" (use TP1/TP2/TP3) or "trailing" (ride trend with trailing ATR)
+- trailingTpDistanceMode: "atr" (dynamic) or "fixed" (fixed %)
+- trailingTpAtrMultiplier: 0.5-5 (only when tpMode=trailing and trailingTpDistanceMode=atr)
+- trailingTpFixedPercent: 0.5-10 (only when tpMode=trailing and trailingTpDistanceMode=fixed)
+- useFixedLeverage: true/false
+- leverage: 1-20 (when useFixedLeverage, or to override default)
+
+Reply ONLY with valid JSON:
+{"approve":true,"confidence":85,"reasoning":"...","overrides":{"stopLoss":95000,"tpMode":"trailing","trailingTpAtrMultiplier":2}}
+or
+{"approve":false,"confidence":30,"reasoning":"..."}
+
+confidence must be 0-100. Higher = more certain the trade will be profitable. Omit "overrides" when defaults are fine.`;
+    try {
+      const text = await callDeepSeek([{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }], { maxTokens: 256 });
+      const json = parseJsonResponse(text);
+      if (json) {
+        const confidence = Math.max(0, Math.min(100, Number(json.confidence) || 0));
+        const reasoning = json.reasoning || json.reason || '';
+        if (json.approve === true) {
+          const overrides = validateOverrides(json.overrides, ctx);
+          return { approve: true, confidence, reasoning, overrides };
+        }
+        return { approve: false, confidence, reasoning };
+      }
+      return { approve: false, confidence: 0, reasoning: 'Failed to parse DeepSeek response' };
+    } catch (err) {
+      console.warn('[DeepSeek]', err.message);
+      return { approve: false, confidence: 0, reasoning: `DeepSeek: ${err.message}` };
+    }
+  }
+
   const base = baseUrl.replace(/\/$/, '');
   const prompt = buildPrompt(ctx);
   const systemPrompt = `You are an expert crypto trading risk advisor. Analyze the trade candidate using ALL provided data: score, confidence, score breakdown by dimension, reasoning from the scoring engine, indicators, market conditions, strategy historical performance, portfolio state, and risk/reward.
@@ -395,6 +470,15 @@ async function chat(messages, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', apiK
   return enqueue(() => chatImpl(messages, baseUrl, model, apiKey));
 }
 async function chatImpl(messages, baseUrl = DEFAULT_URL, model = 'llama3.1:8b', apiKey) {
+  if (process.env.DEEPSEEK_API_KEY) {
+    try {
+      return await callDeepSeek(messages, { maxTokens: 1024 });
+    } catch (err) {
+      console.warn('[DeepSeek] chat:', err.message);
+      throw err;
+    }
+  }
+
   const base = baseUrl.replace(/\/$/, '');
   const headers = getHeaders(base, apiKey);
   const controller = new AbortController();
@@ -456,6 +540,7 @@ module.exports = {
   approveTrade,
   checkOllamaReachable,
   chat,
+  callDeepSeek,
   parseNdjsonContent,
   DEFAULT_URL
 };

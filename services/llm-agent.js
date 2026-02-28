@@ -15,7 +15,7 @@
 
 const fetch = require('node-fetch');
 const { enqueue } = require('./ollama-queue');
-const { parseNdjsonContent } = require('./ollama-client');
+const { parseNdjsonContent, callDeepSeek } = require('./ollama-client');
 
 const TIMEOUT_MS = 120000; // 120s for agent (remote models can be slow)
 const NGROK_429_RETRIES = 3;
@@ -152,6 +152,11 @@ async function callAgent(prompt, systemPrompt, baseUrl, model, apiKey) {
   return enqueue(() => callAgentImpl(prompt, systemPrompt, baseUrl, model, apiKey));
 }
 async function callAgentImpl(prompt, systemPrompt, baseUrl, model, apiKey) {
+  if (process.env.DEEPSEEK_API_KEY) {
+    const messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }];
+    return await callDeepSeek(messages, { maxTokens: 1024 });
+  }
+
   const base = baseUrl.replace(/\/$/, '');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);

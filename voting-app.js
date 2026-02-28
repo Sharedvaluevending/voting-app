@@ -1109,6 +1109,7 @@ app.get('/performance', requireLogin, async (req, res) => {
       journalAnalytics: journalAnalytics || { byEmotion: {}, byRules: { followed: { wins: 0, total: 0 }, broke: { wins: 0, total: 0 } } },
       savedStrategies: savedStrategies || [],
       balanceAudit,
+      useDeepSeek: !!process.env.DEEPSEEK_API_KEY,
       success: req.query.success || null,
       error: req.query.error || null
     });
@@ -1305,7 +1306,7 @@ app.post('/account/settings', requireLogin, async (req, res) => {
       s.llmAgentEnabled = val === 'true' || (Array.isArray(val) && val.includes('true'));
     }
     if (req.body.llmAgentIntervalMinutes != null) {
-      const v = Math.min(1440, Math.max(5, parseInt(req.body.llmAgentIntervalMinutes, 10) || 60));
+      const v = Math.min(1440, Math.max(5, parseInt(req.body.llmAgentIntervalMinutes, 10) || 15));
       s.llmAgentIntervalMinutes = v;
     }
     if (req.body.useFixedLeverage !== undefined) {

@@ -81,7 +81,7 @@ const userSchema = new mongoose.Schema({
     ollamaApiKey: { type: String, default: '' },
     ollamaModel: { type: String, default: 'llama3.1:8b' },
     llmAgentEnabled: { type: Boolean, default: false },
-    llmAgentIntervalMinutes: { type: Number, default: 60, min: 5, max: 1440 },
+    llmAgentIntervalMinutes: { type: Number, default: 15, min: 5, max: 1440 },
     // Which coins to auto-trade: 'tracked' (20 only), 'tracked+top1' (20 + top market pick), 'top1' (only top market pick)
     autoTradeCoinsMode: { type: String, enum: ['tracked', 'tracked+top1', 'top1'], default: 'tracked' },
     // Signal source: 'original' = scoring engine, 'indicators' = Strategy Builder rules, 'both' = either
