@@ -265,7 +265,8 @@
         <button type="button" id="setup-modal-close" style="background:none;border:none;color:#9ca3af;cursor:pointer;padding:4px;font-size:20px;line-height:1;" title="Close">&times;</button>
       </div>
       <div id="setup-modal-content">
-        <p style="color:#9ca3af;font-size:13px;margin:0 0 12px 0;line-height:1.6;">This SMC setup passed all required phases. The trade levels (Entry, SL, TP) are drawn on the chart. Relevant indicators (FVG, Order Blocks, Liquidity, Market Structure, Premium/Discount) are enabled.</p>
+        <p style="color:#9ca3af;font-size:13px;margin:0 0 12px 0;line-height:1.6;">This SMC setup passed all required phases. The trade levels are drawn on the chart. Relevant indicators (FVG, Order Blocks, Liquidity, Market Structure, Premium/Discount) are enabled.</p>
+        <div id="setup-trade-levels" style="margin-bottom:12px;padding:10px 12px;background:rgba(59,130,246,0.1);border-radius:6px;font-size:12px;font-variant-numeric:tabular-nums;"></div>
         <div id="setup-phases-list" style="margin-top:12px;"></div>
       </div>
     </div>
@@ -2103,9 +2104,22 @@
   var setupModal = document.getElementById('setup-explanation-modal');
   var setupModalClose = document.getElementById('setup-modal-close');
   var setupPhasesList = document.getElementById('setup-phases-list');
+  var setupTradeLevels = document.getElementById('setup-trade-levels');
   if (setupInfo && setupInfo.setupId && setupModal && setupPhasesList) {
     var setupName = setupInfo.setupName || setupInfo.setupId;
     var phases = setupInfo.phases || [];
+    if (setupTradeLevels && (levels.entry != null || levels.sl != null || levels.tp1 != null)) {
+      var fmt = function(v) { return v != null && Number.isFinite(v) ? '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : ''; };
+      var parts = [];
+      if (levels.entry != null) parts.push('Entry: ' + fmt(levels.entry));
+      if (levels.sl != null) parts.push('SL: ' + fmt(levels.sl));
+      if (levels.tp1 != null) parts.push('TP1: ' + fmt(levels.tp1));
+      if (levels.tp2 != null) parts.push('TP2: ' + fmt(levels.tp2));
+      if (levels.tp3 != null) parts.push('TP3: ' + fmt(levels.tp3));
+      setupTradeLevels.innerHTML = '<strong style="color:#93c5fd;">Trade levels:</strong> ' + parts.join(' &nbsp;|&nbsp; ');
+    } else if (setupTradeLevels) {
+      setupTradeLevels.style.display = 'none';
+    }
     setupPhasesList.innerHTML = '';
     if (phases.length > 0) {
       var phasesTitle = document.createElement('div');
@@ -2114,8 +2128,14 @@
       setupPhasesList.appendChild(phasesTitle);
       phases.forEach(function(p, i) {
         var div = document.createElement('div');
-        div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(16,185,129,0.1);border-radius:6px;margin-bottom:6px;font-size:12px;color:#e5e7eb;';
-        div.innerHTML = '<span style="color:#10b981;font-weight:700;">' + (i + 1) + '.</span> ' + (p.name || p.id || 'Phase ' + (i + 1));
+        div.style.cssText = 'padding:10px 12px;background:rgba(16,185,129,0.1);border-radius:6px;margin-bottom:8px;font-size:12px;color:#e5e7eb;border-left:3px solid #10b981;';
+        var namePart = '<div style="font-weight:600;margin-bottom:4px;"><span style="color:#10b981;font-weight:700;">' + (i + 1) + '.</span> ' + (p.name || p.id || 'Phase ' + (i + 1)) + '</div>';
+        var pricePart = '';
+        if (p.priceDetails && p.priceDetails.prices && p.priceDetails.prices.length > 0) {
+          pricePart = '<div style="font-size:11px;color:#93c5fd;font-variant-numeric:tabular-nums;">' + p.priceDetails.prices.join(' &nbsp;|&nbsp; ') + '</div>';
+          if (p.priceDetails.note) pricePart += '<div style="font-size:10px;color:#6b7280;margin-top:2px;">' + p.priceDetails.note + '</div>';
+        }
+        div.innerHTML = namePart + pricePart;
         setupPhasesList.appendChild(div);
       });
     }

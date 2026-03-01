@@ -21,7 +21,7 @@ const TRADE_SCENARIOS = {
       { id: 'entry_taken', name: 'Entry taken (confirmation candle)', check: 'entryConfirmation' },
       { id: 'target', name: 'Target at buy-side liquidity above', check: 'targetAtLiquidityAbove' }
     ],
-    shortVersion: ['poi', 'sell_side_draw', 'price_taps_zone', 'entry_taken']
+    shortVersion: ['liquidity_below', 'poi', 'sell_side_draw', 'price_taps_zone', 'entry_taken']
   },
 
   fvg_liquidity_short: {
@@ -39,7 +39,7 @@ const TRADE_SCENARIOS = {
       { id: 'entry_taken', name: 'Entry taken', check: 'entryConfirmation' },
       { id: 'target', name: 'Target at sell-side liquidity below', check: 'targetAtLiquidityBelow' }
     ],
-    shortVersion: ['poi', 'buy_side_draw', 'price_taps_zone', 'entry_taken']
+    shortVersion: ['liquidity_above', 'poi', 'buy_side_draw', 'price_taps_zone', 'entry_taken']
   },
 
   // === ACCUMULATION ===

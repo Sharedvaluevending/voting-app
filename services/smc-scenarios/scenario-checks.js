@@ -65,10 +65,15 @@ function runCheck(checkId, candles, analysis, direction) {
   const atr = candles.length >= 14 ? ATR_OHLC(highs, lows, closes, 14) : currentPrice * 0.01;
 
   switch (checkId) {
-    case 'liquidityClusterBelow':
-      return liq.below != null && currentPrice > liq.below;
-    case 'liquidityClusterAbove':
-      return liq.above != null && currentPrice < liq.above;
+    case 'liquidityClusterBelow': {
+      // Require liquidity within 4*ATR of price — swept liquidity should be relatively close
+      const distOk = liq.below != null && (currentPrice - liq.below) <= atr * 4;
+      return distOk && currentPrice > liq.below;
+    }
+    case 'liquidityClusterAbove': {
+      const distOk = liq.above != null && (liq.above - currentPrice) <= atr * 4;
+      return distOk && currentPrice < liq.above;
+    }
 
     // FIX #7: require recent structure shift (last 20 bars), not just current overall structure
     case 'structureShiftBull':
@@ -391,9 +396,146 @@ function fvgFormedAfterSweep(candles, analysis, fvgType) {
   return false;
 }
 
+/**
+ * Extract price details from analysis for a phase (for setup explanation popup).
+ * @param {string} checkId - e.g. 'liquidityClusterBelow'
+ * @param {Object} analysis - from analyzeOHLCV
+ * @returns {{ prices: string[], note?: string }}
+ */
+function getPhasePriceDetails(checkId, analysis) {
+  const fmt = (v) => v != null && Number.isFinite(v) ? '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : null;
+  const cp = analysis.currentPrice;
+  const liq = analysis.liquidityClusters || {};
+  const fvgs = analysis.fvgs || [];
+  const orderBlocks = analysis.orderBlocks || [];
+  const support = analysis.support;
+  const resistance = analysis.resistance;
+
+  const prices = [];
+  let note = '';
+
+  switch (checkId) {
+    case 'liquidityClusterBelow':
+      if (liq.below != null) prices.push('Liquidity below: ' + fmt(liq.below));
+      prices.push('Current price: ' + fmt(cp));
+      if (liq.below != null && cp != null) note = 'Distance: ' + ((cp - liq.below) / cp * 100).toFixed(2) + '%';
+      break;
+    case 'liquidityClusterAbove':
+      if (liq.above != null) prices.push('Liquidity above: ' + fmt(liq.above));
+      prices.push('Current price: ' + fmt(cp));
+      if (liq.above != null && cp != null) note = 'Distance: ' + ((liq.above - cp) / cp * 100).toFixed(2) + '%';
+      break;
+    case 'structureShiftBull':
+    case 'structureShiftBear':
+      prices.push('Price: ' + fmt(cp));
+      note = 'BOS in last 20 bars';
+      break;
+    case 'poiBullExists': {
+      const poiBull = orderBlocks.find(b => b.type === 'BULL') || fvgs.find(f => f.type === 'BULL');
+      if (poiBull) prices.push('POI zone: ' + fmt(Math.min(poiBull.top, poiBull.bottom)) + ' – ' + fmt(Math.max(poiBull.top, poiBull.bottom)));
+      prices.push('Price: ' + fmt(cp));
+      break;
+    }
+    case 'poiBearExists': {
+      const poiBear = orderBlocks.find(b => b.type === 'BEAR') || fvgs.find(f => f.type === 'BEAR');
+      if (poiBear) prices.push('POI zone: ' + fmt(Math.min(poiBear.top, poiBear.bottom)) + ' – ' + fmt(Math.max(poiBear.top, poiBear.bottom)));
+      prices.push('Price: ' + fmt(cp));
+      break;
+    }
+    case 'liquiditySweepBelow':
+    case 'sell_side_draw':
+      if (liq.below != null) prices.push('Swept level: ' + fmt(liq.below));
+      prices.push('Price (recovered): ' + fmt(cp));
+      break;
+    case 'liquiditySweepAbove':
+    case 'buy_side_draw':
+      if (liq.above != null) prices.push('Swept level: ' + fmt(liq.above));
+      prices.push('Price (recovered): ' + fmt(cp));
+      break;
+    case 'priceAtPOI':
+    case 'priceAtBullFVG':
+    case 'priceAtBearFVG':
+    case 'priceAtBullOB':
+    case 'priceAtBearOB':
+      const zone = orderBlocks.find(b => (checkId.includes('Bull') && b.type === 'BULL') || (checkId.includes('Bear') && b.type === 'BEAR')) || fvgs.find(f => (checkId.includes('Bull') && f.type === 'BULL') || (checkId.includes('Bear') && f.type === 'BEAR'));
+      if (zone) prices.push('Zone: ' + fmt(Math.min(zone.top, zone.bottom)) + ' – ' + fmt(Math.max(zone.top, zone.bottom)));
+      prices.push('Price: ' + fmt(cp));
+      break;
+    case 'entryConfirmation':
+      const last = analysis.closes && analysis.closes.length ? analysis.closes[analysis.closes.length - 1] : cp;
+      prices.push('Price: ' + fmt(last));
+      break;
+    case 'targetAtLiquidityAbove':
+      if (liq.above != null) prices.push('Target: ' + fmt(liq.above));
+      prices.push('Current: ' + fmt(cp));
+      break;
+    case 'targetAtLiquidityBelow':
+      if (liq.below != null) prices.push('Target: ' + fmt(liq.below));
+      prices.push('Current: ' + fmt(cp));
+      break;
+    case 'poiInDiscount':
+    case 'poiInPremium':
+    case 'priceInDiscount':
+    case 'priceInPremium':
+      if (support != null && resistance != null) prices.push('S/R: ' + fmt(support) + ' – ' + fmt(resistance));
+      prices.push('Price: ' + fmt(cp));
+      break;
+    case 'accumulationIdentified':
+    case 'distributionIdentified':
+      prices.push('Price: ' + fmt(cp));
+      break;
+    case 'manipulationSweep':
+    case 'manipulationSweepUp':
+      const lookback = Math.min(30, Math.floor((analysis.highs?.length || 0) / 2));
+      const lows = analysis.lows || [];
+      const highs = analysis.highs || [];
+      const rLow = lows.length ? Math.min(...lows.slice(-lookback)) : null;
+      const rHigh = highs.length ? Math.max(...highs.slice(-lookback)) : null;
+      if (checkId === 'manipulationSweep' && rLow != null) prices.push('Range low: ' + fmt(rLow));
+      if (checkId === 'manipulationSweepUp' && rHigh != null) prices.push('Range high: ' + fmt(rHigh));
+      prices.push('Price: ' + fmt(cp));
+      break;
+    case 'reversalCandleBull':
+    case 'reversalCandleBear':
+      prices.push('Price: ' + fmt(cp));
+      break;
+    case 'fvgBullPresent':
+    case 'fvgBearPresent':
+    case 'fvgInDiscount':
+    case 'fvgInPremium':
+    case 'inverseFVGAfterSweep':
+    case 'bearishFVGAfterSweep':
+    case 'entryAtFVG':
+    case 'entryAtBearFVG':
+      const fvg = fvgs.find(f => f.type === 'BULL' || f.type === 'BEAR');
+      if (fvg) prices.push('FVG: ' + fmt(Math.min(fvg.top, fvg.bottom)) + ' – ' + fmt(Math.max(fvg.top, fvg.bottom)));
+      prices.push('Price: ' + fmt(cp));
+      break;
+    case 'obBullPresent':
+    case 'obBearPresent':
+      const ob = orderBlocks.find(b => b.type === 'BULL' || b.type === 'BEAR');
+      if (ob) prices.push('OB: ' + fmt(Math.min(ob.top, ob.bottom)) + ' – ' + fmt(Math.max(ob.top, ob.bottom)));
+      prices.push('Price: ' + fmt(cp));
+      break;
+    case 'fvgObStackBull':
+    case 'fvgObStackBear':
+      const ob2 = orderBlocks[0];
+      const fvg2 = fvgs[0];
+      if (ob2) prices.push('OB: ' + fmt(Math.min(ob2.top, ob2.bottom)) + ' – ' + fmt(Math.max(ob2.top, ob2.bottom)));
+      if (fvg2) prices.push('FVG: ' + fmt(Math.min(fvg2.top, fvg2.bottom)) + ' – ' + fmt(Math.max(fvg2.top, fvg2.bottom)));
+      prices.push('Price: ' + fmt(cp));
+      break;
+    default:
+      prices.push('Price: ' + fmt(cp));
+  }
+
+  return { prices: prices.filter(Boolean), note };
+}
+
 // FIX #6: Raise threshold from 2 to 3 — only show setups with meaningful confluence
 /**
  * Score scenarios for a coin. Returns array of { scenarioId, name, direction, score, totalPhases, ready, phases }
+ * Each phase now includes priceDetails: { prices: string[], note?: string }
  */
 function scoreScenariosForCoin(candles, analysis) {
   const { getAllScenarios } = require('./scenario-definitions');
@@ -401,6 +543,10 @@ function scoreScenariosForCoin(candles, analysis) {
   for (const def of getAllScenarios()) {
     const result = evaluateScenario(candles, analysis, def.id);
     if (result.score >= 3) {
+      const phasesWithPrices = result.phases.map(p => {
+        const details = getPhasePriceDetails(p.check, analysis);
+        return { ...p, priceDetails: details };
+      });
       scenarios.push({
         scenarioId: def.id,
         name: def.name,
@@ -408,7 +554,7 @@ function scoreScenariosForCoin(candles, analysis) {
         score: result.score,
         totalPhases: result.phases.length,
         ready: result.ready,
-        phases: result.phases
+        phases: phasesWithPrices
       });
     }
   }
@@ -419,5 +565,6 @@ module.exports = {
   evaluateScenario,
   runCheck,
   scoreScenariosForCoin,
-  recentStructureShift
+  recentStructureShift,
+  getPhasePriceDetails
 };

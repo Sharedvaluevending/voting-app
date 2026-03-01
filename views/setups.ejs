@@ -258,7 +258,7 @@
                 if (sc.tp3 != null) chartHref += '&tp3=' + encodeURIComponent(sc.tp3);
                 chartHref += '&setupId=' + encodeURIComponent(sc.scenarioId || '');
                 chartHref += '&setupName=' + encodeURIComponent(sc.name || '');
-                var passedPhases = (sc.phases || []).filter(function(p) { return p.passed; }).map(function(p) { return { id: p.id, name: p.name }; });
+                var passedPhases = (sc.phases || []).filter(function(p) { return p.passed; }).map(function(p) { return { id: p.id, name: p.name, priceDetails: p.priceDetails || null }; });
                 chartHref += '&phases=' + encodeURIComponent(JSON.stringify(passedPhases));
                 chartBtnText = 'View Chart';
               }
