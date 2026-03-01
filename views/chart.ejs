@@ -442,7 +442,7 @@
   var currentTF = '1h';
   var CHART_INDICATOR_STORAGE_KEY = 'chartIndicatorPrefs';
   function getIndicatorDefaults() {
-    var hasTrade = !!(tradeId && (levels.entry != null || levels.sl != null));
+    var hasTrade = !!(levels.entry != null || levels.sl != null || levels.tp1 != null || levels.tp2 != null || levels.tp3 != null);
     return {
       bb: false, ma: false, keltner: false, donchian: false, fib: false,
       badges: false, patterns: false, chartPatterns: false, sr: false, poc: false, pivots: false,
@@ -461,6 +461,10 @@
     return getIndicatorDefaults();
   }
   var indicatorPrefs = loadIndicatorPrefs();
+  // If levels were passed in the URL, always show trade levels regardless of saved prefs
+  if (levels.entry != null || levels.sl != null || levels.tp1 != null || levels.tp2 != null || levels.tp3 != null) {
+    indicatorPrefs.tradeLevels = true;
+  }
   var showBB = indicatorPrefs.bb;
   var showMA = indicatorPrefs.ma;
   var showKeltner = indicatorPrefs.keltner;
