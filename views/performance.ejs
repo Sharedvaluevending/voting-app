@@ -188,11 +188,16 @@
         </div>
         <div>
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Signal source</label>
-          <select name="autoTradeSignalMode" id="autoTradeSignalMode" title="Original = scoring engine. Indicators = Strategy Builder. Both = either can trigger." onchange="var v=this.value; document.getElementById('autoTradeBothLogicWrap').style.display=v==='both'?'block':'none'; document.getElementById('autoTradeStrategyWrap').style.display=(v==='indicators'||v==='both')?'block':'none';" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
+          <select name="autoTradeSignalMode" id="autoTradeSignalMode" title="Original = scoring engine. Indicators = Strategy Builder. Setups = SMC trade scenarios. Both = either can trigger." onchange="var v=this.value; document.getElementById('autoTradeBothLogicWrap').style.display=v==='both'?'block':'none'; document.getElementById('autoTradeStrategyWrap').style.display=(v==='indicators'||v==='both')?'block':'none'; document.getElementById('autoTradeSetupsWrap').style.display=(v==='setups'||v==='both')?'block':'none';" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
             <option value="original" <%= (user.settings && user.settings.autoTradeSignalMode) === 'original' ? 'selected' : !user.settings?.autoTradeSignalMode ? 'selected' : '' %>>Original (scoring engine)</option>
             <option value="indicators" <%= (user.settings && user.settings.autoTradeSignalMode) === 'indicators' ? 'selected' : '' %>>Strategy Builder (indicators)</option>
+            <option value="setups" <%= (user.settings && user.settings.autoTradeSignalMode) === 'setups' ? 'selected' : '' %>>Setups (SMC scenarios)</option>
             <option value="both" <%= (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'selected' : '' %>>Both (OR or AND)</option>
           </select>
+        </div>
+        <div id="autoTradeSetupsWrap" style="display:<%= (user.settings && user.settings.autoTradeSignalMode) === 'setups' || (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'block' : 'none' %>;">
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Enabled setups</label>
+          <p style="font-size:11px;color:#6b7280;margin:0 0 8px 0;">Enable setups on the <a href="/setups" style="color:#3b82f6;">Setups</a> page. When signal source is Setups, auto-trade uses only those setups.</p>
         </div>
         <div id="autoTradeStrategyWrap" style="display:<%= (user.settings && user.settings.autoTradeSignalMode) === 'indicators' || (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'block' : 'none' %>;">
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Strategy (for indicators)</label>

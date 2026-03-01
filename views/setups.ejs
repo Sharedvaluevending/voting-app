@@ -1,0 +1,266 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Setups</h2>
+  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Smart Money Concepts (SMC) trade scenarios. Pick a setup to backtest, run live/paper, or scan the market for active setups.</p>
+</div>
+
+<div class="section" style="margin-bottom:20px;padding:16px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;">
+  <h3 style="color:#eab308;font-size:12px;margin:0 0 8px 0;text-transform:uppercase;">How it works</h3>
+  <p style="font-size:12px;color:#9ca3af;margin:0;line-height:1.6;">Each setup is a phased checklist (FVG, liquidity, structure shift, POI, etc.). <strong>Backtest</strong> to see win rate and ROI. <strong>Scan Market</strong> to find coins with active setups. <strong>Enable</strong> to use setups for paper/live auto-trade (Performance page).</p>
+</div>
+
+<div class="section" style="margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;overflow-x:auto;backdrop-filter:blur(8px);">
+  <h3 style="color:#e5e7eb;margin:0 0 12px 0;padding:16px 16px 0;">Setup List</h3>
+  <table class="data-table" style="background:rgba(15,23,42,0.4);">
+    <thead>
+      <tr style="border-bottom:1px solid #334155;">
+        <th style="text-align:left;padding:12px 16px;color:#9ca3af;">Setup</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Dir</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Win Rate</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">ROI</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Max DD</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Trades</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="setups-tbody">
+      <% setups.forEach(function(s) {
+        var stats = setupStats[s.id] || {};
+        var wr = stats.winRate != null ? stats.winRate.toFixed(1) : '—';
+        var roi = stats.totalPnlPercent != null ? (stats.totalPnlPercent >= 0 ? '+' : '') + stats.totalPnlPercent.toFixed(1) + '%' : '—';
+        var dd = stats.maxDrawdownPct != null ? stats.maxDrawdownPct.toFixed(1) + '%' : '—';
+        var trades = stats.totalTrades != null ? stats.totalTrades : '—';
+        var isEnabled = (user && user.settings && user.settings.autoTradeSetupIds || []).indexOf(s.id) >= 0;
+      %>
+      <tr style="border-bottom:1px solid rgba(30,42,58,0.5);" data-setup-id="<%= s.id %>">
+        <td style="padding:12px 16px;">
+          <div style="font-weight:600;color:#e5e7eb;"><%= s.name %></div>
+          <div style="font-size:11px;color:#6b7280;margin-top:2px;"><%= s.description %></div>
+        </td>
+        <td style="text-align:center;padding:12px 16px;">
+          <span style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:<%= s.direction === 'LONG' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' %>;color:<%= s.direction === 'LONG' ? '#10b981' : '#ef4444' %>;"><%= s.direction %></span>
+        </td>
+        <td style="text-align:center;padding:12px 16px;color:<%= wr !== '—' && parseFloat(wr) > 50 ? '#10b981' : wr !== '—' ? '#eab308' : '#6b7280' %>;font-weight:600;"><%= wr %><%= wr !== '—' ? '%' : '' %></td>
+        <td style="text-align:center;padding:12px 16px;color:<%= roi !== '—' && roi.indexOf('+') >= 0 ? '#10b981' : roi !== '—' ? '#ef4444' : '#6b7280' %>;"><%= roi %></td>
+        <td style="text-align:center;padding:12px 16px;color:#eab308;"><%= dd %></td>
+        <td style="text-align:center;padding:12px 16px;color:#9ca3af;"><%= trades %></td>
+        <td style="padding:12px 16px;">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-outline btn-sm setup-backtest" data-id="<%= s.id %>" data-name="<%= s.name %>" style="padding:6px 10px;">Backtest</button>
+            <button type="button" class="btn btn-outline btn-sm setup-scan" data-id="<%= s.id %>" style="padding:6px 10px;">Scan</button>
+            <% if (typeof user !== 'undefined' && user) { %>
+            <button type="button" class="btn btn-sm setup-enable <%= isEnabled ? 'btn-primary' : 'btn-outline' %>" data-id="<%= s.id %>" data-enabled="<%= isEnabled %>" style="padding:6px 10px;"><%= isEnabled ? 'Enabled' : 'Enable' %></button>
+            <% } %>
+          </div>
+        </td>
+      </tr>
+      <% }); %>
+    </tbody>
+  </table>
+</div>
+
+<!-- Backtest Modal -->
+<div id="setup-backtest-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:24px;max-width:480px;width:100%;">
+    <h3 style="color:#e5e7eb;margin:0 0 16px 0;">Backtest: <span id="bt-setup-name"></span></h3>
+    <form id="setup-backtest-form" style="display:grid;gap:12px;">
+      <input type="hidden" id="bt-setup-id" name="setupId">
+      <div>
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Coin</label>
+        <select id="bt-coin" name="coinId" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+          <% (TRACKED_COINS || ['bitcoin','ethereum','solana']).forEach(function(cid) { %>
+          <option value="<%= cid %>"><%= cid %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Start</label>
+          <input type="date" id="bt-start" name="startDate" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">End</label>
+          <input type="date" id="bt-end" name="endDate" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button type="button" id="bt-30d" class="btn btn-outline btn-sm">30d</button>
+        <button type="button" id="bt-90d" class="btn btn-outline btn-sm">90d</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button type="submit" class="btn btn-primary" id="bt-run">Run Backtest</button>
+        <button type="button" class="btn btn-outline" id="bt-close">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Backtest Results -->
+<div id="setup-bt-results" class="section" style="display:none;margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;padding:16px;">
+  <h3 style="color:#e5e7eb;margin:0 0 12px 0;">Backtest Results</h3>
+  <div id="bt-summary" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-bottom:16px;"></div>
+  <div style="max-height:200px;overflow-y:auto;">
+    <table class="data-table" style="background:rgba(15,23,42,0.4);">
+      <thead><tr><th>#</th><th>Direction</th><th>Entry</th><th>Exit</th><th>PnL</th></tr></thead>
+      <tbody id="bt-trades"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Market Scan Results -->
+<div id="setup-scan-results" class="section" style="display:none;margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;padding:16px;">
+  <h3 style="color:#e5e7eb;margin:0 0 12px 0;">Market Scan Results</h3>
+  <p id="scan-status" style="font-size:12px;color:#9ca3af;margin-bottom:12px;">Scanning...</p>
+  <div style="overflow-x:auto;">
+    <table class="data-table" style="background:rgba(15,23,42,0.4);">
+      <thead><tr><th>Coin</th><th>Setup</th><th>Score</th><th>Ready</th><th>Chart</th></tr></thead>
+      <tbody id="scan-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="setup-error" style="display:none;padding:12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;color:#ef4444;margin-top:16px;"></div>
+
+<script>
+(function() {
+  var csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+  function setDefaultDates() {
+    var end = new Date();
+    var start = new Date(end);
+    start.setDate(start.getDate() - 30);
+    document.getElementById('bt-end').value = end.toISOString().slice(0,10);
+    document.getElementById('bt-start').value = start.toISOString().slice(0,10);
+  }
+  setDefaultDates();
+
+  document.getElementById('bt-30d').addEventListener('click', function() {
+    var end = new Date();
+    var start = new Date(end);
+    start.setDate(start.getDate() - 30);
+    document.getElementById('bt-end').value = end.toISOString().slice(0,10);
+    document.getElementById('bt-start').value = start.toISOString().slice(0,10);
+  });
+  document.getElementById('bt-90d').addEventListener('click', function() {
+    var end = new Date();
+    var start = new Date(end);
+    start.setDate(start.getDate() - 90);
+    document.getElementById('bt-end').value = end.toISOString().slice(0,10);
+    document.getElementById('bt-start').value = start.toISOString().slice(0,10);
+  });
+
+  document.querySelectorAll('.setup-backtest').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.getElementById('bt-setup-id').value = this.dataset.id;
+      document.getElementById('bt-setup-name').textContent = this.dataset.name;
+      document.getElementById('setup-backtest-modal').style.display = 'flex';
+    });
+  });
+
+  document.getElementById('bt-close').addEventListener('click', function() {
+    document.getElementById('setup-backtest-modal').style.display = 'none';
+  });
+
+  document.getElementById('setup-backtest-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var btn = document.getElementById('bt-run');
+    btn.disabled = true;
+    btn.textContent = 'Running...';
+    document.getElementById('setup-error').style.display = 'none';
+
+    fetch('/api/setups/backtest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        coinId: document.getElementById('bt-coin').value,
+        setupId: document.getElementById('bt-setup-id').value,
+        startDate: document.getElementById('bt-start').value,
+        endDate: document.getElementById('bt-end').value
+      })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.error) throw new Error(data.error);
+      var s = data.summary || {};
+      var rangeNote = data.dataRangeNote ? '<div style="grid-column:1/-1;font-size:11px;color:#6b7280;">' + data.dataRangeNote + '</div>' : '';
+      document.getElementById('bt-summary').innerHTML = rangeNote +
+        '<div style="padding:10px;background:rgba(30,42,58,0.5);border-radius:6px;"><div style="font-size:10px;color:#6b7280;">Trades</div><div style="font-size:18px;font-weight:700;">' + (s.totalTrades || 0) + '</div></div>' +
+        '<div style="padding:10px;background:rgba(30,42,58,0.5);border-radius:6px;"><div style="font-size:10px;color:#6b7280;">Win Rate</div><div style="font-size:18px;font-weight:700;color:#10b981;">' + (s.winRate || 0).toFixed(1) + '%</div></div>' +
+        '<div style="padding:10px;background:rgba(30,42,58,0.5);border-radius:6px;"><div style="font-size:10px;color:#6b7280;">ROI</div><div style="font-size:18px;font-weight:700;' + ((s.totalPnlPercent || 0) >= 0 ? 'color:#10b981' : 'color:#ef4444') + '">' + (s.totalPnlPercent >= 0 ? '+' : '') + (s.totalPnlPercent || 0).toFixed(1) + '%</div></div>' +
+        '<div style="padding:10px;background:rgba(30,42,58,0.5);border-radius:6px;"><div style="font-size:10px;color:#6b7280;">Max DD</div><div style="font-size:18px;font-weight:700;color:#eab308;">' + (s.maxDrawdownPct || 0).toFixed(1) + '%</div></div>';
+      var tbody = document.getElementById('bt-trades');
+      tbody.innerHTML = '';
+      (data.trades || []).slice(0, 30).forEach(function(t, i) {
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td>' + (i+1) + '</td><td>' + (t.direction || 'LONG') + '</td><td>$' + (t.entry || 0).toFixed(4) + '</td><td>$' + (t.exit || 0).toFixed(4) + '</td><td style="' + ((t.pnl || 0) >= 0 ? 'color:#10b981' : 'color:#ef4444') + '">$' + (t.pnl || 0).toFixed(2) + '</td>';
+        tbody.appendChild(tr);
+      });
+      document.getElementById('setup-bt-results').style.display = 'block';
+      document.getElementById('setup-backtest-modal').style.display = 'none';
+      location.reload();
+    })
+    .catch(function(err) {
+      document.getElementById('setup-error').textContent = err.message || 'Backtest failed';
+      document.getElementById('setup-error').style.display = 'block';
+    })
+    .finally(function() {
+      btn.disabled = false;
+      btn.textContent = 'Run Backtest';
+    });
+  });
+
+  document.querySelectorAll('.setup-scan').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var setupId = this.dataset.id;
+      document.getElementById('setup-scan-results').style.display = 'block';
+      document.getElementById('scan-status').textContent = 'Scanning market...';
+      document.getElementById('scan-tbody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:#6b7280;padding:16px;">Loading...</td></tr>';
+
+      fetch('/api/setups/scan?setupId=' + encodeURIComponent(setupId))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        document.getElementById('scan-status').textContent = (data.results || []).length + ' match(es) found.';
+        var tbody = document.getElementById('scan-tbody');
+        tbody.innerHTML = '';
+        if (!data.results || data.results.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#6b7280;padding:16px;">No active setups found. Try a different setup or check back later.</td></tr>';
+        } else {
+          data.results.forEach(function(r) {
+            (r.scenarios || []).forEach(function(sc) {
+              if (setupId && sc.scenarioId !== setupId) return;
+              var tr = document.createElement('tr');
+              tr.innerHTML = '<td><a href="/coin/' + r.coinId + '" style="color:#3b82f6;">' + r.coinId + '</a></td><td>' + (sc.name || sc.scenarioId) + '</td><td>' + (sc.score || 0) + '/' + (sc.totalPhases || 0) + '</td><td>' + (sc.ready ? '<span style="color:#10b981;">Yes</span>' : 'No') + '</td><td><a href="/chart/' + r.coinId + '" class="btn btn-outline btn-sm" style="padding:4px 8px;">Chart</a></td>';
+              tbody.appendChild(tr);
+            });
+          });
+        }
+      })
+      .catch(function(err) {
+        document.getElementById('scan-status').textContent = 'Error: ' + (err.message || 'Scan failed');
+        document.getElementById('scan-tbody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:#ef4444;">' + (err.message || 'Scan failed') + '</td></tr>';
+      });
+    });
+  });
+
+  document.querySelectorAll('.setup-enable').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var setupId = this.dataset.id;
+      var enabled = this.dataset.enabled === 'true';
+      fetch('/api/setups/enable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ setupId: setupId, enabled: !enabled })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) throw new Error(data.error);
+        location.reload();
+      })
+      .catch(function(err) { alert(err.message); });
+    });
+  });
+})();
+</script>
+
+<%- include('partials/footer') %>

@@ -2388,7 +2388,7 @@ function r2(num) {
 }
 
 module.exports = {
-  analyzeCoin, analyzeAllCoins, ENGINE_CONFIG, findSR, findSRWithRoleReversal, calculatePOC, calculateVolumeProfile,
+  analyzeCoin, analyzeAllCoins, analyzeOHLCV, ENGINE_CONFIG, findSR, findSRWithRoleReversal, calculatePOC, calculateVolumeProfile,
   detectOrderBlocks, detectFVGs, detectLiquidityClusters, calculateVWAP,
   getSwingPoints, detectMarketStructure, ATR_OHLC, SMA, EMA
 };

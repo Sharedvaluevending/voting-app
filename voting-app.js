@@ -1278,7 +1278,7 @@ app.post('/account/settings', requireLogin, async (req, res) => {
     if (req.body.autoTradeCoinsMode && ['tracked', 'tracked+top1', 'top1'].includes(req.body.autoTradeCoinsMode)) {
       s.autoTradeCoinsMode = req.body.autoTradeCoinsMode;
     }
-    if (req.body.autoTradeSignalMode && ['original', 'indicators', 'both'].includes(req.body.autoTradeSignalMode)) {
+    if (req.body.autoTradeSignalMode && ['original', 'indicators', 'setups', 'both'].includes(req.body.autoTradeSignalMode)) {
       s.autoTradeSignalMode = req.body.autoTradeSignalMode;
     }
     if (req.body.autoTradeBothLogic && ['or', 'and'].includes(req.body.autoTradeBothLogic)) {
@@ -1286,6 +1286,9 @@ app.post('/account/settings', requireLogin, async (req, res) => {
     }
     if (req.body.autoTradeStrategyConfigId !== undefined) {
       s.autoTradeStrategyConfigId = req.body.autoTradeStrategyConfigId || null;
+    }
+    if (req.body.autoTradeSetupIds !== undefined) {
+      s.autoTradeSetupIds = Array.isArray(req.body.autoTradeSetupIds) ? req.body.autoTradeSetupIds : [];
     }
     if (req.body.llmEnabled !== undefined) {
       const val = req.body.llmEnabled;
@@ -2129,6 +2132,111 @@ app.post('/api/strategy-builder/save-result', requireLogin, async (req, res) => 
   } catch (err) {
     console.error('[StrategyBuilder] Save result error:', err);
     res.status(500).json({ error: err.message || 'Save failed' });
+  }
+});
+
+// ====================================================
+// SETUPS (SMC trade scenarios)
+// ====================================================
+app.get('/setups', optionalUser, async (req, res) => {
+  const { getAllScenarios } = require('./services/smc-scenarios/scenario-definitions');
+  const setups = getAllScenarios();
+  let setupStats = {};
+  let user = null;
+  if (req.session?.userId) {
+    user = await User.findById(req.session.userId).lean();
+    const SetupBacktestResult = require('./models/SetupBacktestResult');
+    const results = await SetupBacktestResult.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(req.session.userId) } },
+      { $sort: { createdAt: -1 } },
+      { $group: { _id: '$setupId', doc: { $first: '$$ROOT' } } }
+    ]);
+    results.forEach(r => {
+      const d = r.doc;
+      setupStats[d.setupId] = {
+        winRate: d.winRate,
+        totalPnlPercent: d.totalPnlPercent,
+        maxDrawdownPct: d.maxDrawdownPct,
+        totalTrades: d.totalTrades
+      };
+    });
+  }
+  res.render('setups', {
+    activePage: 'setups',
+    setups,
+    setupStats,
+    TRACKED_COINS,
+    user
+  });
+});
+
+app.post('/api/setups/backtest', async (req, res) => {
+  try {
+    const { coinId, setupId, startDate, endDate } = req.body || {};
+    if (!setupId) return res.status(400).json({ error: 'Setup ID required' });
+    const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 30 * 24 * 3600000;
+    const endMs = endDate ? new Date(endDate).getTime() : Date.now();
+    const cid = coinId || 'bitcoin';
+    const { runSetupBacktest } = require('./services/smc-backtest');
+    const result = await runSetupBacktest(cid, setupId, startMs, endMs, { initialBalance: 10000, leverage: 2 });
+    if (result.error) return res.status(400).json({ error: result.error });
+    if (req.session?.userId && result.summary) {
+      const SetupBacktestResult = require('./models/SetupBacktestResult');
+      await SetupBacktestResult.create({
+        userId: req.session.userId,
+        setupId,
+        coinId: cid,
+        startDate: new Date(startMs),
+        endDate: new Date(endMs),
+        ...result.summary,
+        trades: result.trades || [],
+        equityCurve: result.equityCurve || []
+      });
+    }
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[Setups] Backtest error:', err);
+    res.status(500).json({ error: err.message || 'Backtest failed' });
+  }
+});
+
+app.get('/api/setups/scan', async (req, res) => {
+  try {
+    const setupId = req.query.setupId || null;
+    const { scanMarketForSetups } = require('./services/smc-scanner');
+    const candles = fetchAllCandles();
+    const prices = await fetchAllPrices();
+    if (!candles || Object.keys(candles).length === 0) {
+      return res.json({ results: [], message: 'No candle data. Wait for refresh or try again.' });
+    }
+    const results = scanMarketForSetups(candles, Array.isArray(prices) ? prices : [], setupId ? [setupId] : null);
+    res.json({ results });
+  } catch (err) {
+    console.error('[Setups] Scan error:', err);
+    res.status(500).json({ error: err.message || 'Scan failed', results: [] });
+  }
+});
+
+app.post('/api/setups/enable', requireLogin, async (req, res) => {
+  try {
+    const { setupId, enabled } = req.body || {};
+    if (!setupId) return res.status(400).json({ error: 'Setup ID required' });
+    const u = await User.findById(req.session.userId);
+    if (!u) return res.status(401).json({ error: 'User not found' });
+    const s = u.settings || {};
+    let ids = Array.isArray(s.autoTradeSetupIds) ? [...s.autoTradeSetupIds] : [];
+    if (enabled) {
+      if (!ids.includes(setupId)) ids.push(setupId);
+    } else {
+      ids = ids.filter(id => id !== setupId);
+    }
+    s.autoTradeSetupIds = ids;
+    u.settings = s;
+    await u.save();
+    res.json({ success: true, autoTradeSetupIds: ids });
+  } catch (err) {
+    console.error('[Setups] Enable error:', err);
+    res.status(500).json({ error: err.message || 'Failed' });
   }
 });
 

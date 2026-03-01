@@ -84,10 +84,11 @@ const userSchema = new mongoose.Schema({
     llmAgentIntervalMinutes: { type: Number, default: 15, min: 5, max: 1440 },
     // Which coins to auto-trade: 'tracked' (20 only), 'tracked+top1' (20 + top market pick), 'top1' (only top market pick)
     autoTradeCoinsMode: { type: String, enum: ['tracked', 'tracked+top1', 'top1'], default: 'tracked' },
-    // Signal source: 'original' = scoring engine, 'indicators' = Strategy Builder rules, 'both' = either
-    autoTradeSignalMode: { type: String, enum: ['original', 'indicators', 'both'], default: 'original' },
+    // Signal source: 'original' = scoring engine, 'indicators' = Strategy Builder rules, 'setups' = SMC setups, 'both' = either
+    autoTradeSignalMode: { type: String, enum: ['original', 'indicators', 'setups', 'both'], default: 'original' },
     autoTradeBothLogic: { type: String, enum: ['or', 'and'], default: 'or' },
     autoTradeStrategyConfigId: { type: mongoose.Schema.Types.ObjectId, ref: 'StrategyConfig', default: null },
+    autoTradeSetupIds: { type: [String], default: [] },
     disableLeverage: { type: Boolean, default: false },
     autoMoveBreakeven: { type: Boolean, default: true },
     autoTrailingStop: { type: Boolean, default: true },
