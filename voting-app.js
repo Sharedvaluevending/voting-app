@@ -2102,13 +2102,13 @@ app.post('/api/strategy-builder/backtest', async (req, res) => {
 app.post('/api/strategy-builder/save', requireLogin, async (req, res) => {
   try {
     const StrategyConfig = require('./models/StrategyConfig');
-    const { name, presetId, timeframe, entry, exit } = req.body || {};
+    const { name, presetId, timeframe, entry, exit, side } = req.body || {};
     if (!name || !entry || !exit) {
       return res.status(400).json({ error: 'Name, entry, and exit required' });
     }
     const doc = await StrategyConfig.findOneAndUpdate(
       { userId: req.session.userId, name },
-      { presetId: presetId || null, timeframe: timeframe || '1h', entry, exit, updatedAt: new Date() },
+      { presetId: presetId || null, timeframe: timeframe || '1h', entry, exit, side: side || 'long', updatedAt: new Date() },
       { upsert: true, new: true }
     );
     res.json({ success: true, id: doc._id });
@@ -3632,7 +3632,7 @@ app.get('/api/auto-trade-debug', requireLogin, async (req, res) => {
     const recentTrades = await Trade.find({
       userId: user._id,
       status: { $ne: 'OPEN' },
-      closedAt: { $gte: new Date(Date.now() - cooldownMs) }
+      exitTime: { $gte: new Date(Date.now() - cooldownMs) }
     }).select('coinId direction exitTime').lean();
 
     const [prices, allCandles, allHistory] = await Promise.all([
@@ -3790,7 +3790,7 @@ async function runAutoTrade() {
           if (config && config.entry && config.exit) {
             const coinIds = (mode === 'top1') ? [] : TRACKED_COINS;
             const { evaluateStrategyForAutoTrade } = require('./services/strategy-builder/run-custom-backtest');
-            const stratSignals = evaluateStrategyForAutoTrade({ entry: config.entry, exit: config.exit }, allCandles, coinIds, prices);
+            const stratSignals = evaluateStrategyForAutoTrade({ entry: config.entry, exit: config.exit, side: config.side }, allCandles, coinIds, prices);
             if (signalMode === 'indicators') {
               signals = stratSignals;
             } else {
@@ -3863,7 +3863,7 @@ async function runAutoTrade() {
         const recentTrades = await Trade.find({
           userId: user._id,
           status: { $ne: 'OPEN' },
-          closedAt: { $gte: new Date(Date.now() - cooldownMs) }
+          exitTime: { $gte: new Date(Date.now() - cooldownMs) }
         }).select('coinId direction').lean();
         const cooldownSet = new Set(recentTrades.map(t => `${t.coinId}_${t.direction}`));
 

@@ -12,6 +12,7 @@ const strategyConfigSchema = new mongoose.Schema({
   timeframe: { type: String, enum: ['15m', '1h', '4h', '1d'], default: '1h' },
   entry: { type: mongoose.Schema.Types.Mixed, required: true },
   exit: { type: mongoose.Schema.Types.Mixed, required: true },
+  side: { type: String, enum: ['long', 'short'], default: 'long' },
   indicators: [{ type: String }],
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }

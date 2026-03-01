@@ -130,8 +130,9 @@ function plan(decision, snapshot, context) {
     }
   }
 
-  // MIN SL DISTANCE (1x ATR floor)
-  const atr = decision.indicators?.atr;
+  // MIN SL DISTANCE (1x ATR floor); fallback to 0.5% of price when ATR missing
+  let atr = decision.indicators?.atr;
+  if (!atr || atr <= 0) atr = entryPrice * 0.005;
   if (ff.minSlDistance !== false && atr > 0) {
     const minSlDist = atr * 1.0;
     const currentSlDist = Math.abs(entryPrice - stopLoss);

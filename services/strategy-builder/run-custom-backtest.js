@@ -124,19 +124,20 @@ async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {})
       continue;
     }
 
-    // Check entry (BUY only for v1 - we can add SELL/short later)
-    if (result.signal === 'BUY' && result.entry) {
+    // Check entry (BUY = LONG, SELL = SHORT)
+    if ((result.signal === 'BUY' || result.signal === 'SELL') && result.entry) {
       const entryPrice = nextBar.open;
       const slip = 1 + (SLIPPAGE_BPS / 10000);
-      const adjEntry = entryPrice * slip;
+      const isLong = result.signal === 'BUY';
+      const adjEntry = isLong ? entryPrice * slip : entryPrice / slip;
       const highs = slice.map(c => c.high);
       const lows = slice.map(c => c.low);
       const closes = slice.map(c => c.close);
       const atr = ind.ATR(highs, lows, closes, 14);
       const riskDist = Math.max(atr * SL_ATR_MULT, adjEntry * 0.005); // min 0.5% to avoid div by zero
       const rewardDist = atr * TP_ATR_MULT;
-      const stopLoss = adjEntry - riskDist;
-      const takeProfit = adjEntry + rewardDist;
+      const stopLoss = isLong ? adjEntry - riskDist : adjEntry + riskDist;
+      const takeProfit = isLong ? adjEntry + rewardDist : adjEntry - rewardDist;
       const riskAmount = equity * RISK_PER_TRADE;
       const positionSize = Math.min(equity * leverage * 0.95, riskDist > 0 ? (riskAmount / riskDist) * adjEntry : equity * 0.1);
       const entryFees = positionSize * TAKER_FEE;
@@ -145,7 +146,7 @@ async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {})
 
       equity -= entryFees;
       position = {
-        direction: 'LONG',
+        direction: isLong ? 'LONG' : 'SHORT',
         entry: adjEntry,
         entryBar: t + 1,
         stopLoss,
@@ -161,9 +162,11 @@ async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {})
     const lastBar = c1h[c1h.length - 1];
     const exitPrice = lastBar.close;
     const slip = 1 + (SLIPPAGE_BPS / 10000);
-    const adjExit = exitPrice / slip;
+    const adjExit = position.direction === 'LONG' ? exitPrice / slip : exitPrice * slip;
     const exitFees = position.size * TAKER_FEE;
-    const pnl = ((adjExit - position.entry) / position.entry) * position.size;
+    const pnl = position.direction === 'LONG'
+      ? ((adjExit - position.entry) / position.entry) * position.size
+      : ((position.entry - adjExit) / position.entry) * position.size;
     equity = Math.max(0, equity + pnl - exitFees - position.entryFees);
     trades.push({
       direction: position.direction,
@@ -245,7 +248,8 @@ function evaluateStrategyForAutoTrade(strategy, allCandles, coinIds, prices = []
     const t = coinCandles.length - 2;
     const slice = coinCandles.slice(0, t + 1);
     const result = evaluateBar(slice, strategy, t);
-    if (result.signal !== 'BUY' || !result.entry) continue;
+    if ((result.signal !== 'BUY' && result.signal !== 'SELL') || !result.entry) continue;
+    const isLong = result.signal === 'BUY';
     const bar = coinCandles[t];
     const nextBar = coinCandles[t + 1];
     const entryPrice = nextBar?.open || bar?.close;
@@ -255,15 +259,17 @@ function evaluateStrategyForAutoTrade(strategy, allCandles, coinIds, prices = []
     const atr = ind.ATR(highs, lows, closes, 14);
     const riskDist = Math.max(atr * SL_ATR_MULT_AUTO, entryPrice * 0.005);
     const rewardDist = atr * TP_ATR_MULT_AUTO;
-    const stopLoss = entryPrice - riskDist;
-    const takeProfit = entryPrice + rewardDist;
+    const stopLoss = isLong ? entryPrice - riskDist : entryPrice + riskDist;
+    const takeProfit1 = isLong ? entryPrice + rewardDist : entryPrice - rewardDist;
+    const takeProfit2 = isLong ? entryPrice + rewardDist * 1.2 : entryPrice - rewardDist * 1.2;
+    const takeProfit3 = isLong ? entryPrice + rewardDist * 1.5 : entryPrice - rewardDist * 1.5;
     const coinData = Array.isArray(prices) ? prices.find(p => p.id === coinId) : null;
     signals.push({
       coin: coinData || { id: coinId },
       _coinId: coinId,
-      _direction: 'LONG',
+      _direction: isLong ? 'LONG' : 'SHORT',
       _overallScore: 60,
-      _bestStrat: { stopLoss, takeProfit1: takeProfit, takeProfit2: takeProfit * 1.2, takeProfit3: takeProfit * 1.5, entry: entryPrice, riskReward: rewardDist / riskDist, id: 'strategy-builder' }
+      _bestStrat: { stopLoss, takeProfit1, takeProfit2, takeProfit3, entry: entryPrice, riskReward: rewardDist / riskDist, id: 'strategy-builder' }
     });
   }
   return signals;
