@@ -16,7 +16,7 @@ const SL_ATR_MULT = 2;
 const TP_ATR_MULT = 4;       // 2:1 RR (TP = 4× ATR, SL = 2× ATR)
 const TAKER_FEE = 0.001;
 const SLIPPAGE_BPS = 5;
-const MIN_PHASES_FOR_ENTRY = 4;
+// Use each setup's shortVersion length — FVG Gap has 3 phases, FVG+Liquidity has 5, etc.
 
 /**
  * Run backtest for an SMC setup.
@@ -173,7 +173,8 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
       continue;
     }
 
-    if (result.ready && result.score >= MIN_PHASES_FOR_ENTRY) {
+    const minPhases = (scenario.shortVersion || scenario.phases.map(p => p.id)).length;
+    if (result.ready && result.score >= minPhases) {
       // HTF bias gate: skip entry if 4h opposes the setup direction
       const barTime = ctf[t]?.openTime || 0;
       const htfBias = get4hBiasAt(barTime);

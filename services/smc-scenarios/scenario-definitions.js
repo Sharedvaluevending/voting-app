@@ -90,7 +90,7 @@ const TRADE_SCENARIOS = {
       { id: 'entry', name: 'Entry confirmation', check: 'entryConfirmation' },
       { id: 'target', name: 'Target at resistance or liquidity', check: 'targetAtLiquidityAbove' }
     ],
-    shortVersion: ['fvg_bull', 'price_taps', 'entry']
+    shortVersion: ['fvg_bull', 'in_discount', 'price_taps', 'entry']
   },
 
   fvg_gap_short: {
@@ -106,7 +106,7 @@ const TRADE_SCENARIOS = {
       { id: 'entry', name: 'Entry confirmation', check: 'entryConfirmation' },
       { id: 'target', name: 'Target at support or liquidity', check: 'targetAtLiquidityBelow' }
     ],
-    shortVersion: ['fvg_bear', 'price_taps', 'entry']
+    shortVersion: ['fvg_bear', 'in_premium', 'price_taps', 'entry']
   },
 
   // === ORDER BLOCK ===
@@ -280,6 +280,20 @@ const TRADE_SCENARIOS = {
 function getAllScenarios() {
   return Object.values(TRADE_SCENARIOS);
 }
+
+// Validate all shortVersion phase IDs exist in phases (dev-time sanity check)
+function validateScenarios() {
+  for (const [id, s] of Object.entries(TRADE_SCENARIOS)) {
+    const phaseIds = new Set((s.phases || []).map(p => p.id));
+    const short = s.shortVersion || s.phases.map(p => p.id);
+    for (const sid of short) {
+      if (!phaseIds.has(sid)) {
+        console.warn(`[SMC] Scenario ${id}: shortVersion references missing phase "${sid}"`);
+      }
+    }
+  }
+}
+if (process.env.NODE_ENV !== 'production') validateScenarios();
 
 function getScenario(id) {
   return TRADE_SCENARIOS[id] || null;

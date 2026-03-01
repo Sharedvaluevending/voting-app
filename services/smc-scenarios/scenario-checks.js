@@ -456,11 +456,13 @@ function getPhasePriceDetails(checkId, analysis) {
     case 'priceAtBullFVG':
     case 'priceAtBearFVG':
     case 'priceAtBullOB':
-    case 'priceAtBearOB':
-      const zone = orderBlocks.find(b => (checkId.includes('Bull') && b.type === 'BULL') || (checkId.includes('Bear') && b.type === 'BEAR')) || fvgs.find(f => (checkId.includes('Bull') && f.type === 'BULL') || (checkId.includes('Bear') && f.type === 'BEAR'));
+    case 'priceAtBearOB': {
+      let zone = orderBlocks.find(b => (checkId.includes('Bull') && b.type === 'BULL') || (checkId.includes('Bear') && b.type === 'BEAR')) || fvgs.find(f => (checkId.includes('Bull') && f.type === 'BULL') || (checkId.includes('Bear') && f.type === 'BEAR'));
+      if (!zone && checkId === 'priceAtPOI') zone = (orderBlocks[0] || fvgs[0]) || null;
       if (zone) prices.push('Zone: ' + fmt(Math.min(zone.top, zone.bottom)) + ' – ' + fmt(Math.max(zone.top, zone.bottom)));
       prices.push('Price: ' + fmt(cp));
       break;
+    }
     case 'entryConfirmation':
       const last = analysis.closes && analysis.closes.length ? analysis.closes[analysis.closes.length - 1] : cp;
       prices.push('Price: ' + fmt(last));
