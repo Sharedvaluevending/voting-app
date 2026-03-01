@@ -27,7 +27,10 @@ function evaluateBar(candles, strategy, t) {
   const exitMet = evalCondition(strategy.exit, { candles: slice, closes, highs, lows, currentPrice, t });
 
   if (exitMet) return { signal: 'HOLD', entry: false, exit: true };
-  if (entryMet) return { signal: 'BUY', entry: true, exit: false };
+  if (entryMet) {
+    const dir = strategy.direction === 'SHORT' ? 'SELL' : 'BUY';
+    return { signal: dir, entry: true, exit: false };
+  }
   return { signal: 'HOLD', entry: false, exit: false };
 }
 

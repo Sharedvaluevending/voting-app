@@ -11,6 +11,7 @@ const User = require('../models/User');
 const { recordTradeOutcome, adjustWeights } = require('./learning-engine');
 const bitget = require('./bitget');
 const { plan: riskEnginePlan } = require('./engines/risk-engine');
+const { getProgressTowardTP, getLockInStopPrice, getCurrentLockR, LOCK_IN_LEVELS } = require('./engines/manage-engine');
 
 const DEFAULT_MAKER_FEE = 0.001;
 const DEFAULT_TAKER_FEE = 0.001;
@@ -66,49 +67,10 @@ function getFeatureFlags(user) {
   };
 }
 
-// Take-profit position split: balanced scale-out
+// Take-profit position split: balanced scale-out (matches manage-engine)
 const TP1_PCT = 0.4;   // 40% at TP1
 const TP2_PCT = 0.3;   // 30% at TP2
 const TP3_PCT = 0.3;   // 30% at TP3 (remaining)
-
-// Stepped profit lock-in: progress toward TP -> lock-in level (R-multiple)
-const LOCK_IN_LEVELS = [
-  { progress: 0.5, lockR: 0.5 },
-  { progress: 0.75, lockR: 0.75 },
-  { progress: 0.9, lockR: 1 }
-];
-
-function getProgressTowardTP(trade, currentPrice) {
-  const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
-  if (!tp || !trade.entryPrice || tp === trade.entryPrice) return 0;
-  const isLong = trade.direction === 'LONG';
-  if (isLong && tp > trade.entryPrice) {
-    return Math.min(1, (currentPrice - trade.entryPrice) / (tp - trade.entryPrice));
-  }
-  if (!isLong && tp < trade.entryPrice) {
-    return Math.min(1, (trade.entryPrice - currentPrice) / (trade.entryPrice - tp));
-  }
-  return 0;
-}
-
-function getLockInStopPrice(trade, lockR, risk) {
-  if (!risk || risk <= 0) return null;
-  const r2 = (v) => Math.round(v * 1000000) / 1000000;
-  const isLong = trade.direction === 'LONG';
-  return isLong
-    ? r2(trade.entryPrice + risk * lockR)
-    : r2(trade.entryPrice - risk * lockR);
-}
-
-function getCurrentLockR(trade, risk) {
-  if (!trade.stopLoss || !risk || risk <= 0) return 0;
-  const isLong = trade.direction === 'LONG';
-  const dist = isLong
-    ? (trade.stopLoss || 0) - trade.entryPrice
-    : trade.entryPrice - (trade.stopLoss || 0);
-  if (dist <= 0) return 0;
-  return dist / risk;
-}
 
 function suggestLeverage(score, regime, volatilityState) {
   let maxLev = 1;
