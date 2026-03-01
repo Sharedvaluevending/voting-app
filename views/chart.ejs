@@ -29,7 +29,7 @@
   <% if (entry != null || sl != null || tp1 != null || tp2 != null || tp3 != null) { %>
   <div class="trade-levels-overlay">
     <div class="trade-levels-header">
-      <div class="trade-levels-title">Trade Levels – drawn on chart</div>
+      <div class="trade-levels-title">Trade Levels – drawn on chart<% if (typeof setupInfo !== 'undefined' && setupInfo) { %> <button type="button" id="setup-why-btn" class="btn btn-outline btn-sm" style="margin-left:8px;padding:2px 8px;font-size:11px;" title="Explain why this setup was YES">Why YES?</button><% } %></div>
       <% if (typeof tradeId !== 'undefined' && tradeId) { %>
       <label class="toggle-label live-modify-wrap">
         <input type="checkbox" id="live-modify-trades" title="Enable drag to modify SL, TP1, TP2, TP3">
@@ -257,6 +257,20 @@
     </div><!-- .chart-main -->
   </div><!-- .chart-layout -->
 
+  <!-- Setup Explanation Popup (when viewing chart from setup scan) -->
+  <div id="setup-explanation-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:2000;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:24px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <h3 style="color:#10b981;margin:0;font-size:18px;">Why This Setup Was YES</h3>
+        <button type="button" id="setup-modal-close" style="background:none;border:none;color:#9ca3af;cursor:pointer;padding:4px;font-size:20px;line-height:1;" title="Close">&times;</button>
+      </div>
+      <div id="setup-modal-content">
+        <p style="color:#9ca3af;font-size:13px;margin:0 0 12px 0;line-height:1.6;">This SMC setup passed all required phases. The trade levels (Entry, SL, TP) are drawn on the chart. Relevant indicators (FVG, Order Blocks, Liquidity, Market Structure, Premium/Discount) are enabled.</p>
+        <div id="setup-phases-list" style="margin-top:12px;"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Chart Pattern Info Panel (populated via JS) -->
   <div class="chart-pattern-panel" id="chart-pattern-panel" style="display:none;">
     <div class="chart-pattern-panel-title">Chart Patterns Detected</div>
@@ -417,6 +431,7 @@
   var tradeId = <%- JSON.stringify(typeof tradeId !== 'undefined' ? tradeId : null) %>;
   var tradeDirection = <%- JSON.stringify(typeof direction !== 'undefined' ? direction : null) %>;
   var initialActions = <%- JSON.stringify(typeof tradeActions !== 'undefined' ? tradeActions : []) %>;
+  var setupInfo = <%- JSON.stringify(typeof setupInfo !== 'undefined' && setupInfo ? setupInfo : null) %>;
   var chartRef = { chart: null, series: null, volumeSeries: null, slLine: null, origSlLine: null, priceLines: [], fibLines: [], srLines: [], pocLines: [], bbSeries: [], tradeLevelMap: {}, candleTimes: [], candleData: [] };
   var CANDLE_STORAGE_KEY_UP = 'chartCandleUpColor';
   var CANDLE_STORAGE_KEY_DOWN = 'chartCandleDownColor';
@@ -464,6 +479,14 @@
   // If levels were passed in the URL, always show trade levels regardless of saved prefs
   if (levels.entry != null || levels.sl != null || levels.tp1 != null || levels.tp2 != null || levels.tp3 != null) {
     indicatorPrefs.tradeLevels = true;
+  }
+  // If coming from setup scan (View Chart), enable SMC indicators and show setup explanation
+  if (setupInfo && setupInfo.setupId) {
+    indicatorPrefs.ob = true;
+    indicatorPrefs.fvg = true;
+    indicatorPrefs.liq = true;
+    indicatorPrefs.structure = true;
+    indicatorPrefs.premium = true;
   }
   var showBB = indicatorPrefs.bb;
   var showMA = indicatorPrefs.ma;
@@ -2075,6 +2098,38 @@
     } catch (e) {}
   }
   syncIndicatorCheckboxes();
+
+  // Setup explanation modal (when viewing from setup scan)
+  var setupModal = document.getElementById('setup-explanation-modal');
+  var setupModalClose = document.getElementById('setup-modal-close');
+  var setupPhasesList = document.getElementById('setup-phases-list');
+  if (setupInfo && setupInfo.setupId && setupModal && setupPhasesList) {
+    var setupName = setupInfo.setupName || setupInfo.setupId;
+    var phases = setupInfo.phases || [];
+    setupPhasesList.innerHTML = '';
+    if (phases.length > 0) {
+      var phasesTitle = document.createElement('div');
+      phasesTitle.style.cssText = 'font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;font-weight:600;';
+      phasesTitle.textContent = 'Phases that passed (' + setupName + ')';
+      setupPhasesList.appendChild(phasesTitle);
+      phases.forEach(function(p, i) {
+        var div = document.createElement('div');
+        div.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(16,185,129,0.1);border-radius:6px;margin-bottom:6px;font-size:12px;color:#e5e7eb;';
+        div.innerHTML = '<span style="color:#10b981;font-weight:700;">' + (i + 1) + '.</span> ' + (p.name || p.id || 'Phase ' + (i + 1));
+        setupPhasesList.appendChild(div);
+      });
+    }
+    setupModal.style.display = 'flex';
+    if (setupModalClose) {
+      setupModalClose.addEventListener('click', function() { setupModal.style.display = 'none'; });
+    }
+    setupModal.addEventListener('click', function(e) {
+      if (e.target === setupModal) setupModal.style.display = 'none';
+    });
+    var setupWhyBtn = document.getElementById('setup-why-btn');
+    if (setupWhyBtn) setupWhyBtn.addEventListener('click', function() { setupModal.style.display = 'flex'; });
+  }
+
   var indicatorsSaveBtn = document.getElementById('indicators-save-btn');
   if (indicatorsSaveBtn) {
     indicatorsSaveBtn.addEventListener('click', function() {

@@ -678,6 +678,14 @@ app.get('/chart/:coinId', async (req, res) => {
   let tp1 = req.query.tp1 ? Number(req.query.tp1) : null;
   let tp2 = req.query.tp2 ? Number(req.query.tp2) : null;
   let tp3 = req.query.tp3 ? Number(req.query.tp3) : null;
+  let setupInfo = null;
+  if (req.query.setupId && req.query.setupName) {
+    let phases = [];
+    try {
+      if (req.query.phases) phases = JSON.parse(req.query.phases);
+    } catch (e) {}
+    setupInfo = { setupId: req.query.setupId, setupName: req.query.setupName, phases };
+  }
   let originalSl = null;
   let tradeActions = [];
   let direction = null;
@@ -750,7 +758,8 @@ app.get('/chart/:coinId', async (req, res) => {
     fibLevels,
     prevCoinId,
     nextCoinId,
-    chartCoins
+    chartCoins,
+    setupInfo: setupInfo || null
   });
 });
 
