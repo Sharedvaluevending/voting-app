@@ -4,7 +4,7 @@
 // Scans coins for active SMC trade scenarios
 // ====================================================
 
-const { analyzeOHLCV } = require('./trading-engine');
+const { analyzeOHLCV, ATR_OHLC } = require('./trading-engine');
 const { scoreScenariosForCoin } = require('./smc-scenarios/scenario-checks');
 const { getScenario } = require('./smc-scenarios/scenario-definitions');
 const { TRACKED_COINS } = require('./crypto-api');
@@ -29,6 +29,34 @@ function scanCoinForSetups(coinId, candles, currentPrice, setupIds = null) {
   if (setupIds && setupIds.length > 0) {
     scenarios = scenarios.filter(s => setupIds.includes(s.scenarioId));
   }
+
+  const SL_ATR_MULT = 2;
+  const TP_ATR_MULT = 2.5;
+
+  scenarios = scenarios.map(s => {
+    if (!s.ready) return s;
+    const highs = c1h.map(c => c.high);
+    const lows = c1h.map(c => c.low);
+    const closes = c1h.map(c => c.close);
+    const atr = ATR_OHLC(highs, lows, closes, 14);
+    const entryPrice = currentPrice;
+    const riskDist = Math.max(atr * SL_ATR_MULT, entryPrice * 0.005);
+    const rewardDist = atr * TP_ATR_MULT;
+    const direction = s.direction === 'LONG' ? 'LONG' : 'SHORT';
+    let sl, tp1, tp2, tp3;
+    if (direction === 'LONG') {
+      sl = entryPrice - riskDist;
+      tp1 = entryPrice + rewardDist;
+      tp2 = entryPrice + rewardDist * 1.2;
+      tp3 = entryPrice + rewardDist * 1.5;
+    } else {
+      sl = entryPrice + riskDist;
+      tp1 = entryPrice - rewardDist;
+      tp2 = entryPrice - rewardDist * 1.2;
+      tp3 = entryPrice - rewardDist * 1.5;
+    }
+    return { ...s, entry: entryPrice, sl, tp1, tp2, tp3 };
+  });
 
   return {
     coinId,
@@ -77,8 +105,6 @@ function getReadySetupsForCoin(coinId, candles, currentPrice) {
   const result = scanCoinForSetups(coinId, candles, currentPrice);
   return result.scenarios.filter(s => s.ready);
 }
-
-const { ATR_OHLC } = require('./trading-engine');
 
 const SL_ATR_MULT = 2;
 const TP_ATR_MULT = 2.5;

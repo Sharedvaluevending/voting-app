@@ -241,7 +241,16 @@
             (r.scenarios || []).forEach(function(sc) {
               if (setupId && sc.scenarioId !== setupId) return;
               var tr = document.createElement('tr');
-              tr.innerHTML = '<td><a href="/coin/' + r.coinId + '" style="color:#3b82f6;">' + r.coinId + '</a></td><td>' + (sc.name || sc.scenarioId) + '</td><td>' + (sc.score || 0) + '/' + (sc.totalPhases || 0) + '</td><td>' + (sc.ready ? '<span style="color:#10b981;">Yes</span>' : 'No') + '</td><td><a href="/chart/' + r.coinId + '" class="btn btn-outline btn-sm" style="padding:4px 8px;">Chart</a></td>';
+              var chartHref = '/chart/' + r.coinId;
+              var chartBtnText = 'Chart';
+              if (sc.ready && sc.entry != null && sc.sl != null) {
+                chartHref += '?entry=' + encodeURIComponent(sc.entry) + '&sl=' + encodeURIComponent(sc.sl);
+                if (sc.tp1 != null) chartHref += '&tp1=' + encodeURIComponent(sc.tp1);
+                if (sc.tp2 != null) chartHref += '&tp2=' + encodeURIComponent(sc.tp2);
+                if (sc.tp3 != null) chartHref += '&tp3=' + encodeURIComponent(sc.tp3);
+                chartBtnText = 'View Chart';
+              }
+              tr.innerHTML = '<td><a href="/coin/' + r.coinId + '" style="color:#3b82f6;">' + r.coinId + '</a></td><td>' + (sc.name || sc.scenarioId) + '</td><td>' + (sc.score || 0) + '/' + (sc.totalPhases || 0) + '</td><td>' + (sc.ready ? '<span style="color:#10b981;">Yes</span>' : 'No') + '</td><td><a href="' + chartHref + '" class="btn btn-outline btn-sm" style="padding:4px 8px;">' + chartBtnText + '</a></td>';
               tbody.appendChild(tr);
             });
           });
