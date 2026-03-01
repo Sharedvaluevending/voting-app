@@ -3632,7 +3632,7 @@ app.get('/api/auto-trade-debug', requireLogin, async (req, res) => {
     const recentTrades = await Trade.find({
       userId: user._id,
       status: { $ne: 'OPEN' },
-      closedAt: { $gte: new Date(Date.now() - cooldownMs) }
+      exitTime: { $gte: new Date(Date.now() - cooldownMs) }
     }).select('coinId direction exitTime').lean();
 
     const [prices, allCandles, allHistory] = await Promise.all([
@@ -3863,7 +3863,7 @@ async function runAutoTrade() {
         const recentTrades = await Trade.find({
           userId: user._id,
           status: { $ne: 'OPEN' },
-          closedAt: { $gte: new Date(Date.now() - cooldownMs) }
+          exitTime: { $gte: new Date(Date.now() - cooldownMs) }
         }).select('coinId direction').lean();
         const cooldownSet = new Set(recentTrades.map(t => `${t.coinId}_${t.direction}`));
 
