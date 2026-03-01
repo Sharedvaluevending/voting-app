@@ -47,6 +47,7 @@ function runCheck(checkId, candles, analysis, direction) {
   const currentPrice = analysis.currentPrice || candles[candles.length - 1].close;
   const highs = analysis.highs || candles.map(c => c.high);
   const lows = analysis.lows || candles.map(c => c.low);
+  const closes = candles.map(c => c.close);
   const support = analysis.support || Math.min(...lows.slice(-20));
   const resistance = analysis.resistance || Math.max(...highs.slice(-20));
   const srRange = resistance - support;
@@ -60,19 +61,27 @@ function runCheck(checkId, candles, analysis, direction) {
   const lastCandle = candles[candles.length - 1];
   const prevCandle = candles.length >= 2 ? candles[candles.length - 2] : null;
 
+  // ATR for threshold checks — computed once per runCheck call
+  const atr = candles.length >= 14 ? ATR_OHLC(highs, lows, closes, 14) : currentPrice * 0.01;
+
   switch (checkId) {
     case 'liquidityClusterBelow':
       return liq.below != null && currentPrice > liq.below;
     case 'liquidityClusterAbove':
       return liq.above != null && currentPrice < liq.above;
+
+    // FIX #7: require recent structure shift (last 20 bars), not just current overall structure
     case 'structureShiftBull':
-      return ['BULLISH', 'BREAK_UP'].includes(marketStructure);
+      return recentStructureShift(candles, 'BULL');
     case 'structureShiftBear':
-      return ['BEARISH', 'BREAK_DOWN'].includes(marketStructure);
+      return recentStructureShift(candles, 'BEAR');
+
+    // FIX #8: hasPOIInDiscount/Premium — only check existence of POI in zone, not proximity
     case 'poiInDiscount':
       return hasPOIInDiscount(analysis);
     case 'poiInPremium':
       return hasPOIInPremium(analysis);
+
     case 'liquiditySweepBelow':
       return detectLiquiditySweep(candles, analysis, 'below');
     case 'liquiditySweepAbove':
@@ -81,14 +90,21 @@ function runCheck(checkId, candles, analysis, direction) {
       return detectLiquiditySweep(candles, analysis, 'above');
     case 'sell_side_draw':
       return detectLiquiditySweep(candles, analysis, 'below');
+
+    // priceAtPOI — distinct from hasPOIInDiscount: checks price has reached zone
     case 'priceAtPOI':
       return priceNearOBOrFVG(analysis);
+
+    // FIX #1: entryConfirmation — require meaningful candle body (>= 30% ATR)
     case 'entryConfirmation':
-      return lastCandleConfirmsDirection(candles, direction);
+      return lastCandleConfirmsDirection(candles, direction, atr);
+
+    // FIX #4: targetAtLiquidity — require cluster at least 1× ATR away
     case 'targetAtLiquidityAbove':
-      return liq.above != null;
+      return liq.above != null && liq.above > currentPrice + atr;
     case 'targetAtLiquidityBelow':
-      return liq.below != null;
+      return liq.below != null && liq.below < currentPrice - atr;
+
     case 'accumulationIdentified':
       return (analysis.accDist === 'ACCUMULATING' || analysis.accDist === 'NEUTRAL') && (analysis.volatilityState === 'low' || analysis.volatilityState === 'normal');
     case 'distributionIdentified':
@@ -97,14 +113,18 @@ function runCheck(checkId, candles, analysis, direction) {
       return detectManipulationSweep(candles, analysis, 'below');
     case 'manipulationSweepUp':
       return detectManipulationSweep(candles, analysis, 'above');
+
+    // FIX #2: FVG must have formed AFTER the sweep bar
     case 'inverseFVGAfterSweep':
       return fvgFormedAfterSweep(candles, analysis, 'BULL');
     case 'bearishFVGAfterSweep':
       return fvgFormedAfterSweep(candles, analysis, 'BEAR');
+
     case 'entryAtFVG':
-      return priceNearOBOrFVG(analysis) && fvgs.some(f => f.type === 'BULL') && lastCandleConfirmsDirection(candles, 'LONG');
+      return priceNearOBOrFVG(analysis) && fvgs.some(f => f.type === 'BULL') && lastCandleConfirmsDirection(candles, 'LONG', atr);
     case 'entryAtBearFVG':
-      return priceNearOBOrFVG(analysis) && fvgs.some(f => f.type === 'BEAR') && lastCandleConfirmsDirection(candles, 'SHORT');
+      return priceNearOBOrFVG(analysis) && fvgs.some(f => f.type === 'BEAR') && lastCandleConfirmsDirection(candles, 'SHORT', atr);
+
     case 'fvgBullPresent':
       return fvgs.some(f => f.type === 'BULL');
     case 'fvgBearPresent':
@@ -121,14 +141,19 @@ function runCheck(checkId, candles, analysis, direction) {
       return orderBlocks.some(ob => ob.type === 'BULL');
     case 'obBearPresent':
       return orderBlocks.some(ob => ob.type === 'BEAR');
+
+    // FIX #3: priceNearZone tolerance tightened inside helper
     case 'priceAtBullOB':
       return orderBlocks.some(ob => ob.type === 'BULL' && priceNearZone(currentPrice, ob.top, ob.bottom));
     case 'priceAtBearOB':
       return orderBlocks.some(ob => ob.type === 'BEAR' && priceNearZone(currentPrice, ob.top, ob.bottom));
+
+    // FIX #5: reversal candle requires meaningful body >= 40% of 2-bar range
     case 'reversalCandleBull':
-      return lastCandle && prevCandle && lastCandle.close > lastCandle.open && prevCandle.close < prevCandle.open && lastCandle.close > prevCandle.open;
+      return isReversalCandle(lastCandle, prevCandle, 'BULL');
     case 'reversalCandleBear':
-      return lastCandle && prevCandle && lastCandle.close < lastCandle.open && prevCandle.close > prevCandle.open && lastCandle.close < prevCandle.open;
+      return isReversalCandle(lastCandle, prevCandle, 'BEAR');
+
     case 'fvgObStackBull':
       return fvgs.some(f => f.type === 'BULL') && orderBlocks.some(ob => ob.type === 'BULL') && priceNearOBOrFVG(analysis);
     case 'fvgObStackBear':
@@ -142,11 +167,12 @@ function runCheck(checkId, candles, analysis, direction) {
   }
 }
 
+// FIX #3: tolerance tightened from < 2 to < 0.5 (price within half the zone width of midpoint)
 function priceNearZone(price, top, bottom) {
   if (!top || !bottom) return false;
   const mid = (top + bottom) / 2;
   const range = Math.abs(top - bottom) || price * 0.01;
-  return Math.abs(price - mid) / range < 2;
+  return Math.abs(price - mid) / range < 0.5;
 }
 
 function priceNearFVG(analysis, type) {
@@ -159,16 +185,19 @@ function priceNearFVG(analysis, type) {
   return price >= bottom * 0.998 && price <= top * 1.002;
 }
 
+// FIX #8: hasPOIInDiscount — only check that a bull POI *exists* in the discount zone
+// (price proximity is checked separately by priceAtPOI)
 function hasPOIInDiscount(analysis) {
   const posInSR = getPosInSR(analysis);
   if (posInSR >= 0.5) return false;
-  return (analysis.orderBlocks?.some(ob => ob.type === 'BULL') || analysis.fvgs?.some(f => f.type === 'BULL')) && priceNearOBOrFVG(analysis);
+  return analysis.orderBlocks?.some(ob => ob.type === 'BULL') || analysis.fvgs?.some(f => f.type === 'BULL');
 }
 
+// FIX #8: hasPOIInPremium — only check that a bear POI *exists* in the premium zone
 function hasPOIInPremium(analysis) {
   const posInSR = getPosInSR(analysis);
   if (posInSR <= 0.5) return false;
-  return (analysis.orderBlocks?.some(ob => ob.type === 'BEAR') || analysis.fvgs?.some(f => f.type === 'BEAR')) && priceNearOBOrFVG(analysis);
+  return analysis.orderBlocks?.some(ob => ob.type === 'BEAR') || analysis.fvgs?.some(f => f.type === 'BEAR');
 }
 
 function getPosInSR(analysis) {
@@ -192,12 +221,59 @@ function priceNearOBOrFVG(analysis) {
   return false;
 }
 
-function lastCandleConfirmsDirection(candles, direction) {
+// FIX #1: require body >= 30% of ATR for a meaningful confirmation candle
+function lastCandleConfirmsDirection(candles, direction, atr) {
   if (!candles || candles.length < 2) return false;
   const last = candles[candles.length - 1];
-  const body = last.close - last.open;
-  if (direction === 'LONG') return body > 0 && last.close > last.open;
-  if (direction === 'SHORT') return body < 0 && last.close < last.open;
+  const body = Math.abs(last.close - last.open);
+  const minBody = atr ? atr * 0.3 : 0;
+  if (body < minBody) return false;
+  if (direction === 'LONG') return last.close > last.open;
+  if (direction === 'SHORT') return last.close < last.open;
+  return false;
+}
+
+// FIX #5: reversal candle — bull/bear engulf with body >= 40% of 2-bar high-to-low range
+function isReversalCandle(lastCandle, prevCandle, direction) {
+  if (!lastCandle || !prevCandle) return false;
+  const twoBarHigh = Math.max(lastCandle.high, prevCandle.high);
+  const twoBarLow = Math.min(lastCandle.low, prevCandle.low);
+  const twoBarRange = twoBarHigh - twoBarLow;
+  if (twoBarRange <= 0) return false;
+  const body = Math.abs(lastCandle.close - lastCandle.open);
+  if (body / twoBarRange < 0.4) return false;
+  if (direction === 'BULL') {
+    return lastCandle.close > lastCandle.open &&
+      prevCandle.close < prevCandle.open &&
+      lastCandle.close > prevCandle.open;
+  }
+  if (direction === 'BEAR') {
+    return lastCandle.close < lastCandle.open &&
+      prevCandle.close > prevCandle.open &&
+      lastCandle.close < prevCandle.open;
+  }
+  return false;
+}
+
+// FIX #7: structureShiftBull/Bear — look for a recent BOS within the last 20 bars.
+// Bullish BOS: a close above the swing high of the 20 bars prior to the last 20.
+// Bearish BOS: a close below the swing low of the 20 bars prior to the last 20.
+function recentStructureShift(candles, bos) {
+  const LOOKBACK = 20;
+  if (candles.length < LOOKBACK * 2) return false;
+  const recent = candles.slice(-LOOKBACK);
+  const prior = candles.slice(-LOOKBACK * 2, -LOOKBACK);
+
+  if (bos === 'BULL') {
+    const priorSwingHigh = Math.max(...prior.map(c => c.high));
+    // Any close in the recent window above the prior swing high = BOS up
+    return recent.some(c => c.close > priorSwingHigh);
+  }
+  if (bos === 'BEAR') {
+    const priorSwingLow = Math.min(...prior.map(c => c.low));
+    // Any close in the recent window below the prior swing low = BOS down
+    return recent.some(c => c.close < priorSwingLow);
+  }
   return false;
 }
 
@@ -258,14 +334,50 @@ function detectManipulationSweep(candles, analysis, side) {
   return false;
 }
 
+// FIX #2: FVG must have formed AFTER the sweep bar.
+// Finds the most recent sweep bar, then scans for a 3-bar FVG gap in candles after it.
 function fvgFormedAfterSweep(candles, analysis, fvgType) {
-  const fvgs = analysis.fvgs || [];
-  const hasFVG = fvgs.some(f => f.type === fvgType);
-  if (!hasFVG) return false;
   if (candles.length < 10) return false;
-  return true;
+
+  // Find the sweep bar index — most recent candle that dipped below rangeLow (bull) or above rangeHigh (bear)
+  const lookback = Math.min(30, Math.floor(candles.length / 2));
+  const lows = candles.map(c => c.low);
+  const highs = candles.map(c => c.high);
+  const rangeLow = Math.min(...lows.slice(-lookback));
+  const rangeHigh = Math.max(...highs.slice(-lookback));
+
+  let sweepBarIdx = -1;
+  if (fvgType === 'BULL') {
+    // Sweep: wick below rangeLow then closes back above
+    for (let i = candles.length - 5; i < candles.length; i++) {
+      if (i < 0) continue;
+      if (candles[i].low < rangeLow * 1.001) { sweepBarIdx = i; break; }
+    }
+  } else {
+    // Sweep: wick above rangeHigh then closes back below
+    for (let i = candles.length - 5; i < candles.length; i++) {
+      if (i < 0) continue;
+      if (candles[i].high > rangeHigh * 0.999) { sweepBarIdx = i; break; }
+    }
+  }
+
+  if (sweepBarIdx < 0) return false;
+
+  // Scan candles AFTER the sweep for a 3-bar FVG pattern
+  for (let i = sweepBarIdx + 1; i < candles.length - 2; i++) {
+    if (fvgType === 'BULL') {
+      // Bullish FVG: bar[i].high < bar[i+2].low (gap up)
+      if (candles[i].high < candles[i + 2].low) return true;
+    } else {
+      // Bearish FVG: bar[i].low > bar[i+2].high (gap down)
+      if (candles[i].low > candles[i + 2].high) return true;
+    }
+  }
+
+  return false;
 }
 
+// FIX #6: Raise threshold from 2 to 3 — only show setups with meaningful confluence
 /**
  * Score scenarios for a coin. Returns array of { scenarioId, name, direction, score, totalPhases, ready, phases }
  */
@@ -274,7 +386,7 @@ function scoreScenariosForCoin(candles, analysis) {
   const scenarios = [];
   for (const def of getAllScenarios()) {
     const result = evaluateScenario(candles, analysis, def.id);
-    if (result.score >= 2) {
+    if (result.score >= 3) {
       scenarios.push({
         scenarioId: def.id,
         name: def.name,

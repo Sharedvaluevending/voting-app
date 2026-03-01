@@ -31,7 +31,7 @@ function scanCoinForSetups(coinId, candles, currentPrice, setupIds = null) {
   }
 
   const SL_ATR_MULT = 2;
-  const TP_ATR_MULT = 2.5;
+  const TP_ATR_MULT = 4;  // 2:1 RR
 
   scenarios = scenarios.map(s => {
     if (!s.ready) return s;
@@ -106,8 +106,8 @@ function getReadySetupsForCoin(coinId, candles, currentPrice) {
   return result.scenarios.filter(s => s.ready);
 }
 
-const SL_ATR_MULT = 2;
-const TP_ATR_MULT = 2.5;
+const AUTO_SL_ATR_MULT = 2;
+const AUTO_TP_ATR_MULT = 4;  // 2:1 RR
 
 /**
  * Evaluate setups for auto-trade. Returns signals in same format as evaluateStrategyForAutoTrade.
@@ -139,8 +139,8 @@ function evaluateSetupsForAutoTrade(setupIds, allCandles, coinIds, prices = []) 
     const closes = candles.map(c => c.close);
     const atr = ATR_OHLC(highs, lows, closes, 14);
     const entryPrice = currentPrice;
-    const riskDist = Math.max(atr * SL_ATR_MULT, entryPrice * 0.005);
-    const rewardDist = atr * TP_ATR_MULT;
+    const riskDist = Math.max(atr * AUTO_SL_ATR_MULT, entryPrice * 0.005);
+    const rewardDist = atr * AUTO_TP_ATR_MULT;
 
     let stopLoss, takeProfit1, takeProfit2, takeProfit3;
     if (direction === 'LONG') {

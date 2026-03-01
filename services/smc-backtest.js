@@ -13,10 +13,10 @@ const INITIAL_BALANCE = 10000;
 const RISK_PER_TRADE = 0.02;
 const LEVERAGE = 2;
 const SL_ATR_MULT = 2;
-const TP_ATR_MULT = 2.5;
+const TP_ATR_MULT = 4;       // 2:1 RR (TP = 4× ATR, SL = 2× ATR)
 const TAKER_FEE = 0.001;
 const SLIPPAGE_BPS = 5;
-const MIN_PHASES_FOR_ENTRY = 3;
+const MIN_PHASES_FOR_ENTRY = 4;
 
 /**
  * Run backtest for an SMC setup.
