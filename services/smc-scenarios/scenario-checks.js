@@ -403,7 +403,7 @@ function fvgFormedAfterSweep(candles, analysis, fvgType) {
  * @returns {{ prices: string[], note?: string }}
  */
 function getPhasePriceDetails(checkId, analysis) {
-  const fmt = (v) => v != null && Number.isFinite(v) ? '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : null;
+  const fmt = (v) => v != null && Number.isFinite(v) ? '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }) : null;
   const cp = analysis.currentPrice;
   const liq = analysis.liquidityClusters || {};
   const fvgs = analysis.fvgs || [];

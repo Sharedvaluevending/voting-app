@@ -45,7 +45,7 @@
     <div class="ft-toggle" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:rgba(15,23,42,0.5);border:1px solid #1e2a3a;border-radius:6px;">
       <div>
         <strong style="color:#e5e7eb;"><%= a.symbol %></strong>
-        <span style="color:#9ca3af;margin-left:8px;">Alert when price goes <%= a.condition %> $<%= a.price >= 1 ? a.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : a.price.toFixed(6) %></span>
+        <span style="color:#9ca3af;margin-left:8px;">Alert when price goes <%= a.condition %> $<%= a.price >= 1 ? a.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 4}) : a.price.toFixed(6) %></span>
         <% if (a.triggeredAt) { %>
         <span style="color:#10b981;font-size:11px;margin-left:8px;">Triggered <%= new Date(a.triggeredAt).toLocaleString() %></span>
         <% } else { %>

@@ -276,7 +276,7 @@ app.use((req, res, next) => {
 function formatPrice(price) {
   if (price === null || price === undefined) return '0.00';
   if (price >= 1000) return price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (price >= 1) return price.toFixed(2);
+  if (price >= 1) return price.toFixed(4);   // e.g. 1.3677
   if (price >= 0.01) return price.toFixed(4);
   return price.toFixed(8);
 }

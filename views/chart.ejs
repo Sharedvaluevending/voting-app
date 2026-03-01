@@ -586,9 +586,9 @@
         if (ts == null) continue;
         var priceInfo = '';
         if (['BE','TS','LOCK'].indexOf(act.type) >= 0 && act.newValue != null) {
-          priceInfo = ' $' + (act.newValue >= 1 ? act.newValue.toFixed(2) : act.newValue.toFixed(6));
+          priceInfo = ' $' + (act.newValue >= 1 ? act.newValue.toFixed(4) : act.newValue.toFixed(6));
         } else if (['EXIT','PP','RP'].indexOf(act.type) >= 0 && act.marketPrice != null) {
-          priceInfo = ' @$' + (act.marketPrice >= 1 ? act.marketPrice.toFixed(2) : act.marketPrice.toFixed(6));
+          priceInfo = ' @$' + (act.marketPrice >= 1 ? act.marketPrice.toFixed(4) : act.marketPrice.toFixed(6));
         }
         markers.push({
           time: ts,
@@ -726,7 +726,7 @@
     var changeEl = document.getElementById('chart-symbol-change');
     if (!priceEl) return;
     if (price != null && Number.isFinite(price)) {
-      priceEl.textContent = '$' + (price >= 1 ? price.toFixed(2) : price.toFixed(6));
+      priceEl.textContent = '$' + (price >= 1 ? price.toFixed(4) : price.toFixed(6));
       priceEl.style.color = (change24h != null && change24h >= 0) ? '#22c55e' : '#ef4444';
     }
     if (changeEl && change24h != null && Number.isFinite(change24h)) {
@@ -744,7 +744,7 @@
     var lEl = document.getElementById('crosshair-l');
     var cEl = document.getElementById('crosshair-c');
     if (!infoEl || !chart) return;
-    function fmt(p) { return p >= 1 ? p.toFixed(2) : p.toFixed(6); }
+    function fmt(p) { return p >= 1 ? p.toFixed(4) : p.toFixed(6); }
     function findCandle(time) {
       if (!chartRef.candleData || chartRef.candleData.length === 0) return null;
       var best = chartRef.candleData[0];
@@ -1378,7 +1378,7 @@
       var dir = p.direction === 'BULL' ? 'Bullish' : p.direction === 'BEAR' ? 'Bearish' : 'Neutral';
       var targetStr = '';
       if (p.target) {
-        targetStr = '<div class="cp-target">Target: $' + (p.target >= 1 ? p.target.toFixed(2) : p.target.toFixed(6)) + '</div>';
+        targetStr = '<div class="cp-target">Target: $' + (p.target >= 1 ? p.target.toFixed(4) : p.target.toFixed(6)) + '</div>';
       }
       var wrStr = '';
       if (p.reliability && p.reliability.winRate) {
@@ -1806,7 +1806,7 @@
     var slEl = slRow ? slRow.querySelector('.level-price') : null;
     var origEl = slRow ? slRow.querySelector('.level-original') : null;
     var actionsBar = document.getElementById('chart-actions-bar');
-    function fmt(n) { return n >= 1 ? n.toFixed(2) : n.toFixed(6); }
+    function fmt(n) { return n >= 1 ? n.toFixed(4) : n.toFixed(6); }
     function priceStr(n) { return n >= 1 ? n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 6}) : n.toFixed(6); }
     setInterval(function() {
       fetch((window.location.origin || '') + '/api/trades/active', { credentials: 'same-origin' })
@@ -2109,7 +2109,7 @@
     var setupName = setupInfo.setupName || setupInfo.setupId;
     var phases = setupInfo.phases || [];
     if (setupTradeLevels && (levels.entry != null || levels.sl != null || levels.tp1 != null)) {
-      var fmt = function(v) { return v != null && Number.isFinite(v) ? '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) : ''; };
+      var fmt = function(v) { return v != null && Number.isFinite(v) ? '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }) : ''; };
       var parts = [];
       if (levels.entry != null) parts.push('Entry: ' + fmt(levels.entry));
       if (levels.sl != null) parts.push('SL: ' + fmt(levels.sl));
@@ -2426,7 +2426,7 @@
         drawCtx.stroke();
         // Price label
         drawCtx.fillStyle = d.color || '#f59e0b';
-        var lbl = d.price >= 1 ? d.price.toFixed(2) : d.price.toFixed(6);
+        var lbl = d.price >= 1 ? d.price.toFixed(4) : d.price.toFixed(6);
         drawCtx.fillText(lbl, 4, yPx - 4);
         drawCtx.fillStyle = 'transparent';
 
@@ -2500,7 +2500,7 @@
           drawCtx.stroke();
           // Label
           drawCtx.fillStyle = fib.color;
-          var fibLbl = fib.label + ' – ' + (fibPrice >= 1 ? fibPrice.toFixed(2) : fibPrice.toFixed(6));
+          var fibLbl = fib.label + ' – ' + (fibPrice >= 1 ? fibPrice.toFixed(4) : fibPrice.toFixed(6));
           drawCtx.fillText(fibLbl, 4, fibY - 4);
         }
         // Shaded zone between 0.5 and 0.618

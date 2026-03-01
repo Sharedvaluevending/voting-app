@@ -28,7 +28,7 @@
   <% prices.forEach(function(coin) { %>
     <div class="ticker" data-coin-id="<%= coin.id %>" onclick="location.href='/coin/<%= coin.id %>'">
       <div class="ticker-sym"><%= coin.symbol %></div>
-      <div class="ticker-price" data-price><%= typeof formatPrice !== 'undefined' ? '$' + formatPrice(coin.price) : '$' + Number(coin.price).toFixed(2) %></div>
+      <div class="ticker-price" data-price><%= typeof formatPrice !== 'undefined' ? '$' + formatPrice(coin.price) : '$' + (Number(coin.price) >= 1 ? Number(coin.price).toFixed(4) : Number(coin.price).toFixed(6)) %></div>
       <div class="ticker-change <%= coin.change24h >= 0 ? 'up' : 'down' %>" data-change>
         <%= coin.change24h >= 0 ? '+' : '' %><%= Number(coin.change24h).toFixed(2) %>%
       </div>
@@ -341,7 +341,7 @@
     if (p == null || isNaN(p)) return '0.00';
     var n = Number(p);
     if (n >= 1000) return n.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
-    if (n >= 1) return n.toFixed(2);
+    if (n >= 1) return n.toFixed(4);
     if (n >= 0.01) return n.toFixed(4);
     return n.toFixed(8);
   }
