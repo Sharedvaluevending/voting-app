@@ -13,7 +13,7 @@ const TRADE_SCENARIOS = {
     direction: 'LONG',
     category: 'fvg_liquidity',
     phases: [
-      { id: 'liquidity_below', name: 'Buy-side liquidity identified below', check: 'liquidityClusterBelow' },
+      { id: 'liquidity_below', name: 'Sell-side liquidity pool identified below (stops below lows)', check: 'liquidityClusterBelow' },
       { id: 'structure_shift', name: 'Structure shift (BOS/CHoCH bullish)', check: 'structureShiftBull' },
       { id: 'poi', name: 'POI (OB or FVG) in discount zone', check: 'poiInDiscount' },
       { id: 'sell_side_draw', name: 'Sell-side draw (liquidity sweep below)', check: 'liquiditySweepBelow' },

@@ -91,9 +91,9 @@ function runCheck(checkId, candles, analysis, direction) {
     case 'sell_side_draw':
       return detectLiquiditySweep(candles, analysis, 'below');
 
-    // priceAtPOI — distinct from hasPOIInDiscount: checks price has reached zone
+    // priceAtPOI — direction-aware: LONG only matches bull OBs/FVGs, SHORT only bear
     case 'priceAtPOI':
-      return priceNearOBOrFVG(analysis);
+      return priceNearOBOrFVG(analysis, direction);
 
     // FIX #1: entryConfirmation — require meaningful candle body (>= 30% ATR)
     case 'entryConfirmation':
@@ -155,9 +155,9 @@ function runCheck(checkId, candles, analysis, direction) {
       return isReversalCandle(lastCandle, prevCandle, 'BEAR');
 
     case 'fvgObStackBull':
-      return fvgs.some(f => f.type === 'BULL') && orderBlocks.some(ob => ob.type === 'BULL') && priceNearOBOrFVG(analysis);
+      return fvgs.some(f => f.type === 'BULL') && orderBlocks.some(ob => ob.type === 'BULL') && priceNearOBOrFVG(analysis, 'LONG');
     case 'fvgObStackBear':
-      return fvgs.some(f => f.type === 'BEAR') && orderBlocks.some(ob => ob.type === 'BEAR') && priceNearOBOrFVG(analysis);
+      return fvgs.some(f => f.type === 'BEAR') && orderBlocks.some(ob => ob.type === 'BEAR') && priceNearOBOrFVG(analysis, 'SHORT');
     case 'priceInDiscount':
       return posInSR < 0.5;
     case 'priceInPremium':
@@ -208,12 +208,17 @@ function getPosInSR(analysis) {
   return range > 0 ? (price - support) / range : 0.5;
 }
 
-function priceNearOBOrFVG(analysis) {
+// direction: 'LONG' = only bull OBs/FVGs, 'SHORT' = only bear OBs/FVGs, null = any
+function priceNearOBOrFVG(analysis, direction) {
   const price = analysis.currentPrice;
+  const obType = direction === 'LONG' ? 'BULL' : direction === 'SHORT' ? 'BEAR' : null;
+  const fvgType = obType;
   for (const ob of analysis.orderBlocks || []) {
+    if (obType && ob.type !== obType) continue;
     if (priceNearZone(price, ob.top, ob.bottom)) return true;
   }
   for (const fvg of analysis.fvgs || []) {
+    if (fvgType && fvg.type !== fvgType) continue;
     const top = Math.max(fvg.top, fvg.bottom);
     const bottom = Math.min(fvg.top, fvg.bottom);
     if (price >= bottom * 0.995 && price <= top * 1.005) return true;
