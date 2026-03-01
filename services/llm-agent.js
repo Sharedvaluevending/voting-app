@@ -371,6 +371,16 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
     ctx.coinWeights = { enabled: true, strength: user.coinWeightStrength || 'moderate', weights: user.coinWeights };
   }
 
+  // SMC setups (enabled IDs + available list). [] = scan all, [ids] = scan these
+  const setupIds = s.autoTradeSetupIds || [];
+  if (s.autoTradeUseSetups || setupIds.length > 0) {
+    ctx.setupsEnabled = setupIds.length > 0 ? setupIds : [];
+    try {
+      const { getAllScenarios } = require('./smc-scenarios/scenario-definitions');
+      ctx.availableSetups = getAllScenarios();
+    } catch (e) { ctx.availableSetups = []; }
+  }
+
   // Strategy weights from learning engine
   try {
     const StrategyWeight = require('../models/StrategyWeight');
@@ -769,6 +779,76 @@ async function executeAction(action, user, deps, actionContext = {}) {
     return result.ok ? { ok: true, message: `Updated ${trade.symbol} take profit levels` } : result;
   }
 
+  // ── setup_backtest ──
+  if (tool === 'setup_backtest') {
+    const coinId = (action.coinId || 'bitcoin').toString().toLowerCase().trim();
+    const setupId = (action.setupId || '').toString().trim();
+    const days = Math.min(90, Math.max(7, Number(action.days) || 30));
+    const timeframe = ['1h', '4h'].includes(action.timeframe) ? action.timeframe : '1h';
+    if (!setupId) return { ok: false, message: 'Missing setupId (e.g. fvg_liquidity_long)' };
+    try {
+      const { runSetupBacktest } = require('./smc-backtest');
+      const { getAllScenarios } = require('./smc-scenarios/scenario-definitions');
+      const validIds = getAllScenarios().map(s => s.id);
+      if (!validIds.includes(setupId)) return { ok: false, message: `Unknown setup. Valid: ${validIds.slice(0, 5).join(', ')}...` };
+      const endMs = Date.now();
+      const startMs = endMs - days * 24 * 60 * 60 * 1000;
+      const result = await runSetupBacktest(coinId, setupId, startMs, endMs, { initialBalance: 10000, leverage: 2, timeframe });
+      if (result.error) return { ok: false, message: result.error };
+      const sm = result.summary || {};
+      const msg = `Setup backtest ${setupId} on ${coinId} (${days}d ${timeframe}): ${sm.totalTrades || 0} trades, WR ${(sm.winRate || 0).toFixed(1)}%, PnL ${(sm.totalPnlPercent != null ? sm.totalPnlPercent.toFixed(1) : 'N/A')}%, MDD ${(sm.maxDrawdownPct || 0).toFixed(1)}%`;
+      return { ok: true, message: msg };
+    } catch (err) {
+      return { ok: false, message: `Setup backtest failed: ${err.message}` };
+    }
+  }
+
+  // ── scan_setups ──
+  if (tool === 'scan_setups') {
+    const setupId = action.setupId ? [action.setupId.toString().trim()] : null;
+    try {
+      const { scanMarketForSetups } = require('./smc-scanner');
+      const fetchAllCandles = deps.fetchAllCandles;
+      const fetchAllPrices = deps.fetchAllPrices;
+      if (!fetchAllCandles || !fetchAllPrices) return { ok: false, message: 'Candle/price data not available' };
+      const candles = typeof fetchAllCandles === 'function' ? fetchAllCandles() : null;
+      const prices = await fetchAllPrices();
+      if (!candles || Object.keys(candles).length === 0) return { ok: false, message: 'No candle data. Wait for refresh.' };
+      const results = scanMarketForSetups(candles, Array.isArray(prices) ? prices : [], setupId);
+      const ready = [];
+      for (const r of results) {
+        for (const sc of r.scenarios || []) {
+          if (sc.ready && sc.entry != null && sc.sl != null) ready.push({ coinId: r.coinId, setupId: sc.scenarioId, setupName: sc.name, direction: sc.direction, entry: sc.entry, sl: sc.sl, tp1: sc.tp1, tp2: sc.tp2, tp3: sc.tp3, score: sc.score, htfBias: sc.htfBias || r.htfBias });
+        }
+      }
+      if (ready.length > 0) {
+        const SetupNotification = require('../models/SetupNotification');
+        const source = actionContext.source === 'scheduled' ? 'llm_autonomous' : 'llm_scan';
+        for (const item of ready) {
+          await SetupNotification.create({
+            userId: user._id,
+            coinId: item.coinId,
+            setupId: item.setupId,
+            setupName: item.setupName,
+            direction: item.direction,
+            entry: item.entry,
+            sl: item.sl,
+            tp1: item.tp1,
+            tp2: item.tp2,
+            tp3: item.tp3,
+            score: item.score,
+            htfBias: item.htfBias,
+            source
+          });
+        }
+        return { ok: true, message: `Found ${ready.length} ready setup(s): ${ready.map(x => `${x.coinId} ${x.setupName}`).join('; ')}. Push notifications created.` };
+      }
+      return { ok: true, message: `Scanned. No ready setups found. (${results.length} coins had partial matches)` };
+    } catch (err) {
+      return { ok: false, message: `Setup scan failed: ${err.message}` };
+    }
+  }
+
   // ── open_trade ──
   if (tool === 'open_trade') {
     const coinId = (action.coinId || '').toString().toLowerCase().trim();
@@ -955,7 +1035,9 @@ Reply ONLY with valid JSON. No markdown. No explanations outside JSON.
     { "tool": "adjust_weight", "strategyId": "trend_follow", "weights": { "trend": 30, "momentum": 30, "volume": 20, "structure": 20 } },
     { "tool": "move_stop_loss", "tradeId": "id", "stopLoss": 95000 },
     { "tool": "move_to_breakeven", "tradeId": "id" },
-    { "tool": "update_take_profit", "tradeId": "id", "takeProfit1": 100000 }
+    { "tool": "update_take_profit", "tradeId": "id", "takeProfit1": 100000 },
+    { "tool": "setup_backtest", "coinId": "bitcoin", "setupId": "fvg_liquidity_long", "days": 30, "timeframe": "1h" },
+    { "tool": "scan_setups", "setupId": "fvg_liquidity_long" }
   ]
 }
 
@@ -966,6 +1048,9 @@ TOOLS:
 - move_stop_loss, move_to_breakeven, update_take_profit
 - adjust_weight, reset_learning
 - set_coin_weight, exclude_coin, include_coin
+- run_backtest: days (7-30), optional overrides
+- setup_backtest: coinId, setupId, days (7-90), timeframe (1h|4h)
+- scan_setups: setupId (optional, null=all), creates notifications when ready setups found
 
 If no action needed, return "actions": [].`;
 }
@@ -1081,6 +1166,14 @@ async function runAgent(userId, deps, opts = {}) {
     promptParts.push(`- Excluded coins: ${JSON.stringify(user.excludedCoins)}`);
   }
 
+  // SMC setups (enabled setup IDs, available setups)
+  if (ctx.setupsEnabled && ctx.setupsEnabled.length > 0) {
+    promptParts.push(`- Setups enabled: ${ctx.setupsEnabled.join(', ')}. Use scan_setups to find active setups.`);
+  }
+  if (ctx.availableSetups && ctx.availableSetups.length > 0) {
+    promptParts.push(`- Available setups: ${ctx.availableSetups.slice(0, 8).map(s => s.id).join(', ')}`);
+  }
+
   // User request or default review
   if (opts.userRequest) {
     promptParts.push(`\nUser request: "${opts.userRequest}"\n\nAnalyze the situation using ALL available data (scores, confidence, breakdowns, strategy performance, regime, indicators, badges, market pulse). Take the appropriate actions. Use tradeId from open trades above. Include detailed reasoning referencing specific data points. Reply with JSON only.`);
@@ -1092,6 +1185,7 @@ async function runAgent(userId, deps, opts = {}) {
 4. Strategy weights: Any strategy underperforming in current regime? Adjust weights or optimize.
 5. Risk settings: Is risk appropriate for current market conditions (Fear & Greed, volatility)?
 6. Coin weights: Any coins consistently winning/losing? Adjust allocation.
+7. SMC setups: If setups enabled, use scan_setups to find active setups. Creates push notifications when found.
 
 Use confidence, score breakdown, and reasoning to make decisions — not just raw score. Reply with JSON only.`);
   }
@@ -1118,7 +1212,7 @@ Use confidence, score breakdown, and reasoning to make decisions — not just ra
 
   const actionsExecuted = [];
   const actionsFailed = [];
-  const actionContext = { fullSignals: ctx.fullSignals || [], top3MarketScan: ctx.top3MarketScan || [] };
+  const actionContext = { fullSignals: ctx.fullSignals || [], top3MarketScan: ctx.top3MarketScan || [], source: opts.source };
   for (const action of actions) {
     if (!action.tool) continue;
     const result = await executeAction(action, user, deps, actionContext);

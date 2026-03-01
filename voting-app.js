@@ -2174,10 +2174,23 @@ app.get('/setups', optionalUser, async (req, res) => {
       };
     });
   }
+  let setupNotifications = [];
+  if (req.session?.userId) {
+    try {
+      const SetupNotification = require('./models/SetupNotification');
+      setupNotifications = await SetupNotification.find({ userId: req.session.userId })
+        .sort({ createdAt: -1 })
+        .limit(30)
+        .lean();
+    } catch (e) {
+      setupNotifications = [];
+    }
+  }
   res.render('setups', {
     activePage: 'setups',
     setups,
     setupStats,
+    setupNotifications,
     TRACKED_COINS,
     user
   });
@@ -2267,6 +2280,41 @@ app.post('/api/setups/use-for-autotrade', requireLogin, async (req, res) => {
   } catch (err) {
     console.error('[Setups] Use-for-autotrade error:', err);
     res.status(500).json({ error: err.message || 'Failed' });
+  }
+});
+
+// ====================================================
+// SETUP NOTIFICATIONS (LLM finds setups → push-style alerts)
+// ====================================================
+app.get('/api/setup-notifications', requireLogin, async (req, res) => {
+  try {
+    const SetupNotification = require('./models/SetupNotification');
+    const unread = await SetupNotification.find({ userId: req.session.userId, seenAt: null }).sort({ createdAt: -1 }).limit(20).lean();
+    const unreadCount = await SetupNotification.countDocuments({ userId: req.session.userId, seenAt: null });
+    res.json({ success: true, count: unreadCount, items: unread });
+  } catch (err) {
+    console.error('[SetupNotifications] Error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/setup-notifications/:id/seen', requireLogin, async (req, res) => {
+  try {
+    const SetupNotification = require('./models/SetupNotification');
+    await SetupNotification.updateOne({ _id: req.params.id, userId: req.session.userId }, { seenAt: new Date() });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/setup-notifications/seen-all', requireLogin, async (req, res) => {
+  try {
+    const SetupNotification = require('./models/SetupNotification');
+    await SetupNotification.updateMany({ userId: req.session.userId, seenAt: null }, { seenAt: new Date() });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

@@ -20,6 +20,50 @@
 
   <% if (typeof user !== 'undefined' && user) { %>
   <script>
+  (function() {
+    var badge = document.getElementById('setup-notif-badge');
+    var lastCount = null;
+    var firstCheck = true;
+
+    function updateBadge(count) {
+      if (badge && count > 0) {
+        badge.textContent = count > 99 ? '99+' : count;
+        badge.style.display = 'inline';
+      }
+    }
+
+    function checkNotifications() {
+      fetch('/api/setup-notifications', { credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (!d.success) return;
+          var count = d.count || 0;
+          updateBadge(count);
+          if (!firstCheck && lastCount != null && count > lastCount && 'Notification' in window && Notification.permission === 'granted') {
+            var added = count - lastCount;
+            var title = 'SMC Setup Found';
+            var body = added === 1 ? '1 new setup found by LLM' : added + ' new setups found by LLM';
+            try {
+              new Notification(title, { body: body, icon: '/favicon.ico' });
+            } catch (e) {}
+          }
+          firstCheck = false;
+          lastCount = count;
+        })
+        .catch(function() {});
+    }
+
+    checkNotifications();
+    setInterval(checkNotifications, 60000);
+
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then(function(p) {
+        if (p === 'granted') checkNotifications();
+      });
+    }
+  })();
+  </script>
+  <script>
   // Live PNL — real-time via WebSocket + fallback poll every 5s
   (function() {
     var pnlEl = document.getElementById('nav-live-pnl');

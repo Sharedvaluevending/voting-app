@@ -20,6 +20,7 @@ const CHAT_SYSTEM = `You are a crypto trading assistant with FULL access to this
 - Regime timeline
 - Current settings (risk, max trades, min score, auto-trade mode, leverage, etc.)
 - Last backtest results if any
+- SMC setups: run setup_backtest(coinId, setupId, days, timeframe) or scan_setups(setupId) to find active setups
 
 When analyzing trades or signals, consider ALL factors:
 - Score AND confidence (high score + low confidence = unreliable)

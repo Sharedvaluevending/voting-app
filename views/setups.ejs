@@ -21,6 +21,62 @@
 </div>
 <% } %>
 
+<% if (typeof user !== 'undefined' && user && typeof setupNotifications !== 'undefined' && setupNotifications.length > 0) { %>
+<div class="section" style="margin-bottom:24px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.25);border-radius:8px;overflow-x:auto;backdrop-filter:blur(8px);">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:16px 16px 0;">
+    <h3 style="color:#10b981;margin:0 0 12px 0;font-size:14px;">LLM Found Setups</h3>
+    <button type="button" id="mark-all-seen" class="btn btn-outline btn-sm" style="padding:6px 10px;">Mark all seen</button>
+  </div>
+  <table class="data-table" style="background:rgba(15,23,42,0.4);">
+    <thead>
+      <tr style="border-bottom:1px solid #334155;">
+        <th style="text-align:left;padding:12px 16px;color:#9ca3af;">Coin</th>
+        <th style="text-align:left;padding:12px 16px;color:#9ca3af;">Setup</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Dir</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Score</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Source</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Time</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% setupNotifications.forEach(function(n) {
+        var chartHref = '/chart/' + n.coinId;
+        if (n.entry != null && n.sl != null) {
+          chartHref += '?entry=' + encodeURIComponent(n.entry) + '&sl=' + encodeURIComponent(n.sl);
+          if (n.tp1 != null) chartHref += '&tp1=' + encodeURIComponent(n.tp1);
+          if (n.tp2 != null) chartHref += '&tp2=' + encodeURIComponent(n.tp2);
+          if (n.tp3 != null) chartHref += '&tp3=' + encodeURIComponent(n.tp3);
+          chartHref += '&setupId=' + encodeURIComponent(n.setupId || '') + '&setupName=' + encodeURIComponent(n.setupName || '');
+        }
+        var sourceLabel = n.source === 'llm_autonomous' ? 'Auto' : 'Chat';
+        var timeAgo = n.createdAt ? (function() {
+          var d = new Date(n.createdAt);
+          var s = Math.floor((Date.now() - d) / 1000);
+          if (s < 60) return s + 's ago';
+          if (s < 3600) return Math.floor(s/60) + 'm ago';
+          if (s < 86400) return Math.floor(s/3600) + 'h ago';
+          return Math.floor(s/86400) + 'd ago';
+        })() : '—';
+      %>
+      <tr style="border-bottom:1px solid rgba(30,42,58,0.5);" data-notif-id="<%= n._id %>" class="<%= n.seenAt ? '' : 'setup-notif-unread' %>">
+        <td style="padding:12px 16px;"><a href="/coin/<%= n.coinId %>" style="color:#3b82f6;"><%= n.coinId %></a></td>
+        <td style="padding:12px 16px;color:#e5e7eb;"><%= n.setupName %></td>
+        <td style="text-align:center;padding:12px 16px;"><span style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:<%= n.direction === 'LONG' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' %>;color:<%= n.direction === 'LONG' ? '#10b981' : '#ef4444' %>;"><%= n.direction %></span></td>
+        <td style="text-align:center;padding:12px 16px;color:#9ca3af;"><%= n.score != null ? n.score : '—' %></td>
+        <td style="text-align:center;padding:12px 16px;color:#6b7280;font-size:11px;"><%= sourceLabel %></td>
+        <td style="text-align:center;padding:12px 16px;color:#6b7280;font-size:11px;"><%= timeAgo %></td>
+        <td style="padding:12px 16px;">
+          <a href="<%= chartHref %>" class="btn btn-outline btn-sm" style="padding:4px 8px;">View Chart</a>
+          <% if (!n.seenAt) { %><button type="button" class="btn btn-outline btn-sm mark-seen" data-id="<%= n._id %>" style="padding:4px 8px;margin-left:4px;">Seen</button><% } %>
+        </td>
+      </tr>
+      <% }); %>
+    </tbody>
+  </table>
+</div>
+<% } %>
+
 <div class="section" style="margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;overflow-x:auto;backdrop-filter:blur(8px);">
   <h3 style="color:#e5e7eb;margin:0 0 12px 0;padding:16px 16px 0;">Setup List</h3>
   <table class="data-table" style="background:rgba(15,23,42,0.4);">
@@ -299,6 +355,35 @@
       .catch(function(err) { alert(err.message); });
     });
   });
+
+  document.querySelectorAll('.mark-seen').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var id = this.dataset.id;
+      document.querySelector('[data-notif-id="' + id + '"]')?.classList.remove('setup-notif-unread');
+      this.remove();
+      fetch('/api/setup-notifications/' + id + '/seen', { method: 'POST', credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.success && document.getElementById('setup-notif-badge')) {
+            var badge = document.getElementById('setup-notif-badge');
+            var n = parseInt(badge.textContent, 10) || 0;
+            badge.textContent = Math.max(0, n - 1) > 0 ? Math.max(0, n - 1) : '';
+            if (badge.textContent === '' || badge.textContent === '0') badge.style.display = 'none';
+          }
+        });
+    });
+  });
+
+  var markAllSeenEl = document.getElementById('mark-all-seen');
+  if (markAllSeenEl) {
+    markAllSeenEl.addEventListener('click', function() {
+      fetch('/api/setup-notifications/seen-all', { method: 'POST', credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.success) location.reload();
+        });
+    });
+  }
 
   var useSetupsEl = document.getElementById('use-setups-autotrade');
   if (useSetupsEl) {
