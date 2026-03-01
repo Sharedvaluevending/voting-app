@@ -5,9 +5,22 @@
 // ====================================================
 
 const { analyzeOHLCV, ATR_OHLC } = require('./trading-engine');
-const { scoreScenariosForCoin } = require('./smc-scenarios/scenario-checks');
+const { scoreScenariosForCoin, recentStructureShift } = require('./smc-scenarios/scenario-checks');
 const { getScenario } = require('./smc-scenarios/scenario-definitions');
 const { TRACKED_COINS } = require('./crypto-api');
+
+/**
+ * Compute 4h higher-timeframe bias from 4h candles.
+ * Returns 'BULL', 'BEAR', or 'NEUTRAL'.
+ */
+function get4hBias(c4h) {
+  if (!c4h || c4h.length < 40) return 'NEUTRAL';
+  const isBull = recentStructureShift(c4h, 'BULL');
+  const isBear = recentStructureShift(c4h, 'BEAR');
+  if (isBull && !isBear) return 'BULL';
+  if (isBear && !isBull) return 'BEAR';
+  return 'NEUTRAL';
+}
 
 /**
  * Scan a single coin for SMC setups.
@@ -23,6 +36,10 @@ function scanCoinForSetups(coinId, candles, currentPrice, setupIds = null) {
     return { coinId, price: currentPrice, scenarios: [] };
   }
 
+  // 4h HTF bias — filter setups that trade against the higher timeframe trend
+  const c4h = candles?.['4h'] || null;
+  const htfBias = get4hBias(c4h);
+
   const analysis = analyzeOHLCV(c1h, currentPrice);
   let scenarios = scoreScenariosForCoin(c1h, analysis);
 
@@ -30,11 +47,18 @@ function scanCoinForSetups(coinId, candles, currentPrice, setupIds = null) {
     scenarios = scenarios.filter(s => setupIds.includes(s.scenarioId));
   }
 
+  // Block trades against 4h HTF bias (only when bias is clearly one direction)
+  if (htfBias === 'BULL') {
+    scenarios = scenarios.filter(s => s.direction !== 'SHORT');
+  } else if (htfBias === 'BEAR') {
+    scenarios = scenarios.filter(s => s.direction !== 'LONG');
+  }
+
   const SL_ATR_MULT = 2;
   const TP_ATR_MULT = 4;  // 2:1 RR
 
   scenarios = scenarios.map(s => {
-    if (!s.ready) return s;
+    if (!s.ready) return { ...s, htfBias };
     const highs = c1h.map(c => c.high);
     const lows = c1h.map(c => c.low);
     const closes = c1h.map(c => c.close);
@@ -55,12 +79,13 @@ function scanCoinForSetups(coinId, candles, currentPrice, setupIds = null) {
       tp2 = entryPrice - rewardDist * 1.2;
       tp3 = entryPrice - rewardDist * 1.5;
     }
-    return { ...s, entry: entryPrice, sl, tp1, tp2, tp3 };
+    return { ...s, entry: entryPrice, sl, tp1, tp2, tp3, htfBias };
   });
 
   return {
     coinId,
     price: currentPrice,
+    htfBias,
     scenarios
   };
 }
@@ -126,7 +151,8 @@ function evaluateSetupsForAutoTrade(setupIds, allCandles, coinIds, prices = []) 
     if (!candles || candles.length < 50) continue;
 
     const currentPrice = candles[candles.length - 1].close;
-    const result = scanCoinForSetups(coinId, { '1h': candles }, currentPrice, setupIds);
+    const allCoinCandles = allCandles?.[coinId] || { '1h': candles };
+    const result = scanCoinForSetups(coinId, allCoinCandles, currentPrice, setupIds);
 
     const ready = result.scenarios.filter(s => s.ready);
     if (ready.length === 0) continue;
@@ -180,5 +206,6 @@ module.exports = {
   scanCoinForSetups,
   scanMarketForSetups,
   getReadySetupsForCoin,
-  evaluateSetupsForAutoTrade
+  evaluateSetupsForAutoTrade,
+  get4hBias
 };

@@ -95,6 +95,13 @@
           <input type="date" id="bt-end" name="endDate" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
         </div>
       </div>
+      <div>
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Timeframe</label>
+        <select id="bt-timeframe" name="timeframe" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+          <option value="1h">1h — Higher frequency signals</option>
+          <option value="4h">4h — Higher timeframe setups (recommended for SMC)</option>
+        </select>
+      </div>
       <div style="display:flex;gap:8px;margin-top:8px;">
         <button type="button" id="bt-30d" class="btn btn-outline btn-sm">30d</button>
         <button type="button" id="bt-90d" class="btn btn-outline btn-sm">90d</button>
@@ -125,7 +132,7 @@
   <p id="scan-status" style="font-size:12px;color:#9ca3af;margin-bottom:12px;">Scanning...</p>
   <div style="overflow-x:auto;">
     <table class="data-table" style="background:rgba(15,23,42,0.4);">
-      <thead><tr><th>Coin</th><th>Setup</th><th>Score</th><th>Ready</th><th>Chart</th></tr></thead>
+      <thead><tr><th>Coin</th><th>Setup</th><th>Score</th><th>4h Bias</th><th>Ready</th><th>Chart</th></tr></thead>
       <tbody id="scan-tbody"></tbody>
     </table>
   </div>
@@ -187,7 +194,8 @@
         coinId: document.getElementById('bt-coin').value,
         setupId: document.getElementById('bt-setup-id').value,
         startDate: document.getElementById('bt-start').value,
-        endDate: document.getElementById('bt-end').value
+        endDate: document.getElementById('bt-end').value,
+        timeframe: document.getElementById('bt-timeframe').value
       })
     })
     .then(function(r) { return r.json(); })
@@ -226,7 +234,7 @@
       var setupId = this.dataset.id;
       document.getElementById('setup-scan-results').style.display = 'block';
       document.getElementById('scan-status').textContent = 'Scanning market...';
-      document.getElementById('scan-tbody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:#6b7280;padding:16px;">Loading...</td></tr>';
+      document.getElementById('scan-tbody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:16px;">Loading...</td></tr>';
 
       fetch('/api/setups/scan?setupId=' + encodeURIComponent(setupId))
       .then(function(r) { return r.json(); })
@@ -235,7 +243,7 @@
         var tbody = document.getElementById('scan-tbody');
         tbody.innerHTML = '';
         if (!data.results || data.results.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#6b7280;padding:16px;">No active setups found. Try a different setup or check back later.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:16px;">No active setups found. Try a different setup or check back later.</td></tr>';
         } else {
           data.results.forEach(function(r) {
             (r.scenarios || []).forEach(function(sc) {
@@ -250,7 +258,14 @@
                 if (sc.tp3 != null) chartHref += '&tp3=' + encodeURIComponent(sc.tp3);
                 chartBtnText = 'View Chart';
               }
-              tr.innerHTML = '<td><a href="/coin/' + r.coinId + '" style="color:#3b82f6;">' + r.coinId + '</a></td><td>' + (sc.name || sc.scenarioId) + '</td><td>' + (sc.score || 0) + '/' + (sc.totalPhases || 0) + '</td><td>' + (sc.ready ? '<span style="color:#10b981;">Yes</span>' : 'No') + '</td><td><a href="' + chartHref + '" class="btn btn-outline btn-sm" style="padding:4px 8px;">' + chartBtnText + '</a></td>';
+              var bias = sc.htfBias || r.htfBias || 'N/A';
+              var biasStyle = bias === 'BULL' ? 'color:#10b981;' : bias === 'BEAR' ? 'color:#ef4444;' : 'color:#6b7280;';
+              tr.innerHTML = '<td><a href="/coin/' + r.coinId + '" style="color:#3b82f6;">' + r.coinId + '</a></td>'
+                + '<td>' + (sc.name || sc.scenarioId) + '</td>'
+                + '<td>' + (sc.score || 0) + '/' + (sc.totalPhases || 0) + '</td>'
+                + '<td style="' + biasStyle + 'font-weight:600;">' + bias + '</td>'
+                + '<td>' + (sc.ready ? '<span style="color:#10b981;">Yes</span>' : 'No') + '</td>'
+                + '<td><a href="' + chartHref + '" class="btn btn-outline btn-sm" style="padding:4px 8px;">' + chartBtnText + '</a></td>';
               tbody.appendChild(tr);
             });
           });
@@ -258,7 +273,7 @@
       })
       .catch(function(err) {
         document.getElementById('scan-status').textContent = 'Error: ' + (err.message || 'Scan failed');
-        document.getElementById('scan-tbody').innerHTML = '<tr><td colspan="5" style="text-align:center;color:#ef4444;">' + (err.message || 'Scan failed') + '</td></tr>';
+        document.getElementById('scan-tbody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:#ef4444;">' + (err.message || 'Scan failed') + '</td></tr>';
       });
     });
   });

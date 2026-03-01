@@ -15,7 +15,7 @@ const TRADE_SCENARIOS = {
     phases: [
       { id: 'liquidity_below', name: 'Sell-side liquidity pool identified below (stops below lows)', check: 'liquidityClusterBelow' },
       { id: 'structure_shift', name: 'Structure shift (BOS/CHoCH bullish)', check: 'structureShiftBull' },
-      { id: 'poi', name: 'POI (OB or FVG) in discount zone', check: 'poiInDiscount' },
+      { id: 'poi', name: 'Bull POI (OB or FVG) exists', check: 'poiBullExists' },
       { id: 'sell_side_draw', name: 'Sell-side draw (liquidity sweep below)', check: 'liquiditySweepBelow' },
       { id: 'price_taps_zone', name: 'Price taps the zone', check: 'priceAtPOI' },
       { id: 'entry_taken', name: 'Entry taken (confirmation candle)', check: 'entryConfirmation' },
@@ -31,9 +31,9 @@ const TRADE_SCENARIOS = {
     direction: 'SHORT',
     category: 'fvg_liquidity',
     phases: [
-      { id: 'liquidity_above', name: 'Sell-side liquidity identified above', check: 'liquidityClusterAbove' },
+      { id: 'liquidity_above', name: 'Buy-side liquidity identified above (stops above highs)', check: 'liquidityClusterAbove' },
       { id: 'structure_shift', name: 'Structure shift (BOS/CHoCH bearish)', check: 'structureShiftBear' },
-      { id: 'poi', name: 'POI (OB or FVG) in premium zone', check: 'poiInPremium' },
+      { id: 'poi', name: 'Bear POI (OB or FVG) exists', check: 'poiBearExists' },
       { id: 'buy_side_draw', name: 'Buy-side draw (liquidity sweep above)', check: 'liquiditySweepAbove' },
       { id: 'price_taps_zone', name: 'Price taps the zone', check: 'priceAtPOI' },
       { id: 'entry_taken', name: 'Entry taken', check: 'entryConfirmation' },
@@ -252,7 +252,7 @@ const TRADE_SCENARIOS = {
     category: 'premium_discount',
     phases: [
       { id: 'in_discount', name: 'Price in discount zone', check: 'priceInDiscount' },
-      { id: 'poi', name: 'POI (OB/FVG) in zone', check: 'poiInDiscount' },
+      { id: 'poi', name: 'Price at bull POI (OB/FVG)', check: 'priceAtPOI' },
       { id: 'bounce', name: 'Bounce / reversal candle', check: 'reversalCandleBull' },
       { id: 'entry', name: 'Entry confirmation', check: 'entryConfirmation' },
       { id: 'target', name: 'Target at equilibrium or premium', check: 'targetAtLiquidityAbove' }
@@ -268,7 +268,7 @@ const TRADE_SCENARIOS = {
     category: 'premium_discount',
     phases: [
       { id: 'in_premium', name: 'Price in premium zone', check: 'priceInPremium' },
-      { id: 'poi', name: 'POI (OB/FVG) in zone', check: 'poiInPremium' },
+      { id: 'poi', name: 'Price at bear POI (OB/FVG)', check: 'priceAtPOI' },
       { id: 'reject', name: 'Rejection / reversal candle', check: 'reversalCandleBear' },
       { id: 'entry', name: 'Entry confirmation', check: 'entryConfirmation' },
       { id: 'target', name: 'Target at equilibrium or discount', check: 'targetAtLiquidityBelow' }

@@ -162,6 +162,12 @@ function runCheck(checkId, candles, analysis, direction) {
       return posInSR < 0.5;
     case 'priceInPremium':
       return posInSR > 0.5;
+    // Existence-only checks — does a bull/bear POI exist (any location)?
+    // Used where sweep already implies discount/premium context
+    case 'poiBullExists':
+      return orderBlocks.some(ob => ob.type === 'BULL') || fvgs.some(f => f.type === 'BULL');
+    case 'poiBearExists':
+      return orderBlocks.some(ob => ob.type === 'BEAR') || fvgs.some(f => f.type === 'BEAR');
     default:
       return false;
   }
@@ -182,7 +188,10 @@ function priceNearFVG(analysis, type) {
   if (!match) return false;
   const top = Math.max(match.top, match.bottom);
   const bottom = Math.min(match.top, match.bottom);
-  return price >= bottom * 0.998 && price <= top * 1.002;
+  const fvgWidth = top - bottom;
+  // Allow price within 1× FVG width above/below the zone (or 0.5% if FVG is tiny)
+  const tolerance = Math.max(fvgWidth, price * 0.005);
+  return price >= bottom - tolerance && price <= top + tolerance;
 }
 
 // FIX #8: hasPOIInDiscount — only check that a bull POI *exists* in the discount zone
@@ -409,5 +418,6 @@ function scoreScenariosForCoin(candles, analysis) {
 module.exports = {
   evaluateScenario,
   runCheck,
-  scoreScenariosForCoin
+  scoreScenariosForCoin,
+  recentStructureShift
 };

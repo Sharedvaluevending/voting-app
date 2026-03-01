@@ -5,7 +5,7 @@
 // ====================================================
 
 const { analyzeOHLCV, getSwingPoints, ATR_OHLC } = require('./trading-engine');
-const { evaluateScenario } = require('./smc-scenarios/scenario-checks');
+const { evaluateScenario, recentStructureShift } = require('./smc-scenarios/scenario-checks');
 const { getScenario } = require('./smc-scenarios/scenario-definitions');
 const { computeMaxDrawdown, computeMaxDrawdownPct } = require('./backtest/analytics');
 
@@ -29,6 +29,7 @@ const MIN_PHASES_FOR_ENTRY = 4;
 async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
   const initialBalance = options.initialBalance ?? INITIAL_BALANCE;
   const leverage = options.leverage ?? LEVERAGE;
+  const timeframe = options.timeframe || '1h';
   const scenario = getScenario(setupId);
   if (!scenario) {
     return { error: `Unknown setup: ${setupId}`, trades: [], equityCurve: [] };
@@ -36,65 +37,90 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
 
   const { fetchHistoricalCandlesForCoin, fetchHistoricalKrakenCandles } = require('./crypto-api');
   const { loadCachedCandles, saveCachedCandles } = require('./backtest-cache');
-  const WARMUP = 100;
+  const WARMUP = timeframe === '4h' ? 25 : 100; // 4h bars
 
   const now = Date.now();
   if (endMs > now) endMs = now;
   if (startMs > endMs) startMs = endMs - 90 * 24 * 3600000;
 
-  const fetchStartMs = startMs - WARMUP * 3600000;
+  const fetchStartMs = startMs - WARMUP * (timeframe === '4h' ? 4 : 1) * 3600000;
   let candles = options.candles;
+  const tfKey = timeframe; // '1h' or '4h'
 
-  if (!candles || !candles['1h']) {
-    const cached = loadCachedCandles(coinId, fetchStartMs, endMs);
-    if (cached && cached['1h'] && cached['1h'].length >= 100) {
+  if (!candles || !candles[tfKey]) {
+    const cacheKey = coinId + '_' + timeframe;
+    const cached = loadCachedCandles(cacheKey, fetchStartMs, endMs);
+    if (cached && cached[tfKey] && cached[tfKey].length >= 50) {
       candles = cached;
     } else {
       try {
-        let c1h = await fetchHistoricalCandlesForCoin(coinId, '1h', fetchStartMs, endMs);
-        if (!c1h || c1h.length < 100) {
-          c1h = await fetchHistoricalKrakenCandles(coinId, '1h', fetchStartMs, endMs);
+        let ctf = await fetchHistoricalCandlesForCoin(coinId, timeframe, fetchStartMs, endMs);
+        if (!ctf || ctf.length < 50) {
+          ctf = await fetchHistoricalKrakenCandles(coinId, timeframe, fetchStartMs, endMs);
         }
-        candles = { '1h': c1h };
-        if (c1h && c1h.length >= 100) saveCachedCandles(coinId, fetchStartMs, endMs, candles);
+        candles = { [tfKey]: ctf };
+        if (ctf && ctf.length >= 50) saveCachedCandles(cacheKey, fetchStartMs, endMs, candles);
       } catch (err) {
         return { error: err.message || 'Failed to fetch candles', trades: [], equityCurve: [] };
       }
     }
   }
 
-  const c1h = candles['1h'];
-  if (!c1h || c1h.length < 100) {
-    return { error: 'Insufficient candle data (need 100+ bars)', trades: [], equityCurve: [] };
+  const ctf = candles[tfKey];
+  if (!ctf || ctf.length < 50) {
+    return { error: `Insufficient ${timeframe} candle data (need 50+ bars)`, trades: [], equityCurve: [] };
   }
 
-  let startBar = 50;
-  for (let i = 0; i < c1h.length; i++) {
-    if (c1h[i].openTime >= startMs) {
-      startBar = Math.max(50, i);
+  // For 1h backtest, also fetch 4h for HTF bias gating
+  let c4h = candles['4h'] || null;
+  if (timeframe === '1h' && !c4h) {
+    try {
+      c4h = await fetchHistoricalCandlesForCoin(coinId, '4h', fetchStartMs, endMs);
+      if (!c4h || c4h.length < 40) c4h = null;
+    } catch (e) { c4h = null; }
+  }
+
+  let startBar = Math.min(40, Math.floor(ctf.length / 4));
+  for (let i = 0; i < ctf.length; i++) {
+    if (ctf[i].openTime >= startMs) {
+      startBar = Math.max(40, i);
       break;
     }
   }
-  const lastBar = c1h.length - 1;
-  if (startBar >= lastBar) startBar = 50;
+  const lastBar = ctf.length - 1;
+  if (startBar >= lastBar) startBar = Math.min(40, Math.floor(ctf.length / 4));
 
   const trades = [];
   let equity = initialBalance;
   let position = null;
-  const equityCurve = [{ bar: startBar, equity: initialBalance, time: c1h[startBar]?.openTime }];
+  const equityCurve = [{ bar: startBar, equity: initialBalance, time: ctf[startBar]?.openTime }];
 
   const direction = scenario.direction;
+
+  // Build 4h bar index lookup for bias check at each 1h bar
+  function get4hBiasAt(barTime) {
+    if (!c4h || c4h.length < 40) return 'NEUTRAL';
+    // Find 4h bars up to barTime
+    const idx = c4h.findIndex(b => b.openTime > barTime);
+    const slice4h = idx > 0 ? c4h.slice(0, idx) : c4h;
+    if (slice4h.length < 40) return 'NEUTRAL';
+    const isBull = recentStructureShift(slice4h, 'BULL');
+    const isBear = recentStructureShift(slice4h, 'BEAR');
+    if (isBull && !isBear) return 'BULL';
+    if (isBear && !isBull) return 'BEAR';
+    return 'NEUTRAL';
+  }
 
   for (let t = startBar; t < lastBar; t++) {
     if (equity <= 0) break;
 
-    const slice = c1h.slice(0, t + 1);
+    const slice = ctf.slice(0, t + 1);
     const currentPrice = slice[slice.length - 1].close;
     const analysis = analyzeOHLCV(slice, currentPrice);
     const result = evaluateScenario(slice, analysis, setupId, t);
 
     if (position) {
-      const nextBar = c1h[t + 1];
+      const nextBar = ctf[t + 1];
       const exitPrice = nextBar.open;
       const slip = 1 + (SLIPPAGE_BPS / 10000);
 
@@ -148,7 +174,13 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
     }
 
     if (result.ready && result.score >= MIN_PHASES_FOR_ENTRY) {
-      const nextBar = c1h[t + 1];
+      // HTF bias gate: skip entry if 4h opposes the setup direction
+      const barTime = ctf[t]?.openTime || 0;
+      const htfBias = get4hBiasAt(barTime);
+      if (htfBias === 'BULL' && direction === 'SHORT') continue;
+      if (htfBias === 'BEAR' && direction === 'LONG') continue;
+
+      const nextBar = ctf[t + 1];
       const entryPrice = nextBar.open;
       const slip = 1 + (SLIPPAGE_BPS / 10000);
       const highs = slice.map(c => c.high);
@@ -192,7 +224,7 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
   }
 
   if (position) {
-    const lastBarC = c1h[c1h.length - 1];
+    const lastBarC = ctf[ctf.length - 1];
     const exitPrice = lastBarC.close;
     const slip = 1 + (SLIPPAGE_BPS / 10000);
     const adjExit = position.direction === 'LONG' ? exitPrice / slip : exitPrice * slip;
@@ -206,7 +238,7 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
       entry: position.entry,
       exit: adjExit,
       entryBar: position.entryBar,
-      exitBar: c1h.length - 1,
+      exitBar: ctf.length - 1,
       exitTime: lastBarC.openTime,
       reason: 'END',
       pnl: pnl - exitFees - position.entryFees,
@@ -217,15 +249,16 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
 
   let runningEquity = initialBalance;
   const curveMap = new Map();
-  curveMap.set(startBar, { equity: initialBalance, time: c1h[startBar]?.openTime });
+  curveMap.set(startBar, { equity: initialBalance, time: ctf[startBar]?.openTime });
   for (const tr of trades) {
     runningEquity += tr.pnl;
-    curveMap.set(tr.exitBar, { equity: runningEquity, time: c1h[tr.exitBar]?.openTime });
+    curveMap.set(tr.exitBar, { equity: runningEquity, time: ctf[tr.exitBar]?.openTime });
   }
-  for (let t = startBar; t < c1h.length; t += 24) {
+  const curveStep = timeframe === '4h' ? 6 : 24;
+  for (let t = startBar; t < ctf.length; t += curveStep) {
     if (!curveMap.has(t)) {
       const closedBefore = trades.filter(tr => tr.exitBar <= t).reduce((s, tr) => s + tr.pnl, 0);
-      curveMap.set(t, { equity: initialBalance + closedBefore, time: c1h[t]?.openTime });
+      curveMap.set(t, { equity: initialBalance + closedBefore, time: ctf[t]?.openTime });
     }
   }
   const equityCurveArr = [...curveMap.entries()].sort((a, b) => a[0] - b[0]).map(([bar, data]) => ({ bar, ...data }));
@@ -239,8 +272,8 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
   const maxDrawdown = computeMaxDrawdown(equityCurveArr);
   const maxDrawdownPct = computeMaxDrawdownPct(equityCurveArr);
 
-  const dataRangeNote = c1h.length > 0
-    ? `${new Date(c1h[startBar]?.openTime || 0).toISOString().slice(0, 10)} to ${new Date(c1h[lastBar]?.openTime || 0).toISOString().slice(0, 10)}`
+  const dataRangeNote = ctf.length > 0
+    ? `${new Date(ctf[startBar]?.openTime || 0).toISOString().slice(0, 10)} to ${new Date(ctf[lastBar]?.openTime || 0).toISOString().slice(0, 10)} [${timeframe}]`
     : null;
 
   return {

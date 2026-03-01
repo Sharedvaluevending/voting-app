@@ -2176,13 +2176,14 @@ app.get('/setups', optionalUser, async (req, res) => {
 
 app.post('/api/setups/backtest', async (req, res) => {
   try {
-    const { coinId, setupId, startDate, endDate } = req.body || {};
+    const { coinId, setupId, startDate, endDate, timeframe } = req.body || {};
     if (!setupId) return res.status(400).json({ error: 'Setup ID required' });
     const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 30 * 24 * 3600000;
     const endMs = endDate ? new Date(endDate).getTime() : Date.now();
     const cid = coinId || 'bitcoin';
+    const tf = ['1h', '4h'].includes(timeframe) ? timeframe : '1h';
     const { runSetupBacktest } = require('./services/smc-backtest');
-    const result = await runSetupBacktest(cid, setupId, startMs, endMs, { initialBalance: 10000, leverage: 2 });
+    const result = await runSetupBacktest(cid, setupId, startMs, endMs, { initialBalance: 10000, leverage: 2, timeframe: tf });
     if (result.error) return res.status(400).json({ error: result.error });
     if (req.session?.userId && result.summary) {
       const SetupBacktestResult = require('./models/SetupBacktestResult');
