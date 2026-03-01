@@ -1290,6 +1290,10 @@ app.post('/account/settings', requireLogin, async (req, res) => {
     if (req.body.autoTradeSetupIds !== undefined) {
       s.autoTradeSetupIds = Array.isArray(req.body.autoTradeSetupIds) ? req.body.autoTradeSetupIds : [];
     }
+    if (req.body.autoTradeUseSetups !== undefined) {
+      const val = req.body.autoTradeUseSetups;
+      s.autoTradeUseSetups = val === 'true' || (Array.isArray(val) && val.includes('true'));
+    }
     if (req.body.llmEnabled !== undefined) {
       const val = req.body.llmEnabled;
       s.llmEnabled = val === 'true' || (Array.isArray(val) && val.includes('true'));
@@ -2236,6 +2240,22 @@ app.post('/api/setups/enable', requireLogin, async (req, res) => {
     res.json({ success: true, autoTradeSetupIds: ids });
   } catch (err) {
     console.error('[Setups] Enable error:', err);
+    res.status(500).json({ error: err.message || 'Failed' });
+  }
+});
+
+app.post('/api/setups/use-for-autotrade', requireLogin, async (req, res) => {
+  try {
+    const { enabled } = req.body || {};
+    const u = await User.findById(req.session.userId);
+    if (!u) return res.status(401).json({ error: 'User not found' });
+    const s = u.settings || {};
+    s.autoTradeUseSetups = enabled === true || enabled === 'true';
+    u.settings = s;
+    await u.save();
+    res.json({ success: true, autoTradeUseSetups: s.autoTradeUseSetups });
+  } catch (err) {
+    console.error('[Setups] Use-for-autotrade error:', err);
     res.status(500).json({ error: err.message || 'Failed' });
   }
 });
@@ -3759,6 +3779,9 @@ async function runAutoTrade() {
         }
 
         const signalMode = user.settings?.autoTradeSignalMode || 'original';
+        const autoTradeUseSetups = user.settings?.autoTradeUseSetups === true;
+        const setupIds = user.settings?.autoTradeSetupIds || [];
+
         if (signalMode === 'indicators' || signalMode === 'both') {
           const StrategyConfig = require('./models/StrategyConfig');
           const configId = user.settings?.autoTradeStrategyConfigId;
@@ -3784,11 +3807,30 @@ async function runAutoTrade() {
           }
         }
 
+        if ((signalMode === 'setups' || signalMode === 'both' || autoTradeUseSetups) && setupIds.length > 0) {
+          const { evaluateSetupsForAutoTrade } = require('./services/smc-scanner');
+          const setupSignals = evaluateSetupsForAutoTrade(setupIds, allCandles, TRACKED_COINS, prices);
+          if (signalMode === 'setups') {
+            signals = setupSignals;
+          } else {
+            const bothLogic = user.settings?.autoTradeBothLogic || 'or';
+            if (bothLogic === 'or') {
+              const origIds = new Set(signals.map(s => s._coinId));
+              for (const ss of setupSignals) {
+                if (!origIds.has(ss._coinId)) signals.push(ss);
+              }
+            } else {
+              const setupCoinIdSet = new Set(setupSignals.map(s => s._coinId));
+              signals = signals.filter(s => setupCoinIdSet.has(s._coinId));
+            }
+          }
+        }
+
         const signalsWithBestStrategy = signals.map(sig => {
-          const coinId = sig.coin?.id || sig.id;
-          const overallScore = sig.score || 0;
-          let bestStrat = null;
-          let direction = null;
+          const coinId = sig.coin?.id || sig.id || sig._coinId;
+          let overallScore = sig._overallScore ?? sig.score ?? 0;
+          let bestStrat = sig._bestStrat || null;
+          let direction = sig._direction || null;
 
           if (sig.topStrategies && Array.isArray(sig.topStrategies)) {
             for (const strat of sig.topStrategies) {

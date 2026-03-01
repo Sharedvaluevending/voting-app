@@ -89,6 +89,7 @@ const userSchema = new mongoose.Schema({
     autoTradeBothLogic: { type: String, enum: ['or', 'and'], default: 'or' },
     autoTradeStrategyConfigId: { type: mongoose.Schema.Types.ObjectId, ref: 'StrategyConfig', default: null },
     autoTradeSetupIds: { type: [String], default: [] },
+    autoTradeUseSetups: { type: Boolean, default: false },
     disableLeverage: { type: Boolean, default: false },
     autoMoveBreakeven: { type: Boolean, default: true },
     autoTrailingStop: { type: Boolean, default: true },

@@ -64,7 +64,7 @@ const ENUM_SETTINGS = {
   riskMode: ['percent', 'dollar'],
   tpMode: ['fixed', 'trailing'],
   trailingTpDistanceMode: ['atr', 'fixed'],
-  autoTradeSignalMode: ['original', 'indicators', 'both'],
+  autoTradeSignalMode: ['original', 'indicators', 'setups', 'both'],
   autoTradeBothLogic: ['or', 'and'],
   coinWeightStrength: ['conservative', 'moderate', 'aggressive']
 };

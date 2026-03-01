@@ -78,8 +78,81 @@ function getReadySetupsForCoin(coinId, candles, currentPrice) {
   return result.scenarios.filter(s => s.ready);
 }
 
+const { ATR_OHLC } = require('./trading-engine');
+
+const SL_ATR_MULT = 2;
+const TP_ATR_MULT = 2.5;
+
+/**
+ * Evaluate setups for auto-trade. Returns signals in same format as evaluateStrategyForAutoTrade.
+ * @param {string[]} setupIds - enabled setup IDs to evaluate
+ * @param {Object} allCandles - { coinId: { '1h': [...] } }
+ * @param {string[]} coinIds - coins to evaluate
+ * @param {Array} prices - price data [{ id, price }]
+ * @returns {Array} signals in format { coin, _coinId, _direction, _overallScore, _bestStrat }
+ */
+function evaluateSetupsForAutoTrade(setupIds, allCandles, coinIds, prices = []) {
+  const signals = [];
+  if (!setupIds || setupIds.length === 0) return signals;
+
+  for (const coinId of coinIds || []) {
+    const candles = allCandles?.[coinId]?.['1h'];
+    if (!candles || candles.length < 50) continue;
+
+    const currentPrice = candles[candles.length - 1].close;
+    const result = scanCoinForSetups(coinId, { '1h': candles }, currentPrice, setupIds);
+
+    const ready = result.scenarios.filter(s => s.ready);
+    if (ready.length === 0) continue;
+
+    const best = ready.sort((a, b) => (b.score || 0) - (a.score || 0))[0];
+    const direction = best.direction === 'LONG' ? 'LONG' : 'SHORT';
+
+    const highs = candles.map(c => c.high);
+    const lows = candles.map(c => c.low);
+    const closes = candles.map(c => c.close);
+    const atr = ATR_OHLC(highs, lows, closes, 14);
+    const entryPrice = currentPrice;
+    const riskDist = Math.max(atr * SL_ATR_MULT, entryPrice * 0.005);
+    const rewardDist = atr * TP_ATR_MULT;
+
+    let stopLoss, takeProfit1, takeProfit2, takeProfit3;
+    if (direction === 'LONG') {
+      stopLoss = entryPrice - riskDist;
+      takeProfit1 = entryPrice + rewardDist;
+      takeProfit2 = entryPrice + rewardDist * 1.2;
+      takeProfit3 = entryPrice + rewardDist * 1.5;
+    } else {
+      stopLoss = entryPrice + riskDist;
+      takeProfit1 = entryPrice - rewardDist;
+      takeProfit2 = entryPrice - rewardDist * 1.2;
+      takeProfit3 = entryPrice - rewardDist * 1.5;
+    }
+
+    const coinData = Array.isArray(prices) ? prices.find(p => p.id === coinId) : null;
+    signals.push({
+      coin: coinData || { id: coinId },
+      _coinId: coinId,
+      _direction: direction,
+      _overallScore: 60 + (best.score || 0),
+      _bestStrat: {
+        stopLoss,
+        takeProfit1,
+        takeProfit2,
+        takeProfit3,
+        entry: entryPrice,
+        riskReward: rewardDist / riskDist,
+        id: 'smc-' + best.scenarioId
+      }
+    });
+  }
+
+  return signals;
+}
+
 module.exports = {
   scanCoinForSetups,
   scanMarketForSetups,
-  getReadySetupsForCoin
+  getReadySetupsForCoin,
+  evaluateSetupsForAutoTrade
 };

@@ -7,8 +7,19 @@
 
 <div class="section" style="margin-bottom:20px;padding:16px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;">
   <h3 style="color:#eab308;font-size:12px;margin:0 0 8px 0;text-transform:uppercase;">How it works</h3>
-  <p style="font-size:12px;color:#9ca3af;margin:0;line-height:1.6;">Each setup is a phased checklist (FVG, liquidity, structure shift, POI, etc.). <strong>Backtest</strong> to see win rate and ROI. <strong>Scan Market</strong> to find coins with active setups. <strong>Enable</strong> to use setups for paper/live auto-trade (Performance page).</p>
+  <p style="font-size:12px;color:#9ca3af;margin:0;line-height:1.6;">Each setup is a phased checklist (FVG, liquidity, structure shift, POI, etc.). <strong>Backtest</strong> to see win rate and ROI. <strong>Scan Market</strong> to find coins with active setups. <strong>Enable</strong> per setup, then turn on <strong>Use Setups for Auto-Trade</strong> below to trade them alongside (or instead of) the scoring engine.</p>
 </div>
+
+<% if (typeof user !== 'undefined' && user) { %>
+<div class="section" style="margin-bottom:24px;padding:16px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;">
+  <h3 style="color:#10b981;margin:0 0 12px 0;font-size:14px;">Use Setups for Auto-Trade</h3>
+  <p style="font-size:12px;color:#9ca3af;margin:0 0 12px 0;">When ON, the system scans for your enabled setups and opens trades when found. Works alongside the scoring engine (Both) or set Signal source to &quot;Setups&quot; on <a href="/performance" style="color:#3b82f6;">Performance</a> for setups only.</p>
+  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+    <input type="checkbox" id="use-setups-autotrade" <%= (user.settings && user.settings.autoTradeUseSetups) ? 'checked' : '' %>>
+    <span style="font-size:13px;color:#e5e7eb;font-weight:600;">Use Setups for Auto-Trade</span>
+  </label>
+</div>
+<% } %>
 
 <div class="section" style="margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;overflow-x:auto;backdrop-filter:blur(8px);">
   <h3 style="color:#e5e7eb;margin:0 0 12px 0;padding:16px 16px 0;">Setup List</h3>
@@ -260,6 +271,22 @@
       .catch(function(err) { alert(err.message); });
     });
   });
+
+  var useSetupsEl = document.getElementById('use-setups-autotrade');
+  if (useSetupsEl) {
+    useSetupsEl.addEventListener('change', function() {
+      fetch('/api/setups/use-for-autotrade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: this.checked })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) throw new Error(data.error);
+      })
+      .catch(function(err) { alert(err.message); });
+    });
+  }
 })();
 </script>
 
