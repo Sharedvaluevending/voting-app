@@ -1013,7 +1013,8 @@
     if (showFVG && lastFVGs.length > 0) {
       for (var fvgi = 0; fvgi < lastFVGs.length; fvgi++) {
         var fvg = lastFVGs[fvgi];
-        var startTime = (fvg.idx != null && chartRef.candleData[fvg.idx]) ? chartRef.candleData[fvg.idx].time : firstTime;
+        var startIdx = fvg.idxFormed != null ? fvg.idxFormed : (fvg.idx != null ? fvg.idx + 2 : null);
+        var startTime = (startIdx != null && chartRef.candleData[startIdx]) ? chartRef.candleData[startIdx].time : firstTime;
         var p1 = toPx(startTime, fvg.top);
         var p2 = toPx(lastTime, fvg.bottom);
         if (p1 && p2) {

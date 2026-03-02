@@ -1418,14 +1418,14 @@ function detectFVGs(highs, lows) {
 
   for (let i = highs.length - 1; i >= Math.max(0, highs.length - lookback); i--) {
     if (i + 2 >= highs.length) continue;
-    // Bullish FVG: gap between candle i high and candle i+2 low
+    // Bullish FVG: candle 1 high < candle 3 low (gap between them, no overlap)
     if (lows[i + 2] > highs[i]) {
-      fvgs.push({ type: 'BULL', top: lows[i + 2], bottom: highs[i], idx: i });
+      fvgs.push({ type: 'BULL', top: lows[i + 2], bottom: highs[i], idx: i, idxFormed: i + 2 });
       if (fvgs.length >= 2) break;
     }
-    // Bearish FVG: gap between candle i low and candle i+2 high
+    // Bearish FVG: candle 1 low > candle 3 high (gap between them, no overlap)
     if (highs[i + 2] < lows[i]) {
-      fvgs.push({ type: 'BEAR', top: lows[i], bottom: highs[i + 2], idx: i });
+      fvgs.push({ type: 'BEAR', top: lows[i], bottom: highs[i + 2], idx: i, idxFormed: i + 2 });
       if (fvgs.length >= 2) break;
     }
   }
