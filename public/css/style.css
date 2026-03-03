@@ -20,12 +20,15 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 .nav-dropdown-trigger:hover, .nav-dropdown.active .nav-dropdown-trigger { background: #1e2a3a; color: #fff; }
 .nav-dropdown-trigger:focus-visible { outline: 2px solid #3b82f6; outline-offset: 2px; }
 .nav-dropdown-menu {
-  position: absolute; top: 100%; left: 0; min-width: 160px; margin-top: 4px;
+  position: absolute; top: calc(100% + 2px); left: 0; min-width: 160px;
   background: rgba(17, 24, 39, 0.98); border: 1px solid #1e2a3a; border-radius: 8px;
   box-shadow: 0 10px 40px rgba(0,0,0,0.4); padding: 6px 0; z-index: 200;
   display: none; flex-direction: column;
+  /* Invisible top bridge so mouse can travel from trigger to menu without gap */
 }
-.nav-dropdown:hover .nav-dropdown-menu,
+.nav-dropdown-menu::before {
+  content: ''; position: absolute; top: -8px; left: 0; right: 0; height: 8px;
+}
 .nav-dropdown.open .nav-dropdown-menu { display: flex; }
 .nav-dropdown-menu a {
   display: block; padding: 8px 14px; color: #9ca3af; text-decoration: none; font-size: 13px;

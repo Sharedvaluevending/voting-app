@@ -148,15 +148,67 @@
         toggle.setAttribute('aria-expanded', links.classList.contains('nav-open'));
       });
     }
-    document.querySelectorAll('.nav-dropdown-trigger').forEach(function(btn) {
-      btn.addEventListener('click', function(e) {
-        if (window.innerWidth <= 600) {
-          e.preventDefault();
-          var dd = btn.closest('.nav-dropdown');
-          dd.classList.toggle('open');
-          btn.setAttribute('aria-expanded', dd.classList.contains('open'));
-        }
+
+    // Dropdown: JS-controlled open/close with hide-delay so mouse can travel to menu
+    var hideTimers = new WeakMap();
+
+    function openDropdown(dd) {
+      clearTimeout(hideTimers.get(dd));
+      // Close any other open dropdowns
+      document.querySelectorAll('.nav-dropdown.open').forEach(function(other) {
+        if (other !== dd) closeDropdownNow(other);
       });
+      dd.classList.add('open');
+      var btn = dd.querySelector('.nav-dropdown-trigger');
+      if (btn) btn.setAttribute('aria-expanded', 'true');
+    }
+
+    function scheduleClose(dd) {
+      hideTimers.set(dd, setTimeout(function() { closeDropdownNow(dd); }, 150));
+    }
+
+    function closeDropdownNow(dd) {
+      dd.classList.remove('open');
+      var btn = dd.querySelector('.nav-dropdown-trigger');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+
+    document.querySelectorAll('.nav-dropdown').forEach(function(dd) {
+      var trigger = dd.querySelector('.nav-dropdown-trigger');
+      var menu = dd.querySelector('.nav-dropdown-menu');
+
+      // Desktop: hover to open, delayed close
+      if (trigger) {
+        trigger.addEventListener('mouseenter', function() {
+          if (window.innerWidth > 600) openDropdown(dd);
+        });
+        trigger.addEventListener('mouseleave', function() {
+          if (window.innerWidth > 600) scheduleClose(dd);
+        });
+        // Mobile: click to toggle
+        trigger.addEventListener('click', function(e) {
+          if (window.innerWidth <= 600) {
+            e.preventDefault();
+            if (dd.classList.contains('open')) closeDropdownNow(dd);
+            else openDropdown(dd);
+          }
+        });
+      }
+      if (menu) {
+        menu.addEventListener('mouseenter', function() {
+          if (window.innerWidth > 600) clearTimeout(hideTimers.get(dd));
+        });
+        menu.addEventListener('mouseleave', function() {
+          if (window.innerWidth > 600) scheduleClose(dd);
+        });
+      }
+    });
+
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('.nav-dropdown')) {
+        document.querySelectorAll('.nav-dropdown.open').forEach(closeDropdownNow);
+      }
     });
   })();
   </script>
