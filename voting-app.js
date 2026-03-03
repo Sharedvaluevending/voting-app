@@ -3084,7 +3084,7 @@ app.get('/api/bitget-test', (req, res) => res.redirect('/api/connectivity-test')
 app.post('/api/backtest', async (req, res) => {
   try {
     const { coinId, startDate, endDate, coins, minScore, leverage, features } = req.body || {};
-    const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 90 * 24 * 60 * 60 * 1000;
     const endMs = endDate ? new Date(endDate).getTime() : Date.now();
     if (isNaN(startMs) || isNaN(endMs)) {
       return res.status(400).json({ error: 'Invalid date range. Please select valid start and end dates.' });

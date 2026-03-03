@@ -550,10 +550,10 @@ function renderActionBadgesForTrade(actions) {
     document.getElementById('bt-sweep-opts').style.display = v === 'sweep' ? 'block' : 'none';
   });
 
-  // Default dates: last 30 days
+  // Default dates: last 90 days (3 months → 200+ trades with multi-coin)
   var end = new Date();
   var start = new Date();
-  start.setDate(start.getDate() - 30);
+  start.setDate(start.getDate() - 90);
   document.getElementById('endDate').value = end.toISOString().slice(0, 10);
   document.getElementById('startDate').value = start.toISOString().slice(0, 10);
 
@@ -566,7 +566,7 @@ function renderActionBadgesForTrade(actions) {
 
   async function runOneBacktest(b) {
     var controller = new AbortController();
-    var timeoutId = setTimeout(function() { controller.abort(); }, 90000);
+    var timeoutId = setTimeout(function() { controller.abort(); }, 300000); // 5 min for multi-month backtests
     var res = await fetch('/api/backtest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

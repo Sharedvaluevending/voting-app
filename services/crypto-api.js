@@ -22,18 +22,25 @@ const cache = {
 
 const REFRESH_INTERVAL = 60 * 1000;
 const COINGECKO_DELAY = 6000;
-const BITGET_DELAY = 350;      // Bitget: rate limit friendly
+const BITGET_DELAY = 200;      // Bitget: rate limit friendly (safe up to ~55 coins)
 const RETRY_DELAY = 10000;
 const RATE_LIMIT_WAIT_BASE = 20000;
 
 const TRACKED_COINS = [
+  // Original 20
   'bitcoin', 'ethereum', 'solana', 'dogecoin', 'ripple', 'cardano',
   'polkadot', 'avalanche-2', 'chainlink', 'polygon',
   'binancecoin', 'litecoin', 'uniswap', 'cosmos',
-  'near', 'arbitrum', 'optimism', 'sui', 'injective-protocol', 'pepe'
+  'near', 'arbitrum', 'optimism', 'sui', 'injective-protocol', 'pepe',
+  // Added 20 (brings to 40 — safe with 200ms delay)
+  'tron', 'toncoin', 'shiba-inu', 'bitcoin-cash', 'aptos',
+  'stellar', 'hedera-hashgraph', 'stacks', 'render-token', 'aave',
+  'the-graph', 'algorand', 'fantom', 'maker', 'curve-dao-token',
+  'lido-dao', 'internet-computer', 'filecoin', 'immutable-x', 'mantle'
 ];
 
 const COIN_META = {
+  // Original 20
   bitcoin:       { symbol: 'BTC',   name: 'Bitcoin',    bybit: 'BTCUSDT' },
   ethereum:      { symbol: 'ETH',   name: 'Ethereum',   bybit: 'ETHUSDT' },
   solana:        { symbol: 'SOL',   name: 'Solana',     bybit: 'SOLUSDT' },
@@ -50,20 +57,49 @@ const COIN_META = {
   cosmos:        { symbol: 'ATOM',  name: 'Cosmos',     bybit: 'ATOMUSDT' },
   near:          { symbol: 'NEAR',  name: 'NEAR',       bybit: 'NEARUSDT' },
   arbitrum:      { symbol: 'ARB',   name: 'Arbitrum',   bybit: 'ARBUSDT' },
-  optimism:      { symbol: 'OP',    name: 'Optimism',  bybit: 'OPUSDT' },
-  sui:           { symbol: 'SUI',   name: 'Sui',       bybit: 'SUIUSDT' },
-  'injective-protocol': { symbol: 'INJ', name: 'Injective', bybit: 'INJUSDT' },
-  pepe:          { symbol: 'PEPE',   name: 'Pepe',       bybit: 'PEPEUSDT' }
+  optimism:      { symbol: 'OP',    name: 'Optimism',   bybit: 'OPUSDT' },
+  sui:           { symbol: 'SUI',   name: 'Sui',        bybit: 'SUIUSDT' },
+  'injective-protocol': { symbol: 'INJ',  name: 'Injective',  bybit: 'INJUSDT' },
+  pepe:          { symbol: 'PEPE',  name: 'Pepe',       bybit: 'PEPEUSDT' },
+  // Added 20
+  tron:                { symbol: 'TRX',  name: 'Tron',             bybit: 'TRXUSDT' },
+  toncoin:             { symbol: 'TON',  name: 'Toncoin',          bybit: 'TONUSDT' },
+  'shiba-inu':         { symbol: 'SHIB', name: 'Shiba Inu',        bybit: 'SHIBUSDT' },
+  'bitcoin-cash':      { symbol: 'BCH',  name: 'Bitcoin Cash',     bybit: 'BCHUSDT' },
+  aptos:               { symbol: 'APT',  name: 'Aptos',            bybit: 'APTUSDT' },
+  stellar:             { symbol: 'XLM',  name: 'Stellar',          bybit: 'XLMUSDT' },
+  'hedera-hashgraph':  { symbol: 'HBAR', name: 'Hedera',           bybit: 'HBARUSDT' },
+  stacks:              { symbol: 'STX',  name: 'Stacks',           bybit: 'STXUSDT' },
+  'render-token':      { symbol: 'RNDR', name: 'Render',           bybit: 'RNDRUSDT' },
+  aave:                { symbol: 'AAVE', name: 'Aave',             bybit: 'AAVEUSDT' },
+  'the-graph':         { symbol: 'GRT',  name: 'The Graph',        bybit: 'GRTUSDT' },
+  algorand:            { symbol: 'ALGO', name: 'Algorand',         bybit: 'ALGOUSDT' },
+  fantom:              { symbol: 'FTM',  name: 'Fantom',           bybit: 'FTMUSDT' },
+  maker:               { symbol: 'MKR',  name: 'Maker',            bybit: 'MKRUSDT' },
+  'curve-dao-token':   { symbol: 'CRV',  name: 'Curve',            bybit: 'CRVUSDT' },
+  'lido-dao':          { symbol: 'LDO',  name: 'Lido',             bybit: 'LDOUSDT' },
+  'internet-computer': { symbol: 'ICP',  name: 'Internet Computer',bybit: 'ICPUSDT' },
+  filecoin:            { symbol: 'FIL',  name: 'Filecoin',         bybit: 'FILUSDT' },
+  'immutable-x':       { symbol: 'IMX',  name: 'Immutable',        bybit: 'IMXUSDT' },
+  mantle:              { symbol: 'MNT',  name: 'Mantle',           bybit: 'MNTUSDT' }
 };
 
 // CoinCap.io uses different asset ids
 const COINCAP_IDS = {
+  // Original 20
   'bitcoin': 'bitcoin', 'ethereum': 'ethereum', 'solana': 'solana', 'dogecoin': 'dogecoin',
   'ripple': 'xrp', 'cardano': 'cardano', 'polkadot': 'polkadot', 'avalanche-2': 'avalanche',
   'chainlink': 'chainlink', 'polygon': 'matic-network',
   'binancecoin': 'binance-coin', 'litecoin': 'litecoin', 'uniswap': 'uniswap', 'cosmos': 'cosmos',
   'near': 'near-protocol', 'arbitrum': 'arbitrum', 'optimism': 'optimism', 'sui': 'sui',
-  'injective-protocol': 'injective-protocol', 'pepe': 'pepe'
+  'injective-protocol': 'injective-protocol', 'pepe': 'pepe',
+  // Added 20
+  'tron': 'tron', 'toncoin': 'toncoin', 'shiba-inu': 'shiba-inu', 'bitcoin-cash': 'bitcoin-cash',
+  'aptos': 'aptos', 'stellar': 'stellar', 'hedera-hashgraph': 'hedera-hashgraph', 'stacks': 'blockstack',
+  'render-token': 'render-token', 'aave': 'aave', 'the-graph': 'the-graph', 'algorand': 'algorand',
+  'fantom': 'fantom', 'maker': 'maker', 'curve-dao-token': 'curve-dao-token', 'lido-dao': 'lido-dao',
+  'internet-computer': 'internet-computer', 'filecoin': 'filecoin', 'immutable-x': 'immutable-x',
+  'mantle': 'mantle'
 };
 
 let priceSourceRotation = 0;
@@ -233,6 +269,8 @@ const KRAKEN_PAIRS = {
   'binancecoin': 'BNBUSD', 'litecoin': 'XLTCZUSD', 'uniswap': 'UNIUSD', 'cosmos': 'ATOMUSD',
   'near': 'NEARUSD', 'arbitrum': 'ARBUSD', 'optimism': 'OPUSD', 'sui': 'SUIUSD',
   'injective-protocol': 'INJUSD', 'pepe': 'PEPEUSD',
+  // Added 20 (stellar was the only missing one)
+  'stellar': 'XXLMZUSD',
   // Top 3 / top-80 scanner coins (CoinGecko IDs) — Kraken fallback when Bitget unavailable
   'tron': 'TRXUSD', 'toncoin': 'TONUSD', 'shiba-inu': 'SHIBUSD', 'bitcoin-cash': 'BCHUSD',
   'aptos': 'APTUSD', 'filecoin': 'FILUSD', 'lido-dao': 'LDOUSD', 'internet-computer': 'ICPUSD',

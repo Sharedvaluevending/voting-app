@@ -21,7 +21,7 @@ const WARMUP_BARS = 100;      // Extra 1h bars to fetch before start date for in
  * Fetch multi-timeframe historical candles for a coin
  * Wraps each fetch in a per-coin timeout so one slow coin doesn't block everything.
  */
-const PER_COIN_FETCH_TIMEOUT = 15000; // 15s max per coin fetch (keep under Render's 30s req timeout)
+const PER_COIN_FETCH_TIMEOUT = 50000; // 50s max per coin fetch (multi-month Bitget pagination needs ~10-15s)
 
 async function fetchWithTimeout(promise, timeoutMs, label) {
   return Promise.race([
@@ -52,13 +52,34 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
   }
 
   let candles1h, candles4h, candles1d;
-  let source = 'kraken';
-  let krakenError = null;
+  let source = 'bitget';
   let bitgetError = null;
+  let krakenError = null;
 
-  // useBitgetOnly: skip Kraken entirely to avoid rate limits
-  if (!useBitgetOnly) {
+  // Bitget is primary: fully paginated, supports multi-month date ranges (200+ trades)
+  if (!krakenError) {
     try {
+      [candles1h, candles4h, candles1d] = await fetchWithTimeout(
+        Promise.all([
+          fetchHistoricalCandlesForCoin(coinId, '1h', fetchStartMs, endMs),
+          fetchHistoricalCandlesForCoin(coinId, '4h', fetchStartMs, endMs),
+          fetchHistoricalCandlesForCoin(coinId, '1d', fetchStartMs, endMs)
+        ]),
+        PER_COIN_FETCH_TIMEOUT,
+        `${coinId}-bitget`
+      );
+      if (!candles1h || candles1h.length === 0) bitgetError = 'Bitget returned 0 candles';
+    } catch (err) {
+      bitgetError = `Bitget error: ${err.message}`;
+      console.warn(`[Backtest] ${coinId}: ${bitgetError}`);
+    }
+  }
+
+  // Kraken fallback (capped at ~720 bars = ~30 days for 1h, but works for many coins)
+  if (!candles1h || candles1h.length < 50) {
+    try {
+      console.log(`[Backtest] ${coinId}: Bitget failed, trying Kraken fallback...`);
+      source = 'kraken';
       [candles1h, candles4h, candles1d] = await fetchWithTimeout(
         Promise.all([
           fetchHistoricalKrakenCandles(coinId, '1h', fetchStartMs, endMs),
@@ -72,26 +93,6 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
     } catch (err) {
       krakenError = `Kraken error: ${err.message}`;
       console.warn(`[Backtest] ${coinId}: ${krakenError}`);
-    }
-  }
-
-  if (useBitgetOnly || !candles1h || candles1h.length < 50) {
-    try {
-      if (!useBitgetOnly) console.log(`[Backtest] ${coinId}: trying Bitget...`);
-      source = 'bitget';
-      [candles1h, candles4h, candles1d] = await fetchWithTimeout(
-        Promise.all([
-          fetchHistoricalCandlesForCoin(coinId, '1h', fetchStartMs, endMs),
-          fetchHistoricalCandlesForCoin(coinId, '4h', fetchStartMs, endMs),
-          fetchHistoricalCandlesForCoin(coinId, '1d', fetchStartMs, endMs)
-        ]),
-        PER_COIN_FETCH_TIMEOUT,
-        coinId
-      );
-      if (!candles1h || candles1h.length === 0) bitgetError = 'Bitget returned 0 candles';
-    } catch (err) {
-      bitgetError = `Bitget error: ${err.message}`;
-      console.warn(`[Backtest] ${coinId}: ${bitgetError}`);
     }
   }
 
@@ -143,8 +144,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
  * Coins are processed in parallel batches to stay within API rate limits
  * while keeping total time well under Render's 30s request timeout.
  */
-const PER_COIN_BACKTEST_TIMEOUT = 12000; // 12s max per coin (fits ~30s hosting timeout)
-const PARALLEL_BATCH_SIZE = 2; // 2 coins at a time (stays under Render/Heroku 30s limit)
+const PER_COIN_BACKTEST_TIMEOUT = 60000; // 60s max per coin (supports multi-month backtests)
+const PARALLEL_BATCH_SIZE = 2; // 2 coins at a time (avoids API rate limits)
 
 async function runBacktest(startMs, endMs, options) {
   options = options || {};
