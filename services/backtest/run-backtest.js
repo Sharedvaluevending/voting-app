@@ -30,8 +30,13 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   options = options || {};
   const candles = options.candles;
   const btcCandles = options.btcCandles;
-  if (!candles || !candles['1h']) {
+  const primaryTf = options.primaryTf || '1h';
+  if (!candles || !candles[primaryTf]) {
     return { error: 'No candles provided', trades: [], equityCurve: [] };
+  }
+  // Engine requires 1h, 4h, 1d for analysis; 4h/1d primary still need 1h in slice
+  if (!candles['1h'] || !candles['4h'] || !candles['1d']) {
+    return { error: 'Engine requires 1h, 4h, 1d candles for analysis', trades: [], equityCurve: [] };
   }
 
   const minScore = options.minScore ?? 52;
@@ -60,7 +65,6 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const minVolume24hUsd = (ft.minVolume24hUsd != null && ft.minVolume24hUsd > 0) ? Number(ft.minVolume24hUsd) : 0;
   const slippageMultiplier = (ft.slippageMultiplier != null && ft.slippageMultiplier > 0) ? Number(ft.slippageMultiplier) : 1;
 
-  const primaryTf = options.primaryTf || '1h';
   const c1h = candles[primaryTf];
   if (!c1h || c1h.length < 50) {
     return { error: `Not enough ${primaryTf} candles (got ${c1h ? c1h.length : 0}, need 50+)`, trades: [], equityCurve: [] };

@@ -25,6 +25,12 @@ const BARS_PER_TF = {
   '1d': { '1w': 7 }
 };
 
+// Lower TF bars per base bar (engine needs 1h/4h when base is 4h/1d)
+const LOWER_TF_PER_BASE = {
+  '4h': { '1h': 4 },
+  '1d': { '1h': 24, '4h': 6 }
+};
+
 /**
  * Slice candles at bar index t for base timeframe.
  * Higher TFs only include CLOSED bars (realistic time alignment).
@@ -55,6 +61,17 @@ function sliceCandlesAt(candles, t, baseTf) {
       // Only include closed bars: at bar t we have floor((t+1)/barsPer) complete htf bars
       const closedCount = Math.floor((t + 1) / barsPer);
       slice[htf] = closedCount > 0 ? arr.slice(0, closedCount) : null;
+    }
+  }
+
+  // Engine requires 1h, 4h, 1d. When base is 4h or 1d, add lower TFs for analysis
+  const lowerMap = LOWER_TF_PER_BASE[baseTf];
+  if (lowerMap) {
+    for (const [ltf, barsPerBase] of Object.entries(lowerMap)) {
+      const arr = candles[ltf];
+      if (!arr || arr.length === 0) continue;
+      const count = Math.min((t + 1) * barsPerBase, arr.length);
+      if (count >= 20) slice[ltf] = arr.slice(0, count);
     }
   }
 

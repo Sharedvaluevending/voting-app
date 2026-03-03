@@ -608,6 +608,35 @@ function loadBacktestPresetByName(name) {
   if (f.trailingStartR != null) { var tsEl = document.getElementById('ft-trailingStartR'); if (tsEl) tsEl.value = f.trailingStartR; }
   if (f.trailingDistR != null) { var tdEl = document.getElementById('ft-trailingDistR'); if (tdEl) tdEl.value = f.trailingDistR; }
   if (document.getElementById('ft-themeDetector')) document.getElementById('ft-themeDetector').checked = !!f.themeDetector;
+  // Min volume filter
+  var minVolEl = document.getElementById('ft-minVolumeEnabled');
+  var minVolVal = document.getElementById('ft-minVolume');
+  if (minVolEl && minVolVal) {
+    minVolEl.checked = !!(f.minVolume24hUsd && f.minVolume24hUsd > 0);
+    minVolVal.value = f.minVolume24hUsd || 0;
+    document.getElementById('ft-minVolume').style.display = minVolEl.checked ? 'block' : 'none';
+  }
+  // Trailing TP opts
+  if (f.trailingTp) {
+    var distMode = document.getElementById('bt-trailingTpDistMode');
+    if (distMode) distMode.value = f.trailingTpDistanceMode || 'atr';
+    var atrMult = document.getElementById('bt-trailingTpAtrMult');
+    if (atrMult) atrMult.value = f.trailingTpAtrMultiplier ?? 1.5;
+    var fixedPct = document.getElementById('bt-trailingTpFixedPct');
+    if (fixedPct) fixedPct.value = f.trailingTpFixedPercent ?? 2;
+    document.getElementById('bt-trail-atr').style.display = (f.trailingTpDistanceMode || 'atr') === 'atr' ? 'block' : 'none';
+    document.getElementById('bt-trail-fixed').style.display = (f.trailingTpDistanceMode || 'atr') === 'fixed' ? 'block' : 'none';
+  }
+  if (f.dca) {
+    var dcaMax = document.getElementById('bt-dcaMaxAdds');
+    if (dcaMax) dcaMax.value = f.dcaMaxAdds ?? 3;
+    var dcaDip = document.getElementById('bt-dcaDipPct');
+    if (dcaDip) dcaDip.value = f.dcaDipPercent ?? 2;
+    var dcaSize = document.getElementById('bt-dcaAddSizePct');
+    if (dcaSize) dcaSize.value = f.dcaAddSizePercent ?? 100;
+    var dcaScore = document.getElementById('bt-dcaMinScore');
+    if (dcaScore) dcaScore.value = f.dcaMinScore ?? 52;
+  }
 }
 
 function populatePresetSelect() {

@@ -53,11 +53,11 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
     }
   }
 
-  // Determine which timeframes to fetch based on primary TF.
-  // Always fetch the primary + all higher TFs needed for context.
-  const TF_HIERARCHY = ['15m', '1h', '4h', '1d'];
-  const primaryIdx = TF_HIERARCHY.indexOf(primaryTf);
-  const tfsToFetch = primaryIdx >= 0 ? TF_HIERARCHY.slice(primaryIdx) : ['1h', '4h', '1d'];
+  // Determine which timeframes to fetch. Engine requires 1h, 4h, 1d for analysis.
+  // Always fetch 1h+4h+1d; add 15m only when primary is 15m.
+  const tfsToFetch = primaryTf === '15m'
+    ? ['15m', '1h', '4h', '1d']
+    : ['1h', '4h', '1d'];
 
   let fetchedCandles = {};
   let source = 'bitget';
