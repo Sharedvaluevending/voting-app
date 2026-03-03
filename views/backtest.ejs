@@ -108,6 +108,101 @@
   </div>
   <div id="feature-toggles">
     <p style="color:#6b7280;font-size:12px;margin-bottom:12px;">Toggle individual features on/off to compare performance. All ON = matches live system exactly.</p>
+
+    <!-- Tips & Conflicts -->
+    <div style="margin-bottom:16px;padding:14px 16px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.35);border-radius:8px;">
+      <h4 style="color:#93c5fd;font-size:13px;margin:0 0 10px 0;">Tips &amp; Conflicts</h4>
+      <ul style="margin:0;padding-left:18px;color:#9ca3af;font-size:12px;line-height:1.6;">
+        <li><strong style="color:#e5e7eb;">Trailing TP mode</strong> ignores Partial TP, Breakeven, and Trailing Stop — the stop trails from entry instead. Use Fixed TPs if you want those features.</li>
+        <li><strong style="color:#e5e7eb;">DCA + Score Re-check</strong> can conflict: DCA adds to losers when the signal re-confirms, but Score Re-check may exit when the score drops. Prefer DCA OFF if using Score Re-check.</li>
+        <li><strong style="color:#e5e7eb;">Quality filters</strong> (Price-Action Confluence, Volatility Filter, Volume Confirmation) stack — using all three reduces trade count but improves quality.</li>
+        <li><strong style="color:#e5e7eb;">Max profit / least losses:</strong> Signal filters ON, Partial TP + Breakeven + Trailing Stop + Lock-In ON, DCA OFF, Score Re-check ON, Min R:R 1.2–1.5.</li>
+      </ul>
+    </div>
+
+    <!-- Take-Profit Mode -->
+    <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
+      <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Take-Profit Mode</h4>
+      <div style="display:flex;gap:16px;align-items:center;margin-bottom:12px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:13px;">
+          <input type="radio" name="bt-tpMode" value="fixed" checked onchange="document.getElementById('ft-trailingTp').checked=false;document.getElementById('bt-trailing-tp-opts').style.display='none'"> Fixed TPs (TP1/TP2/TP3)
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:13px;">
+          <input type="radio" name="bt-tpMode" value="trailing" onchange="document.getElementById('ft-trailingTp').checked=true;document.getElementById('bt-trailing-tp-opts').style.display='flex'"> Trailing (ride the trend)
+        </label>
+      </div>
+      <input type="checkbox" id="ft-trailingTp" style="display:none">
+      <div id="bt-trailing-tp-opts" style="display:none;flex-wrap:wrap;gap:8px;">
+        <div>
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Distance Mode</label>
+          <select id="bt-trailingTpDistMode" onchange="document.getElementById('bt-trail-atr').style.display=this.value==='atr'?'block':'none';document.getElementById('bt-trail-fixed').style.display=this.value==='fixed'?'block':'none';" style="padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+            <option value="atr">ATR-based (dynamic)</option>
+            <option value="fixed">Fixed % (static)</option>
+          </select>
+        </div>
+        <div id="bt-trail-atr">
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">ATR Multiplier</label>
+          <input type="number" id="bt-trailingTpAtrMult" value="1.5" min="0.5" max="5" step="0.1" style="width:80px;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+        </div>
+        <div id="bt-trail-fixed" style="display:none;">
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Fixed Trail %</label>
+          <input type="number" id="bt-trailingTpFixedPct" value="2" min="0.5" max="10" step="0.1" style="width:80px;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+        </div>
+      </div>
+    </div>
+
+    <!-- DCA -->
+    <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
+      <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">DCA (Dollar Cost Average)</h4>
+      <label class="ft-toggle" title="Add to losing positions when signal re-confirms direction and score is above threshold" style="margin-bottom:10px;">
+        <input type="checkbox" id="ft-dca" onchange="document.getElementById('bt-dca-opts').style.display=this.checked?'grid':'none'"> <span class="ft-badge ft-pos">DCA</span> Enable DCA
+      </label>
+      <div id="bt-dca-opts" style="display:none;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;">
+        <div>
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Max Adds</label>
+          <input type="number" id="bt-dcaMaxAdds" value="3" min="1" max="10" step="1" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Dip % per Level</label>
+          <input type="number" id="bt-dcaDipPct" value="2" min="0.5" max="20" step="0.5" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Add Size (% of original)</label>
+          <input type="number" id="bt-dcaAddSizePct" value="100" min="25" max="200" step="25" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Min Score to Re-confirm</label>
+          <input type="number" id="bt-dcaMinScore" value="52" min="30" max="95" step="1" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+        </div>
+      </div>
+    </div>
+
+    <!-- Risk Controls -->
+    <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
+      <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Risk Controls</h4>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+        <div>
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Max Daily Loss % (0=off)</label>
+          <input type="number" id="ft-maxDailyLoss" value="0" min="0" max="20" step="1" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;" placeholder="0=off" title="0=off. Stop new trades when daily loss exceeds this % of balance.">
+        </div>
+        <div>
+          <label class="ft-toggle" title="Halve position size when in drawdown" style="margin-bottom:4px;">
+            <input type="checkbox" id="ft-drawdownSizing" onchange="document.getElementById('ft-drawdownThreshWrap').style.display=this.checked?'block':'none'"> <span class="ft-badge ft-risk">RISK</span> Drawdown Sizing
+          </label>
+          <div id="ft-drawdownThreshWrap" style="display:none;margin-top:6px;">
+            <input type="number" id="ft-drawdownThresh" value="10" min="5" max="50" style="width:80px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;"> % threshold
+          </div>
+        </div>
+        <div>
+          <label class="ft-toggle" title="Skip coins with 24h volume below this (USD)." style="margin-bottom:4px;">
+            <input type="checkbox" id="ft-minVolumeEnabled" onchange="document.getElementById('ft-minVolume').style.display=this.checked?'block':'none'"> <span class="ft-badge ft-signal">QUALITY</span> Min Volume Filter
+          </label>
+          <input type="number" id="ft-minVolume" value="0" min="0" step="1000000" style="display:none;width:100%;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;margin-top:6px;" placeholder="e.g. 50000000">
+        </div>
+      </div>
+    </div>
+
+    <!-- Toggles grid -->
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
       <!-- Signal Filters -->
       <label class="ft-toggle" title="Block altcoin LONGs when BTC is STRONG_SELL, block SHORTs when BTC is STRONG_BUY">
@@ -119,23 +214,32 @@
       <label class="ft-toggle" title="Apply session penalty (-5 score) outside 12-22 UTC peak hours">
         <input type="checkbox" id="ft-sessionFilter" checked> <span class="ft-badge ft-signal">SIGNAL</span> Session Filter (12-22 UTC)
       </label>
+      <label class="ft-toggle" title="Skip signals with R:R below threshold">
+        <input type="checkbox" id="ft-minRiskRewardEnabled" checked onchange="document.getElementById('ft-minRrValue').style.display=this.checked?'flex':'none'"> <span class="ft-badge ft-signal">SIGNAL</span> Min R:R Filter
+      </label>
+      <div id="ft-minRrValue" style="display:flex;align-items:center;gap:8px;">
+        <label style="font-size:12px;color:#9ca3af;">Min R:R</label>
+        <input type="number" id="ft-minRiskReward" value="1.2" min="1" max="5" step="0.1" style="width:70px;padding:6px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+      </div>
 
       <!-- Position Management -->
       <label class="ft-toggle" title="TP1 closes 40%, TP2 closes 30%, TP3 closes remaining 30%. OFF = close 100% at TP1">
         <input type="checkbox" id="ft-partialTP" checked> <span class="ft-badge ft-pos">TP</span> Partial Take Profits (40/30/30)
       </label>
-      <label class="ft-toggle" title="Move stop to entry price when trade reaches 1R profit">
-        <input type="checkbox" id="ft-breakeven" checked> <span class="ft-badge ft-pos">BE</span> Breakeven at 1R
+      <label class="ft-toggle" title="Move stop to entry price when trade reaches 0.75R profit">
+        <input type="checkbox" id="ft-breakeven" checked> <span class="ft-badge ft-pos">BE</span> Breakeven at 0.75R
       </label>
-      <label class="ft-toggle" title="Trail stop 1R behind best price after 1.5R profit">
-        <input type="checkbox" id="ft-trailingStop" checked> <span class="ft-badge ft-pos">TS</span> Trailing Stop (1.5R)
+      <label class="ft-toggle" title="Trail stop 1.5R behind best price after 1.5R profit">
+        <input type="checkbox" id="ft-trailingStop" checked> <span class="ft-badge ft-pos">TS</span> Trailing Stop (1.5R trail)
       </label>
       <label class="ft-toggle" title="Lock stop at 0.5R/0.75R/1R as trade progresses 50%/75%/90% toward TP2">
         <input type="checkbox" id="ft-lockIn" checked> <span class="ft-badge ft-pos">LOCK</span> Stepped Lock-In
       </label>
+    </div>
 
-      <!-- Risk Management -->
-      <label class="ft-toggle" title="Use bar close for SL check (matches live system). OFF = use candle wicks (conservative, more stops)">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;margin-top:12px;">
+      <!-- Risk / Realism -->
+      <label class="ft-toggle" title="Use bar close for SL check (matches live system). OFF = use candle wicks">
         <input type="checkbox" id="ft-closeBasedStops" checked> <span class="ft-badge ft-fix">FIX</span> Close-Based Stops (realistic)
       </label>
       <label class="ft-toggle" title="Widen stops tighter than 1x ATR to prevent noise-level stop-outs">
@@ -151,6 +255,14 @@
         <input type="checkbox" id="ft-cooldown" checked> <span class="ft-badge ft-risk">RISK</span> 4h Cooldown
       </label>
 
+      <!-- Sizing -->
+      <label class="ft-toggle" title="Higher score = slightly larger position (0.5 + score/100, cap 1.2x)">
+        <input type="checkbox" id="ft-confidenceSizing" checked> <span class="ft-badge ft-cost">SIZE</span> Confidence Sizing
+      </label>
+      <label class="ft-toggle" title="Blend 70% risk-based + 30% fractional Kelly from strategy win rate & R:R">
+        <input type="checkbox" id="ft-kellySizing" checked> <span class="ft-badge ft-cost">SIZE</span> Kelly Criterion Sizing
+      </label>
+
       <!-- Quality Filters -->
       <label class="ft-toggle" title="Require at least one of: order block, FVG, or liquidity cluster">
         <input type="checkbox" id="ft-priceActionConfluence"> <span class="ft-badge ft-signal">QUALITY</span> Price-Action Confluence (OB/FVG/Liq)
@@ -164,91 +276,17 @@
       <label class="ft-toggle" title="Skip LONG when funding &gt;0.15%, skip SHORT when funding &lt;-0.15%">
         <input type="checkbox" id="ft-fundingRateFilter"> <span class="ft-badge ft-signal">QUALITY</span> Funding Rate Filter
       </label>
-      <label class="ft-toggle" title="Skip signals with R:R below threshold (matches live Min R:R filter)">
-        <input type="checkbox" id="ft-minRiskRewardEnabled" onchange="document.getElementById('ft-minRrValue').style.display=this.checked?'flex':'none'"> <span class="ft-badge ft-signal">QUALITY</span> Min R:R Filter
-      </label>
-      <div id="ft-minRrValue" style="display:none;align-items:center;gap:6px;">
-        <input type="number" id="ft-minRiskReward" value="1.2" min="1" max="5" step="0.1" style="width:60px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
-        <span style="font-size:11px;color:#6b7280;">min R:R</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:6px;">
-        <label style="font-size:11px;color:#9ca3af;">Max Daily Loss %</label>
-        <input type="number" id="ft-maxDailyLoss" value="0" min="0" max="20" step="1" style="width:60px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" placeholder="0=off" title="0=off. Stop new trades when daily loss exceeds this % of balance.">
-      </div>
-      <label class="ft-toggle" title="Halve position size when in drawdown" onchange="document.getElementById('ft-drawdownThreshWrap').style.display=this.checked?'flex':'none'">
-        <input type="checkbox" id="ft-drawdownSizing"> <span class="ft-badge ft-risk">RISK</span> Drawdown Sizing
-      </label>
-      <div id="ft-drawdownThreshWrap" style="display:none;align-items:center;gap:6px;">
-        <input type="number" id="ft-drawdownThresh" value="10" min="5" max="50" style="width:50px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;"> % threshold
-      </div>
-      <label class="ft-toggle" title="Skip coins with 24h volume below this (USD). Requires volume data in backtest.">
-        <input type="checkbox" id="ft-minVolumeEnabled" onchange="document.getElementById('ft-minVolume').style.display=this.checked?'block':'none'"> <span class="ft-badge ft-signal">QUALITY</span> Min Volume
-      </label>
-      <input type="number" id="ft-minVolume" value="0" min="0" step="1000000" style="display:none;width:100px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" placeholder="e.g. 50000000">
 
-      <!-- Sizing & Costs -->
-      <label class="ft-toggle" title="Higher score = slightly larger position (0.5 + score/100, cap 1.2x)">
-        <input type="checkbox" id="ft-confidenceSizing" checked> <span class="ft-badge ft-cost">SIZE</span> Confidence Sizing
-      </label>
-      <label class="ft-toggle" title="Blend 70% risk-based + 30% fractional Kelly from strategy win rate & R:R">
-        <input type="checkbox" id="ft-kellySizing" checked> <span class="ft-badge ft-cost">SIZE</span> Kelly Sizing
-      </label>
+      <!-- Costs & Stress -->
       <label class="ft-toggle" title="0.1% taker fee on entry and exit">
         <input type="checkbox" id="ft-fees" checked> <span class="ft-badge ft-cost">COST</span> Trading Fees (0.1%)
       </label>
       <label class="ft-toggle" title="0.05% slippage simulation on entry and exit">
         <input type="checkbox" id="ft-slippage" checked> <span class="ft-badge ft-cost">COST</span> Slippage (0.05%)
       </label>
-      <label class="ft-toggle" title="1.5x slippage stress test (backtest-expert: strategies that survive are more robust)">
+      <label class="ft-toggle" title="1.5x slippage stress test — strategies that survive are more robust">
         <input type="checkbox" id="ft-slippageStress"> <span class="ft-badge ft-risk">STRESS</span> Stress Test (1.5x slippage)
       </label>
-
-      <!-- DCA & Trailing TP -->
-      <label class="ft-toggle" title="Trailing TP: no fixed TPs, trail stop from entry using ATR or fixed % distance">
-        <input type="checkbox" id="ft-trailingTp" onchange="document.getElementById('bt-trailing-tp-opts').style.display=this.checked?'flex':'none'"> <span class="ft-badge ft-pos">TRAIL</span> Trailing Take-Profit
-      </label>
-      <label class="ft-toggle" title="DCA: add to losing positions when signal re-confirms (dip + score check)">
-        <input type="checkbox" id="ft-dca" onchange="document.getElementById('bt-dca-opts').style.display=this.checked?'flex':'none'"> <span class="ft-badge ft-pos">DCA</span> Dollar Cost Average
-      </label>
-    </div>
-
-    <!-- Trailing TP Options -->
-    <div id="bt-trailing-tp-opts" style="display:none;flex-wrap:wrap;gap:8px;margin-top:8px;padding:10px;background:rgba(30,42,58,0.4);border:1px solid #334155;border-radius:6px;">
-      <div>
-        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Distance Mode</label>
-        <select id="bt-trailingTpDistMode" onchange="document.getElementById('bt-trail-atr').style.display=this.value==='atr'?'block':'none';document.getElementById('bt-trail-fixed').style.display=this.value==='fixed'?'block':'none';" style="padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
-          <option value="atr">ATR-based</option>
-          <option value="fixed">Fixed %</option>
-        </select>
-      </div>
-      <div id="bt-trail-atr">
-        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">ATR Multiplier</label>
-        <input type="number" id="bt-trailingTpAtrMult" value="1.5" min="0.5" max="5" step="0.1" style="width:70px;padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
-      </div>
-      <div id="bt-trail-fixed" style="display:none;">
-        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Fixed Trail %</label>
-        <input type="number" id="bt-trailingTpFixedPct" value="2" min="0.5" max="10" step="0.1" style="width:70px;padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
-      </div>
-    </div>
-
-    <!-- DCA Options -->
-    <div id="bt-dca-opts" style="display:none;flex-wrap:wrap;gap:8px;margin-top:8px;padding:10px;background:rgba(30,42,58,0.4);border:1px solid #334155;border-radius:6px;">
-      <div>
-        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Max Adds</label>
-        <input type="number" id="bt-dcaMaxAdds" value="3" min="1" max="10" step="1" style="width:60px;padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
-      </div>
-      <div>
-        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Dip % per Level</label>
-        <input type="number" id="bt-dcaDipPct" value="2" min="0.5" max="20" step="0.5" style="width:60px;padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
-      </div>
-      <div>
-        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Add Size %</label>
-        <input type="number" id="bt-dcaAddSizePct" value="100" min="25" max="200" step="25" style="width:70px;padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
-      </div>
-      <div>
-        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Min Score</label>
-        <input type="number" id="bt-dcaMinScore" value="52" min="30" max="95" step="1" style="width:60px;padding:5px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
-      </div>
     </div>
 
     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -496,9 +534,10 @@ function loadBacktestPresetByName(name) {
   document.getElementById('ft-closeBasedStops').checked = f.closeBasedStops;
   document.getElementById('ft-minSlDistance').checked = f.minSlDistance;
   document.getElementById('ft-trailingTp').checked = f.trailingTp;
+  document.querySelectorAll('input[name="bt-tpMode"]').forEach(function(r) { r.checked = r.value === (f.trailingTp ? 'trailing' : 'fixed'); });
   document.getElementById('ft-dca').checked = f.dca;
   document.getElementById('bt-trailing-tp-opts').style.display = f.trailingTp ? 'flex' : 'none';
-  document.getElementById('bt-dca-opts').style.display = f.dca ? 'flex' : 'none';
+  document.getElementById('bt-dca-opts').style.display = f.dca ? 'grid' : 'none';
 }
 
 function populatePresetSelect() {
@@ -588,9 +627,10 @@ function loadLiveSettings() {
   if (s.minRiskReward != null) { var rr = document.getElementById('ft-minRiskReward'); if (rr) rr.value = s.minRiskReward; }
   var rrWrap = document.getElementById('ft-minRrValue'); if (rrWrap) rrWrap.style.display = s.minRiskRewardEnabled !== false ? 'flex' : 'none';
 
-  // Trailing TP
+  // Trailing TP — sync radio buttons and hidden checkbox
   var trailingTp = s.tpMode === 'trailing';
   set('ft-trailingTp', trailingTp);
+  document.querySelectorAll('input[name="bt-tpMode"]').forEach(function(r) { r.checked = r.value === (trailingTp ? 'trailing' : 'fixed'); });
   var trailingOpts = document.getElementById('bt-trailing-tp-opts'); if (trailingOpts) trailingOpts.style.display = trailingTp ? 'flex' : 'none';
   if (s.trailingTpDistanceMode) { var tm = document.getElementById('bt-trailingTpDistMode'); if (tm) tm.value = s.trailingTpDistanceMode; }
   if (s.trailingTpAtrMultiplier != null) { var ta = document.getElementById('bt-trailingTpAtrMult'); if (ta) ta.value = s.trailingTpAtrMultiplier; }
