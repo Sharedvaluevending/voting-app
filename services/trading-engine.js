@@ -122,9 +122,17 @@ function analyzeWithCandles(coinData, candles, options) {
   const scores1d = scoreCandles(tf1d, currentPrice, '1d');
 
   // Weighted confluence: 1D=40%, 4H=35%, 1H=25%
-  let finalScore = Math.round(
-    scores1d.total * 0.40 + scores4h.total * 0.35 + scores1h.total * 0.25
-  );
+  const base1d = Math.round(scores1d.total * 0.40);
+  const base4h = Math.round(scores4h.total * 0.35);
+  const base1h = Math.round(scores1h.total * 0.25);
+  let finalScore = base1d + base4h + base1h;
+
+  // Track every factor that modifies the score for display
+  const scoreFactors = [
+    { label: '1D Timeframe (40%)', delta: base1d, type: 'base', detail: scores1d.total + '/100 raw · ' + scores1d.direction },
+    { label: '4H Timeframe (35%)', delta: base4h, type: 'base', detail: scores4h.total + '/100 raw · ' + scores4h.direction },
+    { label: '1H Timeframe (25%)', delta: base1h, type: 'base', detail: scores1h.total + '/100 raw · ' + scores1h.direction }
+  ];
 
   // Save pre-penalty score for penalty stacking floor
   const preModifierScore = finalScore;
@@ -143,21 +151,23 @@ function analyzeWithCandles(coinData, candles, options) {
     if (scores1d.direction === 'BULL' && finalScore >= 52) dominantDir = 'BULL';
     else if (scores1d.direction === 'BEAR' && finalScore <= 48) dominantDir = 'BEAR';
     else if (finalScore >= 58 && (scores1d.direction === 'BULL' || scores1d.direction === 'BEAR')) dominantDir = scores1d.direction;
-    else if (finalScore >= 60 && (scores4h.direction === 'BULL' || scores4h.direction === 'BEAR')) dominantDir = scores4h.direction;  // High score + 4H has direction
+    else if (finalScore >= 60 && (scores4h.direction === 'BULL' || scores4h.direction === 'BEAR')) dominantDir = scores4h.direction;
     else dominantDir = 'NEUTRAL';
   } else {
     dominantDir = bullCount > bearCount ? 'BULL' : bearCount > bullCount ? 'BEAR' : 'NEUTRAL';
   }
   if (scores1h.direction !== scores4h.direction && scores1h.direction !== 'NEUTRAL' && scores4h.direction !== 'NEUTRAL') {
-    finalScore = Math.max(0, finalScore - ENGINE_CONFIG.MTF_DIVERGENCE_PENALTY);
+    const mtfPenalty = -ENGINE_CONFIG.MTF_DIVERGENCE_PENALTY;
+    finalScore = Math.max(0, finalScore + mtfPenalty);
+    scoreFactors.push({ label: 'MTF Divergence Penalty', delta: mtfPenalty, type: 'penalty', detail: '1H (' + scores1h.direction + ') vs 4H (' + scores4h.direction + ') disagree' });
   }
 
   // Session filter: outside 12–22 UTC reduce score slightly
-  // In backtest, use the bar's timestamp (options.barTime) instead of current clock.
   const utcHour = options.barTime ? new Date(options.barTime).getUTCHours() : new Date().getUTCHours();
   const inSession = utcHour >= ENGINE_CONFIG.SESSION_START_UTC && utcHour < ENGINE_CONFIG.SESSION_END_UTC;
   if (!inSession) {
     finalScore = Math.max(0, finalScore - ENGINE_CONFIG.SESSION_PENALTY);
+    scoreFactors.push({ label: 'Session Filter', delta: -ENGINE_CONFIG.SESSION_PENALTY, type: 'penalty', detail: 'Outside peak hours (12–22 UTC). Current: ' + utcHour + ':00 UTC' });
   }
 
   // Divergence & top/bottom modifiers – avoid getting trapped at extremes
@@ -167,87 +177,108 @@ function analyzeWithCandles(coinData, candles, options) {
     const bullCount = [rsi?.bullish, macd?.bullish, obv?.bullish, stoch?.bullish].filter(Boolean).length;
     const bearCount = [rsi?.bearish, macd?.bearish, obv?.bearish, stoch?.bearish].filter(Boolean).length;
     const confluence = (bull && bullCount >= 2) || (bear && bearCount >= 2);
-    return { bullish: bull, bearish: bear, confluence };
+    return { bullish: bull, bearish: bear, confluence, bullCount, bearCount };
   };
   const div1h = mergeDiv(tf1h.rsiDivergence, tf1h.macdDivergence, tf1h.obvDivergence, tf1h.stochDivergence);
   const div4h = mergeDiv(tf4h.rsiDivergence, tf4h.macdDivergence, tf4h.obvDivergence, tf4h.stochDivergence);
   const divMod = (d) => {
     let delta = 0;
-    const boost = d.confluence ? 2 : 0; // 2+ divergence types = stronger
+    const boost = d.confluence ? 2 : 0;
     if (d.bullish) { delta += dominantDir === 'BULL' ? 8 + boost : (dominantDir === 'BEAR' ? -6 - boost : 4); }
     if (d.bearish) { delta += dominantDir === 'BEAR' ? 8 + boost : (dominantDir === 'BULL' ? -6 - boost : -4); }
     return delta;
   };
-  finalScore += Math.round((divMod(div1h) * 0.6 + divMod(div4h) * 0.4));
+  const divDelta = Math.round((divMod(div1h) * 0.6 + divMod(div4h) * 0.4));
+  finalScore += divDelta;
+  if (divDelta !== 0) {
+    const divTypes = [];
+    if (div1h.bullish) divTypes.push('1H bull div');
+    if (div1h.bearish) divTypes.push('1H bear div');
+    if (div4h.bullish) divTypes.push('4H bull div');
+    if (div4h.bearish) divTypes.push('4H bear div');
+    scoreFactors.push({ label: 'Divergence Modifier', delta: divDelta, type: divDelta > 0 ? 'boost' : 'penalty', detail: divTypes.join(', ') || 'RSI/MACD/OBV/Stoch' });
+  }
+
   if (tf1h.potentialBottom) {
-    if (dominantDir === 'BEAR') finalScore = Math.max(0, finalScore - 12);
-    else if (dominantDir === 'BULL') finalScore = Math.min(100, finalScore + 6);
+    if (dominantDir === 'BEAR') { finalScore = Math.max(0, finalScore - 12); scoreFactors.push({ label: 'Potential Bottom (Bear)', delta: -12, type: 'penalty', detail: 'Oversold + support + divergence — avoiding shorts' }); }
+    else if (dominantDir === 'BULL') { finalScore = Math.min(100, finalScore + 6); scoreFactors.push({ label: 'Potential Bottom (Bull)', delta: +6, type: 'boost', detail: 'Oversold reversal zone supports longs' }); }
   }
   if (tf1h.potentialTop) {
-    if (dominantDir === 'BULL') finalScore = Math.max(0, finalScore - 12);
-    else if (dominantDir === 'BEAR') finalScore = Math.min(100, finalScore + 6);
+    if (dominantDir === 'BULL') { finalScore = Math.max(0, finalScore - 12); scoreFactors.push({ label: 'Potential Top (Bull)', delta: -12, type: 'penalty', detail: 'Overbought + resistance + divergence — avoiding longs' }); }
+    else if (dominantDir === 'BEAR') { finalScore = Math.min(100, finalScore + 6); scoreFactors.push({ label: 'Potential Top (Bear)', delta: +6, type: 'boost', detail: 'Overbought reversal zone supports shorts' }); }
   }
 
   // Funding rate modifier: extreme funding = contrarian signal
   const fundingData = options.fundingRate || null;
   if (fundingData && fundingData.rate != null) {
     const fr = fundingData.rate;
-    // Positive funding > 0.05% = overleveraged longs (bearish contrarian)
-    // Negative funding < -0.05% = overleveraged shorts (bullish contrarian)
-    if (fr > 0.001) {  // >0.1% = extreme positive
-      if (dominantDir === 'BULL') finalScore = Math.max(0, finalScore - 8);
-      else if (dominantDir === 'BEAR') finalScore = Math.min(100, finalScore + 5);
-    } else if (fr > 0.0005) {  // >0.05%
-      if (dominantDir === 'BULL') finalScore = Math.max(0, finalScore - 4);
-      else if (dominantDir === 'BEAR') finalScore = Math.min(100, finalScore + 3);
-    } else if (fr < -0.001) {  // <-0.1% extreme negative
-      if (dominantDir === 'BEAR') finalScore = Math.max(0, finalScore - 8);
-      else if (dominantDir === 'BULL') finalScore = Math.min(100, finalScore + 5);
-    } else if (fr < -0.0005) {  // <-0.05%
-      if (dominantDir === 'BEAR') finalScore = Math.max(0, finalScore - 4);
-      else if (dominantDir === 'BULL') finalScore = Math.min(100, finalScore + 3);
+    const frPct = (fr * 100).toFixed(4) + '%';
+    let frDelta = 0;
+    if (fr > 0.001) {
+      if (dominantDir === 'BULL') frDelta = -8;
+      else if (dominantDir === 'BEAR') frDelta = +5;
+    } else if (fr > 0.0005) {
+      if (dominantDir === 'BULL') frDelta = -4;
+      else if (dominantDir === 'BEAR') frDelta = +3;
+    } else if (fr < -0.001) {
+      if (dominantDir === 'BEAR') frDelta = -8;
+      else if (dominantDir === 'BULL') frDelta = +5;
+    } else if (fr < -0.0005) {
+      if (dominantDir === 'BEAR') frDelta = -4;
+      else if (dominantDir === 'BULL') frDelta = +3;
+    }
+    if (frDelta !== 0) {
+      if (frDelta > 0) finalScore = Math.min(100, finalScore + frDelta);
+      else finalScore = Math.max(0, finalScore + frDelta);
+      const frLabel = fr > 0 ? 'Positive funding (' + frPct + ') — crowded longs' : 'Negative funding (' + frPct + ') — crowded shorts';
+      scoreFactors.push({ label: 'Funding Rate', delta: frDelta, type: frDelta > 0 ? 'boost' : 'penalty', detail: frLabel });
     }
   }
 
-  // BTC correlation modifier: alts correlated with BTC should respect BTC direction
+  // BTC correlation modifier
   const btcCandles = options.btcCandles || null;
   let btcCorrelation = null;
   if (btcCandles && candles['1h'] && coinData.id !== 'bitcoin') {
     btcCorrelation = calculateCorrelation(candles['1h'], btcCandles);
-    // If correlation > 0.7 and BTC direction disagrees with signal, penalize
     if (btcCorrelation > 0.7 && options.btcDirection) {
       const btcAgrees = (options.btcDirection === 'BULL' && dominantDir === 'BULL') ||
                          (options.btcDirection === 'BEAR' && dominantDir === 'BEAR');
       if (!btcAgrees) {
-        finalScore = Math.max(0, finalScore - Math.round(btcCorrelation * 8));
+        const btcDelta = -Math.round(btcCorrelation * 8);
+        finalScore = Math.max(0, finalScore + btcDelta);
+        scoreFactors.push({ label: 'BTC Correlation', delta: btcDelta, type: 'penalty', detail: 'Corr ' + btcCorrelation.toFixed(2) + ' with BTC but signal opposes BTC (' + options.btcDirection + ')' });
       }
     }
   }
 
-  // Volume Profile / POC: adds confluence when price near high-volume node
+  // Volume Profile / POC boost
   const poc = calculatePOC(candles['1h'] || []);
   if (poc > 0) {
     const distFromPOC = Math.abs(currentPrice - poc) / poc;
-    if (distFromPOC < 0.005) {  // within 0.5% of POC = strong level
+    if (distFromPOC < 0.005) {
       finalScore = Math.min(100, finalScore + 3);
+      scoreFactors.push({ label: 'Volume Profile (POC)', delta: +3, type: 'boost', detail: 'Price within 0.5% of high-volume node ($' + poc.toFixed(2) + ')' });
     }
   }
 
-  // Penalty stacking floor: independent penalties (MTF -10, session -5, BTC -8,
-  // potential top -12, funding -8) can stack to -43, killing viable signals.
-  // Cap total penalty reduction to -25 so a score-70 signal can't drop below 45.
+  // Penalty stacking floor: cap total penalty to -25
   const MAX_TOTAL_PENALTY = 25;
   if (finalScore < preModifierScore - MAX_TOTAL_PENALTY) {
+    const capDelta = (preModifierScore - MAX_TOTAL_PENALTY) - finalScore;
     finalScore = preModifierScore - MAX_TOTAL_PENALTY;
+    scoreFactors.push({ label: 'Penalty Cap (floor)', delta: capDelta, type: 'cap', detail: 'Total penalties capped at -25 to protect viable signals' });
   }
 
-  // Theme detector boost: coins in trending bullish themes get +2 when going long
+  // Theme detector boost
   const hotThemeCoinIds = options.hotThemeCoinIds;
   if (hotThemeCoinIds && (hotThemeCoinIds instanceof Set ? hotThemeCoinIds.has(coinData.id) : hotThemeCoinIds.includes(coinData.id))) {
-    if (dominantDir === 'BULL') finalScore = Math.min(100, finalScore + 2);
+    if (dominantDir === 'BULL') {
+      finalScore = Math.min(100, finalScore + 2);
+      scoreFactors.push({ label: 'Theme Detector', delta: +2, type: 'boost', detail: 'Coin is in a trending bullish market sector' });
+    }
   }
 
-  // Final score clamp: ensure score stays within 0-100 after all modifiers
+  // Final score clamp
   finalScore = Math.max(0, Math.min(100, finalScore));
 
   // Fibonacci retracement levels (used in trade levels calculation too)
@@ -419,13 +450,19 @@ function analyzeWithCandles(coinData, candles, options) {
     tpType: STOP_TP_LABELS.tpType,
     tpLabel: STOP_TP_LABELS.tpLabel,
     reasoning,
+    scoreFactors,
     scoreBreakdown: {
       trend: Math.round(scores1d.trend * 0.4 + scores4h.trend * 0.35 + scores1h.trend * 0.25),
       momentum: Math.round(scores1d.momentum * 0.4 + scores4h.momentum * 0.35 + scores1h.momentum * 0.25),
       volume: Math.round(scores1d.volume * 0.4 + scores4h.volume * 0.35 + scores1h.volume * 0.25),
       structure: Math.round(scores1d.structure * 0.4 + scores4h.structure * 0.35 + scores1h.structure * 0.25),
       volatility: Math.round(scores1d.volatility * 0.4 + scores4h.volatility * 0.35 + scores1h.volatility * 0.25),
-      riskQuality: Math.round(scores1d.riskQuality * 0.4 + scores4h.riskQuality * 0.35 + scores1h.riskQuality * 0.25)
+      riskQuality: Math.round(scores1d.riskQuality * 0.4 + scores4h.riskQuality * 0.35 + scores1h.riskQuality * 0.25),
+      byTimeframe: {
+        '1D': { trend: scores1d.trend, momentum: scores1d.momentum, volume: scores1d.volume, structure: scores1d.structure, volatility: scores1d.volatility, riskQuality: scores1d.riskQuality, total: scores1d.total },
+        '4H': { trend: scores4h.trend, momentum: scores4h.momentum, volume: scores4h.volume, structure: scores4h.structure, volatility: scores4h.volatility, riskQuality: scores4h.riskQuality, total: scores4h.total },
+        '1H': { trend: scores1h.trend, momentum: scores1h.momentum, volume: scores1h.volume, structure: scores1h.structure, volatility: scores1h.volatility, riskQuality: scores1h.riskQuality, total: scores1h.total }
+      }
     },
     timeframes: Object.assign({
       '1H': { signal: scores1h.label, score: scores1h.total, direction: scores1h.direction, rsi: r2(tf1h.rsi), trend: tf1h.trend, adx: r2(tf1h.adx) },

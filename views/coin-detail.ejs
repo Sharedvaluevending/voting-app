@@ -108,17 +108,82 @@
 </div>
 <% } %>
 
-<% if (sig.scoreBreakdown) { %>
+<% if (sig.scoreBreakdown || sig.scoreFactors) { %>
 <div class="section">
   <h3>Score Breakdown</h3>
+  <p style="color:#6b7280;font-size:12px;margin-bottom:16px;">Every signal, filter, and market condition that contributed to the final score of <strong style="color:#e5e7eb;"><%= sig.score %></strong>. Green = adds to score, Red = reduces score.</p>
+
+  <% if (sig.scoreFactors && sig.scoreFactors.length > 0) { %>
+  <!-- Waterfall breakdown -->
+  <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:20px;">
+    <% var running = 0; sig.scoreFactors.forEach(function(f) { running += f.delta; var isPos = f.delta >= 0; var typeColor = f.type === 'base' ? '#3b82f6' : f.type === 'boost' ? '#10b981' : f.type === 'cap' ? '#a78bfa' : '#ef4444'; var barMax = 40; var barW = Math.min(100, Math.abs(f.delta) / barMax * 100); %>
+    <div style="display:grid;grid-template-columns:220px 1fr 60px 60px;gap:8px;align-items:center;padding:7px 12px;background:rgba(15,23,42,0.5);border:1px solid #1e2a3a;border-radius:7px;" title="<%= f.detail %>">
+      <div>
+        <span style="font-size:12px;color:#e5e7eb;font-weight:<%= f.type === 'base' ? '600' : '400' %>"><%= f.label %></span>
+        <% if (f.detail) { %><div style="font-size:10px;color:#6b7280;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:210px;"><%= f.detail %></div><% } %>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;">
+        <% if (isPos) { %>
+          <div style="width:50%;display:flex;justify-content:flex-end;"><div style="height:6px;width:0;"></div></div>
+          <div style="width:50%;"><div style="height:6px;width:<%= barW %>%;background:<%= typeColor %>;border-radius:3px;opacity:0.8;"></div></div>
+        <% } else { %>
+          <div style="width:50%;display:flex;justify-content:flex-end;"><div style="height:6px;width:<%= barW %>%;background:<%= typeColor %>;border-radius:3px;opacity:0.8;"></div></div>
+          <div style="width:50%;"></div>
+        <% } %>
+      </div>
+      <div style="text-align:right;font-size:13px;font-weight:700;color:<%= isPos ? '#10b981' : '#ef4444' %>"><%= isPos ? '+' : '' %><%= f.delta %></div>
+      <div style="text-align:right;font-size:11px;color:#6b7280;">→ <%= running %></div>
+    </div>
+    <% }); %>
+    <!-- Final score row -->
+    <div style="display:grid;grid-template-columns:220px 1fr 60px 60px;gap:8px;align-items:center;padding:9px 12px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.4);border-radius:7px;margin-top:4px;">
+      <div style="font-size:13px;font-weight:700;color:#e5e7eb;">Final Score</div>
+      <div></div>
+      <div></div>
+      <div style="text-align:right;font-size:16px;font-weight:800;color:<%= (sig.score||0) >= 65 ? '#10b981' : (sig.score||0) >= 52 ? '#eab308' : '#ef4444' %>"><%= sig.score %></div>
+    </div>
+  </div>
+  <% } %>
+
+  <!-- Per-timeframe dimension grid -->
+  <% if (sig.scoreBreakdown && sig.scoreBreakdown.byTimeframe) { %>
+  <h4 style="color:#9ca3af;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin:0 0 10px 0;">Dimension Scores by Timeframe</h4>
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr style="border-bottom:1px solid #334155;">
+          <th style="text-align:left;padding:6px 10px;color:#6b7280;font-weight:600;">Dimension</th>
+          <th style="text-align:center;padding:6px 10px;color:#6b7280;font-weight:600;">1H (25%)</th>
+          <th style="text-align:center;padding:6px 10px;color:#6b7280;font-weight:600;">4H (35%)</th>
+          <th style="text-align:center;padding:6px 10px;color:#6b7280;font-weight:600;">1D (40%)</th>
+          <th style="text-align:center;padding:6px 10px;color:#6b7280;font-weight:600;">Blended</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% var dims = [['Trend','trend',20],['Momentum','momentum',20],['Volume','volume',20],['Structure','structure',20],['Volatility','volatility',10],['Risk Quality','riskQuality',10]]; var bTF = sig.scoreBreakdown.byTimeframe; %>
+        <% dims.forEach(function(d) { var name=d[0], key=d[1], max=d[2]; var v1h=bTF['1H'][key], v4h=bTF['4H'][key], v1d=bTF['1D'][key], bl=sig.scoreBreakdown[key]; function color(v,mx) { return v>=mx*0.75?'#10b981':v>=mx*0.5?'#eab308':'#ef4444'; } %>
+        <tr style="border-bottom:1px solid rgba(30,42,58,0.6);">
+          <td style="padding:7px 10px;color:#e5e7eb;font-weight:500;"><%= name %><span style="color:#6b7280;font-size:10px;"> /<%= max %></span></td>
+          <td style="text-align:center;padding:7px 10px;color:<%= color(v1h,max) %>;font-weight:600;"><%= v1h %></td>
+          <td style="text-align:center;padding:7px 10px;color:<%= color(v4h,max) %>;font-weight:600;"><%= v4h %></td>
+          <td style="text-align:center;padding:7px 10px;color:<%= color(v1d,max) %>;font-weight:600;"><%= v1d %></td>
+          <td style="text-align:center;padding:7px 10px;color:<%= color(bl,max) %>;font-weight:700;background:rgba(30,42,58,0.4);border-radius:4px;"><%= bl %></td>
+        </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+  <% } else if (sig.scoreBreakdown) { %>
+  <!-- Fallback simple grid if byTimeframe not present -->
   <div class="perf-grid">
-    <div class="perf-card" title="EMA/SMA alignment, ADX strength, price vs moving averages"><div class="perf-label">Trend</div><div class="perf-value"><%= sig.scoreBreakdown.trend %>/20</div></div>
+    <div class="perf-card" title="EMA/SMA alignment, ADX strength"><div class="perf-label">Trend</div><div class="perf-value"><%= sig.scoreBreakdown.trend %>/20</div></div>
     <div class="perf-card"><div class="perf-label">Momentum</div><div class="perf-value"><%= sig.scoreBreakdown.momentum %>/20</div></div>
     <div class="perf-card"><div class="perf-label">Volume</div><div class="perf-value"><%= sig.scoreBreakdown.volume %>/20</div></div>
     <div class="perf-card"><div class="perf-label">Structure</div><div class="perf-value"><%= sig.scoreBreakdown.structure %>/20</div></div>
     <div class="perf-card"><div class="perf-label">Volatility</div><div class="perf-value"><%= sig.scoreBreakdown.volatility %>/10</div></div>
     <div class="perf-card"><div class="perf-label">Risk Quality</div><div class="perf-value"><%= sig.scoreBreakdown.riskQuality %>/10</div></div>
   </div>
+  <% } %>
 </div>
 <% } %>
 
