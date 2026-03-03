@@ -3158,6 +3158,53 @@ app.post('/api/backtest', async (req, res) => {
   }
 });
 
+// ====================================================
+// BACKTEST APPLY TRAINING — write train-phase regime data to StrategyWeight
+// ====================================================
+app.post('/api/backtest/apply-training', requireLogin, async (req, res) => {
+  try {
+    const { allTrades } = req.body || {};
+    if (!allTrades || !Array.isArray(allTrades) || allTrades.length === 0) {
+      return res.status(400).json({ error: 'No trades provided' });
+    }
+
+    const allStrategies = await StrategyWeight.find({ active: true }).lean();
+    const strategyIds = new Set(allStrategies.map(s => s.strategyId));
+
+    // Group trades by strategy+regime
+    const byKey = {};
+    for (const trade of allTrades) {
+      const rawStrat = (trade.strategy || '').toLowerCase().replace(/[\s\-]+/g, '_');
+      const regime = (trade.regime || 'unknown').toLowerCase();
+      if (!rawStrat || !strategyIds.has(rawStrat)) continue;
+      const key = `${rawStrat}::${regime}`;
+      if (!byKey[key]) byKey[key] = { stratId: rawStrat, regime, wins: 0, losses: 0 };
+      if ((trade.pnl || 0) > 0) byKey[key].wins++;
+      else byKey[key].losses++;
+    }
+
+    let updated = 0;
+    const summary = [];
+    for (const { stratId, regime, wins, losses } of Object.values(byKey)) {
+      const existing = allStrategies.find(s => s.strategyId === stratId);
+      const prev = existing?.performance?.byRegime?.[regime] || { wins: 0, losses: 0 };
+      const newWins = (prev.wins || 0) + wins;
+      const newLosses = (prev.losses || 0) + losses;
+      await StrategyWeight.updateOne(
+        { strategyId: stratId },
+        { $set: { [`performance.byRegime.${regime}`]: { wins: newWins, losses: newLosses }, updatedAt: new Date() } }
+      );
+      summary.push({ stratId, regime, wins, losses, totalWins: newWins, totalLosses: newLosses });
+      updated++;
+    }
+
+    console.log(`[ApplyTraining] Updated ${updated} strategy+regime combos from ${allTrades.length} trades`);
+    res.json({ success: true, updated, summary });
+  } catch (err) {
+    console.error('[ApplyTraining] Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Candles for chart (Lightweight Charts format)
 app.get('/api/candles/:coinId', async (req, res) => {

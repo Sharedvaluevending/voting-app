@@ -80,6 +80,12 @@
     <div id="bt-walkforward-opts" style="display:none;">
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Train %</label>
       <input type="number" id="btTrainPct" value="70" min="50" max="90" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:10px;" title="After training runs, writes regime win/loss data to strategy weights. The live system will then prefer or avoid strategies in regimes where they underperform.">
+        <input type="checkbox" id="btApplyTraining" style="width:14px;height:14px;cursor:pointer;">
+        <span style="font-size:12px;color:#9ca3af;">Apply training results to strategy weights</span>
+      </label>
+      <p style="font-size:11px;color:#6b7280;margin:4px 0 0 22px;">Teaches the live system to reduce trades in losing regimes (e.g. ranging).</p>
+      <div id="bt-apply-training-status" style="display:none;margin-top:8px;padding:8px 12px;border-radius:6px;font-size:12px;"></div>
     </div>
     <div id="bt-sweep-opts" style="display:none;">
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Sweep Min Score (comma-sep)</label>
@@ -613,6 +619,46 @@ function renderActionBadgesForTrade(actions) {
         var trainBody = Object.assign({}, baseBody, { startDate: new Date(start).toISOString().slice(0,10), endDate: new Date(trainEnd).toISOString().slice(0,10) });
         var testBody = Object.assign({}, baseBody, { startDate: new Date(trainEnd).toISOString().slice(0,10), endDate: baseBody.endDate });
         var trainData = await runOneBacktest(trainBody);
+
+        // Apply training to weights before running test phase
+        var applyTrainingEl = document.getElementById('btApplyTraining');
+        var applyStatusEl = document.getElementById('bt-apply-training-status');
+        if (applyTrainingEl && applyTrainingEl.checked && trainData.allTrades && trainData.allTrades.length > 0) {
+          applyStatusEl.style.display = 'block';
+          applyStatusEl.style.background = 'rgba(59,130,246,0.12)';
+          applyStatusEl.style.color = '#93c5fd';
+          applyStatusEl.textContent = 'Applying training results to strategy weights...';
+          try {
+            var applyRes = await fetch('/api/backtest/apply-training', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ allTrades: trainData.allTrades }),
+              credentials: 'same-origin'
+            });
+            var applyData = await applyRes.json();
+            if (applyData.success) {
+              // Build a readable summary of what changed
+              var regimeSummary = (applyData.summary || []).map(function(s) {
+                var wr = s.totalWins + s.totalLosses > 0 ? Math.round(s.totalWins / (s.totalWins + s.totalLosses) * 100) : 0;
+                return s.regime + ' ' + wr + '%WR';
+              }).join(', ');
+              applyStatusEl.style.background = 'rgba(16,185,129,0.12)';
+              applyStatusEl.style.color = '#10b981';
+              applyStatusEl.textContent = '✓ Updated ' + applyData.updated + ' strategy+regime combos' + (regimeSummary ? ' (' + regimeSummary + ')' : '') + '. Live system will now favour/avoid these regimes.';
+            } else {
+              applyStatusEl.style.background = 'rgba(239,68,68,0.12)';
+              applyStatusEl.style.color = '#ef4444';
+              applyStatusEl.textContent = 'Could not apply training: ' + (applyData.error || 'unknown error');
+            }
+          } catch (applyErr) {
+            applyStatusEl.style.background = 'rgba(239,68,68,0.12)';
+            applyStatusEl.style.color = '#ef4444';
+            applyStatusEl.textContent = 'Apply training failed: ' + applyErr.message;
+          }
+        } else if (applyStatusEl) {
+          applyStatusEl.style.display = 'none';
+        }
+
         var testData = await runOneBacktest(testBody);
         data = {
           summary: {
