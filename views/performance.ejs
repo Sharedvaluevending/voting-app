@@ -188,9 +188,8 @@
         </div>
         <div>
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Signal source</label>
-          <select name="autoTradeSignalMode" id="autoTradeSignalMode" title="Original = scoring engine. Indicators = Strategy Builder. Setups = SMC trade scenarios. Both = either can trigger." onchange="var v=this.value; document.getElementById('autoTradeBothLogicWrap').style.display=v==='both'?'block':'none'; document.getElementById('autoTradeStrategyWrap').style.display=(v==='indicators'||v==='both')?'block':'none'; document.getElementById('autoTradeSetupsWrap').style.display=(v==='setups'||v==='both')?'block':'none';" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
-            <option value="original" <%= (user.settings && user.settings.autoTradeSignalMode) === 'original' ? 'selected' : !user.settings?.autoTradeSignalMode ? 'selected' : '' %>>Original (scoring engine)</option>
-            <option value="indicators" <%= (user.settings && user.settings.autoTradeSignalMode) === 'indicators' ? 'selected' : '' %>>Strategy Builder (indicators)</option>
+          <select name="autoTradeSignalMode" id="autoTradeSignalMode" title="Original = scoring engine. Setups = SMC trade scenarios. Both = either can trigger." onchange="var v=this.value; document.getElementById('autoTradeBothLogicWrap').style.display=v==='both'?'block':'none'; document.getElementById('autoTradeSetupsWrap').style.display=(v==='setups'||v==='both')?'block':'none';" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
+            <option value="original" <%= (user.settings && user.settings.autoTradeSignalMode) === 'original' || (user.settings && user.settings.autoTradeSignalMode) === 'indicators' ? 'selected' : !user.settings?.autoTradeSignalMode ? 'selected' : '' %>>Original (scoring engine)</option>
             <option value="setups" <%= (user.settings && user.settings.autoTradeSignalMode) === 'setups' ? 'selected' : '' %>>Setups (SMC scenarios)</option>
             <option value="both" <%= (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'selected' : '' %>>Both (OR or AND)</option>
           </select>
@@ -198,16 +197,6 @@
         <div id="autoTradeSetupsWrap" style="display:<%= (user.settings && user.settings.autoTradeSignalMode) === 'setups' || (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'block' : 'none' %>;">
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">SMC Setups</label>
           <p style="font-size:11px;color:#6b7280;margin:0 0 8px 0;">Enable setups and turn on &quot;Use Setups for Auto-Trade&quot; on the <a href="/setups" style="color:#3b82f6;">Setups</a> page. <strong>Setups</strong> = only SMC setups. <strong>Both</strong> = scoring engine + setups (OR logic).</p>
-        </div>
-        <div id="autoTradeStrategyWrap" style="display:<%= (user.settings && user.settings.autoTradeSignalMode) === 'indicators' || (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'block' : 'none' %>;">
-          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Strategy (for indicators)</label>
-          <select name="autoTradeStrategyConfigId" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
-            <option value="">-- Select saved strategy --</option>
-            <% (savedStrategies || []).forEach(function(s) { %>
-            <option value="<%= s._id %>" <%= (user.settings && user.settings.autoTradeStrategyConfigId && user.settings.autoTradeStrategyConfigId.toString() === s._id.toString()) ? 'selected' : '' %>><%= s.name %></option>
-            <% }); %>
-          </select>
-          <a href="/strategy-builder" style="font-size:11px;color:#3b82f6;margin-left:8px;">Build & save strategies</a>
         </div>
         <div id="autoTradeBothLogicWrap" style="display:<%= (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'block' : 'none' %>;">
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">When both</label>

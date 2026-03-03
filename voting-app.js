@@ -1057,7 +1057,7 @@ app.get('/history', requireLogin, async (req, res) => {
 // ====================================================
 app.get('/performance', requireLogin, async (req, res) => {
   try {
-    const [stats, user, journalAnalytics, savedStrategies] = await Promise.all([
+    const [stats, user, journalAnalytics] = await Promise.all([
       getPerformanceStats(req.session.userId),
       User.findById(req.session.userId).lean(),
       (async () => {
@@ -1084,10 +1084,6 @@ app.get('/performance', requireLogin, async (req, res) => {
           }
         }
         return { byEmotion, byRules };
-      })(),
-      (async () => {
-        const StrategyConfig = require('./models/StrategyConfig');
-        return StrategyConfig.find({ userId: req.session.userId }).sort({ updatedAt: -1 }).select('_id name').lean();
       })()
     ]);
     const safeStats = stats || {
@@ -1116,7 +1112,6 @@ app.get('/performance', requireLogin, async (req, res) => {
       stats: safeStats,
       user: user || {},
       journalAnalytics: journalAnalytics || { byEmotion: {}, byRules: { followed: { wins: 0, total: 0 }, broke: { wins: 0, total: 0 } } },
-      savedStrategies: savedStrategies || [],
       balanceAudit,
       useDeepSeek: !!process.env.DEEPSEEK_API_KEY,
       success: req.query.success || null,
@@ -1287,7 +1282,7 @@ app.post('/account/settings', requireLogin, async (req, res) => {
     if (req.body.autoTradeCoinsMode && ['tracked', 'tracked+top1', 'top1'].includes(req.body.autoTradeCoinsMode)) {
       s.autoTradeCoinsMode = req.body.autoTradeCoinsMode;
     }
-    if (req.body.autoTradeSignalMode && ['original', 'indicators', 'setups', 'both'].includes(req.body.autoTradeSignalMode)) {
+    if (req.body.autoTradeSignalMode && ['original', 'setups', 'both'].includes(req.body.autoTradeSignalMode)) {
       s.autoTradeSignalMode = req.body.autoTradeSignalMode;
     }
     if (req.body.autoTradeBothLogic && ['or', 'and'].includes(req.body.autoTradeBothLogic)) {
@@ -2066,86 +2061,6 @@ app.get('/learn', (req, res) => {
 // ====================================================
 app.get('/backtest', (req, res) => {
   res.render('backtest', { activePage: 'backtest', results: null, TRACKED_COINS });
-});
-
-// ====================================================
-// STRATEGY BUILDER (indicator-based custom strategies)
-// ====================================================
-app.get('/strategy-builder', optionalUser, async (req, res) => {
-  const { getAllPresets } = require('./services/strategy-builder/presets');
-  let savedStrategies = [];
-  if (req.session?.userId) {
-    const StrategyConfig = require('./models/StrategyConfig');
-    savedStrategies = await StrategyConfig.find({ userId: req.session.userId }).sort({ updatedAt: -1 }).lean();
-  }
-  const { getCatalog } = require('./services/strategy-builder/indicator-catalog');
-  res.render('strategy-builder', {
-    activePage: 'strategy-builder',
-    presets: getAllPresets(),
-    indicatorCatalog: getCatalog(),
-    savedStrategies,
-    TRACKED_COINS,
-    user: req.session?.userId ? await User.findById(req.session.userId).lean() : null
-  });
-});
-
-app.post('/api/strategy-builder/backtest', async (req, res) => {
-  try {
-    const { coinId, startDate, endDate, strategy, presetId } = req.body || {};
-    if (!strategy || !strategy.entry || !strategy.exit) {
-      return res.status(400).json({ error: 'Strategy entry and exit rules required' });
-    }
-    const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 365 * 24 * 3600000;
-    const endMs = endDate ? new Date(endDate).getTime() : Date.now();
-    const cid = coinId || 'bitcoin';
-    const { runCustomBacktest } = require('./services/strategy-builder/run-custom-backtest');
-    const result = await runCustomBacktest(cid, startMs, endMs, strategy, { initialBalance: 10000, leverage: 2 });
-    if (result.error) return res.status(400).json({ error: result.error });
-    res.json({ success: true, ...result, presetId: presetId || null });
-  } catch (err) {
-    console.error('[StrategyBuilder] Backtest error:', err);
-    res.status(500).json({ error: err.message || 'Backtest failed' });
-  }
-});
-
-app.post('/api/strategy-builder/save', requireLogin, async (req, res) => {
-  try {
-    const StrategyConfig = require('./models/StrategyConfig');
-    const { name, presetId, timeframe, entry, exit } = req.body || {};
-    if (!name || !entry || !exit) {
-      return res.status(400).json({ error: 'Name, entry, and exit required' });
-    }
-    const doc = await StrategyConfig.findOneAndUpdate(
-      { userId: req.session.userId, name },
-      { presetId: presetId || null, timeframe: timeframe || '1h', entry, exit, updatedAt: new Date() },
-      { upsert: true, new: true }
-    );
-    res.json({ success: true, id: doc._id });
-  } catch (err) {
-    console.error('[StrategyBuilder] Save error:', err);
-    res.status(500).json({ error: err.message || 'Save failed' });
-  }
-});
-
-app.post('/api/strategy-builder/save-result', requireLogin, async (req, res) => {
-  try {
-    const StrategyBacktestResult = require('./models/StrategyBacktestResult');
-    const { strategyConfigId, coinId, startDate, endDate, summary, trades } = req.body || {};
-    if (!strategyConfigId || !coinId || !summary) return res.status(400).json({ error: 'Missing data' });
-    await StrategyBacktestResult.create({
-      strategyConfigId,
-      userId: req.session.userId,
-      coinId,
-      startDate: startDate ? new Date(startDate) : new Date(),
-      endDate: endDate ? new Date(endDate) : new Date(),
-      ...summary,
-      trades: trades || []
-    });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[StrategyBuilder] Save result error:', err);
-    res.status(500).json({ error: err.message || 'Save failed' });
-  }
 });
 
 // ====================================================
@@ -3836,34 +3751,9 @@ async function runAutoTrade() {
           } catch (e) { /* scanner not ready */ }
         }
 
-        const signalMode = user.settings?.autoTradeSignalMode || 'original';
+        const signalMode = (user.settings?.autoTradeSignalMode === 'indicators') ? 'original' : (user.settings?.autoTradeSignalMode || 'original');
         const autoTradeUseSetups = user.settings?.autoTradeUseSetups === true;
         const setupIds = user.settings?.autoTradeSetupIds || [];
-
-        if (signalMode === 'indicators' || signalMode === 'both') {
-          const StrategyConfig = require('./models/StrategyConfig');
-          const configId = user.settings?.autoTradeStrategyConfigId;
-          const config = configId ? await StrategyConfig.findById(configId).lean() : null;
-          if (config && config.entry && config.exit) {
-            const coinIds = (mode === 'top1') ? [] : TRACKED_COINS;
-            const { evaluateStrategyForAutoTrade } = require('./services/strategy-builder/run-custom-backtest');
-            const stratSignals = evaluateStrategyForAutoTrade({ entry: config.entry, exit: config.exit }, allCandles, coinIds, prices);
-            if (signalMode === 'indicators') {
-              signals = stratSignals;
-            } else {
-              const bothLogic = user.settings?.autoTradeBothLogic || 'or';
-              if (bothLogic === 'or') {
-                const origIds = new Set(signals.map(s => s._coinId));
-                for (const ss of stratSignals) {
-                  if (!origIds.has(ss._coinId)) signals.push(ss);
-                }
-              } else {
-                const stratIds = new Set(stratSignals.map(s => s._coinId));
-                signals = signals.filter(s => stratIds.has(s._coinId));
-              }
-            }
-          }
-        }
 
         if ((signalMode === 'setups' || signalMode === 'both' || autoTradeUseSetups) && setupIds.length > 0) {
           const { evaluateSetupsForAutoTrade } = require('./services/smc-scanner');
