@@ -2116,7 +2116,7 @@ app.get('/setups', optionalUser, async (req, res) => {
 
 app.post('/api/setups/backtest', async (req, res) => {
   try {
-    const { coinId, setupId, startDate, endDate, timeframe, multiCoin, minScore, partialTP, fees, minRR } = req.body || {};
+    const { coinId, setupId, startDate, endDate, timeframe, multiCoin, minScore, partialTP, fees, minRR, breakeven, breakevenAtr, trailingSL, trailingSLAtr, htfFilter } = req.body || {};
     if (!setupId) return res.status(400).json({ error: 'Setup ID required' });
     const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 90 * 24 * 3600000;
     const endMs = endDate ? new Date(endDate).getTime() : Date.now();
@@ -2128,7 +2128,12 @@ app.post('/api/setups/backtest', async (req, res) => {
       minScore: Number(minScore) || 0,
       partialTP: partialTP === true || partialTP === 'true',
       fees: fees !== false && fees !== 'false',
-      minRR: Number(minRR) || 0
+      minRR: Number(minRR) || 0,
+      breakeven: breakeven === true || breakeven === 'true',
+      breakevenAtr: Number(breakevenAtr) || 1.0,
+      trailingSL: trailingSL === true || trailingSL === 'true',
+      trailingSLAtr: Number(trailingSLAtr) || 1.5,
+      htfFilter: htfFilter !== false && htfFilter !== 'false'
     };
     const { runSetupBacktest } = require('./services/smc-backtest');
 
@@ -3938,8 +3943,12 @@ async function runAutoTrade() {
           return 1 + (baseW - 1) * strengthMult;
         };
         const minRr = (user.settings?.minRiskRewardEnabled ?? true) ? (Number(user.settings?.minRiskReward) || 1.2) : 0;
+        // Setup signals use a separate (lower) min score — SMC setups are quality-gated
+        // by phase completion, not by the scoring engine, so the main minScore doesn't apply cleanly.
+        const setupMinScore = user.settings?.autoTradeSetupMinScore ?? 55;
         const candidates = signalsWithBestStrategy.filter(sig => {
-          if (sig._overallScore < minScore) return false;
+          const threshold = sig._isSetupSignal ? setupMinScore : minScore;
+          if (sig._overallScore < threshold) return false;
           if (!sig._direction) return false; // HOLD signals ignored
           if (openCoinIds.includes(sig._coinId)) return false;
           if (cooldownSet.has(`${sig._coinId}_${sig._direction}`)) return false;

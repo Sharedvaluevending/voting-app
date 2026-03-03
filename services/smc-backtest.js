@@ -31,10 +31,15 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
   const initialBalance = options.initialBalance ?? INITIAL_BALANCE;
   const leverage = options.leverage ?? LEVERAGE;
   const timeframe = options.timeframe || '1h';
-  const minScore = options.minScore ?? 0;         // gate entries on scoring engine score
-  const usePartialTP = options.partialTP === true; // 40/30/30 partial exits
-  const useFees = options.fees !== false;          // fees on by default
-  const minRR = options.minRR ?? 0;               // min reward:risk ratio filter
+  const minScore = options.minScore ?? 0;           // gate entries on scoring engine score
+  const usePartialTP = options.partialTP === true;  // 40/30/30 partial exits
+  const useFees = options.fees !== false;            // fees on by default
+  const minRR = options.minRR ?? 0;                 // min reward:risk ratio filter
+  const useBreakeven = options.breakeven === true;   // move stop to entry after BE trigger
+  const breakevenAtr = options.breakevenAtr ?? 1.0; // trigger BE after X× ATR profit
+  const useTrailingSL = options.trailingSL === true; // trail stop behind best price
+  const trailingSLAtr = options.trailingSLAtr ?? 1.5; // trail distance in ATR multiples
+  const useHTFFilter = options.htfFilter !== false;  // block trades vs 4H bias (on by default)
   const scenario = getScenario(setupId);
   if (!scenario) {
     return { error: `Unknown setup: ${setupId}`, trades: [], equityCurve: [] };
@@ -127,6 +132,34 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
     if (position) {
       const nextBar = ctf[t + 1];
       const slip = 1 + (SLIPPAGE_BPS / 10000);
+      const posAtr = position.atr || (position.entry * 0.01);
+
+      // Update best price for trailing SL
+      if (position.direction === 'LONG' && nextBar.high > position.bestPrice) position.bestPrice = nextBar.high;
+      if (position.direction === 'SHORT' && nextBar.low < position.bestPrice) position.bestPrice = nextBar.low;
+
+      // Breakeven: move stop to entry after breakevenAtr × ATR profit
+      if (useBreakeven && !position.beHit) {
+        const beTarget = position.direction === 'LONG'
+          ? position.entry + posAtr * breakevenAtr
+          : position.entry - posAtr * breakevenAtr;
+        const beTriggered = position.direction === 'LONG'
+          ? nextBar.high >= beTarget
+          : nextBar.low <= beTarget;
+        if (beTriggered) {
+          position.stopLoss = position.entry;
+          position.beHit = true;
+        }
+      }
+
+      // Trailing SL: trail stop trailingSLAtr × ATR behind best price
+      if (useTrailingSL) {
+        const newSL = position.direction === 'LONG'
+          ? position.bestPrice - posAtr * trailingSLAtr
+          : position.bestPrice + posAtr * trailingSLAtr;
+        if (position.direction === 'LONG' && newSL > position.stopLoss) position.stopLoss = newSL;
+        if (position.direction === 'SHORT' && newSL < position.stopLoss) position.stopLoss = newSL;
+      }
 
       if (position.direction === 'LONG') {
         // Check SL first
@@ -222,11 +255,13 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
       // Score filter — gate on full scoring engine if minScore set
       if (minScore > 0 && (analysis.score == null || analysis.score < minScore)) continue;
 
-      // HTF bias gate
-      const barTime = ctf[t]?.openTime || 0;
-      const htfBias = get4hBiasAt(barTime);
-      if (htfBias === 'BULL' && direction === 'SHORT') continue;
-      if (htfBias === 'BEAR' && direction === 'LONG') continue;
+      // HTF bias gate (optional)
+      if (useHTFFilter) {
+        const barTime = ctf[t]?.openTime || 0;
+        const htfBias = get4hBiasAt(barTime);
+        if (htfBias === 'BULL' && direction === 'SHORT') continue;
+        if (htfBias === 'BEAR' && direction === 'LONG') continue;
+      }
 
       const nextBar = ctf[t + 1];
       const entryPrice = nextBar.open;
@@ -270,6 +305,7 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
           entry: adjEntry,
           entryBar: t + 1,
           stopLoss,
+          initialSL: stopLoss,          // for breakeven / trailing reference
           tp1: usePartialTP ? tp1 : null,
           tp2: usePartialTP ? tp2 : null,
           takeProfit,
@@ -277,6 +313,9 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
           remainingSize: positionSize,
           tp1Hit: false,
           tp2Hit: false,
+          beHit: false,                  // breakeven triggered
+          bestPrice: adjEntry,           // track best price for trailing SL
+          atr,                           // ATR at entry for trailing calcs
           entryFees,
           setupId,
           coinId

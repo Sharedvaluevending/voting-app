@@ -6,7 +6,7 @@
 
 const { analyzeOHLCV, ATR_OHLC } = require('./trading-engine');
 const { scoreScenariosForCoin, recentStructureShift } = require('./smc-scenarios/scenario-checks');
-const { getScenario } = require('./smc-scenarios/scenario-definitions');
+const { getScenario, getAllScenarios } = require('./smc-scenarios/scenario-definitions');
 const { TRACKED_COINS } = require('./crypto-api');
 
 /**
@@ -182,11 +182,24 @@ function evaluateSetupsForAutoTrade(setupIds, allCandles, coinIds, prices = []) 
     }
 
     const coinData = Array.isArray(prices) ? prices.find(p => p.id === coinId) : null;
+    // SMC score: base 50 + phase completion ratio × 40 + HTF bonus 10
+    // Gives 50–100 range so it integrates cleanly with the minScore system
+    const scenario = getScenario(best.scenarioId);
+    const totalPhases = (scenario?.shortVersion || scenario?.phases || []).length || 5;
+    const phasesHit = Math.min(best.score || 0, totalPhases);
+    const phaseRatio = totalPhases > 0 ? phasesHit / totalPhases : 0;
+    const htfBonus = (result.htfBias !== 'NEUTRAL') ? 10 : 0;
+    const setupScore = Math.round(50 + phaseRatio * 40 + htfBonus);
+
     signals.push({
       coin: coinData || { id: coinId },
       _coinId: coinId,
       _direction: direction,
-      _overallScore: 60 + (best.score || 0),
+      _overallScore: setupScore,
+      _isSetupSignal: true,  // flag so auto-trade can apply setup-specific minScore
+      _setupId: best.scenarioId,
+      _phasesHit: phasesHit,
+      _totalPhases: totalPhases,
       _bestStrat: {
         stopLoss,
         takeProfit1,
