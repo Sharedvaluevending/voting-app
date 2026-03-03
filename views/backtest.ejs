@@ -357,6 +357,9 @@
   <p style="color:#9ca3af;">Fetching historical candles and simulating trades...</p>
 </div>
 
+<!-- Error banner (shown instead of cryptic JSON parse errors) -->
+<div id="bt-error-banner" style="display:none;margin-bottom:16px;padding:14px 18px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.35);border-radius:10px;color:#f87171;font-size:14px;line-height:1.5;"></div>
+
 <!-- Results -->
 <div id="backtest-results" style="display:none;">
   <!-- Diagnostic message when empty -->
@@ -742,14 +745,30 @@ function loadLiveSettings() {
   async function runOneBacktest(b) {
     var controller = new AbortController();
     var timeoutId = setTimeout(function() { controller.abort(); }, 300000); // 5 min for multi-month backtests
-    var res = await fetch('/api/backtest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(b),
-      signal: controller.signal,
-      credentials: 'same-origin'
-    });
+    var res;
+    try {
+      res = await fetch('/api/backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(b),
+        signal: controller.signal,
+        credentials: 'same-origin'
+      });
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      if (fetchErr.name === 'AbortError') throw new Error('Backtest timed out after 5 minutes. Try fewer coins or a shorter date range.');
+      throw new Error('Network error: ' + fetchErr.message);
+    }
     clearTimeout(timeoutId);
+    // Guard: server may return an HTML error page (e.g. Render 30s gateway timeout)
+    // instead of JSON — detect it before trying to parse
+    var contentType = res.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      if (res.status === 504 || res.status === 503) {
+        throw new Error('Server timed out (gateway 504). The backtest is taking too long — try fewer coins or a shorter date range.');
+      }
+      throw new Error('Server returned an unexpected response (' + res.status + '). The backtest may have crashed — check fewer coins or a shorter date range.');
+    }
     var data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Backtest failed');
     return data;
@@ -760,6 +779,8 @@ function loadLiveSettings() {
     runBtn.disabled = true;
     loading.style.display = 'block';
     results.style.display = 'none';
+    var errBanner = document.getElementById('bt-error-banner');
+    if (errBanner) errBanner.style.display = 'none';
 
     var coinId = document.getElementById('coinId').value;
     var riskMode = document.getElementById('riskMode').value;
@@ -1122,10 +1143,19 @@ function loadLiveSettings() {
     } catch (err) {
       loading.style.display = 'none';
       var msg = err.message || 'Backtest failed';
-      if (msg === 'Failed to fetch' || err.name === 'AbortError' || msg.includes('fetch')) {
-        msg = 'Request timed out or network error. Try fewer coins (e.g. single coin) or a shorter date range (7–14 days).';
+      // Fallback friendly message for raw network/parse errors
+      if (msg === 'Failed to fetch' || err.name === 'AbortError') {
+        msg = 'Request timed out or network error. Try fewer coins or a shorter date range.';
       }
-      alert(msg);
+      // Show in a styled banner instead of a plain alert
+      var errBanner = document.getElementById('bt-error-banner');
+      if (errBanner) {
+        errBanner.textContent = msg;
+        errBanner.style.display = 'block';
+        errBanner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        alert(msg);
+      }
     }
     runBtn.disabled = false;
   });
