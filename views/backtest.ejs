@@ -377,7 +377,10 @@
   </div>
   <!-- Summary -->
   <div class="section" style="margin-bottom:24px;">
-    <h3 style="color:#e5e7eb;margin-bottom:12px;">Summary</h3>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+      <h3 style="color:#e5e7eb;margin:0;">Summary</h3>
+      <span id="bt-config-used" style="font-size:12px;color:#6b7280;"></span>
+    </div>
     <div class="perf-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;">
       <div class="perf-card">
         <div class="perf-label">Total Trades</div>
@@ -979,6 +982,14 @@ function loadLiveSettings() {
 
       document.getElementById('bt-trades').textContent = s.totalTrades || 0;
       document.getElementById('bt-winrate').textContent = (s.winRate || 0).toFixed(1) + '%';
+      var configEl = document.getElementById('bt-config-used');
+      if (configEl) {
+        var ib = s.initialBalance ?? 10000;
+        var rp = s.riskPerTrade ?? 2;
+        var rm = s.riskMode || 'percent';
+        var rd = s.riskDollarsPerTrade ?? 200;
+        configEl.textContent = 'Config: $' + ib.toLocaleString() + ' initial' + (rm === 'dollar' ? ', $' + rd + '/trade' : ', ' + rp + '% risk');
+      }
       var pnl = s.totalPnl || 0;
       var pnlEl = document.getElementById('bt-pnl');
       pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);

@@ -271,7 +271,11 @@ async function runBacktest(startMs, endMs, options) {
       returnPct,
       coinsProcessed: successResults.length,
       coinsFailed: failed.length,
-      totalBars
+      totalBars,
+      initialBalance: usedInitialBalance,
+      riskMode: options.riskMode || 'percent',
+      riskPerTrade: options.riskPerTrade ?? 2,
+      riskDollarsPerTrade: options.riskDollarsPerTrade ?? 200
     },
     equityCurve,
     regimeBreakdown,
