@@ -117,7 +117,7 @@
         <li><strong style="color:#e5e7eb;">Trailing Stop triggers early?</strong> Increase "Activate at" R (default 1.5×R) or widen "Trail dist" (default 1.5×R) — bigger numbers = wider, less frequent stops.</li>
         <li><strong style="color:#e5e7eb;">DCA + Score Re-check</strong> can conflict: DCA adds to losers when the signal re-confirms, but Score Re-check may exit when the score drops. Prefer DCA OFF if using Score Re-check.</li>
         <li><strong style="color:#e5e7eb;">Quality filters</strong> (Price-Action Confluence, Volatility Filter, Volume Confirmation) stack — using all three reduces trade count but improves quality.</li>
-        <li><strong style="color:#e5e7eb;">Best settings for max profit:</strong> Signal filters ON · Partial TP + Breakeven + Trailing Stop + Lock-In ON · DCA OFF · Score Re-check ON · Min R:R 1.2–1.5.</li>
+        <li><strong style="color:#e5e7eb;">Recommended defaults:</strong> Session Filter OFF (crypto 24/7) · Min R:R 1.5 · Price-Action Confluence + Volatility Filter ON · Trailing dist 2.0×R · Max Daily Loss 5% · DCA OFF · Score Re-check ON.</li>
       </ul>
     </div>
 
@@ -131,21 +131,21 @@
         <label class="ft-toggle" title="Penalize score up to -8 when coin is highly correlated with BTC but trading against BTC direction">
           <input type="checkbox" id="ft-btcCorrelation" checked> <span class="ft-badge ft-signal">SIGNAL</span> BTC Correlation Penalty
         </label>
-        <label class="ft-toggle" title="Apply session penalty (-5 score) outside 12-22 UTC peak hours">
-          <input type="checkbox" id="ft-sessionFilter" checked> <span class="ft-badge ft-signal">SIGNAL</span> Session Filter (12-22 UTC)
+        <label class="ft-toggle" title="Apply session penalty (-5 score) outside 12-22 UTC. OFF recommended — crypto trades 24/7 and Asian session produces many valid moves">
+          <input type="checkbox" id="ft-sessionFilter"> <span class="ft-badge ft-signal">SIGNAL</span> Session Filter (12-22 UTC)
         </label>
         <label class="ft-toggle" title="Skip signals with R:R below threshold">
           <input type="checkbox" id="ft-minRiskRewardEnabled" checked onchange="document.getElementById('ft-minRrValue').style.display=this.checked?'flex':'none'"> <span class="ft-badge ft-signal">SIGNAL</span> Min R:R Filter
         </label>
         <div id="ft-minRrValue" style="display:flex;align-items:center;gap:8px;padding-left:4px;">
           <label style="font-size:12px;color:#9ca3af;">Min R:R</label>
-          <input type="number" id="ft-minRiskReward" value="1.2" min="1" max="5" step="0.1" style="width:70px;padding:6px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+          <input type="number" id="ft-minRiskReward" value="1.5" min="1" max="5" step="0.1" style="width:70px;padding:6px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
         </div>
         <label class="ft-toggle" title="Require at least one of: order block, FVG, or liquidity cluster">
-          <input type="checkbox" id="ft-priceActionConfluence"> <span class="ft-badge ft-signal">QUALITY</span> Price-Action Confluence (OB/FVG/Liq)
+          <input type="checkbox" id="ft-priceActionConfluence" checked> <span class="ft-badge ft-signal">QUALITY</span> Price-Action Confluence (OB/FVG/Liq)
         </label>
-        <label class="ft-toggle" title="Skip entries when volatility is extreme">
-          <input type="checkbox" id="ft-volatilityFilter"> <span class="ft-badge ft-risk">QUALITY</span> Volatility Filter (skip extreme)
+        <label class="ft-toggle" title="Skip entries when volatility is extreme (ATR spike > 2× 20-period average)">
+          <input type="checkbox" id="ft-volatilityFilter" checked> <span class="ft-badge ft-risk">QUALITY</span> Volatility Filter (skip extreme)
         </label>
         <label class="ft-toggle" title="Require relative volume > 1.0">
           <input type="checkbox" id="ft-volumeConfirmation" checked> <span class="ft-badge ft-signal">QUALITY</span> Volume Confirmation
@@ -207,8 +207,8 @@
           </label>
           <div style="display:flex;align-items:center;gap:8px;margin-top:8px;padding-left:4px;flex-wrap:wrap;">
             <span style="font-size:11px;color:#6b7280;">Trigger at</span>
-            <input type="number" id="ft-beRMult" value="0.75" min="0.25" max="3" step="0.05" style="width:65px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" title="Move stop to entry when trade is this many R in profit">
-            <span style="font-size:11px;color:#6b7280;">× R (lower = moves sooner)</span>
+            <input type="number" id="ft-beRMult" value="0.75" min="0.25" max="3" step="0.05" style="width:65px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" title="Move stop to entry when trade is this many R in profit. 0.75 = after 75% of initial risk in profit.">
+            <span style="font-size:11px;color:#6b7280;">× R <span style="color:#374151;">(0.75 recommended)</span></span>
           </div>
         </div>
 
@@ -221,12 +221,12 @@
             <div style="display:flex;align-items:center;gap:6px;">
               <span style="font-size:11px;color:#6b7280;">Activate at</span>
               <input type="number" id="ft-trailingStartR" value="1.5" min="0.5" max="5" step="0.1" style="width:65px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" title="Trailing stop activates when trade reaches this many R in profit">
-              <span style="font-size:11px;color:#6b7280;">× R</span>
+              <span style="font-size:11px;color:#6b7280;">× R <span style="color:#374151;">(1.5 recommended)</span></span>
             </div>
             <div style="display:flex;align-items:center;gap:6px;">
               <span style="font-size:11px;color:#6b7280;">Trail dist</span>
-              <input type="number" id="ft-trailingDistR" value="1.5" min="0.5" max="5" step="0.1" style="width:65px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" title="Stop trails this many R behind the best price. Larger = wider trail, less likely to get stopped early">
-              <span style="font-size:11px;color:#6b7280;">× R behind best price</span>
+              <input type="number" id="ft-trailingDistR" value="2.0" min="0.5" max="5" step="0.1" style="width:65px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" title="Stop trails this many R behind the best price. Larger = wider = less likely to be stopped by noise">
+              <span style="font-size:11px;color:#6b7280;">× R behind best <span style="color:#374151;">(2.0 recommended)</span></span>
             </div>
           </div>
         </div>
@@ -268,7 +268,7 @@
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:12px;">
         <div>
           <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Max Daily Loss % <span style="color:#374151;">(0=off)</span></label>
-          <input type="number" id="ft-maxDailyLoss" value="0" min="0" max="20" step="1" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;" placeholder="0=off" title="Stop new trades when daily loss exceeds this % of balance.">
+          <input type="number" id="ft-maxDailyLoss" value="5" min="0" max="20" step="1" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;" placeholder="0=off" title="Stop new trades when daily loss exceeds this % of balance. 5% recommended.">
         </div>
         <div>
           <label class="ft-toggle" title="Halve position size when in drawdown" style="margin-bottom:4px;">
@@ -495,7 +495,7 @@ function getFeatureFlags() {
     breakevenRMult: parseFloat(document.getElementById('ft-beRMult')?.value) || 0.75,
     trailingStop: document.getElementById('ft-trailingStop').checked,
     trailingStartR: parseFloat(document.getElementById('ft-trailingStartR')?.value) || 1.5,
-    trailingDistR: parseFloat(document.getElementById('ft-trailingDistR')?.value) || 1.5,
+    trailingDistR: parseFloat(document.getElementById('ft-trailingDistR')?.value) || 2.0,
     lockIn: document.getElementById('ft-lockIn').checked,
     scoreRecheck: document.getElementById('ft-scoreRecheck').checked,
     slCap: document.getElementById('ft-slCap').checked,

@@ -510,15 +510,15 @@
         <label class="ft-toggle" title="Penalize score up to -8 when coin is highly correlated with BTC but trading against BTC direction">
           <input type="checkbox" name="featureBtcCorrelation" value="true" <%= (user.settings && user.settings.featureBtcCorrelation) !== false ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> BTC Correlation Penalty
         </label>
-        <label class="ft-toggle" title="Apply session penalty (-5 score) outside 12-22 UTC peak hours">
-          <input type="checkbox" name="featureSessionFilter" value="true" <%= (user.settings && user.settings.featureSessionFilter) !== false ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Session Filter (12-22 UTC)
+        <label class="ft-toggle" title="Apply session penalty (-5 score) outside 12-22 UTC. OFF recommended — crypto trades 24/7 and Asian session produces many valid moves">
+          <input type="checkbox" name="featureSessionFilter" value="true" <%= (user.settings && user.settings.featureSessionFilter) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Session Filter (12-22 UTC)
         </label>
         <label class="ft-toggle" title="Hide signals with R:R below threshold. Dashboard and auto-trade only show signals meeting min R:R.">
           <input type="checkbox" name="minRiskRewardEnabled" value="true" id="minRrEnabled" <%= (user.settings?.minRiskRewardEnabled ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Min R:R Filter
         </label>
         <div id="minRrValueWrap" style="display:<%= (user.settings?.minRiskRewardEnabled ?? true) ? 'flex' : 'none' %>;align-items:center;gap:8px;">
           <label style="font-size:12px;color:#9ca3af;">Min R:R</label>
-          <input type="number" name="minRiskReward" id="minRiskRewardInput" min="1" max="5" step="0.1" value="<%= (user.settings && user.settings.minRiskReward) != null ? user.settings.minRiskReward : 1.2 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+          <input type="number" name="minRiskReward" id="minRiskRewardInput" min="1" max="5" step="0.1" value="<%= (user.settings && user.settings.minRiskReward) != null ? user.settings.minRiskReward : 1.5 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
         </div>
 
         <!-- Position Management -->
@@ -544,8 +544,8 @@
           </div>
           <div style="display:flex;align-items:center;gap:5px;">
             <span style="font-size:11px;color:#6b7280;">Trail dist</span>
-            <input type="number" name="trailingDistR" value="<%= user.settings?.trailingDistR ?? 1.5 %>" min="0.5" max="5" step="0.1" style="width:65px;padding:4px 8px;background:rgba(15,23,42,0.8);border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" title="Stop trails this many R behind the best price. Larger = wider trail, less likely to get stopped early.">
-            <span style="font-size:11px;color:#6b7280;">× R &nbsp;<span style="color:#374151;">(larger = wider)</span></span>
+            <input type="number" name="trailingDistR" value="<%= user.settings?.trailingDistR ?? 2.0 %>" min="0.5" max="5" step="0.1" style="width:65px;padding:4px 8px;background:rgba(15,23,42,0.8);border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" title="Stop trails this many R behind the best price. 2.0 recommended — wider trail avoids noise-triggered stop-outs.">
+            <span style="font-size:11px;color:#6b7280;">× R &nbsp;<span style="color:#374151;">(2.0 recommended)</span></span>
           </div>
         </div>
         <label class="ft-toggle" title="Lock stop at 0.5R/0.75R/1R as trade progresses 50%/75%/90% toward TP2">
@@ -580,8 +580,8 @@
         <label class="ft-toggle" title="Require at least one of: order block, FVG, or liquidity cluster. Reduces trades without structure.">
           <input type="checkbox" name="featurePriceActionConfluence" value="true" <%= (user.settings?.featurePriceActionConfluence ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Price-Action Confluence (OB/FVG/Liq)
         </label>
-        <label class="ft-toggle" title="Skip entries when volatility is extreme. Reduces blow-ups in chaotic markets.">
-          <input type="checkbox" name="featureVolatilityFilter" value="true" <%= (user.settings && user.settings.featureVolatilityFilter) === true ? 'checked' : '' %>> <span class="ft-badge ft-risk">QUALITY</span> Volatility Filter (skip extreme)
+        <label class="ft-toggle" title="Skip entries when volatility is extreme (ATR spike > 2× average). Reduces blow-ups in chaotic markets.">
+          <input type="checkbox" name="featureVolatilityFilter" value="true" <%= (user.settings?.featureVolatilityFilter ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-risk">QUALITY</span> Volatility Filter (skip extreme)
         </label>
         <label class="ft-toggle" title="Require relative volume &gt; 1.0. Avoids entries on thin, low-conviction moves.">
           <input type="checkbox" name="featureVolumeConfirmation" value="true" <%= (user.settings?.featureVolumeConfirmation ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Volume Confirmation

@@ -536,7 +536,7 @@ app.get('/', async (req, res) => {
       : signals;
     // Min R:R filter: hide signals below threshold when enabled (default ON)
     if (dashUser?.settings?.minRiskRewardEnabled !== false) {
-      const minRr = Number(dashUser?.settings?.minRiskReward) || 1.2;
+      const minRr = Number(dashUser?.settings?.minRiskReward) || 1.5;
       monitoredSignals = monitoredSignals.filter(s => (s.riskReward || 0) >= minRr);
     }
 
@@ -1402,7 +1402,7 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
     s.featureFundingRateFilter = req.body.featureFundingRateFilter ? parseBool(req.body.featureFundingRateFilter) : false;
     s.minRiskRewardEnabled = req.body.minRiskRewardEnabled ? parseBool(req.body.minRiskRewardEnabled) : false;
     const minRr = parseFloat(req.body.minRiskReward);
-    s.minRiskReward = !isNaN(minRr) && minRr >= 1 && minRr <= 5 ? minRr : 1.2;
+    s.minRiskReward = !isNaN(minRr) && minRr >= 1 && minRr <= 5 ? minRr : 1.5;
 
     // BE and TS are shared with existing settings
     if (req.body.autoMoveBreakeven !== undefined) {
@@ -1441,7 +1441,7 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
     const trailStart = parseFloat(req.body.trailingStartR);
     s.trailingStartR = !isNaN(trailStart) && trailStart >= 0.5 && trailStart <= 5 ? trailStart : 1.5;
     const trailDist = parseFloat(req.body.trailingDistR);
-    s.trailingDistR = !isNaN(trailDist) && trailDist >= 0.5 && trailDist <= 5 ? trailDist : 1.5;
+    s.trailingDistR = !isNaN(trailDist) && trailDist >= 0.5 && trailDist <= 5 ? trailDist : 2.0;
 
     // Risk controls (defaults: max daily 5%, drawdown sizing ON)
     const maxDaily = parseFloat(req.body.maxDailyLossPercent);
@@ -3775,7 +3775,7 @@ app.get('/api/auto-trade-debug', requireLogin, async (req, res) => {
     const openCoinIds = openTrades.map(t => t.coinId);
     const cooldownSet = new Set(recentTrades.map(t => `${t.coinId}_${t.direction}`));
     const excluded = user.excludedCoins || [];
-    const minRr = (user.settings?.minRiskRewardEnabled ?? true) ? (Number(user.settings?.minRiskReward) || 1.2) : 0;
+    const minRr = (user.settings?.minRiskRewardEnabled ?? true) ? (Number(user.settings?.minRiskReward) || 1.5) : 0;
 
     const blockedReasons = [];
     if (!autoTradeOn) blockedReasons.push('Auto-trade is OFF. Enable it in Performance settings.');
@@ -3950,7 +3950,7 @@ async function runAutoTrade() {
           if (!coinWeightEnabled || baseW == null) return 1;
           return 1 + (baseW - 1) * strengthMult;
         };
-        const minRr = (user.settings?.minRiskRewardEnabled ?? true) ? (Number(user.settings?.minRiskReward) || 1.2) : 0;
+        const minRr = (user.settings?.minRiskRewardEnabled ?? true) ? (Number(user.settings?.minRiskReward) || 1.5) : 0;
         // Setup signals use a separate (lower) min score — SMC setups are quality-gated
         // by phase completion, not by the scoring engine, so the main minScore doesn't apply cleanly.
         const setupMinScore = user.settings?.autoTradeSetupMinScore ?? 55;
