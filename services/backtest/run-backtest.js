@@ -55,19 +55,23 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const dcaAddSizePct = ft.dcaAddSizePercent ?? 100;
   const dcaMinScore = ft.dcaMinScore ?? 52;
   const F_MIN_RR = ft.minRiskRewardEnabled === true;
-  const minRiskReward = (ft.minRiskReward != null && Number.isFinite(ft.minRiskReward)) ? Number(ft.minRiskReward) : 1.2;
+  const minRiskReward = (ft.minRiskReward != null && Number.isFinite(ft.minRiskReward)) ? Number(ft.minRiskReward) : 1.5;
   const maxDailyLossPct = (ft.maxDailyLossPercent != null && ft.maxDailyLossPercent > 0) ? Number(ft.maxDailyLossPercent) : null;
   const minVolume24hUsd = (ft.minVolume24hUsd != null && ft.minVolume24hUsd > 0) ? Number(ft.minVolume24hUsd) : 0;
   const slippageMultiplier = (ft.slippageMultiplier != null && ft.slippageMultiplier > 0) ? Number(ft.slippageMultiplier) : 1;
 
-  const c1h = candles['1h'];
+  const primaryTf = options.primaryTf || '1h';
+  const c1h = candles[primaryTf];
+  if (!c1h || c1h.length < 50) {
+    return { error: `Not enough ${primaryTf} candles (got ${c1h ? c1h.length : 0}, need 50+)`, trades: [], equityCurve: [] };
+  }
   const history = { prices: [], volumes: [], marketCaps: [] };
   const trades = [];
   let equity = initialBalance;
   let position = null;
   let lastClosedBar = -999;
   let lastClosedDirection = null;
-  let streak = 0;  // Track win/loss streak (matches live trading behavior)
+  let streak = 0;
 
   let tradeStartBar = 50;
   for (let i = 0; i < c1h.length; i++) {
@@ -95,12 +99,13 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 
     const bar = c1h[t];
     const nextBar = c1h[t + 1];
-    const slice = sliceCandlesAt(candles, t, '1h');
+    const slice = sliceCandlesAt(candles, t, primaryTf);
     if (!slice) continue;
 
     let volume24h = options.volume24hByCoin?.[coinId];
+    const barsIn24h = { '15m': 96, '1h': 24, '4h': 6, '1d': 1 }[primaryTf] || 24;
     if (volume24h == null && c1h[t].volume != null) {
-      const last24 = c1h.slice(Math.max(0, t - 23), t + 1);
+      const last24 = c1h.slice(Math.max(0, t - barsIn24h + 1), t + 1);
       volume24h = last24.reduce((s, c) => s + (c.volume || 0), 0);
     }
     const coinData = {
@@ -108,7 +113,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       symbol: coinMeta.symbol,
       name: coinMeta.name,
       price: bar.close,
-      change24h: t >= 24 ? ((bar.close - c1h[t - 24].close) / c1h[t - 24].close) * 100 : 0,
+      change24h: t >= barsIn24h ? ((bar.close - c1h[t - barsIn24h].close) / c1h[t - barsIn24h].close) * 100 : 0,
       volume24h: volume24h ?? 0,
       marketCap: 0,
       lastUpdated: new Date(bar.openTime)
@@ -130,12 +135,15 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       featureFundingRateFilter: ft.fundingRateFilter === true
     };
 
-    if (btcCandles && btcCandles['1h'] && (t - lastBtcAnalysisBar >= 4)) {
-      const btc1h = btcCandles['1h'];
+    // Re-evaluate BTC every ~4 hours regardless of primary TF
+    const btcRecheckBars = Math.max(1, Math.round(4 / ({ '15m': 0.25, '1h': 1, '4h': 4, '1d': 24 }[primaryTf] || 1)));
+    const btcTf = btcCandles ? (btcCandles['1h'] ? '1h' : primaryTf) : '1h';
+    if (btcCandles && btcCandles[btcTf] && (t - lastBtcAnalysisBar >= btcRecheckBars)) {
+      const btc1h = btcCandles[btcTf];
       const btcIdx = btc1h.findIndex(b => b.openTime >= bar.openTime);
       const btcT = btcIdx >= 0 ? Math.min(btcIdx, btc1h.length - 1) : btc1h.length - 1;
       if (btcT >= 50) {
-        const btcSlice = sliceCandlesAt(btcCandles, btcT, '1h');
+        const btcSlice = sliceCandlesAt(btcCandles, btcT, btcTf);
         if (btcSlice) {
           const btcData = { id: 'bitcoin', symbol: 'BTC', price: btc1h[btcT].close, change24h: 0 };
           const btcDecision = evaluate({ coinData: btcData, candles: btcSlice, history, options: {} });
@@ -158,7 +166,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       open: nextBar.open,
       nextBar,
       bar,
-      closed: { '1h': true },
+      closed: { [primaryTf]: true },
       closeBasedStops: F_CLOSE_STOPS,
       indicators: null
     };

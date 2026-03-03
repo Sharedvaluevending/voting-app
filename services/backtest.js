@@ -21,7 +21,7 @@ const WARMUP_BARS = 100;      // Extra 1h bars to fetch before start date for in
  * Fetch multi-timeframe historical candles for a coin
  * Wraps each fetch in a per-coin timeout so one slow coin doesn't block everything.
  */
-const PER_COIN_FETCH_TIMEOUT = 90000; // 90s max per coin fetch (1-year 1h range = ~44 pages × 500ms ≈ 22s + headroom)
+const PER_COIN_FETCH_TIMEOUT = 180000; // 180s per coin fetch (15m for 1yr = ~175 pages × 600ms ≈ 105s + headroom)
 
 async function fetchWithTimeout(promise, timeoutMs, label) {
   return Promise.race([
@@ -34,12 +34,14 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
   options = options || {};
   const useBitgetOnly = options.useBitgetOnly === true;
   const useCache = options.useCache !== false;  // default ON for scripts
+  const primaryTf = options.primaryTf || '1h';
 
   const meta = COIN_META[coinId];
   if (!meta?.bybit) return { error: `No Bitget symbol for ${coinId}` };
 
-  // Extend start backward to get warmup bars for indicator calculation.
-  const warmupMs = WARMUP_BARS * 3600000;
+  // Warmup in primary TF units (100 bars of whatever TF we're trading on)
+  const MS_PER_TF_LOCAL = { '15m': 900000, '1h': 3600000, '4h': 14400000, '1d': 86400000 };
+  const warmupMs = WARMUP_BARS * (MS_PER_TF_LOCAL[primaryTf] || 3600000);
   const fetchStartMs = startMs - warmupMs;
 
   // Check cache first (avoids API calls entirely)
@@ -51,70 +53,73 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
     }
   }
 
-  let candles1h, candles4h, candles1d;
+  // Determine which timeframes to fetch based on primary TF.
+  // Always fetch the primary + all higher TFs needed for context.
+  const TF_HIERARCHY = ['15m', '1h', '4h', '1d'];
+  const primaryIdx = TF_HIERARCHY.indexOf(primaryTf);
+  const tfsToFetch = primaryIdx >= 0 ? TF_HIERARCHY.slice(primaryIdx) : ['1h', '4h', '1d'];
+
+  let fetchedCandles = {};
   let source = 'bitget';
   let bitgetError = null;
   let krakenError = null;
 
-  // Bitget is primary: fully paginated, supports multi-month date ranges (200+ trades)
-  if (!krakenError) {
-    try {
-      [candles1h, candles4h, candles1d] = await fetchWithTimeout(
-        Promise.all([
-          fetchHistoricalCandlesForCoin(coinId, '1h', fetchStartMs, endMs),
-          fetchHistoricalCandlesForCoin(coinId, '4h', fetchStartMs, endMs),
-          fetchHistoricalCandlesForCoin(coinId, '1d', fetchStartMs, endMs)
-        ]),
-        PER_COIN_FETCH_TIMEOUT,
-        `${coinId}-bitget`
-      );
-      if (!candles1h || candles1h.length === 0) bitgetError = 'Bitget returned 0 candles';
-    } catch (err) {
-      bitgetError = `Bitget error: ${err.message}`;
-      console.warn(`[Backtest] ${coinId}: ${bitgetError}`);
+  // Bitget is primary: fully paginated, supports multi-month date ranges
+  try {
+    const fetches = tfsToFetch.map(tf => fetchHistoricalCandlesForCoin(coinId, tf, fetchStartMs, endMs));
+    const results = await fetchWithTimeout(
+      Promise.all(fetches),
+      PER_COIN_FETCH_TIMEOUT,
+      `${coinId}-bitget`
+    );
+    tfsToFetch.forEach((tf, i) => { fetchedCandles[tf] = results[i]; });
+    if (!fetchedCandles[primaryTf] || fetchedCandles[primaryTf].length === 0) {
+      bitgetError = 'Bitget returned 0 candles';
     }
+  } catch (err) {
+    bitgetError = `Bitget error: ${err.message}`;
+    console.warn(`[Backtest] ${coinId}: ${bitgetError}`);
   }
 
-  // Kraken fallback (capped at ~720 bars = ~30 days for 1h, but works for many coins)
-  if (!candles1h || candles1h.length < 50) {
+  // Kraken fallback (capped at ~720 bars, but covers many coins)
+  if (!fetchedCandles[primaryTf] || fetchedCandles[primaryTf].length < 50) {
     try {
       console.log(`[Backtest] ${coinId}: Bitget failed, trying Kraken fallback...`);
       source = 'kraken';
-      [candles1h, candles4h, candles1d] = await fetchWithTimeout(
-        Promise.all([
-          fetchHistoricalKrakenCandles(coinId, '1h', fetchStartMs, endMs),
-          fetchHistoricalKrakenCandles(coinId, '4h', fetchStartMs, endMs),
-          fetchHistoricalKrakenCandles(coinId, '1d', fetchStartMs, endMs)
-        ]),
+      const fetches = tfsToFetch.map(tf => fetchHistoricalKrakenCandles(coinId, tf, fetchStartMs, endMs));
+      const results = await fetchWithTimeout(
+        Promise.all(fetches),
         PER_COIN_FETCH_TIMEOUT,
         `${coinId}-kraken`
       );
-      if (!candles1h || candles1h.length === 0) krakenError = 'Kraken returned 0 candles';
+      tfsToFetch.forEach((tf, i) => { fetchedCandles[tf] = results[i]; });
+      if (!fetchedCandles[primaryTf] || fetchedCandles[primaryTf].length === 0) {
+        krakenError = 'Kraken returned 0 candles';
+      }
     } catch (err) {
       krakenError = `Kraken error: ${err.message}`;
       console.warn(`[Backtest] ${coinId}: ${krakenError}`);
     }
   }
 
-  const c1h = (candles1h || []).length;
-  const c4h = (candles4h || []).length;
-  const c1d = (candles1d || []).length;
-  console.log(`[Backtest] ${coinId}: fetched 1h=${c1h}, 4h=${c4h}, 1d=${c1d} candles [${source}] (${WARMUP_BARS} warmup)`);
+  const primaryCount = (fetchedCandles[primaryTf] || []).length;
+  const logParts = tfsToFetch.map(tf => `${tf}=${(fetchedCandles[tf] || []).length}`).join(', ');
+  console.log(`[Backtest] ${coinId}: fetched ${logParts} candles [${source}] (${WARMUP_BARS} warmup, primary=${primaryTf})`);
 
-  if (!candles1h || c1h < 50) {
+  if (primaryCount < 50) {
     const details = [bitgetError, krakenError].filter(Boolean).join('; ');
-    const reason = c1h === 0
+    const reason = primaryCount === 0
       ? `No candles from either API. ${details}`
-      : `Only ${c1h} candles from ${source} (need 50+). ${details}`;
+      : `Only ${primaryCount} ${primaryTf} candles from ${source} (need 50+). ${details}`;
     console.warn(`[Backtest] ${coinId}: ${reason}`);
     return { error: reason };
   }
 
   const result = {
-    '1h': candles1h,
-    '4h': candles4h && c4h >= 5 ? candles4h : null,
-    '1d': candles1d && c1d >= 5 ? candles1d : null,
-    '15m': null,
+    '15m': fetchedCandles['15m'] || null,
+    '1h': fetchedCandles['1h'] || null,
+    '4h': fetchedCandles['4h'] && (fetchedCandles['4h'].length >= 5) ? fetchedCandles['4h'] : null,
+    '1d': fetchedCandles['1d'] && (fetchedCandles['1d'].length >= 5) ? fetchedCandles['1d'] : null,
     '1w': null
   };
   if (useCache) saveCachedCandles(coinId, fetchStartMs, endMs, result);
@@ -127,15 +132,17 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
  */
 async function runBacktestForCoin(coinId, startMs, endMs, options) {
   options = options || {};
+  const primaryTf = options.primaryTf || '1h';
 
   const fetchOpts = {
     useBitgetOnly: options.useBitgetOnly === true,
-    useCache: options.useCache === true
+    useCache: options.useCache === true,
+    primaryTf
   };
   const candles = await fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, fetchOpts);
   if (!candles || candles.error) return { error: candles?.error || 'Insufficient candles', trades: [], equityCurve: [] };
 
-  return runBacktestForCoinNew(coinId, startMs, endMs, { ...options, candles, btcCandles: options.btcCandles });
+  return runBacktestForCoinNew(coinId, startMs, endMs, { ...options, candles, btcCandles: options.btcCandles, primaryTf });
 }
 
 // Legacy backtest removed. Backtest uses run-backtest.js (shared engines) exclusively.
@@ -144,7 +151,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
  * Coins are processed in parallel batches to stay within API rate limits
  * while keeping total time well under Render's 30s request timeout.
  */
-const PER_COIN_BACKTEST_TIMEOUT = 60000; // 60s max per coin (supports multi-month backtests)
+const PER_COIN_BACKTEST_TIMEOUT = 120000; // 120s per coin (15m TF = 4× more bars than 1h)
 const PARALLEL_BATCH_SIZE = 2; // 2 coins at a time (avoids API rate limits)
 
 async function runBacktest(startMs, endMs, options) {
@@ -156,21 +163,20 @@ async function runBacktest(startMs, endMs, options) {
   const failed = [];
   const backtestStart = Date.now();
   const days = Math.round((endMs - startMs) / 86400000);
-  console.log(`[Backtest] Starting: ${coins.length} coins, ${days} days range (parallel batches of ${PARALLEL_BATCH_SIZE})`);
+  const primaryTf = options.primaryTf || '1h';
+  console.log(`[Backtest] Starting: ${coins.length} coins, ${days} days range, TF=${primaryTf} (parallel batches of ${PARALLEL_BATCH_SIZE})`);
 
   // === PRE-FETCH BTC CANDLES (mirrors live system) ===
-  // The live system analyzes BTC first and uses the result to filter altcoin signals.
-  // We fetch BTC candles once and share across all coin backtests.
-  // Skip entirely if both BTC features are toggled off (saves API call time)
   const ft = options.features || {};
   const needBtc = ft.btcFilter !== false || ft.btcCorrelation !== false;
   let btcCandles = null;
   if (needBtc && (!coins.includes('bitcoin') || coins.length > 1)) {
     try {
       console.log(`[Backtest] Pre-fetching BTC candles for signal filter...`);
-      btcCandles = await fetchHistoricalCandlesMultiTF('bitcoin', startMs, endMs);
-      if (btcCandles && !btcCandles.error && btcCandles['1h'] && btcCandles['1h'].length >= 50) {
-        console.log(`[Backtest] BTC candles loaded: ${btcCandles['1h'].length} bars`);
+      btcCandles = await fetchHistoricalCandlesMultiTF('bitcoin', startMs, endMs, { primaryTf: '1h' });
+      const btcTf = btcCandles?.['1h'] ? '1h' : primaryTf;
+      if (btcCandles && !btcCandles.error && btcCandles[btcTf] && btcCandles[btcTf].length >= 50) {
+        console.log(`[Backtest] BTC candles loaded: ${btcCandles[btcTf].length} bars (${btcTf})`);
       } else {
         console.warn(`[Backtest] BTC candle fetch failed (${btcCandles?.error || 'insufficient data'}) - running without BTC filter`);
         btcCandles = null;

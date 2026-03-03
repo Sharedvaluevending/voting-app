@@ -70,6 +70,15 @@
       <input type="number" name="riskDollarsPerTrade" id="riskDollarsPerTrade" value="200" min="1" max="10000" step="1" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
     </div>
     <div>
+      <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Timeframe</label>
+      <select name="primaryTf" id="primaryTf" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;" title="Primary candle timeframe for trade signals. Higher TFs (4h, 1d) are always used as context.">
+        <option value="15m">15 min</option>
+        <option value="1h" selected>1 hour (default)</option>
+        <option value="4h">4 hour</option>
+        <option value="1d">Daily</option>
+      </select>
+    </div>
+    <div>
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Mode</label>
       <select name="btMode" id="btMode" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
         <option value="single">Single run</option>
@@ -788,6 +797,7 @@ function loadLiveSettings() {
     var baseBody = {
       startDate: document.getElementById('startDate').value,
       endDate: document.getElementById('endDate').value,
+      primaryTf: document.getElementById('primaryTf').value || '1h',
       minScore: parseInt(document.getElementById('minScore').value, 10) || 52,
       leverage: parseInt(document.getElementById('leverage').value, 10) || 2,
       initialBalance: parseInt(document.getElementById('initialBalance').value, 10) || 10000,

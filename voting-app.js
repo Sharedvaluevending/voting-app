@@ -3162,7 +3162,9 @@ app.get('/api/bitget-test', (req, res) => res.redirect('/api/connectivity-test')
 // When user is logged in: uses strategy weights, excluded coins (live parity)
 app.post('/api/backtest', async (req, res) => {
   try {
-    const { coinId, startDate, endDate, coins, minScore, leverage, features } = req.body || {};
+    const { coinId, startDate, endDate, coins, minScore, leverage, features, primaryTf } = req.body || {};
+    const VALID_TFS = ['15m', '1h', '4h', '1d'];
+    const safePrimaryTf = VALID_TFS.includes(primaryTf) ? primaryTf : '1h';
     const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 90 * 24 * 60 * 60 * 1000;
     const endMs = endDate ? new Date(endDate).getTime() : Date.now();
     if (isNaN(startMs) || isNaN(endMs)) {
@@ -3216,6 +3218,7 @@ app.post('/api/backtest', async (req, res) => {
 
     const options = {
       coins: coinsToRun,
+      primaryTf: safePrimaryTf,
       minScore: minScore != null ? Number(minScore) : undefined,
       leverage: leverage != null ? Number(leverage) : undefined,
       initialBalance: req.body.initialBalance != null ? Number(req.body.initialBalance) : undefined,

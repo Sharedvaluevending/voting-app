@@ -339,9 +339,16 @@ async function fetchBitgetCandles(symbol, interval, limit, startMs, endMs) {
   const bitgetInterval = BITGET_INTERVAL_MAP[interval];
   if (!bitgetInterval || !symbol) return [];
   try {
+    // Bitget limits the window between startTime and endTime to ~7 days.
+    // If wider, it silently truncates the response, breaking pagination.
+    const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+    let cappedEndMs = endMs;
+    if (startMs && endMs && (endMs - startMs) > MAX_WINDOW_MS) {
+      cappedEndMs = startMs + MAX_WINDOW_MS;
+    }
     let url = `https://api.bitget.com/api/v2/mix/market/candles?symbol=${symbol}&productType=USDT-FUTURES&granularity=${bitgetInterval}&limit=${Math.min(limit, 200)}`;
     if (startMs) url += `&startTime=${startMs}`;
-    if (endMs) url += `&endTime=${endMs}`;
+    if (cappedEndMs) url += `&endTime=${cappedEndMs}`;
     const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
     if (!res.ok) {
       console.warn(`[Bitget] OHLC ${symbol} ${interval}: HTTP ${res.status} ${res.statusText}`);
@@ -582,7 +589,10 @@ async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
   let cursor = startMs;
   let retries = 0;
   const MAX_RETRIES = 2;
-  while (cursor < endMs) {
+  let pages = 0;
+  const MAX_PAGES = 500; // Safety: 500 pages × 200 = 100k candles max
+  while (cursor < endMs && pages < MAX_PAGES) {
+    pages++;
     const chunk = await fetchBitgetCandles(meta.bybit, interval, limit, cursor, endMs);
     if (!chunk || chunk.length === 0) {
       if (retries < MAX_RETRIES && all.length === 0) {
@@ -596,10 +606,12 @@ async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
     retries = 0;
     all.push(...chunk);
     const lastTs = chunk[chunk.length - 1].openTime;
-    if (lastTs >= endMs || chunk.length < limit) break;
+    if (lastTs >= endMs) break;
+    // Advance cursor past last candle we received
     cursor = lastTs + msPerCandle;
     await new Promise(r => setTimeout(r, BITGET_DELAY));
   }
+  if (pages >= MAX_PAGES) console.warn(`[Historical] ${coinId} ${interval}: hit max page limit (${MAX_PAGES})`);
   // Deduplicate by timestamp and sort chronologically
   const seen = new Set();
   const deduped = all.filter(c => {
