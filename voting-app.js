@@ -2060,7 +2060,8 @@ app.get('/learn', (req, res) => {
 // BACKTEST PAGE (historical simulation)
 // ====================================================
 app.get('/backtest', (req, res) => {
-  res.render('backtest', { activePage: 'backtest', results: null, TRACKED_COINS });
+  const btUser = req.session?.userId ? await User.findById(req.session.userId).select('settings').lean() : null;
+  res.render('backtest', { activePage: 'backtest', results: null, TRACKED_COINS, user: btUser });
 });
 
 // ====================================================

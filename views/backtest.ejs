@@ -91,8 +91,11 @@
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Sweep Min Score (comma-sep)</label>
       <input type="text" id="btSweepMinScore" value="48,52,56" placeholder="48,52,56" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
     </div>
-    <div>
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
       <button type="submit" class="btn btn-primary" id="run-btn">Run Backtest</button>
+      <% if (typeof user !== 'undefined' && user && user.settings) { %>
+      <button type="button" class="btn btn-outline" onclick="loadLiveSettings()" title="Pre-fill all parameters and feature toggles from your live Performance settings">Load live settings</button>
+      <% } %>
     </div>
   </form>
 </div>
@@ -540,6 +543,70 @@ function renderActionBadgesForTrade(actions) {
     var info = ACTION_BADGE_MAP[t] || { label: t, color: '#6b7280' };
     return '<span style="padding:1px 5px;border-radius:3px;font-size:10px;font-weight:600;background:' + info.color + '22;color:' + info.color + ';">' + info.label + '</span>';
   }).join(' ');
+}
+
+// Inject live settings from server (only when logged in)
+<% if (typeof user !== 'undefined' && user && user.settings) { %>
+var LIVE_SETTINGS = <%- JSON.stringify(user.settings) %>;
+<% } else { %>
+var LIVE_SETTINGS = null;
+<% } %>
+
+function loadLiveSettings() {
+  if (!LIVE_SETTINGS) { alert('Log in to load your live settings.'); return; }
+  var s = LIVE_SETTINGS;
+
+  // Core parameters
+  if (s.autoTradeMinScore != null) document.getElementById('minScore').value = s.autoTradeMinScore;
+  if (s.defaultLeverage != null) document.getElementById('leverage').value = s.defaultLeverage;
+  if (s.riskMode) {
+    document.getElementById('riskMode').value = s.riskMode;
+    document.getElementById('bt-risk-pct-wrap').style.display = s.riskMode === 'dollar' ? 'none' : '';
+    document.getElementById('bt-risk-dollar-wrap').style.display = s.riskMode === 'dollar' ? '' : 'none';
+  }
+  if (s.riskPerTrade != null) document.getElementById('riskPerTrade').value = s.riskPerTrade;
+  if (s.riskDollarsPerTrade != null) document.getElementById('riskDollarsPerTrade').value = s.riskDollarsPerTrade;
+
+  // Feature toggles
+  var set = function(id, val) { var el = document.getElementById(id); if (el) el.checked = !!val; };
+  set('ft-btcFilter',            s.featureBtcFilter !== false);
+  set('ft-btcCorrelation',       s.featureBtcCorrelation !== false);
+  set('ft-sessionFilter',        s.featureSessionFilter !== false);
+  set('ft-partialTP',            s.featurePartialTP !== false);
+  set('ft-breakeven',            s.autoMoveBreakeven !== false);
+  set('ft-trailingStop',         s.autoTrailingStop !== false);
+  set('ft-lockIn',               s.featureLockIn !== false);
+  set('ft-scoreRecheck',         s.featureScoreRecheck !== false);
+  set('ft-slCap',                s.featureSlCap !== false);
+  set('ft-minSlDistance',        s.featureMinSlDistance !== false);
+  set('ft-priceActionConfluence',s.featurePriceActionConfluence === true);
+  set('ft-volatilityFilter',     s.featureVolatilityFilter === true);
+  set('ft-volumeConfirmation',   s.featureVolumeConfirmation !== false);
+  set('ft-fundingRateFilter',    s.featureFundingRateFilter !== false);
+  set('ft-cooldown',             (s.cooldownHours != null ? s.cooldownHours : 6) > 0);
+  set('ft-minRiskRewardEnabled', s.minRiskRewardEnabled !== false);
+  if (s.minRiskReward != null) { var rr = document.getElementById('ft-minRiskReward'); if (rr) rr.value = s.minRiskReward; }
+  var rrWrap = document.getElementById('ft-minRrValue'); if (rrWrap) rrWrap.style.display = s.minRiskRewardEnabled !== false ? 'flex' : 'none';
+
+  // Trailing TP
+  var trailingTp = s.tpMode === 'trailing';
+  set('ft-trailingTp', trailingTp);
+  var trailingOpts = document.getElementById('bt-trailing-tp-opts'); if (trailingOpts) trailingOpts.style.display = trailingTp ? 'flex' : 'none';
+  if (s.trailingTpDistanceMode) { var tm = document.getElementById('bt-trailingTpDistMode'); if (tm) tm.value = s.trailingTpDistanceMode; }
+  if (s.trailingTpAtrMultiplier != null) { var ta = document.getElementById('bt-trailingTpAtrMult'); if (ta) ta.value = s.trailingTpAtrMultiplier; }
+  if (s.trailingTpFixedPercent != null) { var tf = document.getElementById('bt-trailingTpFixedPct'); if (tf) tf.value = s.trailingTpFixedPercent; }
+
+  // DCA
+  set('ft-dca', s.dcaEnabled === true);
+  var dcaOpts = document.getElementById('bt-dca-opts'); if (dcaOpts) dcaOpts.style.display = s.dcaEnabled ? 'flex' : 'none';
+  if (s.dcaMaxAdds != null) { var da = document.getElementById('bt-dcaMaxAdds'); if (da) da.value = s.dcaMaxAdds; }
+  if (s.dcaDipPercent != null) { var dd = document.getElementById('bt-dcaDipPct'); if (dd) dd.value = s.dcaDipPercent; }
+  if (s.dcaAddSizePercent != null) { var ds = document.getElementById('bt-dcaAddSizePct'); if (ds) ds.value = s.dcaAddSizePercent; }
+  if (s.dcaMinScore != null) { var dm = document.getElementById('bt-dcaMinScore'); if (dm) dm.value = s.dcaMinScore; }
+
+  // Show confirmation
+  var btn = document.querySelector('button[onclick="loadLiveSettings()"]');
+  if (btn) { btn.textContent = '✓ Loaded'; btn.style.color = '#10b981'; setTimeout(function() { btn.textContent = 'Load live settings'; btn.style.color = ''; }, 2000); }
 }
 
 (function() {
