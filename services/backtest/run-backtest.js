@@ -209,7 +209,10 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       const { actions, updatedTrade } = manageUpdate(position, manageSnapshot, {
         featureFlags: ff,
         stopGraceMinutes: 2,
-        entryTime: c1h[position.entryBar]?.openTime
+        entryTime: c1h[position.entryBar]?.openTime,
+        breakevenRMult:  ft.breakevenRMult  ?? 0.75,
+        trailingStartR:  ft.trailingStartR  ?? 1.5,
+        trailingDistR:   ft.trailingDistR   ?? 1.5
       });
 
       let closed = false;

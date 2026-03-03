@@ -1435,6 +1435,14 @@ app.post('/account/feature-toggles', requireLogin, async (req, res) => {
     const dcaMinScr = parseInt(req.body.dcaMinScore, 10);
     s.dcaMinScore = !isNaN(dcaMinScr) && dcaMinScr >= 30 && dcaMinScr <= 95 ? dcaMinScr : 52;
 
+    // Stop management distances
+    const beRMult = parseFloat(req.body.breakevenRMult);
+    s.breakevenRMult = !isNaN(beRMult) && beRMult >= 0.25 && beRMult <= 3 ? beRMult : 0.75;
+    const trailStart = parseFloat(req.body.trailingStartR);
+    s.trailingStartR = !isNaN(trailStart) && trailStart >= 0.5 && trailStart <= 5 ? trailStart : 1.5;
+    const trailDist = parseFloat(req.body.trailingDistR);
+    s.trailingDistR = !isNaN(trailDist) && trailDist >= 0.5 && trailDist <= 5 ? trailDist : 1.5;
+
     // Risk controls (defaults: max daily 5%, drawdown sizing ON)
     const maxDaily = parseFloat(req.body.maxDailyLossPercent);
     s.maxDailyLossPercent = !isNaN(maxDaily) && maxDaily >= 0 && maxDaily <= 20 ? maxDaily : 5;

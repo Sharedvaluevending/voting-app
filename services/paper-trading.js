@@ -794,12 +794,13 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       const ageMs = Date.now() - new Date(openedAt).getTime();
       const pastStopGrace = ageMs >= stopGrace * 60 * 1000;
 
-      // Breakeven at 0.75R (if autoMoveBreakeven) — only if trailing hasn't started yet
-      // Lowered from 1R to 0.75R so BE fires sooner, protecting positions earlier
-      // Uses entry + 0.3% buffer so "breakeven" actually breaks even after round-trip fees + slippage
-      // Guard: breakevenHit flag prevents duplicate BE actions (matches manage-engine)
+      // Breakeven (configurable R multiplier, default 0.75R)
+      const beRMult = user?.settings?.breakevenRMult ?? 0.75;
+      const trailingStartR = user?.settings?.trailingStartR ?? 1.5;
+      const trailingDistR = user?.settings?.trailingDistR ?? 1.5;
+
       if (pastStopGrace && autoBE && !trade.breakevenHit && !trade.trailingActivated) {
-        const atBE = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * 0.75 : currentPrice <= trade.entryPrice - risk * 0.75;
+        const atBE = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * beRMult : currentPrice <= trade.entryPrice - risk * beRMult;
         if (atBE) {
           const oldSl = trade.stopLoss;
           const BE_BUFFER = 0.003; // 0.3% covers round-trip fees + slippage
@@ -848,12 +849,12 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
         // Activates if: stop already at BE, trailing already running, OR stop has been locked past entry
         const stopPastEntry = trade.direction === 'LONG' ? trade.stopLoss >= trade.entryPrice : trade.stopLoss <= trade.entryPrice;
         if (pastStopGrace && autoTrail && (stopPastEntry || trade.trailingActivated)) {
-          const at1_5R = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * 1.5 : currentPrice <= trade.entryPrice - risk * 1.5;
-          if (at1_5R) {
+          const atActivation = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * trailingStartR : currentPrice <= trade.entryPrice - risk * trailingStartR;
+          if (atActivation) {
             trade.trailingActivated = true;
             const trailSL = trade.direction === 'LONG'
-              ? trade.maxPrice - risk * 1.5
-              : trade.minPrice + risk * 1.5;
+              ? trade.maxPrice - risk * trailingDistR
+              : trade.minPrice + risk * trailingDistR;
             const r2 = (v) => Math.round(v * 1000000) / 1000000;
             const newStop = r2(trailSL);
             const isLong = trade.direction === 'LONG';
@@ -1513,14 +1514,15 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
         const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
         if (tp) risk = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
       }
-      // Only move to breakeven if trade is actually in profit by at least 0.75R
-      const inProfit075R = risk > 0 && (
-        trade.direction === 'LONG' ? price >= trade.entryPrice + risk * 0.75 : price <= trade.entryPrice - risk * 0.75
+      // Only move to breakeven if trade is actually in profit by at least beRMult×R
+      const beRMultScore = (await User.findById(trade.userId).select('settings').lean())?.settings?.breakevenRMult ?? 0.75;
+      const inProfitBE = risk > 0 && (
+        trade.direction === 'LONG' ? price >= trade.entryPrice + risk * beRMultScore : price <= trade.entryPrice - risk * beRMultScore
       );
-      if (risk > 0 && trade.stopLoss !== trade.entryPrice && !inProfit075R) {
-        console.log(`[ScoreCheck] BLOCKED tighten_stop→BE on ${trade.symbol}: not yet in profit by 0.75R (price $${fp(price)} vs entry $${fp(trade.entryPrice)} ± 0.75R)`);
+      if (risk > 0 && trade.stopLoss !== trade.entryPrice && !inProfitBE) {
+        console.log(`[ScoreCheck] BLOCKED tighten_stop→BE on ${trade.symbol}: not yet in profit by ${beRMultScore}R (price $${fp(price)} vs entry $${fp(trade.entryPrice)} ± ${beRMultScore}R)`);
       }
-      if (risk > 0 && trade.stopLoss !== trade.entryPrice && inProfit075R) {
+      if (risk > 0 && trade.stopLoss !== trade.entryPrice && inProfitBE) {
         const oldStop = trade.stopLoss;
         trade.stopLoss = trade.entryPrice;
         trade.lastExecutedActionId = actionId;

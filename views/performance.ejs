@@ -525,12 +525,29 @@
         <label class="ft-toggle" title="TP1 closes 40%, TP2 closes 30%, TP3 closes remaining 30%. OFF = close 100% at TP1">
           <input type="checkbox" name="featurePartialTP" value="true" <%= (user.settings && user.settings.featurePartialTP) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">TP</span> Partial Take Profits (40/30/30)
         </label>
-        <label class="ft-toggle" title="Move stop to entry (+0.3% buffer) when trade reaches 0.75R profit">
-          <input type="checkbox" name="autoMoveBreakeven" value="true" <%= (user.settings && user.settings.autoMoveBreakeven) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">BE</span> Breakeven at 0.75R
+        <label class="ft-toggle" title="Move stop to entry (+0.3% buffer) when trade reaches beRMult×R profit">
+          <input type="checkbox" name="autoMoveBreakeven" value="true" <%= (user.settings && user.settings.autoMoveBreakeven) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">BE</span> Breakeven Stop
         </label>
-        <label class="ft-toggle" title="Trail stop 1.5R behind best price after 1.5R profit">
-          <input type="checkbox" name="autoTrailingStop" value="true" <%= (user.settings && user.settings.autoTrailingStop) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">TS</span> Trailing Stop (1.5R trail)
+        <div style="display:flex;align-items:center;gap:6px;padding-left:4px;flex-wrap:wrap;margin-bottom:4px;">
+          <span style="font-size:11px;color:#6b7280;">Trigger at</span>
+          <input type="number" name="breakevenRMult" value="<%= user.settings?.breakevenRMult ?? 0.75 %>" min="0.25" max="3" step="0.05" style="width:65px;padding:4px 8px;background:rgba(15,23,42,0.8);border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" title="Move stop to entry when this many R in profit. Lower = moves sooner (riskier). Higher = more time in profit before securing.">
+          <span style="font-size:11px;color:#6b7280;">× R &nbsp;<span style="color:#374151;">(0.75 = default)</span></span>
+        </div>
+        <label class="ft-toggle" title="Trail stop behind best price after activation">
+          <input type="checkbox" name="autoTrailingStop" value="true" <%= (user.settings && user.settings.autoTrailingStop) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">TS</span> Trailing Stop Loss
         </label>
+        <div style="display:flex;align-items:center;gap:10px;padding-left:4px;flex-wrap:wrap;margin-bottom:4px;">
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span style="font-size:11px;color:#6b7280;">Activate at</span>
+            <input type="number" name="trailingStartR" value="<%= user.settings?.trailingStartR ?? 1.5 %>" min="0.5" max="5" step="0.1" style="width:65px;padding:4px 8px;background:rgba(15,23,42,0.8);border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" title="Trailing stop activates when trade reaches this many R in profit. Increase to delay activation.">
+            <span style="font-size:11px;color:#6b7280;">× R</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span style="font-size:11px;color:#6b7280;">Trail dist</span>
+            <input type="number" name="trailingDistR" value="<%= user.settings?.trailingDistR ?? 1.5 %>" min="0.5" max="5" step="0.1" style="width:65px;padding:4px 8px;background:rgba(15,23,42,0.8);border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" title="Stop trails this many R behind the best price. Larger = wider trail, less likely to get stopped early.">
+            <span style="font-size:11px;color:#6b7280;">× R &nbsp;<span style="color:#374151;">(larger = wider)</span></span>
+          </div>
+        </div>
         <label class="ft-toggle" title="Lock stop at 0.5R/0.75R/1R as trade progresses 50%/75%/90% toward TP2">
           <input type="checkbox" name="featureLockIn" value="true" <%= (user.settings && user.settings.featureLockIn) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">LOCK</span> Stepped Lock-In
         </label>

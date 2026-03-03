@@ -15,9 +15,10 @@ const TP1_PCT = 0.4;
 const TP2_PCT = 0.3;
 const TP3_PCT = 0.3;
 
-const BE_R_MULT = 0.75;  // Breakeven at 0.75R (matches paper-trading)
-const TRAILING_START_R = 1.5;
-const TRAILING_DIST_R = 1.5;  // Must match paper-trading: trail 1.5R behind max price
+// Default constants — overridable via opts.breakevenRMult / opts.trailingStartR / opts.trailingDistR
+const DEFAULT_BE_R_MULT = 0.75;
+const DEFAULT_TRAILING_START_R = 1.5;
+const DEFAULT_TRAILING_DIST_R = 1.5;
 const BE_BUFFER = 0.003;
 
 function getProgressTowardTP(trade, currentPrice) {
@@ -65,6 +66,10 @@ function update(openTrade, snapshot, opts) {
   const ff = opts.featureFlags || {};
   const stopGraceMinutes = opts.stopGraceMinutes ?? 2;
   const entryTime = opts.entryTime || openTrade.createdAt || openTrade.entryTime;
+  // Configurable stop management parameters
+  const BE_R_MULT = Number(opts.breakevenRMult ?? DEFAULT_BE_R_MULT);
+  const TRAILING_START_R = Number(opts.trailingStartR ?? DEFAULT_TRAILING_START_R);
+  const TRAILING_DIST_R = Number(opts.trailingDistR ?? DEFAULT_TRAILING_DIST_R);
 
   const actions = [];
   const trade = { ...openTrade };
@@ -292,6 +297,9 @@ module.exports = {
   TP1_PCT,
   TP2_PCT,
   TP3_PCT,
+  DEFAULT_BE_R_MULT,
+  DEFAULT_TRAILING_START_R,
+  DEFAULT_TRAILING_DIST_R,
   getProgressTowardTP,
   getLockInStopPrice,
   getCurrentLockR
