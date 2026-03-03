@@ -889,8 +889,10 @@ app.post('/trades/open', requireLogin, async (req, res) => {
       }
     }
 
-    // Ignore client-provided score to prevent tampering.
-    const useScore = selectedStrat ? (selectedStrat.score || signal.score || 0) : (signal.score || 0);
+    // Always use the canonical signal score (finalScore) — never the strategy-specific displayScore.
+    // Strategy scores use different dimension weights and produce different numbers; using them
+    // as trade.score creates confusing inconsistencies across the platform.
+    const useScore = signal.score || 0;
     const signalLev = signal.suggestedLeverage || suggestLeverage(useScore, signal.regime || 'mixed', 'normal');
     const useFixed = user?.settings?.useFixedLeverage;
     const lev = user?.settings?.disableLeverage ? 1 : (useFixed ? (user?.settings?.defaultLeverage ?? 2) : signalLev);
