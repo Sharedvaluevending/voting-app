@@ -21,7 +21,7 @@ const WARMUP_BARS = 100;      // Extra 1h bars to fetch before start date for in
  * Fetch multi-timeframe historical candles for a coin
  * Wraps each fetch in a per-coin timeout so one slow coin doesn't block everything.
  */
-const PER_COIN_FETCH_TIMEOUT = 50000; // 50s max per coin fetch (multi-month Bitget pagination needs ~10-15s)
+const PER_COIN_FETCH_TIMEOUT = 90000; // 90s max per coin fetch (1-year 1h range = ~44 pages × 500ms ≈ 22s + headroom)
 
 async function fetchWithTimeout(promise, timeoutMs, label) {
   return Promise.race([

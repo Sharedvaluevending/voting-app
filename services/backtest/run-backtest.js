@@ -509,11 +509,16 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const summary = { totalTrades: trades.length, wins, losses, winRate: trades.length > 0 ? (wins / trades.length) * 100 : 0, totalPnl, returnPct: (totalPnl / initialBalance) * 100, profitFactor, maxDrawdownPct: computeMaxDrawdownPct(equityCurve) };
   const evaluation = evaluateBacktest(summary, trades, { byYear });
 
+  const firstBarTime = c1h[tradeStartBar]?.openTime || c1h[0]?.openTime || startMs;
+  const lastBarTime  = c1h[c1h.length - 1]?.openTime || endMs;
+
   return {
     coinId,
     symbol: coinMeta.symbol,
     startMs,
     endMs,
+    firstBarTime,
+    lastBarTime,
     bars: c1h.length,
     trades,
     totalTrades: trades.length,

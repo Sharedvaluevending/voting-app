@@ -453,6 +453,7 @@
       <table class="data-table" id="bt-trades-table">
         <thead>
           <tr>
+            <th>Date</th>
             <th>Coin</th>
             <th>Dir</th>
             <th>Entry</th>
@@ -967,12 +968,20 @@ function loadLiveSettings() {
           var color = (p.pnl || 0) >= 0 ? '#10b981' : '#ef4444';
           if (i === 0) color = '#6b7280';
           var bar = document.createElement('div');
-          bar.style.cssText = 'min-width:4px;flex:1;background:' + color + ';height:' + Math.max(2, h) + '%;border-radius:2px 2px 0 0;cursor:pointer;';
-          bar.title = 'Trade ' + (p.trade || i) + ': $' + (p.equity || 0).toFixed(0) + (p.pnl != null ? ' (' + (p.pnl >= 0 ? '+' : '') + '$' + p.pnl.toFixed(2) + ')' : '');
+          bar.style.cssText = 'min-width:4px;flex:1;background:' + color + ';height:' + Math.max(2, h) + '%;border-radius:2px 2px 0 0;cursor:pointer;transition:opacity 0.1s;';
+          var dateStr = p.date ? new Date(p.date).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '';
+          var tradeLabel = i === 0 ? 'Start' : 'Trade ' + (p.trade || i);
+          bar.title = tradeLabel + (dateStr ? ' · ' + dateStr : '') + '\nEquity: $' + (p.equity || 0).toFixed(0) + (p.pnl != null ? '\nPnL: ' + (p.pnl >= 0 ? '+' : '') + '$' + p.pnl.toFixed(2) : '');
+          bar.addEventListener('mouseover', function() { this.style.opacity = '0.75'; });
+          bar.addEventListener('mouseout', function() { this.style.opacity = '1'; });
           equityBars.appendChild(bar);
         });
+        var first = equityCurve[0];
         var last = equityCurve[equityCurve.length - 1];
-        equityLegend.textContent = 'Start: $' + (equityCurve[0].equity || 0).toLocaleString() + ' \u2192 End: $' + (last.equity || 0).toLocaleString() + ' (' + equityCurve.length + ' points)';
+        var dateRange = (first.date && last.date)
+          ? new Date(first.date).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) + ' → ' + new Date(last.date).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' })
+          : '';
+        equityLegend.textContent = 'Start: $' + (first.equity || 0).toLocaleString() + ' → End: $' + (last.equity || 0).toLocaleString() + ' · ' + (equityCurve.length - 1) + ' trades' + (dateRange ? ' · ' + dateRange : '');
       } else {
         equityLegend.textContent = 'No equity data (no trades closed)';
       }
@@ -1031,6 +1040,28 @@ function loadLiveSettings() {
         regimeGrid.innerHTML = '<span style="color:#6b7280;font-size:13px;">No regime data (trades have no regime tag)</span>';
       }
 
+      // Data coverage banner
+      var oldCovBanner = document.getElementById('bt-coverage-banner');
+      if (oldCovBanner) oldCovBanner.remove();
+      if (successResults.length > 0) {
+        var covBanner = document.createElement('div');
+        covBanner.id = 'bt-coverage-banner';
+        covBanner.style.cssText = 'padding:10px 14px;margin-bottom:16px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.2);border-radius:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;';
+        var covHtml = '<span style="font-size:12px;font-weight:600;color:#93c5fd;">Data Coverage</span>';
+        successResults.forEach(function(r) {
+          var from = r.firstBarTime ? new Date(r.firstBarTime).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '?';
+          var to   = r.lastBarTime  ? new Date(r.lastBarTime).toLocaleDateString('en-GB',  { day:'2-digit', month:'short', year:'numeric' }) : '?';
+          var days = (r.firstBarTime && r.lastBarTime) ? Math.round((r.lastBarTime - r.firstBarTime) / 86400000) : 0;
+          covHtml += '<span style="font-size:12px;color:#e5e7eb;padding:3px 8px;background:rgba(15,23,42,0.6);border-radius:5px;">' +
+            '<strong style="color:#6b7280;">' + (r.symbol || r.coinId) + '</strong> ' +
+            from + ' → ' + to + ' <span style="color:#6b7280;">(' + (r.bars || 0) + ' 1h bars · ' + days + ' days)</span></span>';
+        });
+        covBanner.innerHTML = covHtml;
+        var coinsSection = document.querySelector('#backtest-results .section:last-of-type');
+        var summarySection = document.getElementById('backtest-results').querySelector('.section');
+        if (summarySection) summarySection.insertAdjacentElement('afterend', covBanner);
+      }
+
       // Per-coin table (only successful runs)
       var tbody = document.getElementById('bt-coins-body');
       tbody.innerHTML = '';
@@ -1039,7 +1070,9 @@ function loadLiveSettings() {
         var wr = r.winRate || 0;
         var pnl = r.totalPnl || 0;
         var ret = r.returnPct || 0;
-        tr.innerHTML = '<td><strong>' + (r.symbol || r.coinId) + '</strong></td>' +
+        var from = r.firstBarTime ? new Date(r.firstBarTime).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'2-digit' }) : '-';
+        var to   = r.lastBarTime  ? new Date(r.lastBarTime).toLocaleDateString('en-GB',  { day:'2-digit', month:'short', year:'2-digit' }) : '-';
+        tr.innerHTML = '<td><strong>' + (r.symbol || r.coinId) + '</strong><br><span style="font-size:10px;color:#6b7280;">' + from + ' – ' + to + ' · ' + (r.bars || 0) + ' bars</span></td>' +
           '<td>' + (r.totalTrades || 0) + '</td>' +
           '<td class="up">' + (r.wins || 0) + '</td>' +
           '<td class="down">' + (r.losses || 0) + '</td>' +
@@ -1050,18 +1083,29 @@ function loadLiveSettings() {
         tbody.appendChild(tr);
       });
 
-      // Trade list (aggregate from successful results)
+      // Trade list (aggregate from successful results, sorted by exit time)
       var allTrades = [];
       successResults.forEach(function(r) {
         (r.trades || []).forEach(function(t) {
-          allTrades.push({ coinId: r.coinId, symbol: r.symbol, direction: t.direction, entry: t.entry, exit: t.exit, reason: t.reason, pnl: t.pnl, actions: t.actions || [] });
+          allTrades.push({ coinId: r.coinId, symbol: r.symbol, direction: t.direction, entry: t.entry, exit: t.exit, exitTime: t.exitTime, entryBar: t.entryBar, reason: t.reason, pnl: t.pnl, actions: t.actions || [] });
         });
       });
+      allTrades.sort(function(a, b) { return (a.exitTime || 0) - (b.exitTime || 0); });
       var tradesBody = document.getElementById('bt-trades-body');
       tradesBody.innerHTML = '';
-      allTrades.slice(0, 100).forEach(function(t) {
+      // Update the trade table header to include Date column
+      var tHead = document.querySelector('#bt-trades-table thead tr');
+      if (tHead && !tHead.querySelector('.bt-date-col')) {
+        var dateTh = document.createElement('th');
+        dateTh.className = 'bt-date-col';
+        dateTh.textContent = 'Date';
+        tHead.insertBefore(dateTh, tHead.firstChild);
+      }
+      allTrades.slice(0, 200).forEach(function(t) {
         var tr = document.createElement('tr');
-        tr.innerHTML = '<td>' + (t.symbol || t.coinId) + '</td>' +
+        var dateStr = t.exitTime ? new Date(t.exitTime).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'2-digit' }) : '-';
+        tr.innerHTML = '<td style="font-size:11px;color:#9ca3af;">' + dateStr + '</td>' +
+          '<td>' + (t.symbol || t.coinId) + '</td>' +
           '<td><span class="badge-' + (t.direction === 'LONG' ? 'BUY' : 'SELL') + '" style="padding:2px 6px;border-radius:4px;font-size:11px;">' + t.direction + '</span></td>' +
           '<td>$' + Number(t.entry || 0).toFixed(4) + '</td>' +
           '<td>$' + Number(t.exit || 0).toFixed(4) + '</td>' +
@@ -1070,9 +1114,9 @@ function loadLiveSettings() {
           '<td class="' + ((t.pnl || 0) >= 0 ? 'up' : 'down') + '">' + ((t.pnl || 0) >= 0 ? '+' : '') + '$' + (t.pnl || 0).toFixed(2) + '</td>';
         tradesBody.appendChild(tr);
       });
-      if (allTrades.length > 100) {
+      if (allTrades.length > 200) {
         var more = document.createElement('tr');
-        more.innerHTML = '<td colspan="7" style="color:#6b7280;font-size:12px;">Showing first 100 of ' + allTrades.length + ' trades</td>';
+        more.innerHTML = '<td colspan="8" style="color:#6b7280;font-size:12px;">Showing first 200 of ' + allTrades.length + ' trades</td>';
         tradesBody.appendChild(more);
       }
     } catch (err) {

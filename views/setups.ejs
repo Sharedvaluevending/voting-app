@@ -291,7 +291,7 @@
   <h4 style="color:#e5e7eb;font-size:13px;margin:0 0 8px 0;" id="bt-trades-title">Recent Trades</h4>
   <div style="max-height:240px;overflow-y:auto;">
     <table class="data-table" style="background:rgba(15,23,42,0.4);">
-      <thead><tr><th>#</th><th>Coin</th><th>Dir</th><th>Entry</th><th>Exit</th><th>Reason</th><th>PnL</th></tr></thead>
+      <thead><tr><th>#</th><th>Date</th><th>Coin</th><th>Dir</th><th>Entry</th><th>Exit</th><th>Reason</th><th>PnL</th></tr></thead>
       <tbody id="bt-trades"></tbody>
     </table>
   </div>
@@ -436,11 +436,13 @@
       tradesTitle.textContent = 'Trades (' + allTrades.length + (allTrades.length >= 500 ? '+' : '') + ')';
       var tbody = document.getElementById('bt-trades');
       tbody.innerHTML = '';
-      allTrades.slice(0, 100).forEach(function(t, i) {
+      allTrades.slice(0, 200).forEach(function(t, i) {
         var pnlColor = (t.pnl || 0) >= 0 ? '#10b981' : '#ef4444';
         var dirColor = t.direction === 'LONG' ? '#10b981' : '#ef4444';
+        var dateStr = t.exitTime ? new Date(t.exitTime).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'2-digit' }) : '-';
         var tr = document.createElement('tr');
         tr.innerHTML = '<td style="color:#6b7280;">' + (i+1) + '</td>' +
+          '<td style="color:#9ca3af;font-size:11px;">' + dateStr + '</td>' +
           '<td style="color:#3b82f6;">' + (t.coinId || payload.coinId || '—') + '</td>' +
           '<td style="color:' + dirColor + ';font-weight:600;">' + (t.direction || 'LONG') + '</td>' +
           '<td>$' + (t.entry || 0).toFixed(4) + '</td>' +
