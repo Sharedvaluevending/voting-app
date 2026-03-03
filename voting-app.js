@@ -2114,15 +2114,78 @@ app.get('/setups', optionalUser, async (req, res) => {
 
 app.post('/api/setups/backtest', async (req, res) => {
   try {
-    const { coinId, setupId, startDate, endDate, timeframe } = req.body || {};
+    const { coinId, setupId, startDate, endDate, timeframe, multiCoin, minScore, partialTP, fees, minRR } = req.body || {};
     if (!setupId) return res.status(400).json({ error: 'Setup ID required' });
-    const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 30 * 24 * 3600000;
+    const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 90 * 24 * 3600000;
     const endMs = endDate ? new Date(endDate).getTime() : Date.now();
-    const cid = coinId || 'bitcoin';
     const tf = ['1h', '4h'].includes(timeframe) ? timeframe : '1h';
+    const btOpts = {
+      initialBalance: 10000,
+      leverage: 2,
+      timeframe: tf,
+      minScore: Number(minScore) || 0,
+      partialTP: partialTP === true || partialTP === 'true',
+      fees: fees !== false && fees !== 'false',
+      minRR: Number(minRR) || 0
+    };
     const { runSetupBacktest } = require('./services/smc-backtest');
-    const result = await runSetupBacktest(cid, setupId, startMs, endMs, { initialBalance: 10000, leverage: 2, timeframe: tf });
+
+    if (multiCoin === true || multiCoin === 'true') {
+      // Run on all tracked coins in parallel, aggregate results
+      const coins = TRACKED_COINS.slice(0, 40);
+      const results = await Promise.allSettled(
+        coins.map(cid => runSetupBacktest(cid, setupId, startMs, endMs, { ...btOpts }))
+      );
+
+      const allTrades = [];
+      const perCoin = [];
+      let totalEquity = 10000;
+      let totalPnl = 0;
+
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        const cid = coins[i];
+        if (r.status === 'rejected' || r.value?.error) continue;
+        const v = r.value;
+        const s = v.summary || {};
+        if (s.totalTrades > 0) {
+          allTrades.push(...(v.trades || []).map(t => ({ ...t, coinId: cid })));
+          totalPnl += s.totalPnl || 0;
+          perCoin.push({ coinId: cid, ...s });
+        }
+      }
+
+      const wins = allTrades.filter(t => t.pnl > 0).length;
+      const losses = allTrades.filter(t => t.pnl <= 0).length;
+      const grossProfit = allTrades.filter(t => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
+      const grossLoss = Math.abs(allTrades.filter(t => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
+      const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999 : 0);
+      const finalBalance = totalEquity + totalPnl;
+
+      const summary = {
+        totalTrades: allTrades.length,
+        wins,
+        losses,
+        winRate: allTrades.length > 0 ? (wins / allTrades.length) * 100 : 0,
+        totalPnl,
+        totalPnlPercent: (totalPnl / totalEquity) * 100,
+        profitFactor,
+        maxDrawdownPct: 0,
+        initialBalance: totalEquity,
+        finalBalance,
+        setupId,
+        coinsRun: coins.length,
+        coinsWithTrades: perCoin.length
+      };
+
+      return res.json({ success: true, summary, trades: allTrades.slice(0, 500), perCoin, multiCoin: true });
+    }
+
+    // Single coin
+    const cid = coinId || 'bitcoin';
+    const result = await runSetupBacktest(cid, setupId, startMs, endMs, btOpts);
     if (result.error) return res.status(400).json({ error: result.error });
+
     if (req.session?.userId && result.summary) {
       const SetupBacktestResult = require('./models/SetupBacktestResult');
       await SetupBacktestResult.create({

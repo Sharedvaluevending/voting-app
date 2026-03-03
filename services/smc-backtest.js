@@ -13,10 +13,11 @@ const INITIAL_BALANCE = 10000;
 const RISK_PER_TRADE = 0.02;
 const LEVERAGE = 2;
 const SL_ATR_MULT = 2;
-const TP_ATR_MULT = 4;       // 2:1 RR (TP = 4× ATR, SL = 2× ATR)
+const TP1_ATR_MULT = 2;      // 1:1 RR — partial close 40%
+const TP2_ATR_MULT = 3;      // 1.5:1 RR — partial close 30%
+const TP_ATR_MULT = 4;       // 2:1 RR — full close / TP3 30%
 const TAKER_FEE = 0.001;
 const SLIPPAGE_BPS = 5;
-// Use each setup's shortVersion length — FVG Gap has 3 phases, FVG+Liquidity has 5, etc.
 
 /**
  * Run backtest for an SMC setup.
@@ -30,6 +31,10 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
   const initialBalance = options.initialBalance ?? INITIAL_BALANCE;
   const leverage = options.leverage ?? LEVERAGE;
   const timeframe = options.timeframe || '1h';
+  const minScore = options.minScore ?? 0;         // gate entries on scoring engine score
+  const usePartialTP = options.partialTP === true; // 40/30/30 partial exits
+  const useFees = options.fees !== false;          // fees on by default
+  const minRR = options.minRR ?? 0;               // min reward:risk ratio filter
   const scenario = getScenario(setupId);
   if (!scenario) {
     return { error: `Unknown setup: ${setupId}`, trades: [], equityCurve: [] };
@@ -121,61 +126,103 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
 
     if (position) {
       const nextBar = ctf[t + 1];
-      const exitPrice = nextBar.open;
       const slip = 1 + (SLIPPAGE_BPS / 10000);
 
-      let shouldExit = false;
-      let exitReason = 'SIGNAL';
-
       if (position.direction === 'LONG') {
+        // Check SL first
         if (nextBar.low <= position.stopLoss) {
-          shouldExit = true;
-          exitReason = 'SL';
-        } else if (position.takeProfit && nextBar.high >= position.takeProfit) {
-          shouldExit = true;
-          exitReason = 'TP';
-        } else if (result.ready && direction === 'SHORT') {
-          shouldExit = true;
+          const adjExit = position.stopLoss;
+          const exitFees = useFees ? position.remainingSize * TAKER_FEE : 0;
+          const pnl = ((adjExit - position.entry) / position.entry) * position.remainingSize - exitFees - position.entryFees;
+          equity = Math.max(0, equity + pnl);
+          trades.push({ direction: 'LONG', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: 'SL', pnl, size: position.remainingSize, coinId, setupId });
+          position = null;
+          continue;
+        }
+        // Partial TP1
+        if (usePartialTP && !position.tp1Hit && position.tp1 && nextBar.high >= position.tp1) {
+          const adjExit = position.tp1 / slip;
+          const closeSize = position.originalSize * 0.4;
+          const exitFees = useFees ? closeSize * TAKER_FEE : 0;
+          const partialPnl = ((adjExit - position.entry) / position.entry) * closeSize - exitFees;
+          equity += partialPnl;
+          position.tp1Hit = true;
+          position.remainingSize -= closeSize;
+          position.stopLoss = position.entry; // move BE after TP1
+          trades.push({ direction: 'LONG', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: 'TP1', pnl: partialPnl, size: closeSize, coinId, setupId });
+        }
+        // Partial TP2
+        if (usePartialTP && position.tp1Hit && !position.tp2Hit && position.tp2 && nextBar.high >= position.tp2) {
+          const adjExit = position.tp2 / slip;
+          const closeSize = position.originalSize * 0.3;
+          const exitFees = useFees ? closeSize * TAKER_FEE : 0;
+          const partialPnl = ((adjExit - position.entry) / position.entry) * closeSize - exitFees;
+          equity += partialPnl;
+          position.tp2Hit = true;
+          position.remainingSize -= closeSize;
+          trades.push({ direction: 'LONG', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: 'TP2', pnl: partialPnl, size: closeSize, coinId, setupId });
+        }
+        // Full TP (TP3 or only TP)
+        if (position.takeProfit && nextBar.high >= position.takeProfit) {
+          const adjExit = position.takeProfit / slip;
+          const exitFees = useFees ? position.remainingSize * TAKER_FEE : 0;
+          const pnl = ((adjExit - position.entry) / position.entry) * position.remainingSize - exitFees;
+          equity = Math.max(0, equity + pnl);
+          trades.push({ direction: 'LONG', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: usePartialTP ? 'TP3' : 'TP', pnl, size: position.remainingSize, coinId, setupId });
+          position = null;
+          continue;
         }
       } else {
+        // SHORT
         if (nextBar.high >= position.stopLoss) {
-          shouldExit = true;
-          exitReason = 'SL';
-        } else if (position.takeProfit && nextBar.low <= position.takeProfit) {
-          shouldExit = true;
-          exitReason = 'TP';
-        } else if (result.ready && direction === 'LONG') {
-          shouldExit = true;
+          const adjExit = position.stopLoss;
+          const exitFees = useFees ? position.remainingSize * TAKER_FEE : 0;
+          const pnl = ((position.entry - adjExit) / position.entry) * position.remainingSize - exitFees - position.entryFees;
+          equity = Math.max(0, equity + pnl);
+          trades.push({ direction: 'SHORT', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: 'SL', pnl, size: position.remainingSize, coinId, setupId });
+          position = null;
+          continue;
         }
-      }
-
-      if (shouldExit) {
-        const adjExit = position.direction === 'LONG' ? exitPrice / slip : exitPrice * slip;
-        const exitFees = position.size * TAKER_FEE;
-        const pnl = position.direction === 'LONG'
-          ? ((adjExit - position.entry) / position.entry) * position.size
-          : ((position.entry - adjExit) / position.entry) * position.size;
-        equity = Math.max(0, equity + pnl - exitFees - position.entryFees);
-        trades.push({
-          direction: position.direction,
-          entry: position.entry,
-          exit: adjExit,
-          entryBar: position.entryBar,
-          exitBar: t + 1,
-          exitTime: nextBar.openTime,
-          reason: exitReason,
-          pnl: pnl - exitFees - position.entryFees,
-          size: position.size,
-          setupId
-        });
-        position = null;
+        if (usePartialTP && !position.tp1Hit && position.tp1 && nextBar.low <= position.tp1) {
+          const adjExit = position.tp1 * slip;
+          const closeSize = position.originalSize * 0.4;
+          const exitFees = useFees ? closeSize * TAKER_FEE : 0;
+          const partialPnl = ((position.entry - adjExit) / position.entry) * closeSize - exitFees;
+          equity += partialPnl;
+          position.tp1Hit = true;
+          position.remainingSize -= closeSize;
+          position.stopLoss = position.entry;
+          trades.push({ direction: 'SHORT', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: 'TP1', pnl: partialPnl, size: closeSize, coinId, setupId });
+        }
+        if (usePartialTP && position.tp1Hit && !position.tp2Hit && position.tp2 && nextBar.low <= position.tp2) {
+          const adjExit = position.tp2 * slip;
+          const closeSize = position.originalSize * 0.3;
+          const exitFees = useFees ? closeSize * TAKER_FEE : 0;
+          const partialPnl = ((position.entry - adjExit) / position.entry) * closeSize - exitFees;
+          equity += partialPnl;
+          position.tp2Hit = true;
+          position.remainingSize -= closeSize;
+          trades.push({ direction: 'SHORT', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: 'TP2', pnl: partialPnl, size: closeSize, coinId, setupId });
+        }
+        if (position.takeProfit && nextBar.low <= position.takeProfit) {
+          const adjExit = position.takeProfit * slip;
+          const exitFees = useFees ? position.remainingSize * TAKER_FEE : 0;
+          const pnl = ((position.entry - adjExit) / position.entry) * position.remainingSize - exitFees;
+          equity = Math.max(0, equity + pnl);
+          trades.push({ direction: 'SHORT', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: usePartialTP ? 'TP3' : 'TP', pnl, size: position.remainingSize, coinId, setupId });
+          position = null;
+          continue;
+        }
       }
       continue;
     }
 
     const minPhases = (scenario.shortVersion || scenario.phases.map(p => p.id)).length;
     if (result.ready && result.score >= minPhases) {
-      // HTF bias gate: skip entry if 4h opposes the setup direction
+      // Score filter — gate on full scoring engine if minScore set
+      if (minScore > 0 && (analysis.score == null || analysis.score < minScore)) continue;
+
+      // HTF bias gate
       const barTime = ctf[t]?.openTime || 0;
       const htfBias = get4hBiasAt(barTime);
       if (htfBias === 'BULL' && direction === 'SHORT') continue;
@@ -191,22 +238,30 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
 
       const riskDist = Math.max(atr * SL_ATR_MULT, entryPrice * 0.005);
       const rewardDist = atr * TP_ATR_MULT;
+      const rr = riskDist > 0 ? rewardDist / riskDist : 0;
 
-      let stopLoss, takeProfit, adjEntry;
+      // Min R:R filter
+      if (minRR > 0 && rr < minRR) continue;
+
+      let stopLoss, takeProfit, tp1, tp2, adjEntry;
 
       if (direction === 'LONG') {
         adjEntry = entryPrice * slip;
         stopLoss = adjEntry - riskDist;
+        tp1 = adjEntry + atr * TP1_ATR_MULT;
+        tp2 = adjEntry + atr * TP2_ATR_MULT;
         takeProfit = adjEntry + rewardDist;
       } else {
         adjEntry = entryPrice / slip;
         stopLoss = adjEntry + riskDist;
+        tp1 = adjEntry - atr * TP1_ATR_MULT;
+        tp2 = adjEntry - atr * TP2_ATR_MULT;
         takeProfit = adjEntry - rewardDist;
       }
 
       const riskAmount = equity * RISK_PER_TRADE;
       const positionSize = Math.min(equity * leverage * 0.95, riskDist > 0 ? (riskAmount / riskDist) * adjEntry : equity * 0.1);
-      const entryFees = positionSize * TAKER_FEE;
+      const entryFees = useFees ? positionSize * TAKER_FEE : 0;
 
       if (entryFees + (positionSize / leverage) <= equity) {
         equity -= entryFees;
@@ -215,10 +270,16 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
           entry: adjEntry,
           entryBar: t + 1,
           stopLoss,
+          tp1: usePartialTP ? tp1 : null,
+          tp2: usePartialTP ? tp2 : null,
           takeProfit,
-          size: positionSize,
+          originalSize: positionSize,
+          remainingSize: positionSize,
+          tp1Hit: false,
+          tp2Hit: false,
           entryFees,
-          setupId
+          setupId,
+          coinId
         };
       }
     }
@@ -229,11 +290,11 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
     const exitPrice = lastBarC.close;
     const slip = 1 + (SLIPPAGE_BPS / 10000);
     const adjExit = position.direction === 'LONG' ? exitPrice / slip : exitPrice * slip;
-    const exitFees = position.size * TAKER_FEE;
+    const exitFees = useFees ? position.remainingSize * TAKER_FEE : 0;
     const pnl = position.direction === 'LONG'
-      ? ((adjExit - position.entry) / position.entry) * position.size
-      : ((position.entry - adjExit) / position.entry) * position.size;
-    equity = Math.max(0, equity + pnl - exitFees - position.entryFees);
+      ? ((adjExit - position.entry) / position.entry) * position.remainingSize - exitFees
+      : ((position.entry - adjExit) / position.entry) * position.remainingSize - exitFees;
+    equity = Math.max(0, equity + pnl);
     trades.push({
       direction: position.direction,
       entry: position.entry,
@@ -242,8 +303,9 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
       exitBar: ctf.length - 1,
       exitTime: lastBarC.openTime,
       reason: 'END',
-      pnl: pnl - exitFees - position.entryFees,
-      size: position.size,
+      pnl,
+      size: position.remainingSize,
+      coinId,
       setupId
     });
   }
