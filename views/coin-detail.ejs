@@ -145,38 +145,52 @@
   </div>
   <% } %>
 
-  <!-- Per-timeframe dimension grid -->
+  <!-- Per-timeframe sub-factor detail -->
   <% if (sig.scoreBreakdown && sig.scoreBreakdown.byTimeframe) { %>
-  <h4 style="color:#9ca3af;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin:0 0 10px 0;">Dimension Scores by Timeframe</h4>
-  <div style="overflow-x:auto;">
-    <table style="width:100%;border-collapse:collapse;font-size:12px;">
-      <thead>
-        <tr style="border-bottom:1px solid #334155;">
-          <th style="text-align:left;padding:6px 10px;color:#6b7280;font-weight:600;">Dimension</th>
-          <th style="text-align:center;padding:6px 10px;color:#6b7280;font-weight:600;">1H (25%)</th>
-          <th style="text-align:center;padding:6px 10px;color:#6b7280;font-weight:600;">4H (35%)</th>
-          <th style="text-align:center;padding:6px 10px;color:#6b7280;font-weight:600;">1D (40%)</th>
-          <th style="text-align:center;padding:6px 10px;color:#6b7280;font-weight:600;">Blended</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% var dims = [['Trend','trend',20],['Momentum','momentum',20],['Volume','volume',20],['Structure','structure',20],['Volatility','volatility',10],['Risk Quality','riskQuality',10]]; var bTF = sig.scoreBreakdown.byTimeframe; %>
-        <% dims.forEach(function(d) { var name=d[0], key=d[1], max=d[2]; var v1h=bTF['1H'][key], v4h=bTF['4H'][key], v1d=bTF['1D'][key], bl=sig.scoreBreakdown[key]; function color(v,mx) { return v>=mx*0.75?'#10b981':v>=mx*0.5?'#eab308':'#ef4444'; } %>
-        <tr style="border-bottom:1px solid rgba(30,42,58,0.6);">
-          <td style="padding:7px 10px;color:#e5e7eb;font-weight:500;"><%= name %><span style="color:#6b7280;font-size:10px;"> /<%= max %></span></td>
-          <td style="text-align:center;padding:7px 10px;color:<%= color(v1h,max) %>;font-weight:600;"><%= v1h %></td>
-          <td style="text-align:center;padding:7px 10px;color:<%= color(v4h,max) %>;font-weight:600;"><%= v4h %></td>
-          <td style="text-align:center;padding:7px 10px;color:<%= color(v1d,max) %>;font-weight:600;"><%= v1d %></td>
-          <td style="text-align:center;padding:7px 10px;color:<%= color(bl,max) %>;font-weight:700;background:rgba(30,42,58,0.4);border-radius:4px;"><%= bl %></td>
-        </tr>
-        <% }); %>
-      </tbody>
-    </table>
+  <h4 style="color:#9ca3af;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin:16px 0 10px 0;">Every Factor by Timeframe</h4>
+  <p style="color:#6b7280;font-size:11px;margin:0 0 12px 0;">Click any dimension row to expand every sub-factor that contributed to that score. Green = bullish points, Red = bearish points, Grey = neutral.</p>
+  <% var bTF = sig.scoreBreakdown.byTimeframe; %>
+  <% var dims = [['Trend','trend',20,'EMA alignment, ADX strength, SMA stack'],['Momentum','momentum',20,'RSI, MACD, Stochastic, momentum acceleration'],['Volume','volume',20,'Relative volume, VWAP position, volume trend'],['Structure','structure',20,'Market structure, S/R, BB position, OBs, FVGs, liquidity, patterns'],['Volatility','volatility',10,'BB Squeeze, ATR volatility state, ADX trend quality'],['Risk Quality','riskQuality',10,'S/R range tightness, ATR, ADX clarity, data length']]; %>
+  <% dims.forEach(function(d, di) { var name=d[0], key=d[1], max=d[2], desc=d[3]; var v1h=bTF['1H'][key], v4h=bTF['4H'][key], v1d=bTF['1D'][key], bl=sig.scoreBreakdown[key]; var rowId='sdim-'+di; function col(v,mx) { return v>=mx*0.75?'#10b981':v>=mx*0.5?'#eab308':'#ef4444'; } function pct(v,mx){ return Math.round(v/mx*100); } %>
+  <div style="margin-bottom:6px;border:1px solid #1e2a3a;border-radius:8px;overflow:hidden;">
+    <!-- Header row — click to expand -->
+    <div onclick="var el=document.getElementById('<%= rowId %>');el.style.display=el.style.display==='none'?'block':'none';this.querySelector('.exp-arrow').textContent=el.style.display==='none'?'▶':'▼';" style="display:grid;grid-template-columns:1fr 70px 70px 70px 80px 24px;gap:4px;align-items:center;padding:9px 12px;background:rgba(15,23,42,0.7);cursor:pointer;user-select:none;">
+      <div>
+        <span style="color:#e5e7eb;font-size:13px;font-weight:600;"><%= name %></span>
+        <span style="color:#6b7280;font-size:10px;margin-left:6px;">/<%= max %> — <%= desc %></span>
+      </div>
+      <div style="text-align:center;"><span style="font-size:13px;font-weight:700;color:<%= col(v1h,max) %>"><%= v1h %></span><span style="font-size:9px;color:#6b7280;"> /1H</span></div>
+      <div style="text-align:center;"><span style="font-size:13px;font-weight:700;color:<%= col(v4h,max) %>"><%= v4h %></span><span style="font-size:9px;color:#6b7280;"> /4H</span></div>
+      <div style="text-align:center;"><span style="font-size:13px;font-weight:700;color:<%= col(v1d,max) %>"><%= v1d %></span><span style="font-size:9px;color:#6b7280;"> /1D</span></div>
+      <div style="text-align:center;background:rgba(30,42,58,0.6);border-radius:5px;padding:3px 0;"><span style="font-size:14px;font-weight:800;color:<%= col(bl,max) %>"><%= bl %></span><span style="font-size:9px;color:#6b7280;"> blend</span></div>
+      <div style="text-align:center;font-size:11px;color:#6b7280;" class="exp-arrow">▶</div>
+    </div>
+    <!-- Sub-factor rows — collapsed by default -->
+    <div id="<%= rowId %>" style="display:none;">
+      <% ['1H','4H','1D'].forEach(function(tf) { var tfData = bTF[tf]; var tfTrace = tfData && tfData.trace && tfData.trace[key] ? tfData.trace[key] : []; var tfScore = tfData ? tfData[key] : 0; %>
+      <div style="padding:8px 12px;background:rgba(10,15,30,0.6);border-top:1px solid #1e2a3a;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <span style="font-size:11px;font-weight:700;color:#6b7280;background:#1e2a3a;padding:2px 8px;border-radius:4px;"><%= tf %></span>
+          <span style="font-size:12px;color:<%= col(tfScore,max) %>;font-weight:700;"><%= tfScore %>/<%= max %></span>
+          <div style="flex:1;height:4px;background:#1e2a3a;border-radius:2px;"><div style="height:4px;width:<%= pct(tfScore,max) %>%;background:<%= col(tfScore,max) %>;border-radius:2px;"></div></div>
+        </div>
+        <% if (tfTrace.length === 0) { %>
+        <div style="font-size:11px;color:#6b7280;padding:4px 0;">No sub-factor data for this timeframe.</div>
+        <% } else { tfTrace.forEach(function(f) { var isPos = f.delta > 0; var isZero = f.delta === 0; var fColor = isZero ? '#6b7280' : (f.dir === 'bull' ? '#10b981' : f.dir === 'bear' ? '#ef4444' : '#9ca3af'); %>
+        <div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid rgba(30,42,58,0.3);">
+          <span style="font-size:11px;min-width:28px;text-align:right;font-weight:700;color:<%= isZero ? '#4b5563' : (isPos ? '#10b981' : '#ef4444') %>"><%= isZero ? '—' : (isPos ? '+' + f.delta : f.delta) %></span>
+          <span style="flex:1;font-size:11px;color:<%= fColor %>;"><%= f.label %></span>
+          <% if (!isZero) { %><div style="width:40px;height:3px;background:#1e2a3a;border-radius:2px;"><div style="height:3px;width:<%= Math.min(100, Math.abs(f.delta) / max * 200) %>%;background:<%= fColor %>;border-radius:2px;"></div></div><% } %>
+        </div>
+        <% }); } %>
+      </div>
+      <% }); %>
+    </div>
   </div>
+  <% }); %>
   <% } else if (sig.scoreBreakdown) { %>
-  <!-- Fallback simple grid if byTimeframe not present -->
   <div class="perf-grid">
-    <div class="perf-card" title="EMA/SMA alignment, ADX strength"><div class="perf-label">Trend</div><div class="perf-value"><%= sig.scoreBreakdown.trend %>/20</div></div>
+    <div class="perf-card"><div class="perf-label">Trend</div><div class="perf-value"><%= sig.scoreBreakdown.trend %>/20</div></div>
     <div class="perf-card"><div class="perf-label">Momentum</div><div class="perf-value"><%= sig.scoreBreakdown.momentum %>/20</div></div>
     <div class="perf-card"><div class="perf-label">Volume</div><div class="perf-value"><%= sig.scoreBreakdown.volume %>/20</div></div>
     <div class="perf-card"><div class="perf-label">Structure</div><div class="perf-value"><%= sig.scoreBreakdown.structure %>/20</div></div>

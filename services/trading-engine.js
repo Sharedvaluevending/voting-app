@@ -459,9 +459,9 @@ function analyzeWithCandles(coinData, candles, options) {
       volatility: Math.round(scores1d.volatility * 0.4 + scores4h.volatility * 0.35 + scores1h.volatility * 0.25),
       riskQuality: Math.round(scores1d.riskQuality * 0.4 + scores4h.riskQuality * 0.35 + scores1h.riskQuality * 0.25),
       byTimeframe: {
-        '1D': { trend: scores1d.trend, momentum: scores1d.momentum, volume: scores1d.volume, structure: scores1d.structure, volatility: scores1d.volatility, riskQuality: scores1d.riskQuality, total: scores1d.total },
-        '4H': { trend: scores4h.trend, momentum: scores4h.momentum, volume: scores4h.volume, structure: scores4h.structure, volatility: scores4h.volatility, riskQuality: scores4h.riskQuality, total: scores4h.total },
-        '1H': { trend: scores1h.trend, momentum: scores1h.momentum, volume: scores1h.volume, structure: scores1h.structure, volatility: scores1h.volatility, riskQuality: scores1h.riskQuality, total: scores1h.total }
+        '1D': { trend: scores1d.trend, momentum: scores1d.momentum, volume: scores1d.volume, structure: scores1d.structure, volatility: scores1d.volatility, riskQuality: scores1d.riskQuality, total: scores1d.total, trace: scores1d.trace },
+        '4H': { trend: scores4h.trend, momentum: scores4h.momentum, volume: scores4h.volume, structure: scores4h.structure, volatility: scores4h.volatility, riskQuality: scores4h.riskQuality, total: scores4h.total, trace: scores4h.trace },
+        '1H': { trend: scores1h.trend, momentum: scores1h.momentum, volume: scores1h.volume, structure: scores1h.structure, volatility: scores1h.volatility, riskQuality: scores1h.riskQuality, total: scores1h.total, trace: scores1h.trace }
       }
     },
     timeframes: Object.assign({
@@ -717,181 +717,181 @@ function scoreCandles(analysis, currentPrice, timeframe) {
   let direction = 'NEUTRAL';
   let bullPoints = 0, bearPoints = 0;
 
+  // Sub-factor trace — every scored item recorded for display
+  const trace = { trend: [], momentum: [], volume: [], structure: [], volatility: [], riskQuality: [] };
+  function t(dim, label, delta, dir) {
+    trace[dim].push({ label, delta, dir: dir || null });
+  }
+
   // === TREND (0-20) ===
-  // Trend direction
-  if (analysis.trend === 'STRONG_UP') { trend += 8; bullPoints += 3; }
-  else if (analysis.trend === 'UP') { trend += 5; bullPoints += 2; }
-  else if (analysis.trend === 'STRONG_DOWN') { trend += 8; bearPoints += 3; }
-  else if (analysis.trend === 'DOWN') { trend += 5; bearPoints += 2; }
-  else { trend += 2; }
+  if (analysis.trend === 'STRONG_UP') { trend += 8; bullPoints += 3; t('trend', 'Trend: STRONG UP (EMA stacking, strong ADX)', 8, 'bull'); }
+  else if (analysis.trend === 'UP') { trend += 5; bullPoints += 2; t('trend', 'Trend: UP', 5, 'bull'); }
+  else if (analysis.trend === 'STRONG_DOWN') { trend += 8; bearPoints += 3; t('trend', 'Trend: STRONG DOWN', 8, 'bear'); }
+  else if (analysis.trend === 'DOWN') { trend += 5; bearPoints += 2; t('trend', 'Trend: DOWN', 5, 'bear'); }
+  else { trend += 2; t('trend', 'Trend: SIDEWAYS / neutral', 2, null); }
 
-  // ADX trend strength
-  if (analysis.adx > 40) trend += 6;
-  else if (analysis.adx > 25) trend += 4;
-  else if (analysis.adx > 20) trend += 2;
+  if (analysis.adx > 40) { trend += 6; t('trend', 'ADX ' + Math.round(analysis.adx) + ' (very strong trend)', 6, null); }
+  else if (analysis.adx > 25) { trend += 4; t('trend', 'ADX ' + Math.round(analysis.adx) + ' (trending)', 4, null); }
+  else if (analysis.adx > 20) { trend += 2; t('trend', 'ADX ' + Math.round(analysis.adx) + ' (weak trend)', 2, null); }
+  else { t('trend', 'ADX ' + Math.round(analysis.adx || 0) + ' (no trend / choppy)', 0, null); }
 
-  // Price vs EMAs
   if (currentPrice > analysis.ema9 && analysis.ema9 > analysis.ema21) {
-    trend += 4; bullPoints += 1;
+    trend += 4; bullPoints += 1; t('trend', 'EMA9 > EMA21 (bullish stack)', 4, 'bull');
   } else if (currentPrice < analysis.ema9 && analysis.ema9 < analysis.ema21) {
-    trend += 4; bearPoints += 1;
-  } else { trend += 1; }
+    trend += 4; bearPoints += 1; t('trend', 'EMA9 < EMA21 (bearish stack)', 4, 'bear');
+  } else { trend += 1; t('trend', 'EMA9/EMA21 misaligned', 1, null); }
 
-  // SMA alignment
-  if (analysis.sma20 > analysis.sma50) { trend += 2; bullPoints += 1; }
-  else if (analysis.sma20 < analysis.sma50) { trend += 2; bearPoints += 1; }
+  if (analysis.sma20 > analysis.sma50) { trend += 2; bullPoints += 1; t('trend', 'SMA20 > SMA50 (bull bias)', 2, 'bull'); }
+  else if (analysis.sma20 < analysis.sma50) { trend += 2; bearPoints += 1; t('trend', 'SMA20 < SMA50 (bear bias)', 2, 'bear'); }
 
   trend = Math.min(20, trend);
 
   // === MOMENTUM (0-20) ===
-  // RSI — extreme levels + directional bias
-  if (analysis.rsi < 20) { momentum += 7; bullPoints += 2; }  // deeply oversold = strong reversal signal
-  else if (analysis.rsi < 30) { momentum += 5; bullPoints += 2; }
-  else if (analysis.rsi < 40) { momentum += 3; bullPoints += 1; }
-  else if (analysis.rsi > 80) { momentum += 7; bearPoints += 2; }  // deeply overbought
-  else if (analysis.rsi > 70) { momentum += 5; bearPoints += 2; }
-  else if (analysis.rsi > 60) { momentum += 3; bearPoints += 1; }
-  else { momentum += 1; }  // 40-60 = dead zone, minimal score
+  const rsiVal = Math.round(analysis.rsi || 50);
+  if (analysis.rsi < 20) { momentum += 7; bullPoints += 2; t('momentum', 'RSI ' + rsiVal + ' — deeply oversold (reversal zone)', 7, 'bull'); }
+  else if (analysis.rsi < 30) { momentum += 5; bullPoints += 2; t('momentum', 'RSI ' + rsiVal + ' — oversold', 5, 'bull'); }
+  else if (analysis.rsi < 40) { momentum += 3; bullPoints += 1; t('momentum', 'RSI ' + rsiVal + ' — approaching oversold', 3, 'bull'); }
+  else if (analysis.rsi > 80) { momentum += 7; bearPoints += 2; t('momentum', 'RSI ' + rsiVal + ' — deeply overbought (reversal zone)', 7, 'bear'); }
+  else if (analysis.rsi > 70) { momentum += 5; bearPoints += 2; t('momentum', 'RSI ' + rsiVal + ' — overbought', 5, 'bear'); }
+  else if (analysis.rsi > 60) { momentum += 3; bearPoints += 1; t('momentum', 'RSI ' + rsiVal + ' — approaching overbought', 3, 'bear'); }
+  else { momentum += 1; t('momentum', 'RSI ' + rsiVal + ' — neutral zone (40–60)', 1, null); }
 
-  // MACD
   if (analysis.macdHistogram > 0 && analysis.macdLine > analysis.macdSignal) {
-    momentum += 5; bullPoints += 1;
+    momentum += 5; bullPoints += 1; t('momentum', 'MACD bullish (hist > 0, line > signal)', 5, 'bull');
   } else if (analysis.macdHistogram < 0 && analysis.macdLine < analysis.macdSignal) {
-    momentum += 5; bearPoints += 1;
-  } else { momentum += 1; }
+    momentum += 5; bearPoints += 1; t('momentum', 'MACD bearish (hist < 0, line < signal)', 5, 'bear');
+  } else { momentum += 1; t('momentum', 'MACD neutral / mixed', 1, null); }
 
-  // Stochastic
-  if (analysis.stochK < 20) { momentum += 4; bullPoints += 1; }
-  else if (analysis.stochK > 80) { momentum += 4; bearPoints += 1; }
-  else { momentum += 1; }
+  const stochKVal = Math.round(analysis.stochK || 50);
+  if (analysis.stochK < 20) { momentum += 4; bullPoints += 1; t('momentum', 'Stoch K ' + stochKVal + ' — oversold', 4, 'bull'); }
+  else if (analysis.stochK > 80) { momentum += 4; bearPoints += 1; t('momentum', 'Stoch K ' + stochKVal + ' — overbought', 4, 'bear'); }
+  else { momentum += 1; t('momentum', 'Stoch K ' + stochKVal + ' — neutral', 1, null); }
 
-  // Stochastic crossover — directional momentum confirmation
   if (analysis.stochK > analysis.stochD && analysis.stochK < 40) {
-    momentum += 3; bullPoints += 1;
+    momentum += 3; bullPoints += 1; t('momentum', 'Stoch bullish crossover in oversold', 3, 'bull');
   } else if (analysis.stochK < analysis.stochD && analysis.stochK > 60) {
-    momentum += 3; bearPoints += 1;
+    momentum += 3; bearPoints += 1; t('momentum', 'Stoch bearish crossover in overbought', 3, 'bear');
   }
 
-  // Momentum acceleration — MACD histogram slope (is momentum speeding up?)
   if (analysis.macdHistSlope > 0 && analysis.macdHistogram > 0) {
-    momentum += 2; bullPoints += 1;  // bullish momentum accelerating
+    momentum += 2; bullPoints += 1; t('momentum', 'MACD histogram accelerating (bullish)', 2, 'bull');
   } else if (analysis.macdHistSlope < 0 && analysis.macdHistogram < 0) {
-    momentum += 2; bearPoints += 1;  // bearish momentum accelerating
+    momentum += 2; bearPoints += 1; t('momentum', 'MACD histogram accelerating (bearish)', 2, 'bear');
   }
-  // Decelerating momentum = early warning (no points, but no penalty either)
 
-  // Candlestick pattern momentum confirmation (v4.1)
   const cpMom = analysis.candlestickPatterns || {};
   if (cpMom.momentumBonus) {
-    momentum += Math.min(cpMom.momentumBonus, 3);
+    const mb = Math.min(cpMom.momentumBonus, 3);
+    momentum += mb;
+    t('momentum', 'Candlestick pattern momentum bonus', mb, cpMom.bullPoints > 0 ? 'bull' : 'bear');
   }
 
   momentum = Math.min(20, momentum);
 
   // === VOLUME (0-20) ===
-  // Relative volume
-  if (analysis.relativeVolume > 2.0) { volume += 7; }
-  else if (analysis.relativeVolume > 1.5) { volume += 5; }
-  else if (analysis.relativeVolume > 1.0) { volume += 3; }
-  else { volume += 1; }
+  const rvVal = analysis.relativeVolume ? analysis.relativeVolume.toFixed(1) : '?';
+  if (analysis.relativeVolume > 2.0) { volume += 7; t('volume', 'Relative volume ' + rvVal + 'x — very high', 7, null); }
+  else if (analysis.relativeVolume > 1.5) { volume += 5; t('volume', 'Relative volume ' + rvVal + 'x — above average', 5, null); }
+  else if (analysis.relativeVolume > 1.0) { volume += 3; t('volume', 'Relative volume ' + rvVal + 'x — normal', 3, null); }
+  else { volume += 1; t('volume', 'Relative volume ' + rvVal + 'x — low', 1, null); }
 
-  // Volume trend
-  if (analysis.volumeTrend === 'SURGING') { volume += 5; }
-  else if (analysis.volumeTrend === 'INCREASING') { volume += 3; }
-  else if (analysis.volumeTrend === 'DECLINING') { volume += 1; }
-  else { volume += 2; }
+  if (analysis.volumeTrend === 'SURGING') { volume += 5; t('volume', 'Volume trend: SURGING (>2× avg)', 5, null); }
+  else if (analysis.volumeTrend === 'INCREASING') { volume += 3; t('volume', 'Volume trend: INCREASING (>1.3× avg)', 3, null); }
+  else if (analysis.volumeTrend === 'DECLINING') { volume += 1; t('volume', 'Volume trend: DECLINING (<0.6× avg)', 1, null); }
+  else { volume += 2; t('volume', 'Volume trend: NORMAL', 2, null); }
 
-  // Volume climax
-  if (analysis.volumeClimax) { volume += 4; }
+  if (analysis.volumeClimax) { volume += 4; t('volume', 'Volume climax (last bar ≥ 90% of 20-bar peak)', 4, null); }
 
-  // VWAP position
   if (currentPrice > analysis.vwap) {
-    volume += 4; bullPoints += 1;
+    volume += 4; bullPoints += 1; t('volume', 'Price above VWAP (bullish bias)', 4, 'bull');
   } else if (currentPrice < analysis.vwap) {
-    volume += 4; bearPoints += 1;
-  } else { volume += 2; }
+    volume += 4; bearPoints += 1; t('volume', 'Price below VWAP (bearish bias)', 4, 'bear');
+  } else { volume += 2; t('volume', 'Price at VWAP', 2, null); }
 
-  // VWAP bands: price within 0.5 ATR of VWAP = value zone (small bonus)
   const atrP = analysis.atr || 0;
   if (atrP > 0 && analysis.vwap > 0) {
     const dist = Math.abs(currentPrice - analysis.vwap) / atrP;
-    if (dist < 0.5) volume += 2;
+    if (dist < 0.5) { volume += 2; t('volume', 'Price within 0.5× ATR of VWAP (value zone)', 2, null); }
   }
   volume = Math.min(20, volume);
 
   // === STRUCTURE (0-20) ===
   const struct = analysis.marketStructure;
-  if (struct === 'BULLISH') { structure += 10; bullPoints += 2; }
-  else if (struct === 'BEARISH') { structure += 10; bearPoints += 2; }
-  else if (struct === 'BREAK_UP') { structure += 8; bullPoints += 2; }
-  else if (struct === 'BREAK_DOWN') { structure += 8; bearPoints += 2; }
-  else { structure += 3; }
+  if (struct === 'BULLISH') { structure += 10; bullPoints += 2; t('structure', 'Market structure: BULLISH (Higher Highs / Higher Lows)', 10, 'bull'); }
+  else if (struct === 'BEARISH') { structure += 10; bearPoints += 2; t('structure', 'Market structure: BEARISH (Lower Highs / Lower Lows)', 10, 'bear'); }
+  else if (struct === 'BREAK_UP') { structure += 8; bullPoints += 2; t('structure', 'Market structure: BREAK UP (structure break bullish)', 8, 'bull'); }
+  else if (struct === 'BREAK_DOWN') { structure += 8; bearPoints += 2; t('structure', 'Market structure: BREAK DOWN (structure break bearish)', 8, 'bear'); }
+  else { structure += 3; t('structure', 'Market structure: NEUTRAL / RANGING', 3, null); }
 
-  // Distance from S/R
   const srRange = analysis.resistance - analysis.support;
   if (srRange > 0) {
     const posInRange = (currentPrice - analysis.support) / srRange;
-    if (posInRange < 0.2) { structure += 5; bullPoints += 1; }
-    else if (posInRange < 0.35) { structure += 3; bullPoints += 1; }
-    else if (posInRange > 0.8) { structure += 5; bearPoints += 1; }
-    else if (posInRange > 0.65) { structure += 3; bearPoints += 1; }
-    else { structure += 2; }
+    if (posInRange < 0.2) { structure += 5; bullPoints += 1; t('structure', 'Near support (' + (posInRange * 100).toFixed(0) + '% of S/R range)', 5, 'bull'); }
+    else if (posInRange < 0.35) { structure += 3; bullPoints += 1; t('structure', 'Close to support (' + (posInRange * 100).toFixed(0) + '% of S/R range)', 3, 'bull'); }
+    else if (posInRange > 0.8) { structure += 5; bearPoints += 1; t('structure', 'Near resistance (' + (posInRange * 100).toFixed(0) + '% of S/R range)', 5, 'bear'); }
+    else if (posInRange > 0.65) { structure += 3; bearPoints += 1; t('structure', 'Approaching resistance (' + (posInRange * 100).toFixed(0) + '% of S/R range)', 3, 'bear'); }
+    else { structure += 2; t('structure', 'Mid-range (' + (posInRange * 100).toFixed(0) + '% of S/R range)', 2, null); }
   }
 
-  // Bollinger band position
   const bbRange = analysis.bbUpper - analysis.bbLower;
   if (bbRange > 0) {
     const bbPos = (currentPrice - analysis.bbLower) / bbRange;
-    if (bbPos < 0.15) { structure += 5; bullPoints += 1; }
-    else if (bbPos > 0.85) { structure += 5; bearPoints += 1; }
-    else { structure += 2; }
+    if (bbPos < 0.15) { structure += 5; bullPoints += 1; t('structure', 'At lower Bollinger Band (oversold zone)', 5, 'bull'); }
+    else if (bbPos > 0.85) { structure += 5; bearPoints += 1; t('structure', 'At upper Bollinger Band (overbought zone)', 5, 'bear'); }
+    else { structure += 2; t('structure', 'Inside Bollinger Bands (mid zone)', 2, null); }
   }
 
-  // Order blocks: price at/near zone adds confluence
   const ob = analysis.orderBlocks || [];
+  let obHits = 0;
   for (const b of ob) {
     const mid = (b.top + b.bottom) / 2;
     const dist = (mid > 0) ? Math.abs(currentPrice - mid) / mid : 1;
     if (dist < 0.008) {
-      if (b.type === 'BULL') { structure += 3; bullPoints += 1; }
-      else if (b.type === 'BEAR') { structure += 3; bearPoints += 1; }
+      if (b.type === 'BULL') { structure += 3; bullPoints += 1; t('structure', 'Near Bull Order Block ($' + mid.toFixed(2) + ', dist ' + (dist * 100).toFixed(2) + '%)', 3, 'bull'); obHits++; }
+      else if (b.type === 'BEAR') { structure += 3; bearPoints += 1; t('structure', 'Near Bear Order Block ($' + mid.toFixed(2) + ', dist ' + (dist * 100).toFixed(2) + '%)', 3, 'bear'); obHits++; }
     }
   }
-  // Fair value gaps: price inside or just touching zone
+  if (ob.length > 0 && obHits === 0) t('structure', ob.length + ' order block(s) detected — price not within 0.8% of any', 0, null);
+
   const fvgList = analysis.fvgs || [];
+  let fvgHits = 0;
   for (const f of fvgList) {
     const inZone = currentPrice >= f.bottom && currentPrice <= f.top;
     const nearLow = f.bottom > 0 && currentPrice >= f.bottom * 0.997 && currentPrice <= f.bottom * 1.003;
     const nearHigh = f.top > 0 && currentPrice >= f.top * 0.997 && currentPrice <= f.top * 1.003;
     if (inZone || nearLow || nearHigh) {
-      if (f.type === 'BULL') { structure += 2; bullPoints += 1; }
-      else if (f.type === 'BEAR') { structure += 2; bearPoints += 1; }
+      if (f.type === 'BULL') { structure += 2; bullPoints += 1; t('structure', 'Inside / touching Bull FVG ($' + f.bottom.toFixed(2) + '–$' + f.top.toFixed(2) + ')', 2, 'bull'); fvgHits++; }
+      else if (f.type === 'BEAR') { structure += 2; bearPoints += 1; t('structure', 'Inside / touching Bear FVG ($' + f.bottom.toFixed(2) + '–$' + f.top.toFixed(2) + ')', 2, 'bear'); fvgHits++; }
     }
   }
-  // Liquidity cluster: near cluster above = potential resistance/sweep; near below = support
+  if (fvgList.length > 0 && fvgHits === 0) t('structure', fvgList.length + ' FVG(s) detected — price not in/near any', 0, null);
+
   const liq = analysis.liquidityClusters || {};
   if (liq.above != null && liq.above > 0 && currentPrice >= liq.above * 0.995 && currentPrice <= liq.above * 1.01) {
-    structure += 1; bearPoints += 1;
+    structure += 1; bearPoints += 1; t('structure', 'Near liquidity cluster above ($' + liq.above.toFixed(2) + ') — resistance/sweep zone', 1, 'bear');
+  } else if (liq.above != null && liq.above > 0) {
+    t('structure', 'Liquidity cluster above at $' + liq.above.toFixed(2) + ' — not in range', 0, null);
   }
   if (liq.below != null && liq.below > 0 && currentPrice <= liq.below * 1.005 && currentPrice >= liq.below * 0.99) {
-    structure += 1; bullPoints += 1;
+    structure += 1; bullPoints += 1; t('structure', 'Near liquidity cluster below ($' + liq.below.toFixed(2) + ') — support/bounce zone', 1, 'bull');
+  } else if (liq.below != null && liq.below > 0) {
+    t('structure', 'Liquidity cluster below at $' + liq.below.toFixed(2) + ' — not in range', 0, null);
   }
 
-  // Candlestick pattern bonus (v4.1)
-  // Patterns boost structure (up to +5) and momentum (up to +3)
-  // Direction points (bullPoints/bearPoints) feed into LONG vs SHORT decision
   const cpScore = analysis.candlestickPatterns || {};
   if (cpScore.structureBonus) {
-    structure += Math.min(cpScore.structureBonus, 5);
+    const sb = Math.min(cpScore.structureBonus, 5);
+    structure += sb;
+    t('structure', 'Candlestick pattern structure bonus' + (cpScore.names ? ' (' + cpScore.names.slice(0, 2).join(', ') + ')' : ''), sb, cpScore.bullPoints > 0 ? 'bull' : 'bear');
   }
   if (cpScore.bullPoints) bullPoints += cpScore.bullPoints;
   if (cpScore.bearPoints) bearPoints += cpScore.bearPoints;
 
-  // Chart pattern bonus (v4.2) — geometric formations (flags, wedges, H&S, etc.)
-  // These are larger multi-candle structural formations with high reliability
   const geoScore = analysis.chartPatterns || {};
   if (geoScore.structureBonus) {
-    structure += Math.min(geoScore.structureBonus, 6);
+    const gsb = Math.min(geoScore.structureBonus, 6);
+    structure += gsb;
+    t('structure', 'Chart pattern structure bonus' + (geoScore.names ? ' (' + geoScore.names.slice(0, 2).join(', ') + ')' : ''), gsb, geoScore.bullPoints > 0 ? 'bull' : 'bear');
   }
   if (geoScore.bullPoints) bullPoints += geoScore.bullPoints;
   if (geoScore.bearPoints) bearPoints += geoScore.bearPoints;
@@ -899,47 +899,46 @@ function scoreCandles(analysis, currentPrice, timeframe) {
   structure = Math.min(20, structure);
 
   // === VOLATILITY (0-10) ===
-  // BB squeeze = pending move = high quality setup
-  if (analysis.bbSqueeze) { volatility += 5; }
-  // Low/normal vol = predictable, good for entries. High/extreme = risky, penalize
-  if (analysis.volatilityState === 'low') { volatility += 3; }
-  else if (analysis.volatilityState === 'normal') { volatility += 3; }
-  else if (analysis.volatilityState === 'high') { volatility += 1; }  // high vol = risky
-  else { volatility += 0; }  // extreme = dangerous
+  if (analysis.bbSqueeze) { volatility += 5; t('volatility', 'Bollinger Band Squeeze active (pending breakout move)', 5, null); }
+  else { t('volatility', 'No BB Squeeze', 0, null); }
 
-  // Strong trend + manageable vol = good setup
-  if (analysis.adx > 25 && analysis.volatilityState !== 'extreme' && analysis.volatilityState !== 'high') { volatility += 2; }
+  if (analysis.volatilityState === 'low') { volatility += 3; t('volatility', 'Volatility: LOW (predictable conditions)', 3, null); }
+  else if (analysis.volatilityState === 'normal') { volatility += 3; t('volatility', 'Volatility: NORMAL (good entry conditions)', 3, null); }
+  else if (analysis.volatilityState === 'high') { volatility += 1; t('volatility', 'Volatility: HIGH (risky — reduced score)', 1, null); }
+  else { t('volatility', 'Volatility: EXTREME (dangerous — no points)', 0, null); }
+
+  if (analysis.adx > 25 && analysis.volatilityState !== 'extreme' && analysis.volatilityState !== 'high') {
+    volatility += 2; t('volatility', 'ADX ' + Math.round(analysis.adx) + ' with manageable volatility (trend quality bonus)', 2, null);
+  }
 
   volatility = Math.min(10, volatility);
 
   // === RISK QUALITY (0-10) ===
-  // Clear S/R = defined risk. Tight range = better R:R
   if (analysis.support > 0 && analysis.resistance > analysis.support) {
     const srPct = (analysis.resistance - analysis.support) / analysis.support * 100;
-    if (srPct > 0 && srPct < 5) riskQuality += 4;     // tight range = precise levels
-    else if (srPct < 10) riskQuality += 3;             // reasonable range
-    else riskQuality += 2;                              // wide range = less precise
+    if (srPct > 0 && srPct < 5) { riskQuality += 4; t('riskQuality', 'S/R range ' + srPct.toFixed(1) + '% — tight (precise risk levels)', 4, null); }
+    else if (srPct < 10) { riskQuality += 3; t('riskQuality', 'S/R range ' + srPct.toFixed(1) + '% — reasonable', 3, null); }
+    else { riskQuality += 2; t('riskQuality', 'S/R range ' + srPct.toFixed(1) + '% — wide (less precise)', 2, null); }
   }
-  // ATR present = can size stops properly
-  if (analysis.atr > 0) { riskQuality += 1; }
-  // Clear trend (ADX) = more predictable movement
-  if (analysis.adx > 30) { riskQuality += 2; }
-  else if (analysis.adx > 20) { riskQuality += 1; }
-  // Enough data for reliable indicators
-  if (analysis.closes && analysis.closes.length >= 100) { riskQuality += 3; }
-  else if (analysis.closes && analysis.closes.length >= 50) { riskQuality += 2; }
-  else if (analysis.closes && analysis.closes.length >= 20) { riskQuality += 1; }
+  if (analysis.atr > 0) { riskQuality += 1; t('riskQuality', 'ATR $' + (analysis.atr || 0).toFixed(2) + ' — stops can be sized', 1, null); }
+
+  if (analysis.adx > 30) { riskQuality += 2; t('riskQuality', 'ADX ' + Math.round(analysis.adx) + ' (strong trend, predictable movement)', 2, null); }
+  else if (analysis.adx > 20) { riskQuality += 1; t('riskQuality', 'ADX ' + Math.round(analysis.adx) + ' (moderate trend clarity)', 1, null); }
+
+  const dataLen = analysis.closes ? analysis.closes.length : 0;
+  if (dataLen >= 100) { riskQuality += 3; t('riskQuality', dataLen + ' candles — rich data (reliable indicators)', 3, null); }
+  else if (dataLen >= 50) { riskQuality += 2; t('riskQuality', dataLen + ' candles — adequate data', 2, null); }
+  else if (dataLen >= 20) { riskQuality += 1; t('riskQuality', dataLen + ' candles — limited data', 1, null); }
+  else { t('riskQuality', dataLen + ' candles — very limited data', 0, null); }
 
   riskQuality = Math.min(10, riskQuality);
 
   // TOTAL
   const total = trend + momentum + volume + structure + volatility + riskQuality;
 
-  // Direction: require +1 margin (was +2) to reduce excessive NEUTRAL
   if (bullPoints > bearPoints + 1) direction = 'BULL';
   else if (bearPoints > bullPoints + 1) direction = 'BEAR';
 
-  // Label
   let label;
   if (direction === 'BULL') {
     if (total >= 70) label = 'STRONG BUY';
@@ -953,7 +952,7 @@ function scoreCandles(analysis, currentPrice, timeframe) {
     label = 'NEUTRAL';
   }
 
-  return { total, trend, momentum, volume, structure, volatility, riskQuality, direction, label };
+  return { total, trend, momentum, volume, structure, volatility, riskQuality, direction, label, trace };
 }
 
 // ====================================================
