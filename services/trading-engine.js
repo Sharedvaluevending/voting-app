@@ -411,7 +411,7 @@ function analyzeWithCandles(coinData, candles, options) {
   const suggestedLev = suggestLeverage(finalScore, regime, tf1h.volatilityState);
 
   // Build reasoning (include session, MTF divergence, quality gate, new features)
-  const reasoning = buildReasoning(scores1h, scores4h, scores1d, confluenceLevel, regime, bestStrategy, signal, finalScore, inSession, tf1h, tf4h, tf1d, {
+  const { reasons: reasoning, counterReasons } = buildReasoning(scores1h, scores4h, scores1d, confluenceLevel, regime, bestStrategy, signal, finalScore, inSession, tf1h, tf4h, tf1d, {
     btcCorrelation, poc, fibLevels, fundingRate: fundingData ? fundingData.rate : null, holdReason, dominantDir
   });
 
@@ -450,6 +450,7 @@ function analyzeWithCandles(coinData, candles, options) {
     tpType: STOP_TP_LABELS.tpType,
     tpLabel: STOP_TP_LABELS.tpLabel,
     reasoning,
+    counterReasons,
     scoreFactors,
     scoreBreakdown: {
       trend: Math.round(scores1d.trend * 0.4 + scores4h.trend * 0.35 + scores1h.trend * 0.25),
@@ -2196,12 +2197,29 @@ function calculateConfidence(score, confluenceLevel, regime, dataPoints) {
 
 // ====================================================
 // REASONING BUILDER
+// Returns { reasons, counterReasons }
+// reasons      = signals supporting the trade direction
+// counterReasons = signals arguing against it (opposite side)
 // ====================================================
 function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal, finalScore, inSession, tf1h, tf4h, tf1d, extras) {
   extras = extras || {};
   const reasons = [];
+  const counter = [];
 
-  // HOLD reasoning: why we're holding instead of trading
+  // Determine whether this is a long or short (HOLD uses signal context)
+  const isLong = signal === 'BUY' || signal === 'STRONG_BUY';
+  const isShort = signal === 'SELL' || signal === 'STRONG_SELL';
+
+  // Helper: route a message to reasons or counter based on its direction vs trade
+  // dir: 'bull' = supports longs, 'bear' = supports shorts, null = always reasons
+  function route(msg, dir) {
+    if (!dir) { reasons.push(msg); return; }
+    const supportsTrade = (isLong && dir === 'bull') || (isShort && dir === 'bear');
+    if (supportsTrade) reasons.push(msg);
+    else counter.push(msg);
+  }
+
+  // HOLD reasoning: always in reasons
   if (signal === 'HOLD') {
     if (extras.holdReason) reasons.push('HOLD: ' + extras.holdReason);
     else if (extras.dominantDir === 'NEUTRAL') reasons.push('HOLD: Timeframe direction NEUTRAL – no clear bull/bear edge despite score');
@@ -2209,21 +2227,21 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
 
   if (confluenceLevel === 3) reasons.push('All 3 timeframes agree - strong confluence');
   else if (confluenceLevel === 2) reasons.push('2/3 timeframes agree - moderate confluence');
-  else reasons.push('Mixed timeframes - weak confluence, trade with caution');
+  else counter.push('Mixed timeframes - weak confluence, consider waiting');
 
   const minConf = (finalScore || 0) >= 58 ? 1 : ENGINE_CONFIG.MIN_CONFLUENCE_FOR_SIGNAL;
   if (finalScore !== undefined && (finalScore < ENGINE_CONFIG.MIN_SIGNAL_SCORE || confluenceLevel < minConf))
     reasons.push(`Quality gate: score ${finalScore} or confluence ${confluenceLevel} below minimum – held to HOLD`);
-  if (inSession === false) reasons.push('Outside peak session (12–22 UTC) – reduced weight');
+  if (inSession === false) counter.push('Outside peak session (12–22 UTC) – reduced conviction');
   reasons.push(`Strategy: ${strategy.name} (best fit for ${regime} regime)`);
   reasons.push(`1H: ${s1h.label} (${s1h.total}/100) | 4H: ${s4h.label} (${s4h.total}/100) | 1D: ${s1d.label} (${s1d.total}/100)`);
 
-  if (s1d.trend >= 12) reasons.push('Daily trend strong - aligned with higher timeframe');
-  if (s1h.momentum >= 12) reasons.push('Momentum confirming on 1H');
+  if (s1d.trend >= 12) route('Daily trend strong - aligned with higher timeframe', isLong ? 'bull' : isShort ? 'bear' : null);
+  if (s1h.momentum >= 12) route('Momentum confirming on 1H', isLong ? 'bull' : isShort ? 'bear' : null);
   if (s4h.volume >= 12) reasons.push('Volume supporting on 4H');
-  if (s1h.structure >= 12) reasons.push('Market structure favorable');
+  if (s1h.structure >= 12) route('Market structure favorable', isLong ? 'bull' : isShort ? 'bear' : null);
 
-  // Divergence & top/bottom context
+  // Divergence & top/bottom context — route against direction
   const r1 = tf1h.rsiDivergence || {};
   const m1 = tf1h.macdDivergence || {};
   const o1 = tf1h.obvDivergence || {};
@@ -2232,14 +2250,14 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
   const bearDiv = r1.bearish || m1.bearish || o1.bearish || s1.bearish;
   if (bullDiv) {
     const types = [r1.bullish && 'RSI', m1.bullish && 'MACD', o1.bullish && 'OBV', s1.bullish && 'Stoch'].filter(Boolean);
-    reasons.push('Bullish divergence (' + types.join('/') + ') – potential bottom forming');
+    route('Bullish divergence (' + types.join('/') + ') – potential bottom forming', 'bull');
   }
   if (bearDiv) {
     const types = [r1.bearish && 'RSI', m1.bearish && 'MACD', o1.bearish && 'OBV', s1.bearish && 'Stoch'].filter(Boolean);
-    reasons.push('Bearish divergence (' + types.join('/') + ') – potential top forming');
+    route('Bearish divergence (' + types.join('/') + ') – potential top forming', 'bear');
   }
-  if (tf1h.potentialBottom) reasons.push('Potential bottom: divergence + oversold/support – caution on shorts');
-  if (tf1h.potentialTop) reasons.push('Potential top: divergence + overbought/resistance – caution on longs');
+  if (tf1h.potentialBottom) route('Potential bottom: divergence + oversold/support', 'bull');
+  if (tf1h.potentialTop) route('Potential top: divergence + overbought/resistance', 'bear');
 
   // Order blocks / FVG / liquidity clusters (price-action context)
   const tfs = [
@@ -2251,18 +2269,20 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
     if (a.orderBlocks && a.orderBlocks.length > 0) {
       const bull = a.orderBlocks.filter(b => b.type === 'BULL').length;
       const bear = a.orderBlocks.filter(b => b.type === 'BEAR').length;
-      if (bull > 0 || bear > 0) reasons.push(`${name}: Order blocks in scope (${bull} bull, ${bear} bear)`);
+      if (bull > 0) route(`${name}: ${bull} bullish order block(s) in scope`, 'bull');
+      if (bear > 0) route(`${name}: ${bear} bearish order block(s) in scope`, 'bear');
     }
     if (a.fvgs && a.fvgs.length > 0) {
       const bull = a.fvgs.filter(f => f.type === 'BULL').length;
       const bear = a.fvgs.filter(f => f.type === 'BEAR').length;
-      if (bull > 0 || bear > 0) reasons.push(`${name}: FVG zones present (${bull} bull, ${bear} bear)`);
+      if (bull > 0) route(`${name}: ${bull} bullish FVG zone(s) present`, 'bull');
+      if (bear > 0) route(`${name}: ${bear} bearish FVG zone(s) present`, 'bear');
     }
     if (a.liquidityClusters && (a.liquidityClusters.above != null || a.liquidityClusters.below != null))
       reasons.push(`${name}: Liquidity clusters (above/below) in view`);
   }
 
-  // Candlestick patterns (v4.1)
+  // Candlestick patterns (v4.1) — route by pattern direction
   const tfPatterns = [
     { name: '1H', a: tf1h },
     { name: '4H', a: tf4h },
@@ -2278,19 +2298,19 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
           const ctx = p.contextFactors && p.contextFactors.length > 0 ? ' (' + p.contextFactors.join(', ') + ')' : '';
           return p.name + ctx;
         }).join(', ');
-        reasons.push(`${name}: Bullish candle patterns: ${names}`);
+        route(`${name}: Bullish candle patterns: ${names}`, 'bull');
       }
       if (bearP.length > 0) {
         const names = bearP.map(p => {
           const ctx = p.contextFactors && p.contextFactors.length > 0 ? ' (' + p.contextFactors.join(', ') + ')' : '';
           return p.name + ctx;
         }).join(', ');
-        reasons.push(`${name}: Bearish candle patterns: ${names}`);
+        route(`${name}: Bearish candle patterns: ${names}`, 'bear');
       }
     }
   }
 
-  // Chart patterns (v4.2) — geometric formations
+  // Chart patterns (v4.2) — route by pattern direction
   const tfChartPats = [
     { name: '1H', a: tf1h },
     { name: '4H', a: tf4h },
@@ -2303,8 +2323,9 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
         const ctx = pat.contextFactors && pat.contextFactors.length > 0 ? ' (' + pat.contextFactors.join(', ') + ')' : '';
         const wr = pat.reliability ? ' [' + Math.round(pat.reliability.winRate * 100) + '% win rate]' : '';
         const comp = pat.completion != null ? ' ' + pat.completion + '% complete' : '';
-        const dir = pat.direction === 'BULL' ? 'Bullish' : pat.direction === 'BEAR' ? 'Bearish' : '';
-        reasons.push(`${name}: ${dir} chart pattern: ${pat.name}${ctx}${wr}${comp}`);
+        const dirLabel = pat.direction === 'BULL' ? 'Bullish' : pat.direction === 'BEAR' ? 'Bearish' : '';
+        const patDir = pat.direction === 'BULL' ? 'bull' : pat.direction === 'BEAR' ? 'bear' : null;
+        route(`${name}: ${dirLabel} chart pattern: ${pat.name}${ctx}${wr}${comp}`, patDir);
       }
     }
   }
@@ -2314,7 +2335,9 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
     const fr = extras.fundingRate;
     if (Math.abs(fr) > 0.0005) {
       const pct = (fr * 100).toFixed(3);
-      reasons.push(`Funding rate: ${pct}% (${fr > 0 ? 'longs crowded' : 'shorts crowded'})`);
+      const msg = `Funding rate: ${pct}% (${fr > 0 ? 'longs crowded' : 'shorts crowded'})`;
+      // High positive funding = longs paying, bad for longs; high negative = bad for shorts
+      route(msg, fr > 0 ? 'bear' : 'bull');
     }
   }
   if (extras.btcCorrelation != null && extras.btcCorrelation > 0.5) {
@@ -2327,7 +2350,7 @@ function buildReasoning(s1h, s4h, s1d, confluenceLevel, regime, strategy, signal
     reasons.push(`Fib 0.618 at $${extras.fibLevels.fib618.toFixed(2)}`);
   }
 
-  return reasons;
+  return { reasons, counterReasons: counter };
 }
 
 // ====================================================

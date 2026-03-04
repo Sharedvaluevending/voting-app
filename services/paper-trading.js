@@ -362,6 +362,7 @@ async function openTrade(userId, signalData) {
     tpType: signalData.tpType,
     tpLabel: signalData.tpLabel,
     reasoning: signalData.reasoning || [],
+    counterReasoning: signalData.counterReasons || [],
     indicatorsAtEntry: signalData.indicators || {},
     scoreBreakdownAtEntry: signalData.scoreBreakdown || {},
     llmConfidence: signalData.llmConfidence || null,
