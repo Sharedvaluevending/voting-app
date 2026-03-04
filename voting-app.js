@@ -2124,7 +2124,7 @@ app.get('/setups', optionalUser, async (req, res) => {
 
 app.post('/api/setups/backtest', async (req, res) => {
   try {
-    const { coinId, setupId, startDate, endDate, timeframe, multiCoin, minScore, partialTP, fees, minRR, breakeven, breakevenAtr, trailingSL, trailingSLAtr, htfFilter } = req.body || {};
+    const { coinId, setupId, startDate, endDate, timeframe, multiCoin, minScore, partialTP, fees, minRR, breakeven, breakevenAtr, trailingSL, trailingSLAtr, trailingTP, trailingTPAtr, htfFilter } = req.body || {};
     if (!setupId) return res.status(400).json({ error: 'Setup ID required' });
     const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 90 * 24 * 3600000;
     const endMs = endDate ? new Date(endDate).getTime() : Date.now();
@@ -2141,6 +2141,8 @@ app.post('/api/setups/backtest', async (req, res) => {
       breakevenAtr: Number(breakevenAtr) || 1.0,
       trailingSL: trailingSL === true || trailingSL === 'true',
       trailingSLAtr: Number(trailingSLAtr) || 1.5,
+      trailingTP: trailingTP === true || trailingTP === 'true',
+      trailingTPAtr: Number(trailingTPAtr) || 1.5,
       htfFilter: htfFilter !== false && htfFilter !== 'false'
     };
     const { runSetupBacktest } = require('./services/smc-backtest');
@@ -2154,7 +2156,7 @@ app.post('/api/setups/backtest', async (req, res) => {
 
       const allTrades = [];
       const perCoin = [];
-      let totalEquity = 10000;
+      const totalEquity = 10000 * coins.length;
       let totalPnl = 0;
 
       for (let i = 0; i < results.length; i++) {
@@ -2177,6 +2179,17 @@ app.post('/api/setups/backtest', async (req, res) => {
       const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999 : 0);
       const finalBalance = totalEquity + totalPnl;
 
+      // Build combined equity curve for max drawdown (trades sorted by exit time, each coin ran with 10k)
+      const { computeMaxDrawdownPct } = require('./services/backtest/analytics');
+      const sortedByExit = [...allTrades].sort((a, b) => (a.exitTime || 0) - (b.exitTime || 0));
+      const equityCurve = [{ equity: totalEquity, date: 0 }];
+      let eq = totalEquity;
+      for (const t of sortedByExit) {
+        eq += t.pnl || 0;
+        equityCurve.push({ equity: Math.max(0, eq), date: t.exitTime || 0 });
+      }
+      const maxDrawdownPct = equityCurve.length > 1 ? computeMaxDrawdownPct(equityCurve) : 0;
+
       const summary = {
         totalTrades: allTrades.length,
         wins,
@@ -2185,7 +2198,7 @@ app.post('/api/setups/backtest', async (req, res) => {
         totalPnl,
         totalPnlPercent: (totalPnl / totalEquity) * 100,
         profitFactor,
-        maxDrawdownPct: 0,
+        maxDrawdownPct,
         initialBalance: totalEquity,
         finalBalance,
         setupId,

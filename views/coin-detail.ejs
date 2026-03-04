@@ -56,15 +56,16 @@
 </div>
 
 <% if (sig.topStrategies && sig.topStrategies.length > 0) { %>
+<% var bestFitId = sig.topStrategies.reduce(function(best, ts) { return ((ts.score||0) > (best.score||0)) ? ts : best; }, sig.topStrategies[0]).id; %>
 <div class="section">
   <h3>Strategy Fit Scores</h3>
   <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Each strategy re-weights the same indicators for its style (e.g. Momentum values RSI/volume more, Position values trend more). <strong>Fit score</strong> shows how well this coin matches each strategy — it is separate from the main signal score shown above. Stop/TP style: <strong><%= sig.stopLabel || 'ATR + S/R' %></strong>. You can open using any strategy with fit ≥55.</p>
   <div style="display:flex;flex-wrap:wrap;gap:10px;">
     <% sig.topStrategies.forEach(function(ts) { %>
-      <div style="padding:12px 14px;background:#0d1320;border-radius:8px;font-size:14px;min-width:200px;<%= ts.id === sig.strategyType ? 'border:1px solid #3b82f6;' : '' %>">
+      <div style="padding:12px 14px;background:#0d1320;border-radius:8px;font-size:14px;min-width:200px;<%= ts.id === bestFitId ? 'border:1px solid #3b82f6;' : '' %>">
         <div style="margin-bottom:6px;">
           <span style="color:#9ca3af;"><%= ts.name %></span>
-          <% if (ts.id === sig.strategyType) { %><span style="margin-left:6px;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;background:#3b82f6;color:#fff;">Best Fit</span><% } %>
+          <% if (ts.id === bestFitId) { %><span style="margin-left:6px;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;background:#3b82f6;color:#fff;">Best Fit</span><% } %>
           <span class="badge-<%= ts.signal %>" style="margin-left:8px;padding:4px 8px;border-radius:4px;font-size:12px;"><%= ts.signal %></span>
           <span style="color:#6b7280;margin-left:6px;font-size:12px;">fit&nbsp;<strong style="color:<%= (ts.score||0) >= 65 ? '#10b981' : (ts.score||0) >= 55 ? '#eab308' : '#6b7280' %>"><%= ts.score %></strong></span>
         </div>

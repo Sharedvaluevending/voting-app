@@ -39,6 +39,8 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
   const breakevenAtr = options.breakevenAtr ?? 1.0; // trigger BE after X× ATR profit
   const useTrailingSL = options.trailingSL === true; // trail stop behind best price
   const trailingSLAtr = options.trailingSLAtr ?? 1.5; // trail distance in ATR multiples
+  const useTrailingTP = options.trailingTP === true; // exit via trailing stop instead of fixed TPs
+  const trailingTPAtr = options.trailingTPAtr ?? 1.5; // trail distance when trailing TP
   const useHTFFilter = options.htfFilter !== false;  // block trades vs 4H bias (on by default)
   const scenario = getScenario(setupId);
   if (!scenario) {
@@ -152,11 +154,12 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
         }
       }
 
-      // Trailing SL: trail stop trailingSLAtr × ATR behind best price
-      if (useTrailingSL) {
+      // Trailing SL or Trailing TP: trail stop behind best price
+      const trailAtr = useTrailingTP ? trailingTPAtr : trailingSLAtr;
+      if (useTrailingSL || useTrailingTP) {
         const newSL = position.direction === 'LONG'
-          ? position.bestPrice - posAtr * trailingSLAtr
-          : position.bestPrice + posAtr * trailingSLAtr;
+          ? position.bestPrice - posAtr * trailAtr
+          : position.bestPrice + posAtr * trailAtr;
         if (position.direction === 'LONG' && newSL > position.stopLoss) position.stopLoss = newSL;
         if (position.direction === 'SHORT' && newSL < position.stopLoss) position.stopLoss = newSL;
       }
@@ -172,8 +175,8 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
           position = null;
           continue;
         }
-        // Partial TP1
-        if (usePartialTP && !position.tp1Hit && position.tp1 && nextBar.high >= position.tp1) {
+        // Partial TP1 (skip when trailing TP — we exit via trailing stop only)
+        if (!useTrailingTP && usePartialTP && !position.tp1Hit && position.tp1 && nextBar.high >= position.tp1) {
           const adjExit = position.tp1 / slip;
           const closeSize = position.originalSize * 0.4;
           const exitFees = useFees ? closeSize * TAKER_FEE : 0;
@@ -185,7 +188,7 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
           trades.push({ direction: 'LONG', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: 'TP1', pnl: partialPnl, size: closeSize, coinId, setupId });
         }
         // Partial TP2
-        if (usePartialTP && position.tp1Hit && !position.tp2Hit && position.tp2 && nextBar.high >= position.tp2) {
+        if (!useTrailingTP && usePartialTP && position.tp1Hit && !position.tp2Hit && position.tp2 && nextBar.high >= position.tp2) {
           const adjExit = position.tp2 / slip;
           const closeSize = position.originalSize * 0.3;
           const exitFees = useFees ? closeSize * TAKER_FEE : 0;
@@ -195,8 +198,8 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
           position.remainingSize -= closeSize;
           trades.push({ direction: 'LONG', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: 'TP2', pnl: partialPnl, size: closeSize, coinId, setupId });
         }
-        // Full TP (TP3 or only TP)
-        if (position.takeProfit && nextBar.high >= position.takeProfit) {
+        // Full TP (TP3 or only TP) — skip when trailing TP
+        if (!useTrailingTP && position.takeProfit && nextBar.high >= position.takeProfit) {
           const adjExit = position.takeProfit / slip;
           const exitFees = useFees ? position.remainingSize * TAKER_FEE : 0;
           const pnl = ((adjExit - position.entry) / position.entry) * position.remainingSize - exitFees;
@@ -216,7 +219,7 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
           position = null;
           continue;
         }
-        if (usePartialTP && !position.tp1Hit && position.tp1 && nextBar.low <= position.tp1) {
+        if (!useTrailingTP && usePartialTP && !position.tp1Hit && position.tp1 && nextBar.low <= position.tp1) {
           const adjExit = position.tp1 * slip;
           const closeSize = position.originalSize * 0.4;
           const exitFees = useFees ? closeSize * TAKER_FEE : 0;
@@ -227,7 +230,7 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
           position.stopLoss = position.entry;
           trades.push({ direction: 'SHORT', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: 'TP1', pnl: partialPnl, size: closeSize, coinId, setupId });
         }
-        if (usePartialTP && position.tp1Hit && !position.tp2Hit && position.tp2 && nextBar.low <= position.tp2) {
+        if (!useTrailingTP && usePartialTP && position.tp1Hit && !position.tp2Hit && position.tp2 && nextBar.low <= position.tp2) {
           const adjExit = position.tp2 * slip;
           const closeSize = position.originalSize * 0.3;
           const exitFees = useFees ? closeSize * TAKER_FEE : 0;
@@ -237,7 +240,7 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
           position.remainingSize -= closeSize;
           trades.push({ direction: 'SHORT', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: 'TP2', pnl: partialPnl, size: closeSize, coinId, setupId });
         }
-        if (position.takeProfit && nextBar.low <= position.takeProfit) {
+        if (!useTrailingTP && position.takeProfit && nextBar.low <= position.takeProfit) {
           const adjExit = position.takeProfit * slip;
           const exitFees = useFees ? position.remainingSize * TAKER_FEE : 0;
           const pnl = ((position.entry - adjExit) / position.entry) * position.remainingSize - exitFees;
