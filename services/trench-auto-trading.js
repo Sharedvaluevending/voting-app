@@ -713,9 +713,10 @@ function shouldSellPosition(pos, currentPrice, settings) {
     const sold = pos.partialSoldAmount || 0;
     const orig = pos.tokenAmount || 0;
     const soldPct = orig > 0 ? (sold / orig) * 100 : 0;
+    // Check TP3 first (70% sold), then TP2 (40% sold), then TP1 (0% sold)
+    if (pnlPct >= tp && soldPct >= 69) return { sell: true, reason: 'partial_tp3', pnlPct, partialPercent: 0 };
+    if (pnlPct >= tp2 && soldPct >= 39 && soldPct < 69) return { sell: true, reason: 'partial_tp2', pnlPct, partialPercent: 30 };
     if (pnlPct >= tp1 && soldPct < 1) return { sell: true, reason: 'partial_tp1', pnlPct, partialPercent: 40 };
-    if (pnlPct >= tp2 && soldPct >= 39 && soldPct < 71) return { sell: true, reason: 'partial_tp2', pnlPct, partialPercent: 30 };
-    if (pnlPct >= tp && soldPct >= 69) return { sell: true, reason: 'partial_tp3', pnlPct, partialPercent: 30 };
   }
   if (!settings.useTrailingTP && pnlPct >= tp) return { sell: true, reason: 'take_profit', pnlPct };
 
