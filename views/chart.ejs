@@ -1113,6 +1113,9 @@
     var w = zonesCanvas.getBoundingClientRect().width;
     var h = zonesCanvas.getBoundingClientRect().height;
     if (w <= 0 || h <= 0) return;
+    var dpr = window.devicePixelRatio || 1;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
     var ts = chartRef.chart.timeScale();
     var visibleRange = ts.getVisibleLogicalRange();
@@ -1214,6 +1217,7 @@
         }
       }
     }
+    ctx.restore();
   }
 
   function toggleSRLines(visible) {
@@ -1842,6 +1846,7 @@
             try { renderMALines(); } catch(e) { console.warn('renderMALines error:', e); }
             try { renderKeltnerLines(); } catch(e) { console.warn('renderKeltnerLines error:', e); }
             try { renderDonchianLines(); } catch(e) { console.warn('renderDonchianLines error:', e); }
+            try { renderZoneOverlays(); } catch(e) { console.warn('renderZoneOverlays error:', e); }
             if (!preserveView) chartRef.chart.timeScale().fitContent();
             startCandleCountdown();
             updateSymbolOverlay(lastC ? lastC.close : null);
