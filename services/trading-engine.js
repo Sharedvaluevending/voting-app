@@ -14,13 +14,17 @@ const { detectChartPatterns, scoreChartPatterns } = require('./chart-patterns');
 
 // Config: quality gates and filters (quant-desk upgrades)
 const ENGINE_CONFIG = {
-  MIN_SIGNAL_SCORE: 52,         // Raised from 50 — reduces weak signals
+  MIN_SIGNAL_SCORE: 52,             // Raised from 50 — reduces weak signals
   MIN_CONFLUENCE_FOR_SIGNAL: 2,
   MTF_DIVERGENCE_PENALTY: 10,
-  SESSION_START_UTC: 12,        // Configurable session hours
+  SESSION_START_UTC: 12,            // Configurable session hours
   SESSION_END_UTC: 22,
   SESSION_PENALTY: 5,
-  BTC_STRONG_OPPOSITE_FORCE_HOLD: true
+  BTC_STRONG_OPPOSITE_FORCE_HOLD: true,
+  // Market breadth filter: suppress contra-trend trades when 70%+ of coins align one way
+  MARKET_BREADTH_FILTER: true,
+  MARKET_BREADTH_THRESHOLD: 0.70,   // 70% of coins must be directional to trigger
+  MARKET_BREADTH_MIN_COINS: 5       // Require at least 5 alt coins to have a valid breadth reading
 };
 
 // ====================================================
@@ -73,6 +77,44 @@ function analyzeAllCoins(allPrices, allCandles, allHistory, options) {
     });
   }
 
+  // Market breadth filter: if 70%+ of coins are directionally skewed, suppress contra-trend signals
+  // This catches macro reversals that individual coin analysis misses
+  if (ENGINE_CONFIG.MARKET_BREADTH_FILTER) {
+    const altSignals = signals.filter(s => s.coin.id !== 'bitcoin');
+    const total = altSignals.length;
+    if (total >= ENGINE_CONFIG.MARKET_BREADTH_MIN_COINS) {
+      const bullish = altSignals.filter(s => s.signal === 'BUY' || s.signal === 'STRONG_BUY').length;
+      const bearish = altSignals.filter(s => s.signal === 'SELL' || s.signal === 'STRONG_SELL').length;
+      const bullRatio = bullish / total;
+      const bearRatio = bearish / total;
+      const threshold = ENGINE_CONFIG.MARKET_BREADTH_THRESHOLD;
+
+      if (bearRatio >= threshold) {
+        // Market overwhelmingly bearish — suppress all remaining longs
+        signals.forEach(sig => {
+          if (sig.coin.id === 'bitcoin') return;
+          if (sig.signal === 'BUY' || sig.signal === 'STRONG_BUY') {
+            sig.signal = 'HOLD';
+            sig.reasoning = (sig.reasoning || []).concat([
+              `Market breadth bearish (${Math.round(bearRatio * 100)}% of coins bearish) – long suppressed`
+            ]);
+          }
+        });
+      } else if (bullRatio >= threshold) {
+        // Market overwhelmingly bullish — suppress all remaining shorts
+        signals.forEach(sig => {
+          if (sig.coin.id === 'bitcoin') return;
+          if (sig.signal === 'SELL' || sig.signal === 'STRONG_SELL') {
+            sig.signal = 'HOLD';
+            sig.reasoning = (sig.reasoning || []).concat([
+              `Market breadth bullish (${Math.round(bullRatio * 100)}% of coins bullish) – short suppressed`
+            ]);
+          }
+        });
+      }
+    }
+  }
+
   const signalOrder = { STRONG_BUY: 0, BUY: 1, STRONG_SELL: 2, SELL: 3, HOLD: 4 };
   signals.sort((a, b) => {
     const orderDiff = (signalOrder[a.signal] || 4) - (signalOrder[b.signal] || 4);
@@ -121,17 +163,43 @@ function analyzeWithCandles(coinData, candles, options) {
   const scores4h = scoreCandles(tf4h, currentPrice, '4h');
   const scores1d = scoreCandles(tf1d, currentPrice, '1d');
 
-  // Weighted confluence: 1D=40%, 4H=35%, 1H=25%
-  const base1d = Math.round(scores1d.total * 0.40);
-  const base4h = Math.round(scores4h.total * 0.35);
-  const base1h = Math.round(scores1h.total * 0.25);
+  // Early regime detection so weights can adapt to market conditions
+  const earlyRegime = detectRegime(tf1d, tf4h);
+
+  // Regime-adaptive timeframe weights:
+  // trending  → trust the higher TF macro direction, ignore 1H noise
+  // ranging   → short-term swings matter more, 1H and 4H weighted up
+  // volatile  → trust the daily, discount intraday noise
+  // compression → balanced but lean on 4H for the squeeze context
+  // mixed     → default balanced weights
+  let w1d, w4h, w1h, regimeWeightLabel;
+  if (earlyRegime === 'trending') {
+    w1d = 0.50; w4h = 0.30; w1h = 0.20;
+    regimeWeightLabel = 'Trending regime – 1D=50% / 4H=30% / 1H=20%';
+  } else if (earlyRegime === 'ranging') {
+    w1d = 0.30; w4h = 0.38; w1h = 0.32;
+    regimeWeightLabel = 'Ranging regime – 1D=30% / 4H=38% / 1H=32%';
+  } else if (earlyRegime === 'volatile') {
+    w1d = 0.45; w4h = 0.35; w1h = 0.20;
+    regimeWeightLabel = 'Volatile regime – 1D=45% / 4H=35% / 1H=20%';
+  } else if (earlyRegime === 'compression') {
+    w1d = 0.35; w4h = 0.42; w1h = 0.23;
+    regimeWeightLabel = 'Compression regime – 1D=35% / 4H=42% / 1H=23%';
+  } else {
+    w1d = 0.40; w4h = 0.35; w1h = 0.25;
+    regimeWeightLabel = 'Mixed regime – 1D=40% / 4H=35% / 1H=25%';
+  }
+
+  const base1d = Math.round(scores1d.total * w1d);
+  const base4h = Math.round(scores4h.total * w4h);
+  const base1h = Math.round(scores1h.total * w1h);
   let finalScore = base1d + base4h + base1h;
 
   // Track every factor that modifies the score for display
   const scoreFactors = [
-    { label: '1D Timeframe (40%)', delta: base1d, type: 'base', detail: scores1d.total + '/100 raw · ' + scores1d.direction },
-    { label: '4H Timeframe (35%)', delta: base4h, type: 'base', detail: scores4h.total + '/100 raw · ' + scores4h.direction },
-    { label: '1H Timeframe (25%)', delta: base1h, type: 'base', detail: scores1h.total + '/100 raw · ' + scores1h.direction }
+    { label: '1D Timeframe (' + Math.round(w1d * 100) + '%)', delta: base1d, type: 'base', detail: scores1d.total + '/100 raw · ' + scores1d.direction + ' · ' + regimeWeightLabel },
+    { label: '4H Timeframe (' + Math.round(w4h * 100) + '%)', delta: base4h, type: 'base', detail: scores4h.total + '/100 raw · ' + scores4h.direction },
+    { label: '1H Timeframe (' + Math.round(w1h * 100) + '%)', delta: base1h, type: 'base', detail: scores1h.total + '/100 raw · ' + scores1h.direction }
   ];
 
   // Save pre-penalty score for penalty stacking floor
@@ -284,8 +352,8 @@ function analyzeWithCandles(coinData, candles, options) {
   // Fibonacci retracement levels (used in trade levels calculation too)
   const fibLevels = calculateFibonacci(tf4h.highs || [], tf4h.lows || []);
 
-  // Detect market regime (adaptive per-coin volatility)
-  const regime = detectRegime(tf1d, tf4h);
+  // Regime already detected above for adaptive weights — reuse it
+  const regime = earlyRegime;
 
   // Best strategy + all strategies (with regime gating and optional learned weights)
   const strategyStats = options.strategyStats || {};
