@@ -567,6 +567,23 @@ app.get('/', async (req, res) => {
       const scanner = require('./services/market-scanner');
       top3MarketPicks = scanner.getTop3Cached();
       marketHoldState = scanner.isMarketHoldState();
+
+      // Exclude coins user has open trades on, or recently closed (within cooldown)
+      if (dashUser && top3MarketPicks.length > 0) {
+        const openTrades = await getOpenTrades(req.session.userId);
+        const cooldownHours = dashUser?.settings?.cooldownHours ?? 6;
+        const cooldownMs = cooldownHours * 3600 * 1000;
+        const recentClosed = await Trade.find({
+          userId: req.session.userId,
+          status: { $ne: 'OPEN' },
+          exitTime: { $gte: new Date(Date.now() - cooldownMs) }
+        }).select('coinId').lean();
+        const excludeCoinIds = new Set([
+          ...openTrades.map(t => t.coinId),
+          ...recentClosed.map(t => t.coinId)
+        ]);
+        top3MarketPicks = top3MarketPicks.filter(p => !excludeCoinIds.has(p.coin?.id));
+      }
     } catch (e) { /* ignore */ }
 
     res.render('dashboard', {
@@ -612,19 +629,37 @@ app.get('/coin/:coinId', async (req, res) => {
       const options = await buildEngineOptions(prices, allCandles, allHistory, req.session?.userId ? await User.findById(req.session.userId).select('settings').lean() : null);
       sig = analyzeCoin(coinData, candles, history, options);
     } else {
-      // For scanner coins: use cached signal for consistency with dashboard
+      // For scanner coins: prefer real candles (same as tracked) when available
       let cachedSig = null;
       try {
         const scannerFull = require('./services/market-scanner').getTop3FullCached();
         cachedSig = scannerFull.find(s => (s.coin?.id || s.coinData?.id) === coinId);
       } catch (e) { /* scanner not loaded */ }
 
-      if (cachedSig) {
-        // Use the exact same signal that was shown on the dashboard
+      // Register meta so fetchAllCandlesForCoin can resolve Bitget/Kraken symbol
+      if (cachedSig && (cachedSig.coin?.symbol || cachedSig.coinData?.symbol)) {
+        registerScannerCoinMeta(coinId, cachedSig.coin?.symbol || cachedSig.coinData?.symbol);
+      }
+      candles = await fetchAllCandlesForCoin(coinId);
+
+      if (candles && candles['1h'] && candles['1h'].length >= 20) {
+        // Same treatment as tracked coins: use real OHLCV (Bitget/Kraken)
+        const fetched = await fetchCoinDataForDetail(coinId);
+        coinData = fetched?.coinData || cachedSig?.coin || cachedSig?.coinData;
+        if (!coinData) return res.redirect('/?error=coin_not_found');
+        history = fetched?.history || { prices: [], volumes: [] };
+        prices = [coinData];
+        allCandles = { [coinId]: candles };
+        allHistory = { [coinId]: history };
+        const options = await buildEngineOptions(prices, allCandles, allHistory, req.session?.userId ? await User.findById(req.session.userId).select('settings').lean() : null);
+        sig = analyzeCoin(coinData, candles, history, options);
+        if (!sig.coin && sig.coinData) sig.coin = sig.coinData;
+      } else if (cachedSig) {
+        // Fallback: use cached signal (CoinGecko history-based)
         sig = cachedSig;
         if (!sig.coin && sig.coinData) sig.coin = sig.coinData;
       } else {
-        // Fallback: fetch fresh data (coin may not be in top 3 cache anymore)
+        // Coin not in cache: fetch fresh (coin may have left top 3)
         const fetched = await fetchCoinDataForDetail(coinId);
         if (!fetched) return res.redirect('/?error=coin_not_found');
         coinData = fetched.coinData;
