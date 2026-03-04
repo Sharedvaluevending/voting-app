@@ -621,6 +621,83 @@ async function fetchAllCandlesForCoin(coinId, retriesLeft = 1) {
 // ====================================================
 const MS_PER_CANDLE = { '15m': 15 * 60 * 1000, '1h': 3600000, '4h': 14400000, '1d': 86400000, '1w': 604800000 };
 
+// /candles endpoint data availability limits (per Bitget docs):
+// 1m/3m/5m: 30 days, 15m: 52 days, 30m: 62 days, 1H: 83 days, 4H: 240 days, 1D+: unlimited
+const CANDLES_ENDPOINT_DAYS = { '15m': 50, '1h': 80, '4h': 235, '1d': 9999, '1w': 9999 };
+
+/**
+ * Fetch candles from the /history-candles endpoint (for data older than ~80 days).
+ * Same response format as /candles but stores ALL historical data.
+ */
+async function fetchBitgetHistoryCandles(symbol, interval, limit, startMs, endMs) {
+  const bitgetInterval = BITGET_INTERVAL_MAP[interval];
+  if (!bitgetInterval || !symbol) return [];
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+      let cappedEndMs = endMs;
+      if (startMs && endMs && (endMs - startMs) > MAX_WINDOW_MS) {
+        cappedEndMs = startMs + MAX_WINDOW_MS;
+      }
+      let url = `https://api.bitget.com/api/v2/mix/market/history-candles?symbol=${symbol}&productType=USDT-FUTURES&granularity=${bitgetInterval}&limit=${Math.min(limit, 200)}`;
+      if (startMs) url += `&startTime=${startMs}`;
+      if (cappedEndMs) url += `&endTime=${cappedEndMs}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
+      if (res.status === 429) {
+        const wait = RATE_LIMIT_WAIT_BASE * (attempt + 1);
+        console.warn(`[Bitget-History] OHLC ${symbol} ${interval}: 429 rate limited. Waiting ${wait / 1000}s...`);
+        await sleep(wait);
+        continue;
+      }
+      if (!res.ok) {
+        console.warn(`[Bitget-History] OHLC ${symbol} ${interval}: HTTP ${res.status} ${res.statusText}`);
+        return [];
+      }
+      const json = await res.json();
+      if (json.code !== '00000' || !json.data) {
+        console.warn(`[Bitget-History] OHLC ${symbol} ${interval}: code=${json.code}, msg=${json.msg}`);
+        return [];
+      }
+      const raw = (json.data || []).reverse();
+      const msPerCandle = MS_PER_CANDLE[interval] || 3600000;
+      try {
+        return raw.map(c => ({
+          openTime: parseInt(c[0]),
+          open: parseFloat(c[1]),
+          high: parseFloat(c[2]),
+          low: parseFloat(c[3]),
+          close: parseFloat(c[4]),
+          volume: parseFloat(c[5]),
+          closeTime: parseInt(c[0]) + msPerCandle,
+          quoteVolume: parseFloat(c[6]) || 0,
+          trades: 0,
+          takerBuyVolume: 0,
+          takerBuyQuoteVolume: 0
+        })).filter(c =>
+          Number.isFinite(c.open) && c.open > 0 &&
+          Number.isFinite(c.high) && c.high > 0 &&
+          Number.isFinite(c.low) && c.low > 0 &&
+          Number.isFinite(c.close) && c.close > 0 &&
+          Number.isFinite(c.openTime) &&
+          c.high >= c.low
+        );
+      } catch (parseErr) {
+        console.warn(`[Bitget-History] OHLC ${symbol} ${interval}: malformed data — ${parseErr.message}`);
+        return [];
+      }
+    } catch (err) {
+      if (attempt === MAX_RETRIES) {
+        console.error(`[Bitget-History] OHLC ${symbol} ${interval} failed:`, err.message);
+        return [];
+      }
+      console.warn(`[Bitget-History] ${symbol} ${interval}: error, retry ${attempt + 1}/${MAX_RETRIES}...`);
+      await sleep(2000);
+    }
+  }
+  return [];
+}
+
 async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
   const meta = COIN_META[coinId];
   if (!meta?.bybit) return [];
@@ -633,14 +710,21 @@ async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
   let retries = 0;
   const MAX_RETRIES = 2;
   let pages = 0;
-  const MAX_PAGES = 500; // Safety: 500 pages × 200 = 100k candles max
+  const MAX_PAGES = 500;
+
+  // Determine cutoff: data older than this must use /history-candles
+  const recentLimitDays = CANDLES_ENDPOINT_DAYS[interval] || 80;
+  const recentCutoff = Date.now() - recentLimitDays * 24 * 60 * 60 * 1000;
+
   while (cursor < endMs && pages < MAX_PAGES) {
     pages++;
-    const chunk = await fetchBitgetCandles(meta.bybit, interval, limit, cursor, endMs);
+    const useHistory = cursor < recentCutoff;
+    const fetcher = useHistory ? fetchBitgetHistoryCandles : fetchBitgetCandles;
+    const chunk = await fetcher(meta.bybit, interval, limit, cursor, endMs);
     if (!chunk || chunk.length === 0) {
       if (retries < MAX_RETRIES && all.length === 0) {
         retries++;
-        console.warn(`[Historical] ${coinId} ${interval}: empty response, retry ${retries}/${MAX_RETRIES} in 2s...`);
+        console.warn(`[Historical] ${coinId} ${interval}: empty response (${useHistory ? 'history' : 'candles'}), retry ${retries}/${MAX_RETRIES} in 2s...`);
         await new Promise(r => setTimeout(r, 2000));
         continue;
       }
@@ -650,12 +734,10 @@ async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
     all.push(...chunk);
     const lastTs = chunk[chunk.length - 1].openTime;
     if (lastTs >= endMs) break;
-    // Advance cursor past last candle we received
     cursor = lastTs + msPerCandle;
     await new Promise(r => setTimeout(r, BITGET_DELAY));
   }
   if (pages >= MAX_PAGES) console.warn(`[Historical] ${coinId} ${interval}: hit max page limit (${MAX_PAGES})`);
-  // Deduplicate by timestamp and sort chronologically
   const seen = new Set();
   const deduped = all.filter(c => {
     if (seen.has(c.openTime)) return false;
@@ -663,6 +745,7 @@ async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
     return true;
   });
   deduped.sort((a, b) => a.openTime - b.openTime);
+  console.log(`[Historical] ${coinId} ${interval}: ${deduped.length} candles fetched (${pages} pages, range: ${new Date(startMs).toISOString().slice(0,10)} to ${new Date(endMs).toISOString().slice(0,10)})`);
   return deduped;
 }
 
