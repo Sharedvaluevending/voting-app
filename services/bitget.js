@@ -126,7 +126,9 @@ async function placeOrder(user, params) {
     const client = getClient(user);
     const result = await client.futuresSubmitOrder(orderParams);
     const orderId = result?.data?.orderId || result?.orderId || '';
-    console.log(`[Bitget] Order placed: ${symbol} ${side} orderId=${orderId}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[Bitget] Order placed: ${symbol} ${side} orderId=${orderId}`);
+    }
     return {
       success: true,
       orderId,
@@ -230,7 +232,9 @@ async function executeLiveOpen(user, trade, signalData) {
       trade.executionStatus = 'filled';
       trade.executionDetails = result.details;
       await trade.save();
-      console.log(`[Bitget] Live trade opened: ${trade.symbol} ${trade.direction} orderId=${result.orderId}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Bitget] Live trade opened: ${trade.symbol} ${trade.direction} orderId=${result.orderId}`);
+      }
     } else {
       trade.isLive = false;
       trade.executionStatus = 'failed';
@@ -255,7 +259,9 @@ async function executeLiveClose(user, trade) {
     const size = Math.max(0.001, parseFloat(sizeInCoins.toFixed(6)));
     const result = await closePosition(user, trade.coinId, trade.direction, size);
     if (result.success) {
-      console.log(`[Bitget] Live trade closed: ${trade.symbol} ${trade.direction}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Bitget] Live trade closed: ${trade.symbol} ${trade.direction}`);
+      }
     } else {
       console.error(`[Bitget] Live close FAILED: ${trade.symbol} - ${result.error}`);
     }
@@ -273,7 +279,9 @@ async function executeLivePartialClose(user, trade, portionUSD) {
     const size = Math.max(0.001, parseFloat(portionCoins.toFixed(6)));
     const result = await closePosition(user, trade.coinId, trade.direction, size);
     if (result.success) {
-      console.log(`[Bitget] Live partial close: ${trade.symbol} $${portionUSD.toFixed(2)}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`[Bitget] Live partial close: ${trade.symbol} $${portionUSD.toFixed(2)}`);
+      }
     } else {
       console.error(`[Bitget] Live partial close FAILED: ${trade.symbol} - ${result.error}`);
     }

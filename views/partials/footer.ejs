@@ -10,6 +10,49 @@
   <!-- Real-time WebSocket prices (all pages: ticker, cards, trades, nav PnL) -->
   <script src="/js/ws-prices.js"></script>
 
+  <!-- Toast helper for user-facing error feedback -->
+  <script>
+  window.showToast = function(msg, type) {
+    try {
+      var existing = document.getElementById('global-toast');
+      if (existing) existing.remove();
+      var t = document.createElement('div');
+      t.id = 'global-toast';
+      t.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:99998;padding:10px 20px;border-radius:8px;font-size:14px;color:#fff;background:#7f1d1d;box-shadow:0 4px 12px rgba(0,0,0,0.3);max-width:90vw;';
+      t.textContent = msg || 'Something went wrong';
+      document.body.appendChild(t);
+      setTimeout(function() { if (t.parentNode) t.remove(); }, 4000);
+    } catch (e) {}
+  };
+  </script>
+  <!-- Global error handlers: catch uncaught errors, show user-friendly message -->
+  <script>
+  (function() {
+    var isProd = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? false : true;
+    function showUserError() {
+      try {
+        var existing = document.getElementById('global-error-banner');
+        if (existing) return;
+        var banner = document.createElement('div');
+        banner.id = 'global-error-banner';
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#7f1d1d;color:#fecaca;padding:12px 16px;text-align:center;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
+        banner.textContent = 'Something went wrong. Please refresh the page or try again later.';
+        document.body.appendChild(banner);
+        setTimeout(function() { if (banner.parentNode) banner.remove(); }, 8000);
+      } catch (e) {}
+    }
+    window.onerror = function(msg, url, line, col, err) {
+      showUserError();
+      if (!isProd && typeof console !== 'undefined' && console.error) console.error('[Error]', msg, url, line, col, err);
+      return false;
+    };
+    window.addEventListener('unhandledrejection', function(ev) {
+      showUserError();
+      if (!isProd && typeof console !== 'undefined' && console.error) console.error('[UnhandledRejection]', ev.reason);
+    });
+  })();
+  </script>
+
   <script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then(function(regs) {
@@ -50,7 +93,7 @@
           firstCheck = false;
           lastCount = count;
         })
-        .catch(function() {});
+        .catch(function() { if (typeof showToast === 'function') showToast('Notifications unavailable'); });
     }
 
     checkNotifications();
@@ -122,7 +165,7 @@
         }
         lastPriceMap = priceMap;
         computeAndShowPnl(priceMap);
-      }).catch(function() {});
+      }).catch(function() { if (typeof showToast === 'function') showToast('Live PnL update failed'); });
     }
 
     window.addEventListener('ws-price-update', function(ev) {

@@ -2304,18 +2304,21 @@
     var container = document.getElementById('lw-chart-container');
     var rect = container.getBoundingClientRect();
     var dpr = window.devicePixelRatio || 1;
-    drawCanvas.width = rect.width * dpr;
-    drawCanvas.height = rect.height * dpr;
-    drawCanvas.style.width = rect.width + 'px';
-    drawCanvas.style.height = rect.height + 'px';
+    var maxH = (window.innerHeight || 500) - 120;
+    var w = Math.min(rect.width, window.innerWidth || 9999);
+    var h = Math.min(rect.height, maxH);
+    drawCanvas.width = w * dpr;
+    drawCanvas.height = h * dpr;
+    drawCanvas.style.width = w + 'px';
+    drawCanvas.style.height = h + 'px';
     drawCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     renderDrawings();
     var zonesCanvas = document.getElementById('indicator-zones-canvas');
     if (zonesCanvas) {
-      zonesCanvas.width = rect.width * dpr;
-      zonesCanvas.height = rect.height * dpr;
-      zonesCanvas.style.width = rect.width + 'px';
-      zonesCanvas.style.height = rect.height + 'px';
+      zonesCanvas.width = w * dpr;
+      zonesCanvas.height = h * dpr;
+      zonesCanvas.style.width = w + 'px';
+      zonesCanvas.style.height = h + 'px';
     }
     if (typeof renderZoneOverlays === 'function') renderZoneOverlays();
   }

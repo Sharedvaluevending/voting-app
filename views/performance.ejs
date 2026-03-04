@@ -786,11 +786,11 @@
         var wr = total > 0 ? ((data.wins/total)*100).toFixed(1) : '0';
       %>
         <tr>
-          <td><%= name %></td>
-          <td class="up"><%= data.wins %></td>
-          <td class="down"><%= data.losses %></td>
-          <td><%= wr %>%</td>
-          <td class="<%= (data.pnl || 0) >= 0 ? 'up' : 'down' %>"><%= (data.pnl || 0) >= 0 ? '+' : '' %>$<%= (data.pnl || 0).toFixed(2) %></td>
+          <td data-label="Strategy"><%= name %></td>
+          <td data-label="Wins" class="up"><%= data.wins %></td>
+          <td data-label="Losses" class="down"><%= data.losses %></td>
+          <td data-label="Win Rate"><%= wr %>%</td>
+          <td data-label="P&L" class="<%= (data.pnl || 0) >= 0 ? 'up' : 'down' %>"><%= (data.pnl || 0) >= 0 ? '+' : '' %>$<%= (data.pnl || 0).toFixed(2) %></td>
         </tr>
       <% }); %>
     </tbody>
@@ -809,11 +809,11 @@
         var wr = total > 0 ? ((data.wins/total)*100).toFixed(1) : '0';
       %>
         <tr>
-          <td style="font-weight:700;"><%= name %></td>
-          <td class="up"><%= data.wins %></td>
-          <td class="down"><%= data.losses %></td>
-          <td><%= wr %>%</td>
-          <td class="<%= (data.pnl || 0) >= 0 ? 'up' : 'down' %>"><%= (data.pnl || 0) >= 0 ? '+' : '' %>$<%= (data.pnl || 0).toFixed(2) %></td>
+          <td data-label="Coin" style="font-weight:700;"><%= name %></td>
+          <td data-label="Wins" class="up"><%= data.wins %></td>
+          <td data-label="Losses" class="down"><%= data.losses %></td>
+          <td data-label="Win Rate"><%= wr %>%</td>
+          <td data-label="P&L" class="<%= (data.pnl || 0) >= 0 ? 'up' : 'down' %>"><%= (data.pnl || 0) >= 0 ? '+' : '' %>$<%= (data.pnl || 0).toFixed(2) %></td>
         </tr>
       <% }); %>
     </tbody>
@@ -897,6 +897,7 @@
 
   <% if (stats.equityCurve && stats.equityCurve.length > 1) { %>
   (function() {
+    try {
     var data = <%- JSON.stringify(stats.equityCurve) %>;
     var canvas = document.getElementById('equity-curve');
     if (!canvas || !data || data.length < 2) return;
@@ -1021,6 +1022,11 @@
     // Initial draw + resize handler
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
+    } catch (chartErr) {
+      console.warn('Equity chart init error:', chartErr);
+      var wrap = document.querySelector('.equity-chart-wrap');
+      if (wrap) wrap.innerHTML = '<p style="color:#9ca3af;padding:24px;text-align:center;">Chart could not be loaded. Data is available in the table below.</p>';
+    }
   })();
   <% } %>
 

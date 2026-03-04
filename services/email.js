@@ -25,7 +25,9 @@ async function sendPasswordResetEmail(email, resetUrl) {
     await transporter.sendMail({ from, to: email, subject, html });
     return true;
   }
-  console.log('[Email] No SMTP configured. Reset link (dev):', resetUrl);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[Email] No SMTP configured. Reset link (dev):', resetUrl);
+  }
   return false;
 }
 

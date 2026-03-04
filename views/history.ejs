@@ -88,22 +88,22 @@ function filterHistory() {
           var finalPnl = hadPartials ? ((trade.pnl || 0) - (trade.partialPnl || 0)) : null;
         %>
           <tr data-trade="1" data-symbol="<%= trade.symbol %>" data-direction="<%= trade.direction %>" data-pnl="<%= trade.pnl || 0 %>" data-strategy="<%= trade.strategyType || '' %>">
-            <td style="font-weight:700;"><%= trade.symbol %></td>
-            <td><span class="signal-badge <%= trade.direction === 'LONG' ? 'badge-BUY' : 'badge-SELL' %>" style="font-size:10px;padding:2px 6px;"><%= trade.direction %></span></td>
-            <td>$<%= formatPrice(trade.entryPrice) %></td>
-            <td>$<%= trade.exitPrice ? formatPrice(trade.exitPrice) : '-' %></td>
-            <td class="<%= (trade.pnl||0) >= 0 ? 'up' : 'down' %>" style="font-weight:700;">
+            <td data-label="Pair" style="font-weight:700;"><%= trade.symbol %></td>
+            <td data-label="Dir"><span class="signal-badge <%= trade.direction === 'LONG' ? 'badge-BUY' : 'badge-SELL' %>" style="font-size:10px;padding:2px 6px;"><%= trade.direction %></span></td>
+            <td data-label="Entry">$<%= formatPrice(trade.entryPrice) %></td>
+            <td data-label="Exit">$<%= trade.exitPrice ? formatPrice(trade.exitPrice) : '-' %></td>
+            <td data-label="P&L" class="<%= (trade.pnl||0) >= 0 ? 'up' : 'down' %>" style="font-weight:700;">
               <%= (trade.pnl||0) >= 0 ? '+' : '' %>$<%= (trade.pnl||0).toFixed(2) %>
               <% if (hadPartials) { %>
                 <span style="font-size:9px;color:#a78bfa;margin-left:3px;" title="Includes partial profit">(partials)</span>
               <% } %>
             </td>
-            <td class="<%= (trade.pnlPercent||0) >= 0 ? 'up' : 'down' %>"><%= (trade.pnlPercent||0) >= 0 ? '+' : '' %><%= (trade.pnlPercent||0).toFixed(1) %>%</td>
-            <td><%= trade.leverage || 1 %>x</td>
-            <td><%= trade.score || '-' %></td>
-            <td style="font-size:11px;"><%= trade.strategyType || '-' %></td>
-            <td><%= timeStr %></td>
-            <td style="font-size:10px;">
+            <td data-label="P&L %" class="<%= (trade.pnlPercent||0) >= 0 ? 'up' : 'down' %>"><%= (trade.pnlPercent||0) >= 0 ? '+' : '' %><%= (trade.pnlPercent||0).toFixed(1) %>%</td>
+            <td data-label="Lev"><%= trade.leverage || 1 %>x</td>
+            <td data-label="Score"><%= trade.score || '-' %></td>
+            <td data-label="Strategy" style="font-size:11px;"><%= trade.strategyType || '-' %></td>
+            <td data-label="Time Held"><%= timeStr %></td>
+            <td data-label="TP / Actions" style="font-size:10px;">
               <% // Show TP levels hit (partial or full) prominently
               if (trade.partialTakenAtTP1 || trade.partialTakenAtTP2 || trade.status === 'TP1_HIT' || trade.status === 'TP2_HIT' || trade.status === 'TP3_HIT') { %>
                 <% if (trade.partialTakenAtTP1 || trade.status === 'TP1_HIT') { %><span class="action-badge" style="font-size:9px;padding:1px 4px;margin-right:2px;background:#7c3aed;color:#fff;" title="Take profit 1 hit">TP1</span><% } %>
@@ -118,9 +118,9 @@ function filterHistory() {
                 <% dedupedActions.forEach(function(a) { %><span class="action-badge action-<%= (a.type || '').toLowerCase() %>" style="font-size:9px;padding:1px 4px;margin-right:2px;" title="<%= a.description || '' %>"><%= a.type || '?' %></span><% }); %>
               <% } else if (!trade.partialTakenAtTP1 && !trade.partialTakenAtTP2 && trade.status !== 'TP1_HIT' && trade.status !== 'TP2_HIT' && trade.status !== 'TP3_HIT') { %>-<% } %>
             </td>
-            <td style="font-size:11px;"><%= trade.status.replace('_',' ') %></td>
-            <td style="font-size:11px;color:#6b7280;"><%= trade.exitTime ? new Date(trade.exitTime).toLocaleDateString() : '-' %></td>
-            <td>
+            <td data-label="Status" style="font-size:11px;"><%= trade.status.replace('_',' ') %></td>
+            <td data-label="Date" style="font-size:11px;color:#6b7280;"><%= trade.exitTime ? new Date(trade.exitTime).toLocaleDateString() : '-' %></td>
+            <td data-label="">
               <a href="/journal?tradeId=<%= trade._id %>" class="btn btn-outline btn-sm" style="font-size:10px;padding:4px 8px;">Journal</a>
               <% if (hadPartials) { %>
                 <button class="btn btn-outline btn-sm" style="font-size:10px;padding:4px 8px;margin-left:2px;cursor:pointer;" onclick="document.getElementById('partial-<%= idx %>').style.display = document.getElementById('partial-<%= idx %>').style.display === 'none' ? 'table-row' : 'none'">Details</button>

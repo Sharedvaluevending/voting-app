@@ -182,6 +182,10 @@ async function loadScoreHistory(coinId, symbol) {
       'Period: ' + new Date(first.timestamp).toLocaleTimeString() + ' – ' + new Date(latest.timestamp).toLocaleTimeString();
   } catch (err) {
     console.error('Score history error:', err);
+    document.getElementById('score-history-container').style.display = 'block';
+    document.getElementById('score-history-title').textContent = symbol + ' Score History';
+    document.getElementById('score-history-chart').innerHTML = '<span style="color:#ef4444;">Failed to load score history. Please try again.</span>';
+    document.getElementById('score-history-details').innerHTML = '';
   }
 }
 </script>

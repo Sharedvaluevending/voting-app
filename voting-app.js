@@ -4078,15 +4078,15 @@ async function runAutoTrade() {
             // If any TP is on the wrong side (from a direction mismatch), null it out.
             const metaSym = getCoinMeta(coinId)?.symbol || coinData?.symbol || coinId;
             if (sig._direction === 'LONG') {
-              if (useTP1 && useTP1 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${metaSym}: TP1 $${useTP1} below entry $${livePrice} for LONG — removed`); useTP1 = null; }
-              if (useTP2 && useTP2 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${metaSym}: TP2 $${useTP2} below entry $${livePrice} for LONG — removed`); useTP2 = null; }
-              if (useTP3 && useTP3 <= livePrice * 0.99) { console.warn(`[AutoTrade] ${metaSym}: TP3 $${useTP3} below entry $${livePrice} for LONG — removed`); useTP3 = null; }
-              if (useSL && useSL >= livePrice * 1.01) { console.warn(`[AutoTrade] ${metaSym}: SL $${useSL} above entry $${livePrice} for LONG — removed`); useSL = null; }
+              if (useTP1 && useTP1 <= livePrice * 0.99) { if (process.env.NODE_ENV !== 'production') console.warn(`[AutoTrade] ${metaSym}: TP1 $${useTP1} below entry $${livePrice} for LONG — removed`); useTP1 = null; }
+              if (useTP2 && useTP2 <= livePrice * 0.99) { if (process.env.NODE_ENV !== 'production') console.warn(`[AutoTrade] ${metaSym}: TP2 $${useTP2} below entry $${livePrice} for LONG — removed`); useTP2 = null; }
+              if (useTP3 && useTP3 <= livePrice * 0.99) { if (process.env.NODE_ENV !== 'production') console.warn(`[AutoTrade] ${metaSym}: TP3 $${useTP3} below entry $${livePrice} for LONG — removed`); useTP3 = null; }
+              if (useSL && useSL >= livePrice * 1.01) { if (process.env.NODE_ENV !== 'production') console.warn(`[AutoTrade] ${metaSym}: SL $${useSL} above entry $${livePrice} for LONG — removed`); useSL = null; }
             } else {
-              if (useTP1 && useTP1 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${metaSym}: TP1 $${useTP1} above entry $${livePrice} for SHORT — removed`); useTP1 = null; }
-              if (useTP2 && useTP2 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${metaSym}: TP2 $${useTP2} above entry $${livePrice} for SHORT — removed`); useTP2 = null; }
-              if (useTP3 && useTP3 >= livePrice * 1.01) { console.warn(`[AutoTrade] ${metaSym}: TP3 $${useTP3} above entry $${livePrice} for SHORT — removed`); useTP3 = null; }
-              if (useSL && useSL <= livePrice * 0.99) { console.warn(`[AutoTrade] ${metaSym}: SL $${useSL} below entry $${livePrice} for SHORT — removed`); useSL = null; }
+              if (useTP1 && useTP1 >= livePrice * 1.01) { if (process.env.NODE_ENV !== 'production') console.warn(`[AutoTrade] ${metaSym}: TP1 $${useTP1} above entry $${livePrice} for SHORT — removed`); useTP1 = null; }
+              if (useTP2 && useTP2 >= livePrice * 1.01) { if (process.env.NODE_ENV !== 'production') console.warn(`[AutoTrade] ${metaSym}: TP2 $${useTP2} above entry $${livePrice} for SHORT — removed`); useTP2 = null; }
+              if (useTP3 && useTP3 >= livePrice * 1.01) { if (process.env.NODE_ENV !== 'production') console.warn(`[AutoTrade] ${metaSym}: TP3 $${useTP3} above entry $${livePrice} for SHORT — removed`); useTP3 = null; }
+              if (useSL && useSL <= livePrice * 0.99) { if (process.env.NODE_ENV !== 'production') console.warn(`[AutoTrade] ${metaSym}: SL $${useSL} below entry $${livePrice} for SHORT — removed`); useSL = null; }
             }
 
             // If no SL from strategy, calculate a default ATR-based one
@@ -4104,7 +4104,7 @@ async function runAutoTrade() {
               if (useTP1) useTP1 = parseFloat((useTP1 * ratio).toFixed(6));
               if (useTP2) useTP2 = parseFloat((useTP2 * ratio).toFixed(6));
               if (useTP3) useTP3 = parseFloat((useTP3 * ratio).toFixed(6));
-              console.log(`[AutoTrade] ${metaSym}: Scaled levels by ${ratio.toFixed(4)} (analysis=$${analysisEntry} live=$${livePrice})`);
+              if (process.env.NODE_ENV !== 'production') console.log(`[AutoTrade] ${metaSym}: Scaled levels by ${ratio.toFixed(4)} (analysis=$${analysisEntry} live=$${livePrice})`);
             }
 
             const signalLev = sig.suggestedLeverage || suggestLeverage(sig._bestScore, sig.regime || 'mixed', 'normal');
@@ -4199,7 +4199,7 @@ async function runAutoTrade() {
               }, user.settings?.ollamaUrl || 'http://localhost:11434', user.settings?.ollamaModel || 'llama3.1:8b', user.settings?.ollamaApiKey || '');
 
               if (!llmResult.approve) {
-                console.log(`[AutoTrade] LLM rejected ${tradeData.symbol} ${sig._direction} for ${user.username}: ${llmResult.reasoning || 'no reason'}`);
+                if (process.env.NODE_ENV !== 'production') console.log(`[AutoTrade] LLM rejected ${tradeData.symbol} ${sig._direction} for ${user.username}: ${llmResult.reasoning || 'no reason'}`);
                 continue;
               }
 
@@ -4214,19 +4214,19 @@ async function runAutoTrade() {
                 if (llmResult.overrides.takeProfit2 != null) tradeData.takeProfit2 = llmResult.overrides.takeProfit2;
                 if (llmResult.overrides.takeProfit3 != null) tradeData.takeProfit3 = llmResult.overrides.takeProfit3;
                 if (llmResult.overrides.leverage != null) tradeData.leverage = llmResult.overrides.leverage;
-                console.log(`[AutoTrade] LLM overrides for ${tradeData.symbol}:`, JSON.stringify(llmResult.overrides));
+                if (process.env.NODE_ENV !== 'production') console.log(`[AutoTrade] LLM overrides for ${tradeData.symbol}:`, JSON.stringify(llmResult.overrides));
               }
 
               // Modulate position via confidence: <50 confidence = reduce size by up to 30%
               if (llmResult.confidence > 0 && llmResult.confidence < 50) {
                 const sizeMult = 0.7 + (llmResult.confidence / 50) * 0.3;
-                console.log(`[AutoTrade] LLM low confidence (${llmResult.confidence}) on ${tradeData.symbol} — sizing x${sizeMult.toFixed(2)}`);
+                if (process.env.NODE_ENV !== 'production') console.log(`[AutoTrade] LLM low confidence (${llmResult.confidence}) on ${tradeData.symbol} — sizing x${sizeMult.toFixed(2)}`);
                 tradeData.llmSizeMultiplier = sizeMult;
               }
             }
 
             await openTrade(user._id, tradeData);
-            console.log(`[AutoTrade] Opened ${sig._direction} on ${tradeData.symbol} (overall ${sig._overallScore}, strat: ${useStratType}) for user ${user.username}`);
+            if (process.env.NODE_ENV !== 'production') console.log(`[AutoTrade] Opened ${sig._direction} on ${tradeData.symbol} (overall ${sig._overallScore}, strat: ${useStratType}) for user ${user.username}`);
           } catch (tradeErr) {
             console.error(`[AutoTrade] Failed to open ${sig._coinId} for ${user.username}:`, tradeErr.message);
           }
@@ -4265,7 +4265,7 @@ async function runLlmAgentForUsers() {
       try {
         const result = await runAgent(u._id, deps, { source: 'scheduled' });
         if (result.success && (result.actionsExecuted?.length || result.actionsFailed?.length)) {
-          console.log(`[LLMAgent] ${u._id}: ${result.actionsExecuted?.length || 0} ok, ${result.actionsFailed?.length || 0} failed`);
+          if (process.env.NODE_ENV !== 'production') console.log(`[LLMAgent] ${u._id}: ${result.actionsExecuted?.length || 0} ok, ${result.actionsFailed?.length || 0} failed`);
         }
       } catch (err) {
         console.warn('[LLMAgent]', err.message);

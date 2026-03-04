@@ -40,13 +40,13 @@
       <tbody id="positions-tbody">
         <% if (openPositions && openPositions.length > 0) { openPositions.forEach(function(p) { %>
         <tr data-position-id="<%= p._id %>" data-token-address="<%= p.tokenAddress %>" data-entry-price="<%= p.entryPrice || 0 %>" data-amount-in="<%= p.amountIn || 0 %>" data-token-amount="<%= p.tokenAmount || 0 %>" data-is-paper="<%= p.isPaper ? '1' : '0' %>" data-created="<%= p.createdAt %>">
-          <td><strong><%= p.tokenSymbol %></strong></td>
-          <td style="font-size:12px;">$<%= (p.entryPrice || 0).toFixed(8) %></td>
-          <td class="pos-current-price" style="font-size:12px;color:#6b7280;">—</td>
-          <td class="pos-pnl" style="font-size:13px;font-weight:600;color:#6b7280;">—</td>
-          <td class="pos-hold" style="font-size:12px;color:#6b7280;">—</td>
-          <td style="font-size:12px;"><%= p.isPaper ? '$' + (p.amountIn || 0).toFixed(2) : (p.amountIn || 0) + ' SOL' %></td>
-          <td><% if (p.isPaper) { %><button type="button" class="btn-sell-paper nav-btn" style="padding:4px 10px;font-size:12px;">Sell</button><% } else { %><span style="color:#6b7280;font-size:11px;">—</span><% } %></td>
+          <td data-label="Token"><strong><%= p.tokenSymbol %></strong></td>
+          <td data-label="Entry" style="font-size:12px;">$<%= (p.entryPrice || 0).toFixed(8) %></td>
+          <td data-label="Now" class="pos-current-price" style="font-size:12px;color:#6b7280;">—</td>
+          <td data-label="PnL" class="pos-pnl" style="font-size:13px;font-weight:600;color:#6b7280;">—</td>
+          <td data-label="Hold" class="pos-hold" style="font-size:12px;color:#6b7280;">—</td>
+          <td data-label="Cost" style="font-size:12px;"><%= p.isPaper ? '$' + (p.amountIn || 0).toFixed(2) : (p.amountIn || 0) + ' SOL' %></td>
+          <td data-label=""><% if (p.isPaper) { %><button type="button" class="btn-sell-paper nav-btn" style="padding:4px 10px;font-size:12px;">Sell</button><% } else { %><span style="color:#6b7280;font-size:11px;">—</span><% } %></td>
         </tr>
         <% }); } else { %>
         <tr id="positions-empty-row"><td colspan="7" style="text-align:center;color:#6b7280;font-size:13px;padding:16px;">No open positions. Start the bot or trade manually.</td></tr>
@@ -378,7 +378,7 @@
       }).then(function(r) { return r.json(); }).then(function(d) {
         if (d.error) { alert(d.error); btn.disabled = false; btn.textContent = 'Sell'; }
         else { if (typeof loadPositions === 'function') loadPositions(); if (typeof loadAnalytics === 'function') loadAnalytics(); }
-      }).catch(function() { btn.disabled = false; btn.textContent = 'Sell'; });
+      }).catch(function() { btn.disabled = false; btn.textContent = 'Sell'; if (typeof showToast === 'function') showToast('Sell failed'); });
     });
   }
 
@@ -625,7 +625,7 @@
             botActivityLog.innerHTML = '<div style="color:#6b7280;">Waiting for first scan...</div>';
           }
         }
-      }).catch(function() {});
+      }).catch(function() { if (typeof showToast === 'function') showToast('Bot status update failed'); });
   }
 
   if (btnStart) btnStart.addEventListener('click', function() {
@@ -702,7 +702,7 @@
             d.closedTrades.slice(0, 20).map(function(t) {
               var pnl = (t.pnl || 0);
               var pnlCl = pnl >= 0 ? '#10b981' : '#ef4444';
-              return '<tr><td><strong>' + (t.tokenSymbol || '') + '</strong></td><td>' + (t.side || '') + '</td><td>' + (t.isPaper ? 'Paper' : 'Live') + '</td><td>$' + (t.entryPrice || 0).toFixed(8) + '</td><td>$' + (t.exitPrice || 0).toFixed(8) + '</td><td style="color:' + pnlCl + '">$' + pnl.toFixed(2) + '</td><td>' + (t.exitTime ? new Date(t.exitTime).toLocaleString() : '') + '</td></tr>';
+              return '<tr><td data-label="Token"><strong>' + (t.tokenSymbol || '') + '</strong></td><td data-label="Side">' + (t.side || '') + '</td><td data-label="Type">' + (t.isPaper ? 'Paper' : 'Live') + '</td><td data-label="Entry">$' + (t.entryPrice || 0).toFixed(8) + '</td><td data-label="Exit">$' + (t.exitPrice || 0).toFixed(8) + '</td><td data-label="PnL" style="color:' + pnlCl + '">$' + pnl.toFixed(2) + '</td><td data-label="Date">' + (t.exitTime ? new Date(t.exitTime).toLocaleString() : '') + '</td></tr>';
             }).join('') + '</tbody></table>';
         } else if (hist) {
           hist.innerHTML = '<p style="color:#6b7280;font-size:13px;">No closed trades yet.</p>';
@@ -712,7 +712,12 @@
         var canvas = document.getElementById('trench-equity-curve');
         if (eqSection && canvas && d.equityCurve && d.equityCurve.length > 1) {
           eqSection.style.display = 'block';
-          drawTrenchEquityCurve(canvas, d.equityCurve);
+          try {
+            drawTrenchEquityCurve(canvas, d.equityCurve);
+          } catch (chartErr) {
+            console.warn('Trench equity chart error:', chartErr);
+            eqSection.innerHTML = '<h4 style="color:#e5e7eb;font-size:14px;margin:0 0 8px 0;">Equity Curve</h4><p style="color:#9ca3af;padding:24px;text-align:center;">Chart could not be loaded.</p>';
+          }
           var legend = document.getElementById('trench-equity-legend');
           if (legend) {
             var last = d.equityCurve[d.equityCurve.length - 1];
@@ -721,7 +726,7 @@
         } else if (eqSection) {
           eqSection.style.display = 'none';
         }
-      }).catch(function() {});
+      }).catch(function() { if (typeof showToast === 'function') showToast('Analytics failed to load'); });
   }
 
   function drawTrenchEquityCurve(canvas, data) {
@@ -889,7 +894,7 @@
           var balEl = document.getElementById('paper-balance');
           if (balEl) balEl.textContent = 'Paper: $' + d.paperBalance.toFixed(2);
         }
-      }).catch(function() {});
+      }).catch(function() { if (typeof showToast === 'function') showToast('Balance update failed'); });
   }
   if (document.getElementById('positions-tbody')) {
     loadPositions();

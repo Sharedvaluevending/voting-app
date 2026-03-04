@@ -145,7 +145,7 @@
   <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Sharpe, Sortino, Calmar, and Profit Factor for each strategy and regime (min 2 trades).</p>
   <% var rbr = stats.riskByStrategyRegime || { byStrategy: {}, byRegime: {} }; %>
   <div style="overflow-x:auto;">
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <table class="data-table" style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead>
         <tr style="border-bottom:1px solid #1e2a3a;">
           <th style="text-align:left;padding:10px 8px;color:#9ca3af;">Strategy</th>
@@ -160,13 +160,13 @@
       <tbody>
         <% Object.entries(rbr.byStrategy || {}).forEach(function([name, d]) { %>
         <tr style="border-bottom:1px solid rgba(30,42,58,0.5);">
-          <td style="padding:10px 8px;color:#e5e7eb;font-weight:600;"><%= name %></td>
-          <td style="text-align:center;padding:10px 8px;color:#9ca3af;"><%= d.trades %></td>
-          <td style="text-align:center;padding:10px 8px;color:<%= d.sharpe != null && d.sharpe > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sharpe != null ? d.sharpe : '-' %></td>
-          <td style="text-align:center;padding:10px 8px;color:<%= d.sortino != null && d.sortino > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sortino != null ? d.sortino : '-' %></td>
-          <td style="text-align:center;padding:10px 8px;color:<%= d.calmar != null && d.calmar > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.calmar != null ? d.calmar : '-' %></td>
-          <td style="text-align:center;padding:10px 8px;color:<%= d.profitFactor != null && d.profitFactor > 1 ? '#10b981' : '#9ca3af' %>;"><%= d.profitFactor != null ? d.profitFactor : '-' %></td>
-          <td style="text-align:right;padding:10px 8px;color:<%= d.pnl >= 0 ? '#10b981' : '#ef4444' %>;"><%= d.pnl >= 0 ? '+' : '' %>$<%= (d.pnl || 0).toFixed(2) %></td>
+          <td data-label="Strategy" style="padding:10px 8px;color:#e5e7eb;font-weight:600;"><%= name %></td>
+          <td data-label="Trades" style="text-align:center;padding:10px 8px;color:#9ca3af;"><%= d.trades %></td>
+          <td data-label="Sharpe" style="text-align:center;padding:10px 8px;color:<%= d.sharpe != null && d.sharpe > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sharpe != null ? d.sharpe : '-' %></td>
+          <td data-label="Sortino" style="text-align:center;padding:10px 8px;color:<%= d.sortino != null && d.sortino > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sortino != null ? d.sortino : '-' %></td>
+          <td data-label="Calmar" style="text-align:center;padding:10px 8px;color:<%= d.calmar != null && d.calmar > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.calmar != null ? d.calmar : '-' %></td>
+          <td data-label="Profit Factor" style="text-align:center;padding:10px 8px;color:<%= d.profitFactor != null && d.profitFactor > 1 ? '#10b981' : '#9ca3af' %>;"><%= d.profitFactor != null ? d.profitFactor : '-' %></td>
+          <td data-label="P&L" style="text-align:right;padding:10px 8px;color:<%= d.pnl >= 0 ? '#10b981' : '#ef4444' %>;"><%= d.pnl >= 0 ? '+' : '' %>$<%= (d.pnl || 0).toFixed(2) %></td>
         </tr>
         <% }); %>
       </tbody>
@@ -174,7 +174,7 @@
   </div>
   <h4 style="color:#9ca3af;font-size:14px;margin:20px 0 10px 0;">By Regime</h4>
   <div style="overflow-x:auto;">
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <table class="data-table" style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead>
         <tr style="border-bottom:1px solid #1e2a3a;">
           <th style="text-align:left;padding:10px 8px;color:#9ca3af;">Regime</th>
@@ -191,15 +191,15 @@
           var rd = typeof regimeDetails !== 'undefined' && regimeDetails[name];
         %>
         <tr style="border-bottom:1px solid rgba(30,42,58,0.5);">
-          <td style="padding:10px 8px;color:#e5e7eb;font-weight:600;">
+          <td data-label="Regime" style="padding:10px 8px;color:#e5e7eb;font-weight:600;">
             <% if (rd) { %><button type="button" class="regime-drill-btn" data-regime="<%= name %>" style="background:none;border:none;color:#3b82f6;cursor:pointer;font-weight:600;padding:0;text-align:left;"><%= name %> &#9660;</button><% } else { %><%= name %><% } %>
           </td>
-          <td style="text-align:center;padding:10px 8px;color:#9ca3af;"><%= d.trades %></td>
-          <td style="text-align:center;padding:10px 8px;color:<%= d.sharpe != null && d.sharpe > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sharpe != null ? d.sharpe : '-' %></td>
-          <td style="text-align:center;padding:10px 8px;color:<%= d.sortino != null && d.sortino > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sortino != null ? d.sortino : '-' %></td>
-          <td style="text-align:center;padding:10px 8px;color:<%= d.calmar != null && d.calmar > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.calmar != null ? d.calmar : '-' %></td>
-          <td style="text-align:center;padding:10px 8px;color:<%= d.profitFactor != null && d.profitFactor > 1 ? '#10b981' : '#9ca3af' %>;"><%= d.profitFactor != null ? d.profitFactor : '-' %></td>
-          <td style="text-align:right;padding:10px 8px;color:<%= d.pnl >= 0 ? '#10b981' : '#ef4444' %>;"><%= d.pnl >= 0 ? '+' : '' %>$<%= (d.pnl || 0).toFixed(2) %></td>
+          <td data-label="Trades" style="text-align:center;padding:10px 8px;color:#9ca3af;"><%= d.trades %></td>
+          <td data-label="Sharpe" style="text-align:center;padding:10px 8px;color:<%= d.sharpe != null && d.sharpe > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sharpe != null ? d.sharpe : '-' %></td>
+          <td data-label="Sortino" style="text-align:center;padding:10px 8px;color:<%= d.sortino != null && d.sortino > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.sortino != null ? d.sortino : '-' %></td>
+          <td data-label="Calmar" style="text-align:center;padding:10px 8px;color:<%= d.calmar != null && d.calmar > 0 ? '#10b981' : '#9ca3af' %>;"><%= d.calmar != null ? d.calmar : '-' %></td>
+          <td data-label="Profit Factor" style="text-align:center;padding:10px 8px;color:<%= d.profitFactor != null && d.profitFactor > 1 ? '#10b981' : '#9ca3af' %>;"><%= d.profitFactor != null ? d.profitFactor : '-' %></td>
+          <td data-label="P&L" style="text-align:right;padding:10px 8px;color:<%= d.pnl >= 0 ? '#10b981' : '#ef4444' %>;"><%= d.pnl >= 0 ? '+' : '' %>$<%= (d.pnl || 0).toFixed(2) %></td>
         </tr>
         <% }); %>
       </tbody>

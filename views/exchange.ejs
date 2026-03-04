@@ -237,6 +237,7 @@
           var el = document.getElementById(id);
           if (el) el.textContent = 'Error';
         });
+        if (typeof showToast === 'function') showToast('Account data failed to load');
       });
   }
 
@@ -254,13 +255,13 @@
         data.positions.forEach(function(p) {
           var pnl = parseFloat(p.unrealizedPL || p.achievedProfits || 0);
           html += '<tr>';
-          html += '<td style="font-weight:700;">' + (p.symbol || '-') + '</td>';
-          html += '<td class="' + (p.holdSide === 'long' ? 'up' : 'down') + '">' + (p.holdSide || '-').toUpperCase() + '</td>';
-          html += '<td>' + (p.total || p.available || '-') + '</td>';
-          html += '<td>$' + (parseFloat(p.openPriceAvg || 0).toFixed(2)) + '</td>';
-          html += '<td>$' + (parseFloat(p.markPrice || 0).toFixed(2)) + '</td>';
-          html += '<td class="' + (pnl >= 0 ? 'up' : 'down') + '">' + (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2) + '</td>';
-          html += '<td>' + (p.leverage || '-') + 'x</td>';
+          html += '<td data-label="Symbol" style="font-weight:700;">' + (p.symbol || '-') + '</td>';
+          html += '<td data-label="Side" class="' + (p.holdSide === 'long' ? 'up' : 'down') + '">' + (p.holdSide || '-').toUpperCase() + '</td>';
+          html += '<td data-label="Size">' + (p.total || p.available || '-') + '</td>';
+          html += '<td data-label="Entry">$' + (parseFloat(p.openPriceAvg || 0).toFixed(2)) + '</td>';
+          html += '<td data-label="Mark">$' + (parseFloat(p.markPrice || 0).toFixed(2)) + '</td>';
+          html += '<td data-label="P&L" class="' + (pnl >= 0 ? 'up' : 'down') + '">' + (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2) + '</td>';
+          html += '<td data-label="Leverage">' + (p.leverage || '-') + 'x</td>';
           html += '</tr>';
         });
         html += '</tbody></table>';
@@ -269,6 +270,7 @@
       .catch(function() {
         var container = document.getElementById('exchange-positions');
         if (container) container.innerHTML = '<div style="color:#ef4444;font-size:13px;">Error loading positions</div>';
+        if (typeof showToast === 'function') showToast('Positions failed to load');
       });
   }
 

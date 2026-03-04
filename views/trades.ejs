@@ -310,7 +310,7 @@
     // Trigger score check on load if trades are awaiting (helps cold start on Render)
     if (window.__hasPendingScoreChecks && window.__scoreRecheckEnabled) {
       setTimeout(function() {
-        fetch('/api/trigger-score-check', { method: 'POST', credentials: 'same-origin' }).catch(function() {});
+        fetch('/api/trigger-score-check', { method: 'POST', credentials: 'same-origin' }).catch(function() { if (typeof showToast === 'function') showToast('Score check failed to trigger'); });
       }, 2000);
     }
     // Run now button
@@ -329,6 +329,7 @@
           .catch(function() {
             btn.disabled = false;
             btn.textContent = 'Run now';
+            if (typeof showToast === 'function') showToast('Score check failed');
           });
       });
     });

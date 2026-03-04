@@ -74,7 +74,9 @@ function plan(decision, snapshot, context) {
     return null;
   }
   if (!decision.entry || !decision.stopLoss) {
-    console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: missing entry ($${decision.entry}) or stopLoss ($${decision.stopLoss})`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: missing entry ($${decision.entry}) or stopLoss ($${decision.stopLoss})`);
+    }
     return null;
   }
 
@@ -86,7 +88,9 @@ function plan(decision, snapshot, context) {
       const expectancy = (w * r) - (1 - w);
       const minExp = userSettings.minExpectancy ?? 0.15;
       if (expectancy < minExp) {
-        console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: strategy "${decision.strategy}" expectancy ${expectancy.toFixed(3)} < min ${minExp}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: strategy "${decision.strategy}" expectancy ${expectancy.toFixed(3)} < min ${minExp}`);
+        }
         return null;
       }
     }
@@ -212,7 +216,9 @@ function plan(decision, snapshot, context) {
   }
 
   if (balance <= 0 || required > balance) {
-    console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: balance $${balance} insufficient (need $${required.toFixed(2)})`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: balance $${balance} insufficient (need $${required.toFixed(2)})`);
+    }
     return null;
   }
 

@@ -1029,6 +1029,7 @@ function loadLiveSettings() {
       var equityCurve = data.equityCurve || [];
       var equityBars = document.getElementById('bt-equity-bars');
       var equityLegend = document.getElementById('bt-equity-legend');
+      try {
       equityBars.innerHTML = '';
       if (equityCurve.length > 1) {
         var maxEq = Math.max.apply(null, equityCurve.map(function(p) { return p.equity || 0; }));
@@ -1055,6 +1056,11 @@ function loadLiveSettings() {
         equityLegend.textContent = 'Start: $' + (first.equity || 0).toLocaleString() + ' → End: $' + (last.equity || 0).toLocaleString() + ' · ' + (equityCurve.length - 1) + ' trades' + (dateRange ? ' · ' + dateRange : '');
       } else {
         equityLegend.textContent = 'No equity data (no trades closed)';
+      }
+      } catch (chartErr) {
+        console.warn('Backtest equity chart error:', chartErr);
+        if (equityBars) equityBars.innerHTML = '<p style="color:#9ca3af;padding:16px;text-align:center;">Chart could not be loaded.</p>';
+        if (equityLegend) equityLegend.textContent = 'Chart error';
       }
 
       // Robustness evaluation (from first successful coin)
@@ -1143,14 +1149,14 @@ function loadLiveSettings() {
         var ret = r.returnPct || 0;
         var from = r.firstBarTime ? new Date(r.firstBarTime).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'2-digit' }) : '-';
         var to   = r.lastBarTime  ? new Date(r.lastBarTime).toLocaleDateString('en-GB',  { day:'2-digit', month:'short', year:'2-digit' }) : '-';
-        tr.innerHTML = '<td><strong>' + (r.symbol || r.coinId) + '</strong><br><span style="font-size:10px;color:#6b7280;">' + from + ' – ' + to + ' · ' + (r.bars || 0) + ' bars</span></td>' +
-          '<td>' + (r.totalTrades || 0) + '</td>' +
-          '<td class="up">' + (r.wins || 0) + '</td>' +
-          '<td class="down">' + (r.losses || 0) + '</td>' +
-          '<td style="color:' + (wr >= 50 ? '#10b981' : '#ef4444') + '">' + wr.toFixed(1) + '%</td>' +
-          '<td class="' + (pnl >= 0 ? 'up' : 'down') + '">' + (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2) + '</td>' +
-          '<td class="' + (ret >= 0 ? 'up' : 'down') + '">' + (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%</td>' +
-          '<td class="down">' + (r.maxDrawdownPct || 0).toFixed(1) + '%</td>';
+        tr.innerHTML = '<td data-label="Coin"><strong>' + (r.symbol || r.coinId) + '</strong><br><span style="font-size:10px;color:#6b7280;">' + from + ' – ' + to + ' · ' + (r.bars || 0) + ' bars</span></td>' +
+          '<td data-label="Trades">' + (r.totalTrades || 0) + '</td>' +
+          '<td data-label="Wins" class="up">' + (r.wins || 0) + '</td>' +
+          '<td data-label="Losses" class="down">' + (r.losses || 0) + '</td>' +
+          '<td data-label="Win Rate" style="color:' + (wr >= 50 ? '#10b981' : '#ef4444') + '">' + wr.toFixed(1) + '%</td>' +
+          '<td data-label="PnL" class="' + (pnl >= 0 ? 'up' : 'down') + '">' + (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2) + '</td>' +
+          '<td data-label="Return %" class="' + (ret >= 0 ? 'up' : 'down') + '">' + (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%</td>' +
+          '<td data-label="Max DD %" class="down">' + (r.maxDrawdownPct || 0).toFixed(1) + '%</td>';
         tbody.appendChild(tr);
       });
 
@@ -1175,14 +1181,14 @@ function loadLiveSettings() {
       allTrades.slice(0, 200).forEach(function(t) {
         var tr = document.createElement('tr');
         var dateStr = t.exitTime ? new Date(t.exitTime).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'2-digit' }) : '-';
-        tr.innerHTML = '<td style="font-size:11px;color:#9ca3af;">' + dateStr + '</td>' +
-          '<td>' + (t.symbol || t.coinId) + '</td>' +
-          '<td><span class="badge-' + (t.direction === 'LONG' ? 'BUY' : 'SELL') + '" style="padding:2px 6px;border-radius:4px;font-size:11px;">' + t.direction + '</span></td>' +
-          '<td>$' + Number(t.entry || 0).toFixed(4) + '</td>' +
-          '<td>$' + Number(t.exit || 0).toFixed(4) + '</td>' +
-          '<td>' + (t.reason || '-') + '</td>' +
-          '<td>' + renderActionBadgesForTrade(t.actions) + '</td>' +
-          '<td class="' + ((t.pnl || 0) >= 0 ? 'up' : 'down') + '">' + ((t.pnl || 0) >= 0 ? '+' : '') + '$' + (t.pnl || 0).toFixed(2) + '</td>';
+        tr.innerHTML = '<td data-label="Date" style="font-size:11px;color:#9ca3af;">' + dateStr + '</td>' +
+          '<td data-label="Coin">' + (t.symbol || t.coinId) + '</td>' +
+          '<td data-label="Dir"><span class="badge-' + (t.direction === 'LONG' ? 'BUY' : 'SELL') + '" style="padding:2px 6px;border-radius:4px;font-size:11px;">' + t.direction + '</span></td>' +
+          '<td data-label="Entry">$' + Number(t.entry || 0).toFixed(4) + '</td>' +
+          '<td data-label="Exit">$' + Number(t.exit || 0).toFixed(4) + '</td>' +
+          '<td data-label="Reason">' + (t.reason || '-') + '</td>' +
+          '<td data-label="Actions">' + renderActionBadgesForTrade(t.actions) + '</td>' +
+          '<td data-label="PnL" class="' + ((t.pnl || 0) >= 0 ? 'up' : 'down') + '">' + ((t.pnl || 0) >= 0 ? '+' : '') + '$' + (t.pnl || 0).toFixed(2) + '</td>';
         tradesBody.appendChild(tr);
       });
       if (allTrades.length > 200) {

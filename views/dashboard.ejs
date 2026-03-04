@@ -379,7 +379,9 @@
           }
         });
       })
-      .catch(function() {});
+      .catch(function() {
+        if (typeof showToast === 'function') showToast('Price update failed');
+      });
   }
   setInterval(poll, 15000);
   setTimeout(poll, 5000);
