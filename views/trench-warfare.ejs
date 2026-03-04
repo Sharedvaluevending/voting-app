@@ -16,19 +16,27 @@
 @media (max-width: 600px) {
   .trench-warfare-page .section-header h2 { font-size: 18px; }
   .trench-warfare-page .section { padding: 12px; }
+  /* Full-bleed: positions & trade history sections span full viewport */
+  .trench-warfare-page #open-positions-section,
+  .trench-warfare-page #trade-history-section {
+    margin-left: calc(-50vw + 50%); margin-right: calc(-50vw + 50%);
+    width: 100vw; max-width: 100vw; padding-left: 12px; padding-right: 12px; box-sizing: border-box;
+  }
+  .trench-warfare-page #open-positions-section > div,
+  .trench-warfare-page #trade-history-container { overflow-x: visible; }
   .trench-warfare-page .positions-table,
-  .trench-warfare-page .trade-history-table { display: block; width: 100%; }
+  .trench-warfare-page .trade-history-table { display: block; width: 100%; min-width: 0; table-layout: fixed; }
   .trench-warfare-page .positions-table thead,
   .trench-warfare-page .trade-history-table thead { display: none; }
   .trench-warfare-page .positions-table tbody tr,
   .trench-warfare-page .trade-history-table tbody tr {
-    display: block; width: 100%; margin-bottom: 12px; padding: 12px; box-sizing: border-box;
+    display: block; width: 100%; min-width: 0; margin-bottom: 12px; padding: 12px; box-sizing: border-box;
     background: rgba(15,23,42,0.6); border: 1px solid #1e2a3a; border-radius: 8px;
   }
   .trench-warfare-page .positions-table tbody td,
   .trench-warfare-page .trade-history-table tbody td {
     display: flex; justify-content: space-between; align-items: center;
-    width: 100%; padding: 6px 0; border: none; font-size: 13px; box-sizing: border-box;
+    width: 100%; min-width: 0; padding: 6px 0; border: none; font-size: 13px; box-sizing: border-box;
   }
   .trench-warfare-page .positions-table tbody td[data-label]:not([data-label=""]):not(:first-child)::before,
   .trench-warfare-page .trade-history-table tbody td[data-label]:not([data-label=""]):not(:first-child)::before {
@@ -288,7 +296,7 @@
 
 <!-- Trade History -->
 <% if (typeof user !== 'undefined' && user) { %>
-<div class="section" style="margin-bottom:24px;">
+<div class="section" id="trade-history-section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Trade History</h3>
   <div id="trade-history-container" style="overflow-x:auto;">
     <p style="color:#6b7280;font-size:13px;">Loading...</p>
