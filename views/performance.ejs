@@ -1124,17 +1124,57 @@ function setLiveToggles(val) {
         fundingRateFilter: 'featureFundingRateFilter',
         minRiskRewardEnabled: 'minRiskRewardEnabled',
         minRiskReward: 'minRiskReward',
-        correlationFilterEnabled: 'correlationFilterEnabled'
+        correlationFilterEnabled: 'correlationFilterEnabled',
+        breakevenRMult: 'breakevenRMult',
+        trailingStartR: 'trailingStartR',
+        trailingDistR: 'trailingDistR',
+        maxDailyLossPercent: 'maxDailyLossPercent',
+        drawdownSizingEnabled: 'drawdownSizingEnabled',
+        drawdownThresholdPercent: 'drawdownThresholdPercent',
+        minVolume24hUsd: 'minVolume24hUsd',
+        trailingTpDistanceMode: 'trailingTpDistanceMode',
+        trailingTpAtrMultiplier: 'trailingTpAtrMultiplier',
+        trailingTpFixedPercent: 'trailingTpFixedPercent',
+        dcaMaxAdds: 'dcaMaxAdds',
+        dcaDipPercent: 'dcaDipPercent',
+        dcaAddSizePercent: 'dcaAddSizePercent',
+        dcaMinScore: 'dcaMinScore'
       };
       for (var key in mapping) {
-        var input = document.querySelector('#feature-toggles-form input[name="' + mapping[key] + '"]');
+        var input = document.querySelector('#feature-toggles-form input[name="' + mapping[key] + '"], #feature-toggles-form select[name="' + mapping[key] + '"]');
         if (input && preset[key] !== undefined) {
           if (input.type === 'checkbox') input.checked = preset[key];
           else input.value = preset[key];
         }
       }
+      // dca (backtest) -> dcaEnabled (performance)
+      var dcaCb = document.querySelector('#feature-toggles-form input[name="dcaEnabled"]');
+      if (dcaCb && preset.dca !== undefined) {
+        dcaCb.checked = preset.dca;
+        var dcaOpts = document.getElementById('dca-opts');
+        if (dcaOpts) dcaOpts.style.display = preset.dca ? 'grid' : 'none';
+      }
+      // trailingTp (backtest) -> tpMode radio (performance)
+      var tpFixed = document.querySelector('#feature-toggles-form input[name="tpMode"][value="fixed"]');
+      var tpTrailing = document.querySelector('#feature-toggles-form input[name="tpMode"][value="trailing"]');
+      if (tpFixed && tpTrailing && preset.trailingTp !== undefined) {
+        tpFixed.checked = !preset.trailingTp;
+        tpTrailing.checked = preset.trailingTp;
+        var trailOpts = document.getElementById('trailing-tp-opts');
+        if (trailOpts) trailOpts.style.display = preset.trailingTp ? 'grid' : 'none';
+        var trailAtr = document.getElementById('trail-atr-wrap');
+        var trailFixed = document.getElementById('trail-fixed-wrap');
+        if (preset.trailingTp && preset.trailingTpDistanceMode) {
+          if (trailAtr) trailAtr.style.display = preset.trailingTpDistanceMode === 'atr' ? 'block' : 'none';
+          if (trailFixed) trailFixed.style.display = preset.trailingTpDistanceMode === 'fixed' ? 'block' : 'none';
+        }
+      }
       if (preset.minRiskRewardEnabled && document.getElementById('minRrValueWrap')) {
         document.getElementById('minRrValueWrap').style.display = 'flex';
+      }
+      var ddWrap = document.getElementById('dd-thresh-wrap');
+      if (ddWrap && preset.drawdownSizingEnabled !== undefined) {
+        ddWrap.style.display = preset.drawdownSizingEnabled ? 'block' : 'none';
       }
       alert('Backtest preset loaded! Click "Save Toggles" to apply.');
     } catch (e) {
