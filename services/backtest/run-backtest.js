@@ -137,7 +137,8 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       featurePriceActionConfluence: ft.priceActionConfluence === true,
       featureVolatilityFilter: ft.volatilityFilter === true,
       featureVolumeConfirmation: ft.volumeConfirmation === true,
-      featureFundingRateFilter: ft.fundingRateFilter === true
+      featureFundingRateFilter: ft.fundingRateFilter === true,
+      featureThemeDetector: ft.themeDetector === true
     };
 
     // Re-evaluate BTC every ~4 hours regardless of primary TF
@@ -291,7 +292,9 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
         }
         if (action.type === 'RP' || action.type === 'PP') {
           const portion = action.portion || 0;
-          const exitPrice = action.marketPrice;
+          const rawExit = action.marketPrice;
+          const slipMul = F_SLIPPAGE ? (1 + (SLIPPAGE_BPS * slippageMultiplier / 10000)) : 1;
+          const exitPrice = position.direction === 'LONG' ? rawExit / slipMul : rawExit * slipMul;
           const exitFees = F_FEES ? portion * TAKER_FEE : 0;
           const pnl = position.direction === 'LONG'
             ? ((exitPrice - position.entry) / position.entry) * portion

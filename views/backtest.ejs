@@ -295,8 +295,8 @@
         </div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
-        <label class="ft-toggle" title="4-hour cooldown before same-direction re-entry on same coin">
-          <input type="checkbox" id="ft-cooldown" checked> <span class="ft-badge ft-risk">RISK</span> 4h Cooldown
+        <label class="ft-toggle" title="4-bar cooldown before same-direction re-entry (4 bars of primary TF, e.g. 4h for 1h)">
+          <input type="checkbox" id="ft-cooldown" checked> <span class="ft-badge ft-risk">RISK</span> Cooldown (4 bars)
         </label>
       </div>
     </div>
@@ -523,7 +523,7 @@ function getFeatureFlags() {
     fundingRateFilter: document.getElementById('ft-fundingRateFilter')?.checked || false,
     themeDetector: document.getElementById('ft-themeDetector')?.checked || false,
     minRiskRewardEnabled: document.getElementById('ft-minRiskRewardEnabled').checked,
-    minRiskReward: parseFloat(document.getElementById('ft-minRiskReward').value) || 1.2,
+    minRiskReward: parseFloat(document.getElementById('ft-minRiskReward').value) || 1.5,
     maxDailyLossPercent: parseFloat(document.getElementById('ft-maxDailyLoss')?.value) || 0,
     minVolume24hUsd: (document.getElementById('ft-minVolumeEnabled')?.checked ? parseFloat(document.getElementById('ft-minVolume')?.value) : 0) || 0,
     drawdownSizingEnabled: document.getElementById('ft-drawdownSizing')?.checked || false,
@@ -592,7 +592,7 @@ function loadBacktestPresetByName(name) {
   document.getElementById('ft-volumeConfirmation').checked = f.volumeConfirmation;
   if (document.getElementById('ft-fundingRateFilter')) document.getElementById('ft-fundingRateFilter').checked = f.fundingRateFilter;
   document.getElementById('ft-minRiskRewardEnabled').checked = f.minRiskRewardEnabled;
-  document.getElementById('ft-minRiskReward').value = f.minRiskReward || 1.2;
+  document.getElementById('ft-minRiskReward').value = f.minRiskReward || 1.5;
   if (document.getElementById('ft-maxDailyLoss')) document.getElementById('ft-maxDailyLoss').value = f.maxDailyLossPercent || 0;
   document.getElementById('ft-drawdownSizing').checked = f.drawdownSizingEnabled;
   document.getElementById('ft-drawdownThresh').value = f.drawdownThresholdPercent || 10;
