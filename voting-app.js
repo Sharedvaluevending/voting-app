@@ -2503,6 +2503,22 @@ app.get('/trench-warfare', async (req, res) => {
   });
 });
 
+app.get('/trench-chart/:tokenAddress', (req, res) => {
+  const tokenAddress = (req.params.tokenAddress || '').trim();
+  if (!tokenAddress || tokenAddress.length < 20) {
+    return res.status(400).send('Invalid token address. <a href="/trench-warfare">Back to Trench Warfare</a>');
+  }
+  const dexUrl = 'https://dexscreener.com/solana/' + encodeURIComponent(tokenAddress);
+  const birdeyeUrl = 'https://birdeye.so/token/' + encodeURIComponent(tokenAddress);
+  res.render('trench-chart', {
+    activePage: 'trench-warfare',
+    pageTitle: 'Token Chart',
+    tokenAddress,
+    dexUrl,
+    birdeyeUrl
+  });
+});
+
 app.get('/api/trench-warfare/trendings', async (req, res) => {
   const mobula = require('./services/mobula-api');
   try {

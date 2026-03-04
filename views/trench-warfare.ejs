@@ -15,6 +15,35 @@
   .trench-warfare-page #open-positions-section > div,
   .trench-warfare-page #trade-history-container { overflow-x: visible; width: 100%; }
   .trench-warfare-page #market-tokens-row > div { min-width: 130px; }
+  /* Open Positions & Trade History: card layout on mobile */
+  .trench-warfare-page .positions-table,
+  .trench-warfare-page .trade-history-table { display: block; }
+  .trench-warfare-page .positions-table thead,
+  .trench-warfare-page .trade-history-table thead { display: none; }
+  .trench-warfare-page .positions-table tbody tr,
+  .trench-warfare-page .trade-history-table tbody tr {
+    display: block; margin-bottom: 12px; padding: 12px;
+    background: rgba(15,23,42,0.5); border: 1px solid #1e2a3a; border-radius: 8px;
+  }
+  .trench-warfare-page .positions-table tbody td,
+  .trench-warfare-page .trade-history-table tbody td {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; border: none; font-size: 13px;
+  }
+  .trench-warfare-page .positions-table tbody td[data-label]:not([data-label=""]):not(:first-child)::before,
+  .trench-warfare-page .trade-history-table tbody td[data-label]:not([data-label=""]):not(:first-child)::before {
+    content: attr(data-label); font-size: 11px; color: #6b7280; text-transform: uppercase; margin-right: 8px;
+  }
+  .trench-warfare-page .positions-table tbody td:first-child,
+  .trench-warfare-page .trade-history-table tbody td:first-child { flex-direction: column; align-items: flex-start; gap: 2px; padding-top: 0; }
+  .trench-warfare-page .positions-table tbody td:first-child::before,
+  .trench-warfare-page .trade-history-table tbody td:first-child::before { display: none; }
+  .trench-warfare-page .positions-table tbody td:last-child { flex-wrap: wrap; gap: 8px; padding-top: 10px; border-top: 1px solid #1e2a3a; }
+  .trench-warfare-page .positions-table tbody td:last-child::before,
+  .trench-warfare-page .trade-history-table tbody td:last-child::before { display: none; }
+  .trench-warfare-page #positions-empty-row,
+  .trench-warfare-page #positions-empty-row td { display: table-row; }
+  .trench-warfare-page #positions-empty-row td { display: table-cell; }
 }
 </style>
 
@@ -52,7 +81,7 @@
     <span id="positions-total-pnl" style="font-size:14px;font-weight:600;color:#6b7280;"></span>
   </div>
   <div style="overflow-x:auto;">
-    <table class="data-table">
+    <table class="data-table positions-table">
       <thead>
         <tr><th>Token</th><th>Entry</th><th>Now</th><th>PnL</th><th>Hold</th><th>Cost</th><th>Action</th></tr>
       </thead>
@@ -65,7 +94,7 @@
           <td data-label="PnL" class="pos-pnl" style="font-size:13px;font-weight:600;color:#6b7280;">—</td>
           <td data-label="Hold" class="pos-hold" style="font-size:12px;color:#6b7280;">—</td>
           <td data-label="Cost" style="font-size:12px;"><%= p.isPaper ? '$' + (p.amountIn || 0).toFixed(2) : (p.amountIn || 0) + ' SOL' %></td>
-          <td data-label="Action"><% if (p.isPaper) { %><button type="button" class="btn-sell-paper nav-btn" style="padding:4px 10px;font-size:12px;">Sell</button><% } else { %><span style="color:#6b7280;font-size:11px;">—</span><% } %></td>
+          <td data-label="Action"><a href="/trench-chart/<%= p.tokenAddress %>" class="nav-btn" style="padding:4px 10px;font-size:12px;text-decoration:none;display:inline-block;">Chart</a><button type="button" class="btn-block-token nav-btn" style="padding:4px 8px;font-size:11px;color:#eab308;" title="Blacklist token">Block</button><% if (p.isPaper) { %><button type="button" class="btn-sell-paper nav-btn" style="padding:4px 10px;font-size:12px;">Sell</button><% } else { %><span style="color:#6b7280;font-size:11px;">—</span><% } %></td>
         </tr>
         <% }); } else { %>
         <tr id="positions-empty-row"><td colspan="7" style="text-align:center;color:#6b7280;font-size:13px;padding:16px;">No open positions. Start the bot or trade manually.</td></tr>
@@ -404,10 +433,28 @@
       });
   });
 
-  // Event delegation for sell buttons (works with dynamically added rows)
+  // Event delegation for sell + block buttons (works with dynamically added rows)
   var positionsTbody = document.getElementById('positions-tbody');
   if (positionsTbody) {
     positionsTbody.addEventListener('click', function(e) {
+      var blockBtn = e.target.closest('.btn-block-token');
+      if (blockBtn) {
+        var row = blockBtn.closest('tr');
+        var tokenAddr = row.getAttribute('data-token-address');
+        if (!tokenAddr) return;
+        if (!confirm('Blacklist this token? Bot will skip it in future scans.')) return;
+        blockBtn.disabled = true;
+        fetch('/api/trench-warfare/blacklist/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ tokenAddress: tokenAddr })
+        }).then(function(r) { return r.json(); }).then(function(d) {
+          if (d.error) alert(d.error);
+          else if (typeof showToast === 'function') showToast('Token blacklisted');
+        }).catch(function() { blockBtn.disabled = false; });
+        return;
+      }
       var btn = e.target.closest('.btn-sell-paper');
       if (!btn) return;
       var row = btn.closest('tr');
@@ -562,12 +609,12 @@
         card.style.cssText = 'flex-shrink:0;width:140px;padding:10px 12px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;';
         var ch = (t.priceChange24h || t.priceChange5m || 0);
         var chColor = ch >= 0 ? '#10b981' : '#ef4444';
-        var dexUrl = 'https://dexscreener.com/solana/' + (t.tokenAddress || '');
+        var chartUrl = (t.tokenAddress) ? '/trench-chart/' + t.tokenAddress : 'https://dexscreener.com/solana/' + (t.tokenAddress || '');
         card.innerHTML = '<div style="font-weight:700;color:#e5e7eb;font-size:14px;margin-bottom:4px;">' + (t.symbol || '?') + '</div>' +
           '<div style="font-size:12px;color:#9ca3af;">$' + (t.price < 0.0001 ? t.price.toExponential(2) : t.price.toFixed(6)) + '</div>' +
           '<div style="font-size:12px;font-weight:600;color:' + chColor + ';margin:4px 0;">' + (ch >= 0 ? '+' : '') + (ch || 0).toFixed(1) + '%</div>' +
           '<div style="display:flex;gap:6px;margin-top:8px;">' +
-          '<a href="' + dexUrl + '" target="_blank" rel="noopener" style="padding:4px 8px;font-size:11px;background:#1e293b;border-radius:4px;color:#3b82f6;text-decoration:none;">Chart</a>' +
+          '<a href="' + chartUrl + '" style="padding:4px 8px;font-size:11px;background:#1e293b;border-radius:4px;color:#3b82f6;text-decoration:none;">Chart</a>' +
           '<button type="button" class="btn-buy-market-token nav-btn primary" style="padding:4px 8px;font-size:11px;" data-addr="' + (t.tokenAddress || '') + '" data-sym="' + (t.symbol || '').replace(/"/g, '&quot;') + '" data-name="' + (t.name || '').replace(/"/g, '&quot;') + '" data-price="' + (t.price || 0) + '">Buy</button>' +
           '</div>';
         rowEl.appendChild(card);
@@ -837,11 +884,12 @@
         if (pausedBanner) pausedBanner.style.display = d.paused ? '' : 'none';
         var hist = document.getElementById('trade-history-container');
         if (hist && d.closedTrades && d.closedTrades.length > 0) {
-          hist.innerHTML = '<table class="data-table"><thead><tr><th>Token</th><th>Side</th><th>Type</th><th>Entry</th><th>Exit</th><th>PnL</th><th>Date</th></tr></thead><tbody>' +
+          hist.innerHTML = '<table class="data-table trade-history-table"><thead><tr><th>Token</th><th>Side</th><th>Type</th><th>Entry</th><th>Exit</th><th>PnL</th><th>Date</th></tr></thead><tbody>' +
             d.closedTrades.slice(0, 20).map(function(t) {
               var pnl = (t.pnl || 0);
               var pnlCl = pnl >= 0 ? '#10b981' : '#ef4444';
-              return '<tr><td data-label="Token"><strong>' + (t.tokenSymbol || '') + '</strong></td><td data-label="Side">' + (t.side || '') + '</td><td data-label="Type">' + (t.isPaper ? 'Paper' : 'Live') + '</td><td data-label="Entry">$' + (t.entryPrice || 0).toFixed(8) + '</td><td data-label="Exit">$' + (t.exitPrice || 0).toFixed(8) + '</td><td data-label="PnL" style="color:' + pnlCl + '">$' + pnl.toFixed(2) + '</td><td data-label="Date">' + (t.exitTime ? new Date(t.exitTime).toLocaleString() : '') + '</td></tr>';
+              var chartLink = (t.tokenAddress) ? '<a href="/trench-chart/' + t.tokenAddress + '" class="nav-btn" style="padding:4px 8px;font-size:11px;text-decoration:none;display:inline-block;margin-right:4px;">Chart</a>' : '';
+              return '<tr><td data-label="Token"><strong>' + (t.tokenSymbol || '') + '</strong>' + chartLink + '</td><td data-label="Side">' + (t.side || '') + '</td><td data-label="Type">' + (t.isPaper ? 'Paper' : 'Live') + '</td><td data-label="Entry">$' + (t.entryPrice || 0).toFixed(8) + '</td><td data-label="Exit">$' + (t.exitPrice || 0).toFixed(8) + '</td><td data-label="PnL" style="color:' + pnlCl + '">$' + pnl.toFixed(2) + '</td><td data-label="Date">' + (t.exitTime ? new Date(t.exitTime).toLocaleString() : '') + '</td></tr>';
             }).join('') + '</tbody></table>';
         } else if (hist) {
           hist.innerHTML = '<p style="color:#6b7280;font-size:13px;">No closed trades yet.</p>';
@@ -1009,6 +1057,8 @@
           var pnlStr = p.currentPrice > 0 ? (sign + '$' + p.pnl.toFixed(2) + ' (' + sign + p.pnlPct.toFixed(1) + '%)') : '—';
           var pnlClr = p.pnl >= 0 ? '#10b981' : '#ef4444';
           var holdClr = p.holdMinutes > 15 ? '#eab308' : '#6b7280';
+          var chartLink = (p.tokenAddress) ? '<a href="/trench-chart/' + p.tokenAddress + '" class="nav-btn" style="padding:4px 10px;font-size:12px;text-decoration:none;display:inline-block;">Chart</a>' : '';
+          var blockBtn = (p.tokenAddress) ? '<button type="button" class="btn-block-token nav-btn" style="padding:4px 8px;font-size:11px;color:#eab308;" title="Blacklist token">Block</button>' : '';
           var sellBtn = p.isPaper ? '<button type="button" class="btn-sell-paper nav-btn" style="padding:4px 10px;font-size:12px;">Sell</button>' : '<span style="color:#6b7280;font-size:11px;">—</span>';
           totalPnl += p.pnl;
           html += '<tr data-position-id="' + p._id + '" data-token-address="' + (p.tokenAddress || '') + '" data-entry-price="' + ep + '" data-amount-in="' + amt + '" data-token-amount="' + (p.tokenAmount || 0) + '" data-is-paper="' + (p.isPaper ? '1' : '0') + '" data-current-price="' + (p.currentPrice || 0) + '">';
@@ -1018,7 +1068,7 @@
           html += '<td data-label="PnL" class="pos-pnl" style="font-size:13px;font-weight:600;color:' + pnlClr + '">' + pnlStr + '</td>';
           html += '<td data-label="Hold" class="pos-hold" style="font-size:12px;color:' + holdClr + '">' + p.holdMinutes + 'm</td>';
           html += '<td data-label="Cost" style="font-size:12px;">' + costStr + '</td>';
-          html += '<td data-label="Action">' + sellBtn + '</td></tr>';
+          html += '<td data-label="Action">' + chartLink + blockBtn + sellBtn + '</td></tr>';
         });
         tbody.innerHTML = html;
 
