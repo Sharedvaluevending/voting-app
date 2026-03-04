@@ -21,12 +21,15 @@ const WARMUP_BARS = 100;      // Extra 1h bars to fetch before start date for in
  * Fetch multi-timeframe historical candles for a coin
  * Wraps each fetch in a per-coin timeout so one slow coin doesn't block everything.
  */
-const PER_COIN_FETCH_TIMEOUT = 180000; // 180s per coin fetch (15m for 1yr = ~175 pages × 600ms ≈ 105s + headroom)
+const PER_COIN_FETCH_TIMEOUT = 240000; // 240s per coin fetch (15m for 1yr = ~175 pages × 400ms ≈ 70s + network + headroom)
 
 async function fetchWithTimeout(promise, timeoutMs, label) {
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout fetching ${label}`)), timeoutMs))
+    new Promise((_, reject) => setTimeout(() => {
+      const mins = Math.round(timeoutMs / 60000);
+      reject(new Error(`Timeout fetching ${label} (exceeded ${mins} min). Try 1h or 4h timeframe, or shorten date range to 90 days.`));
+    }, timeoutMs))
   ]);
 }
 
@@ -148,10 +151,10 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
 // Legacy backtest removed. Backtest uses run-backtest.js (shared engines) exclusively.
 /**
  * Run backtest for all coins or a subset.
- * Coins are processed in parallel batches to stay within API rate limits
- * while keeping total time well under Render's 30s request timeout.
+ * Coins are processed in parallel batches to stay within API rate limits.
+ * Per-coin timeout allows long candle fetches (e.g. 1yr 15m = ~175 Bitget pages).
  */
-const PER_COIN_BACKTEST_TIMEOUT = 120000; // 120s per coin (15m TF = 4× more bars than 1h)
+const PER_COIN_BACKTEST_TIMEOUT = 240000; // 240s per coin (candle fetch + run; 15m/1yr can take 90s+ fetch)
 const PARALLEL_BATCH_SIZE = 2; // 2 coins at a time (avoids API rate limits)
 
 async function runBacktest(startMs, endMs, options) {
