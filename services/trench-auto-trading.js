@@ -443,6 +443,12 @@ function sanitizeSettings(raw) {
   s.amountPerTradeUsd = Math.min(Math.max(s.amountPerTradeUsd ?? (memecoin ? 25 : 50), 5), 500);
   s.amountPerTradeSol = Math.min(Math.max(s.amountPerTradeSol ?? 0.05, 0.01), 1);
   s.minTrendingScore = 1;
+  s.useTrailingTP = s.useTrailingTP === true;
+  s.volumeFilterEnabled = s.volumeFilterEnabled === true;
+  s.volatilityFilterEnabled = s.volatilityFilterEnabled === true;
+  s.minVolume24hUsd = Math.min(Math.max(s.minVolume24hUsd ?? 25000, 5000), 500000);
+  s.maxVolatility24hPercent = Math.min(Math.max(s.maxVolatility24hPercent ?? 400, 100), 1000);
+  s.minVolatility24hPercent = Math.min(Math.max(s.minVolatility24hPercent ?? -30, -80), 50);
   return s;
 }
 
@@ -513,8 +519,24 @@ function resetDailyPnlIfNewDay(user) {
 // Entry filters & cooldown
 // ====================================================
 async function passesEntryFilters(t, settings, blacklist) {
-  if (!settings.useEntryFilters) return true;
+  if (!settings.useEntryFilters && !settings.volumeFilterEnabled && !settings.volatilityFilterEnabled) return true;
   if (blacklist && blacklist.includes(t.tokenAddress)) return false;
+
+  // Volume filter: require min 24h volume (when enabled or useEntryFilters)
+  if ((settings.useEntryFilters || settings.volumeFilterEnabled) && settings.minVolume24hUsd > 0) {
+    const vol = t.volume24h || 0;
+    if (vol < settings.minVolume24hUsd) return false;
+  }
+
+  // Volatility filter: skip tokens outside 24h change range (too flat or too parabolic)
+  if (settings.volatilityFilterEnabled) {
+    const ch24 = t.priceChange24h ?? 0;
+    const maxVol = settings.maxVolatility24hPercent ?? 400;
+    const minVol = settings.minVolatility24hPercent ?? -30;
+    if (ch24 > maxVol) return false;  // too parabolic
+    if (ch24 < minVol) return false;  // dumping
+  }
+
   const max24h = settings.maxPriceChange24hPercent ?? 500;
   if ((t.priceChange24h || 0) >= max24h) return false;
   const minLiq = settings.minLiquidityUsd ?? 25000;
@@ -662,7 +684,8 @@ function shouldSellPosition(pos, currentPrice, settings) {
   if (currentPrice > peakPrice) peakPrice = currentPrice;
 
   if (pnlPct <= -sl) return { sell: true, reason: 'stop_loss', pnlPct };
-  if (pnlPct >= tp) return { sell: true, reason: 'take_profit', pnlPct };
+  // Fixed TP: skip when useTrailingTP (exit profit only via trailing)
+  if (!settings.useTrailingTP && pnlPct >= tp) return { sell: true, reason: 'take_profit', pnlPct };
 
   // Breakeven enforcement: once triggered, sell if price drops back to entry
   if (useBreakeven && pos.breakevenTriggered && pnlPct <= 0) {

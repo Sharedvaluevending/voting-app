@@ -2572,13 +2572,15 @@ app.post('/api/trench-warfare/auto/settings', requireLogin, async (req, res) => 
     if (b.maxOpenPositions !== undefined) user.trenchAuto.maxOpenPositions = Math.max(1, Math.min(15, Number(b.maxOpenPositions)));
     if (b.amountPerTradeUsd !== undefined) user.trenchAuto.amountPerTradeUsd = Math.max(5, Math.min(500, Number(b.amountPerTradeUsd)));
     if (b.amountPerTradeSol !== undefined) user.trenchAuto.amountPerTradeSol = Math.max(0.01, Math.min(1, Number(b.amountPerTradeSol)));
-    if (b.tpPercent !== undefined) user.trenchAuto.tpPercent = Math.max(5, Math.min(50, Number(b.tpPercent)));
-    if (b.slPercent !== undefined) user.trenchAuto.slPercent = Math.max(3, Math.min(30, Number(b.slPercent)));
-    if (b.trailingStopPercent !== undefined) user.trenchAuto.trailingStopPercent = Math.max(3, Math.min(20, Number(b.trailingStopPercent)));
+    const memecoin = (b.strategy || user.trenchAuto?.strategy) === 'memecoin';
+    if (b.tpPercent !== undefined) user.trenchAuto.tpPercent = memecoin ? Math.max(1, Math.min(5, Number(b.tpPercent))) : Math.max(5, Math.min(50, Number(b.tpPercent)));
+    if (b.slPercent !== undefined) user.trenchAuto.slPercent = memecoin ? Math.max(1, Math.min(5, Number(b.slPercent))) : Math.max(3, Math.min(30, Number(b.slPercent)));
+    if (b.trailingStopPercent !== undefined) user.trenchAuto.trailingStopPercent = Math.max(1, Math.min(20, Number(b.trailingStopPercent)));
     if (b.useTrailingStop !== undefined) user.trenchAuto.useTrailingStop = !!b.useTrailingStop;
-    if (b.breakevenAtPercent !== undefined) user.trenchAuto.breakevenAtPercent = Math.max(2, Math.min(15, Number(b.breakevenAtPercent)));
+    if (b.useTrailingTP !== undefined) user.trenchAuto.useTrailingTP = !!b.useTrailingTP;
+    if (b.breakevenAtPercent !== undefined) user.trenchAuto.breakevenAtPercent = Math.max(1, Math.min(15, Number(b.breakevenAtPercent)));
     if (b.useBreakevenStop !== undefined) user.trenchAuto.useBreakevenStop = !!b.useBreakevenStop;
-    if (b.maxHoldMinutes !== undefined) user.trenchAuto.maxHoldMinutes = Math.max(5, Math.min(15, Number(b.maxHoldMinutes)));
+    if (b.maxHoldMinutes !== undefined) user.trenchAuto.maxHoldMinutes = memecoin ? Math.max(2, Math.min(5, Number(b.maxHoldMinutes))) : Math.max(5, Math.min(15, Number(b.maxHoldMinutes)));
     if (b.minLiquidityUsd !== undefined) user.trenchAuto.minLiquidityUsd = Math.max(5000, Math.min(100000, Number(b.minLiquidityUsd)));
     if (b.maxTop10HoldersPercent !== undefined) user.trenchAuto.maxTop10HoldersPercent = Math.max(50, Math.min(100, Number(b.maxTop10HoldersPercent)));
     if (b.maxPriceChange24hPercent !== undefined) user.trenchAuto.maxPriceChange24hPercent = Math.max(100, Math.min(1000, Number(b.maxPriceChange24hPercent)));
@@ -2594,6 +2596,12 @@ app.post('/api/trench-warfare/auto/settings', requireLogin, async (req, res) => 
     if (b.trenchNotifyTradeClose !== undefined) user.trenchAuto.trenchNotifyTradeClose = !!b.trenchNotifyTradeClose;
     if (b.useKellySizing !== undefined) user.trenchAuto.useKellySizing = !!b.useKellySizing;
     if (b.themeFilterEnabled !== undefined) user.trenchAuto.themeFilterEnabled = !!b.themeFilterEnabled;
+    if (b.useTrailingTP !== undefined) user.trenchAuto.useTrailingTP = !!b.useTrailingTP;
+    if (b.volumeFilterEnabled !== undefined) user.trenchAuto.volumeFilterEnabled = !!b.volumeFilterEnabled;
+    if (b.volatilityFilterEnabled !== undefined) user.trenchAuto.volatilityFilterEnabled = !!b.volatilityFilterEnabled;
+    if (b.minVolume24hUsd !== undefined) user.trenchAuto.minVolume24hUsd = Math.max(5000, Math.min(500000, Number(b.minVolume24hUsd) || 25000));
+    if (b.maxVolatility24hPercent !== undefined) user.trenchAuto.maxVolatility24hPercent = Math.max(100, Math.min(1000, Number(b.maxVolatility24hPercent) || 400));
+    if (b.minVolatility24hPercent !== undefined) user.trenchAuto.minVolatility24hPercent = Math.max(-80, Math.min(50, Number(b.minVolatility24hPercent) || -30));
     await user.save();
     res.json({ success: true, trenchAuto: user.trenchAuto });
   } catch (e) {

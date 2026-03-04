@@ -186,6 +186,7 @@
         <div><label style="font-size:11px;color:#6b7280;">Max hold (min)</label><input type="number" id="auto-max-hold" value="<%= (trenchAuto && trenchAuto.maxHoldMinutes) != null ? trenchAuto.maxHoldMinutes : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 10 : 4) %>" min="2" max="15" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <div><label style="font-size:11px;color:#6b7280;">Breakeven at %</label><input type="number" id="auto-breakeven-at" value="<%= (trenchAuto && trenchAuto.breakevenAtPercent) != null ? trenchAuto.breakevenAtPercent : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 5 : 1) %>" min="1" max="15" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-trailing" <%= (trenchAuto && trenchAuto.useTrailingStop !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Trailing stop (adaptive: tight at small gains, wide at big gains)</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-trailing-tp" <%= (trenchAuto && trenchAuto.useTrailingTP) === true ? 'checked' : '' %>><span style="color:#e5e7eb;">Trailing take profit (skip fixed TP, exit only via trailing)</span></label>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-breakeven" <%= (trenchAuto && trenchAuto.useBreakevenStop !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Breakeven stop (locks at entry once profit hits threshold)</span></label>
       </div>
     </details>
@@ -193,10 +194,14 @@
       <summary style="cursor:pointer;color:#9ca3af;font-size:13px;font-weight:600;">Entry Filters</summary>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
         <div><label style="font-size:11px;color:#6b7280;">Min Liq $</label><input type="number" id="auto-min-liq" value="<%= (trenchAuto && trenchAuto.minLiquidityUsd) != null ? trenchAuto.minLiquidityUsd : 10000 %>" min="5000" max="100000" step="1000" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Min Vol 24h $</label><input type="number" id="auto-min-volume" value="<%= (trenchAuto && trenchAuto.minVolume24hUsd) != null ? trenchAuto.minVolume24hUsd : 25000 %>" min="5000" max="500000" step="5000" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <div><label style="font-size:11px;color:#6b7280;">Max Top10 %</label><input type="number" id="auto-max-top10" value="<%= (trenchAuto && trenchAuto.maxTop10HoldersPercent) != null ? trenchAuto.maxTop10HoldersPercent : 80 %>" min="50" max="100" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <div><label style="font-size:11px;color:#6b7280;">Max 24h %</label><input type="number" id="auto-max-24h" value="<%= (trenchAuto && trenchAuto.maxPriceChange24hPercent) != null ? trenchAuto.maxPriceChange24hPercent : 500 %>" min="100" max="1000" step="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <div><label style="font-size:11px;color:#6b7280;">Cooldown (hr)</label><input type="number" id="auto-cooldown" value="<%= (trenchAuto && trenchAuto.cooldownHours) != null ? trenchAuto.cooldownHours : 1 %>" min="0.25" max="4" step="0.25" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-filters" <%= (trenchAuto && trenchAuto.useEntryFilters !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Use entry filters (whale check, liquidity via Mobula)</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-volume-filter" <%= (trenchAuto && trenchAuto.volumeFilterEnabled) === true ? 'checked' : '' %>><span style="color:#e5e7eb;">Volume filter (min 24h volume above)</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-volatility-filter" <%= (trenchAuto && trenchAuto.volatilityFilterEnabled) === true ? 'checked' : '' %>><span style="color:#e5e7eb;">Volatility filter (skip too flat or parabolic)</span></label>
+        <div style="grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:8px;"><div><label style="font-size:11px;color:#6b7280;">Max vol 24h %</label><input type="number" id="auto-max-volatility" value="<%= (trenchAuto && trenchAuto.maxVolatility24hPercent) != null ? trenchAuto.maxVolatility24hPercent : 400 %>" min="100" max="1000" style="width:100%;padding:6px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div><div><label style="font-size:11px;color:#6b7280;">Min vol 24h %</label><input type="number" id="auto-min-volatility" value="<%= (trenchAuto && trenchAuto.minVolatility24hPercent) != null ? trenchAuto.minVolatility24hPercent : -30 %>" min="-80" max="50" style="width:100%;padding:6px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div></div>
       </div>
     </details>
     <details style="margin-top:8px;padding:10px;background:rgba(15,23,42,0.3);border-radius:6px;border:1px solid rgba(30,42,58,0.5);">
@@ -513,14 +518,20 @@
         slPercent: parseFloat(document.getElementById('auto-sl')?.value || 8),
         trailingStopPercent: parseFloat(document.getElementById('auto-trailing')?.value || 5),
         useTrailingStop: document.getElementById('auto-use-trailing')?.checked !== false,
+        useTrailingTP: document.getElementById('auto-use-trailing-tp')?.checked === true,
         breakevenAtPercent: parseFloat(document.getElementById('auto-breakeven-at')?.value || 5),
         useBreakevenStop: document.getElementById('auto-use-breakeven')?.checked !== false,
         maxHoldMinutes: parseInt(document.getElementById('auto-max-hold')?.value || 12, 10),
         minLiquidityUsd: parseFloat(document.getElementById('auto-min-liq')?.value || 10000),
+        minVolume24hUsd: parseFloat(document.getElementById('auto-min-volume')?.value || 25000),
         maxTop10HoldersPercent: parseFloat(document.getElementById('auto-max-top10')?.value || 80),
         maxPriceChange24hPercent: parseFloat(document.getElementById('auto-max-24h')?.value || 500),
         cooldownHours: parseFloat(document.getElementById('auto-cooldown')?.value || 1),
         useEntryFilters: document.getElementById('auto-use-filters')?.checked !== false,
+        volumeFilterEnabled: document.getElementById('auto-volume-filter')?.checked === true,
+        volatilityFilterEnabled: document.getElementById('auto-volatility-filter')?.checked === true,
+        maxVolatility24hPercent: parseFloat(document.getElementById('auto-max-volatility')?.value || 400),
+        minVolatility24hPercent: parseFloat(document.getElementById('auto-min-volatility')?.value || -30),
         maxDailyLossPercent: parseFloat(document.getElementById('auto-max-daily-loss')?.value || 15),
         consecutiveLossesToPause: parseInt(document.getElementById('auto-consec-losses')?.value || 3, 10),
         minSolBalance: parseFloat(document.getElementById('auto-min-sol')?.value || 0.05),
