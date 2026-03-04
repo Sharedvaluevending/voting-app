@@ -116,14 +116,15 @@ function botLog(userId, msg) {
 // ====================================================
 // Quality scoring for candidate tokens
 // ====================================================
-function scoreCandidate(t) {
+function scoreCandidate(t, opts = {}) {
   const change = t.priceChange24h || 0;
   const change5m = t.priceChange5m;
   const change1h = t.priceChange1h || 0;
   const vol = t.volume24h || 0;
   const liq = t.liquidity || 0;
-  const buyPressure = t.buyPressure || 0.5;
-  const organicScore = t.organicScore || 0;
+  const minBuyPressure = opts.minBuyPressure ?? 0.5;
+  const buyPressure = t.buyPressure ?? 0.5;
+  const organicScore = t.organicScore ?? 0;
   const numBuyers1h = t.numBuyers1h || 0;
   const numBuyers5m = t.numBuyers5m || 0;
   const holderCount = t.holderCount || 0;
@@ -147,7 +148,7 @@ function scoreCandidate(t) {
 
   // Must be actively pumping (scalping: 5m or 1h or 24h proxy)
   if (changeShort < minChangeShort) return -1;
-  if (buyPressure < 0.50) return -1;  // was 0.45 - require stronger buy pressure
+  if (buyPressure < minBuyPressure) return -1;
 
   const buyVol5m = t.buyVolume5m || 0;
   const sellVol5m = t.sellVolume5m || 0;
@@ -252,13 +253,14 @@ function scoreCandidate(t) {
 // MEMECOIN: LOOSE scoring - let pumps through, filter by exits
 // Minimal bars: some vol, some liq, not dumping. Score everything else.
 // ====================================================
-function scoreCandidatePumpStart(t) {
+function scoreCandidatePumpStart(t, opts = {}) {
   const change5m = t.priceChange5m;
   const change1h = t.priceChange1h || 0;
   const change24 = t.priceChange24h || 0;
   const vol = t.volume24h || 0;
   const liq = t.liquidity || 0;
-  const buyPressure = t.buyPressure || 0.5;
+  const minBuyPressure = opts.minBuyPressure ?? 0.5;
+  const buyPressure = t.buyPressure ?? 0.5;
   const buyVol5m = t.buyVolume5m || 0;
   const sellVol5m = t.sellVolume5m || 0;
   const buyVol1h = t.buyVolume1h || 0;
@@ -293,7 +295,7 @@ function scoreCandidatePumpStart(t) {
   }
   if (changeShort > 15) return -1;  // memecoin: hard reject >15% 5m (already pumped)
   if (changeShort < 0.5) return -1;  // memecoin: require positive pump signal (reject flat/down)
-  if (changeShort > 0 && buyDominance < 0.4) return -1;  // require buy pressure when pumping
+  if (changeShort > 0 && buyDominance < minBuyPressure) return -1;  // require buy pressure when pumping
   if (avgHourlyVol > 0 && vol1h > 0 && volSurge < 1.0) return -1;  // require volume surge when we have data
   const numBuyers = numBuyers5m > 0 ? numBuyers5m : numBuyers1h;
   if (numBuyers > 0 && numBuyers < 8) return -1;         // require 8+ buyers (organic activity)
@@ -388,9 +390,10 @@ async function fetchTrendingsCached(settings = {}) {
   }
 
   const minScore = intervals.minScore;
+  const minBuyPressure = (settings.minBuyPressure ?? 0.5);
   const scoreFn = memecoin ? scoreCandidatePumpStart : scoreCandidate;
   const scored = Array.from(seen.values()).map(t => {
-    t._qualityScore = scoreFn(t);
+    t._qualityScore = scoreFn(t, { minBuyPressure });
     return t;
   }).filter(t => t._qualityScore >= minScore);
 
@@ -449,6 +452,12 @@ function sanitizeSettings(raw) {
   s.minVolume24hUsd = Math.min(Math.max(s.minVolume24hUsd ?? 25000, 5000), 500000);
   s.maxVolatility24hPercent = Math.min(Math.max(s.maxVolatility24hPercent ?? 400, 100), 1000);
   s.minVolatility24hPercent = Math.min(Math.max(s.minVolatility24hPercent ?? -30, -80), 50);
+  s.minOrganicScore = Math.min(Math.max(s.minOrganicScore ?? 0, 0), 100);
+  s.minPoolAgeMinutes = Math.min(Math.max(s.minPoolAgeMinutes ?? 0, 0), 60);
+  s.tradingHoursStartUTC = Math.min(Math.max(s.tradingHoursStartUTC ?? 0, 0), 23);
+  s.tradingHoursEndUTC = Math.min(Math.max(s.tradingHoursEndUTC ?? 24, 0), 24);
+  s.minProfitToActivateTrail = Math.min(Math.max(s.minProfitToActivateTrail ?? 0, 0), 10);
+  s.minBuyPressure = Math.min(Math.max(s.minBuyPressure ?? 0.5, 0.45), 0.65);
   return s;
 }
 
@@ -535,6 +544,17 @@ async function passesEntryFilters(t, settings, blacklist) {
     const minVol = settings.minVolatility24hPercent ?? -30;
     if (ch24 > maxVol) return false;  // too parabolic
     if (ch24 < minVol) return false;  // dumping
+  }
+
+  // Organic score filter (Jupiter): prefer tokens with organic activity
+  const minOrganic = settings.minOrganicScore ?? 0;
+  if (minOrganic > 0 && typeof t.organicScore === 'number' && t.organicScore < minOrganic) return false;
+
+  // Pool age filter (GeckoTerminal): skip very new pools (honeypot risk)
+  const minPoolAgeMin = settings.minPoolAgeMinutes ?? 0;
+  if (minPoolAgeMin > 0 && t.poolCreatedAt) {
+    const ageMin = (Date.now() - t.poolCreatedAt) / 60000;
+    if (ageMin < minPoolAgeMin) return false;
   }
 
   const max24h = settings.maxPriceChange24hPercent ?? 500;
@@ -719,9 +739,11 @@ function shouldSellPosition(pos, currentPrice, settings) {
     return { sell: true, reason: 'time_limit_hard', pnlPct };
   }
 
-  // Adaptive trailing: use PEAK pnl to determine trail width so it doesn't
-  // tighten during normal pullbacks from a high
-  if (useTrail && pnlPct > 0 && peakPrice > 0) {
+  // Min profit to activate trail: don't trail until we're in profit by X%
+  const minProfitToTrail = settings.minProfitToActivateTrail ?? 0;
+  if (minProfitToTrail > 0 && pnlPct < minProfitToTrail) {
+    // Trail not active yet - skip trailing logic
+  } else if (useTrail && pnlPct > 0 && peakPrice > 0) {
     const peakPnlPct = ((peakPrice - entry) / entry) * 100;
     const adaptiveTrail = getAdaptiveTrail(peakPnlPct, baseTrail, memecoin);
     const dropFromPeak = ((peakPrice - currentPrice) / peakPrice) * 100;
@@ -999,6 +1021,18 @@ async function _entryTickInner(userId) {
 
   const user = await User.findById(userId);
   if (!user) { stopBot(userId); return; }
+
+  // Time-of-day filter: only scan during allowed hours (UTC)
+  const raw = user.trenchAuto || {};
+  const startH = raw.tradingHoursStartUTC ?? 0;
+  const endH = raw.tradingHoursEndUTC ?? 24;
+  if (startH > 0 || endH < 24) {
+    const hourUTC = new Date().getUTCHours();
+    const inRange = endH > startH
+      ? (hourUTC >= startH && hourUTC < endH)
+      : (hourUTC >= startH || hourUTC < endH);
+    if (!inRange) return;  // Outside trading hours
+  }
 
   const rawSettings = user.trenchAuto || {};
   const settings = sanitizeSettings(rawSettings);

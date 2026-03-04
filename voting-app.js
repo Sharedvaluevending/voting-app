@@ -2757,6 +2757,12 @@ app.post('/api/trench-warfare/auto/settings', requireLogin, async (req, res) => 
     if (b.minVolume24hUsd !== undefined) user.trenchAuto.minVolume24hUsd = Math.max(5000, Math.min(500000, Number(b.minVolume24hUsd) || 25000));
     if (b.maxVolatility24hPercent !== undefined) user.trenchAuto.maxVolatility24hPercent = Math.max(100, Math.min(1000, Number(b.maxVolatility24hPercent) || 400));
     if (b.minVolatility24hPercent !== undefined) user.trenchAuto.minVolatility24hPercent = Math.max(-80, Math.min(50, Number(b.minVolatility24hPercent) || -30));
+    if (b.minOrganicScore !== undefined) user.trenchAuto.minOrganicScore = Math.max(0, Math.min(100, Number(b.minOrganicScore) || 0));
+    if (b.minPoolAgeMinutes !== undefined) user.trenchAuto.minPoolAgeMinutes = Math.max(0, Math.min(60, Number(b.minPoolAgeMinutes) || 0));
+    if (b.tradingHoursStartUTC !== undefined) user.trenchAuto.tradingHoursStartUTC = Math.max(0, Math.min(23, Number(b.tradingHoursStartUTC) || 0));
+    if (b.tradingHoursEndUTC !== undefined) user.trenchAuto.tradingHoursEndUTC = Math.max(0, Math.min(24, Number(b.tradingHoursEndUTC) || 24));
+    if (b.minProfitToActivateTrail !== undefined) user.trenchAuto.minProfitToActivateTrail = Math.max(0, Math.min(10, Number(b.minProfitToActivateTrail) || 0));
+    if (b.minBuyPressure !== undefined) user.trenchAuto.minBuyPressure = Math.max(0.45, Math.min(0.65, Number(b.minBuyPressure) || 0.5));
     await user.save();
     res.json({ success: true, trenchAuto: user.trenchAuto });
   } catch (e) {

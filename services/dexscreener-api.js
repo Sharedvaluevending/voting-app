@@ -176,6 +176,7 @@ async function fetchGeckoTerminalPools(endpoint, maxPages = 3) {
         const priceChange1h = parseFloat(a.price_change_percentage?.h1);
         const priceChange5m = parseFloat(a.price_change_percentage?.m5);
         const volume1h = parseFloat(a.volume_usd?.h1) || 0;
+        const poolCreatedAt = a.pool_created_at ? new Date(a.pool_created_at).getTime() : null;
         tokens.push({
           tokenAddress: addr,
           symbol: a.name ? a.name.split(' / ')[0] || '?' : '?',
@@ -187,6 +188,7 @@ async function fetchGeckoTerminalPools(endpoint, maxPages = 3) {
           volume24h: parseFloat(a.volume_usd?.h24) || 0,
           volume1h: volume1h > 0 ? volume1h : undefined,
           liquidity: parseFloat(a.reserve_in_usd) || 0,
+          poolCreatedAt,
           trendingScore: 1,
           source: 'geckoterminal'
         });

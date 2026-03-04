@@ -8,6 +8,15 @@
 - **Chart links**: Open Positions, Trade History, Meme Market Explorer – all link to our chart page
 - **Block (blacklist)**: Quick blacklist button on each open position – bot skips token in future scans
 
+## Profit-focused filters & controls (latest)
+
+- **Organic score filter**: Min Jupiter organic score (0=disabled); prefer tokens with organic activity
+- **Pool age filter**: Min pool age in minutes (GeckoTerminal); skip very new pools (honeypot risk)
+- **Min buy pressure**: Configurable 45–65% (default 50%); require buy volume dominance
+- **Time-of-day filter**: Trading hours start/end (UTC); only scan during allowed hours
+- **Min profit to activate trail**: Only activate trailing stop after X% profit (0=always)
+- **Pre-buy checklist**: Rugcheck.xyz link in buy modal before confirming
+
 ## Platform trading features (main app) vs Trench
 
 | Feature | Main (CEX) | Trench (DEX) |
