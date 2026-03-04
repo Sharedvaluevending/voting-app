@@ -1,5 +1,74 @@
 <%- include('partials/header') %>
 
+<style>
+/* Setups page – mobile friendly */
+.setups-page .section-header h2 { font-size: 20px; }
+.setups-page .section-header p { font-size: 12px; }
+.setups-page .section { padding: 14px; }
+.setups-page .data-table th,
+.setups-page .data-table td { padding: 10px 12px; }
+.setups-page .btn, .setups-page .btn-sm { min-height: 44px; touch-action: manipulation; }
+.setups-page .btn-sm { padding: 8px 12px; }
+
+/* Modal mobile */
+#setup-backtest-modal {
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  align-items: flex-start;
+  -webkit-overflow-scrolling: touch;
+}
+#setup-backtest-modal > div { margin: 12px auto; max-height: calc(100vh - 24px); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+/* Backtest form – stack on mobile */
+.setups-page .bt-form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.setups-page .bt-form-options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.setups-page .bt-date-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.setups-page .bt-form-actions { display: flex; gap: 8px; margin-top: 4px; }
+.setups-page .bt-form-actions .btn { flex: 1; }
+
+@media (max-width: 768px) {
+  .setups-page .section-header h2 { font-size: 18px; }
+  .setups-page .section-header p { font-size: 12px; margin-top: 4px; }
+  .setups-page .section { padding: 12px; margin-bottom: 16px; }
+  .setups-page .section h3 { font-size: 13px; margin-bottom: 10px; }
+  #setup-backtest-modal { padding: 8px; align-items: flex-start; }
+  #setup-backtest-modal > div { padding: 16px; max-width: 100%; }
+  .setups-page .bt-form-grid-2 { grid-template-columns: 1fr; }
+  .setups-page .bt-form-options-grid,
+  .setups-page .bt-options-grid-2 { grid-template-columns: 1fr; }
+  .setups-page .bt-form-actions { flex-direction: column; }
+  .setups-page .bt-form-actions .btn { width: 100%; }
+  #bt-summary { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .setups-page .setup-actions { flex-direction: column; }
+  .setups-page .setup-actions .btn { width: 100%; }
+}
+
+@media (max-width: 600px) {
+  .setups-page .section-header h2 { font-size: 16px; }
+  .setups-page .section { padding: 10px; }
+  .setups-page .data-table:not(.table-scroll-mobile) { display: block; }
+  .setups-page .data-table:not(.table-scroll-mobile) thead { display: none; }
+  .setups-page .data-table:not(.table-scroll-mobile) tbody tr {
+    display: block; margin-bottom: 12px; padding: 12px;
+    background: rgba(15,23,42,0.5); border: 1px solid #1e2a3a; border-radius: 8px;
+  }
+  .setups-page .data-table:not(.table-scroll-mobile) tbody td {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; border: none; font-size: 13px;
+  }
+  .setups-page .data-table:not(.table-scroll-mobile) tbody td[data-label]:not([data-label=""])::before {
+    content: attr(data-label); font-size: 11px; color: #6b7280; text-transform: uppercase; margin-right: 8px;
+  }
+  .setups-page .data-table:not(.table-scroll-mobile) tbody td:first-child { flex-direction: column; align-items: flex-start; gap: 4px; padding-top: 0; }
+  .setups-page .data-table:not(.table-scroll-mobile) tbody td:first-child::before { display: none; }
+  .setups-page .data-table:not(.table-scroll-mobile) tbody td:last-child { flex-wrap: wrap; gap: 8px; padding-top: 10px; border-top: 1px solid #1e2a3a; }
+  .setups-page .data-table:not(.table-scroll-mobile) tbody td:last-child::before { display: none; }
+  .setups-page .data-table:not(.table-scroll-mobile) tbody td:last-child .btn { flex: 1; min-width: 0; }
+  #bt-summary { grid-template-columns: 1fr; }
+}
+
+</style>
+
+<div class="setups-page main-content-inner">
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Setups</h2>
   <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Smart Money Concepts (SMC) trade scenarios. Pick a setup to backtest, run live/paper, or scan the market for active setups.</p>
@@ -27,7 +96,7 @@
     <h3 style="color:#10b981;margin:0 0 12px 0;font-size:14px;">LLM Found Setups</h3>
     <button type="button" id="mark-all-seen" class="btn btn-outline btn-sm" style="padding:6px 10px;">Mark all seen</button>
   </div>
-  <table class="data-table" style="background:rgba(15,23,42,0.4);">
+  <table class="data-table setup-notif-table" style="background:rgba(15,23,42,0.4);">
     <thead>
       <tr style="border-bottom:1px solid #334155;">
         <th style="text-align:left;padding:12px 16px;color:#9ca3af;">Coin</th>
@@ -60,13 +129,13 @@
         })() : '—';
       %>
       <tr style="border-bottom:1px solid rgba(30,42,58,0.5);" data-notif-id="<%= n._id %>" class="<%= n.seenAt ? '' : 'setup-notif-unread' %>">
-        <td style="padding:12px 16px;"><a href="/coin/<%= n.coinId %>" style="color:#3b82f6;"><%= n.coinId %></a></td>
-        <td style="padding:12px 16px;color:#e5e7eb;"><%= n.setupName %></td>
-        <td style="text-align:center;padding:12px 16px;"><span style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:<%= n.direction === 'LONG' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' %>;color:<%= n.direction === 'LONG' ? '#10b981' : '#ef4444' %>;"><%= n.direction %></span></td>
-        <td style="text-align:center;padding:12px 16px;color:#9ca3af;"><%= n.score != null ? n.score : '—' %></td>
-        <td style="text-align:center;padding:12px 16px;color:#6b7280;font-size:11px;"><%= sourceLabel %></td>
-        <td style="text-align:center;padding:12px 16px;color:#6b7280;font-size:11px;"><%= timeAgo %></td>
-        <td style="padding:12px 16px;">
+        <td style="padding:12px 16px;" data-label="Coin"><a href="/coin/<%= n.coinId %>" style="color:#3b82f6;"><%= n.coinId %></a></td>
+        <td style="padding:12px 16px;color:#e5e7eb;" data-label="Setup"><%= n.setupName %></td>
+        <td style="text-align:center;padding:12px 16px;" data-label="Dir"><span style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:<%= n.direction === 'LONG' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' %>;color:<%= n.direction === 'LONG' ? '#10b981' : '#ef4444' %>;"><%= n.direction %></span></td>
+        <td style="text-align:center;padding:12px 16px;color:#9ca3af;" data-label="Score"><%= n.score != null ? n.score : '—' %></td>
+        <td style="text-align:center;padding:12px 16px;color:#6b7280;font-size:11px;" data-label="Source"><%= sourceLabel %></td>
+        <td style="text-align:center;padding:12px 16px;color:#6b7280;font-size:11px;" data-label="Time"><%= timeAgo %></td>
+        <td style="padding:12px 16px;" data-label="">
           <a href="<%= chartHref %>" class="btn btn-outline btn-sm" style="padding:4px 8px;">View Chart</a>
           <% if (!n.seenAt) { %><button type="button" class="btn btn-outline btn-sm mark-seen" data-id="<%= n._id %>" style="padding:4px 8px;margin-left:4px;">Seen</button><% } %>
         </td>
@@ -79,7 +148,7 @@
 
 <div class="section" style="margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;overflow-x:auto;backdrop-filter:blur(8px);">
   <h3 style="color:#e5e7eb;margin:0 0 12px 0;padding:16px 16px 0;">Setup List</h3>
-  <table class="data-table" style="background:rgba(15,23,42,0.4);">
+  <table class="data-table setup-list-table" style="background:rgba(15,23,42,0.4);">
     <thead>
       <tr style="border-bottom:1px solid #334155;">
         <th style="text-align:left;padding:12px 16px;color:#9ca3af;">Setup</th>
@@ -101,19 +170,19 @@
         var isEnabled = (user && user.settings && user.settings.autoTradeSetupIds || []).indexOf(s.id) >= 0;
       %>
       <tr style="border-bottom:1px solid rgba(30,42,58,0.5);" data-setup-id="<%= s.id %>">
-        <td style="padding:12px 16px;">
+        <td style="padding:12px 16px;" data-label="">
           <div style="font-weight:600;color:#e5e7eb;"><%= s.name %></div>
           <div style="font-size:11px;color:#6b7280;margin-top:2px;"><%= s.description %></div>
         </td>
-        <td style="text-align:center;padding:12px 16px;">
+        <td style="text-align:center;padding:12px 16px;" data-label="Dir">
           <span style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:<%= s.direction === 'LONG' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' %>;color:<%= s.direction === 'LONG' ? '#10b981' : '#ef4444' %>;"><%= s.direction %></span>
         </td>
-        <td style="text-align:center;padding:12px 16px;color:<%= wr !== '—' && parseFloat(wr) > 50 ? '#10b981' : wr !== '—' ? '#eab308' : '#6b7280' %>;font-weight:600;"><%= wr %><%= wr !== '—' ? '%' : '' %></td>
-        <td style="text-align:center;padding:12px 16px;color:<%= roi !== '—' && roi.indexOf('+') >= 0 ? '#10b981' : roi !== '—' ? '#ef4444' : '#6b7280' %>;"><%= roi %></td>
-        <td style="text-align:center;padding:12px 16px;color:#eab308;"><%= dd %></td>
-        <td style="text-align:center;padding:12px 16px;color:#9ca3af;"><%= trades %></td>
-        <td style="padding:12px 16px;">
-          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <td style="text-align:center;padding:12px 16px;color:<%= wr !== '—' && parseFloat(wr) > 50 ? '#10b981' : wr !== '—' ? '#eab308' : '#6b7280' %>;font-weight:600;" data-label="Win Rate"><%= wr %><%= wr !== '—' ? '%' : '' %></td>
+        <td style="text-align:center;padding:12px 16px;color:<%= roi !== '—' && roi.indexOf('+') >= 0 ? '#10b981' : roi !== '—' ? '#ef4444' : '#6b7280' %>;" data-label="ROI"><%= roi %></td>
+        <td style="text-align:center;padding:12px 16px;color:#eab308;" data-label="Max DD"><%= dd %></td>
+        <td style="text-align:center;padding:12px 16px;color:#9ca3af;" data-label="Trades"><%= trades %></td>
+        <td style="padding:12px 16px;" data-label="">
+          <div class="setup-actions" style="display:flex;gap:6px;flex-wrap:wrap;">
             <button type="button" class="btn btn-outline btn-sm setup-backtest" data-id="<%= s.id %>" data-name="<%= s.name %>" style="padding:6px 10px;">Backtest</button>
             <button type="button" class="btn btn-outline btn-sm setup-scan" data-id="<%= s.id %>" style="padding:6px 10px;">Scan</button>
             <% if (typeof user !== 'undefined' && user) { %>
@@ -156,7 +225,7 @@
       </div>
 
       <!-- Date range -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="bt-form-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
         <div>
           <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Start</label>
           <input type="date" id="bt-start" name="startDate" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
@@ -166,7 +235,7 @@
           <input type="date" id="bt-end" name="endDate" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
         </div>
       </div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <div class="bt-date-btns" style="display:flex;gap:6px;flex-wrap:wrap;">
         <button type="button" id="bt-30d" class="btn btn-outline btn-sm">30d</button>
         <button type="button" id="bt-90d" class="btn btn-outline btn-sm">90d</button>
         <button type="button" id="bt-180d" class="btn btn-outline btn-sm">180d</button>
@@ -185,11 +254,11 @@
       </div>
 
       <!-- Feature Options -->
-      <div style="padding:12px 14px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;display:grid;gap:12px;">
+      <div class="bt-form-options-grid" style="padding:12px 14px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;display:grid;gap:12px;">
         <div style="font-size:12px;font-weight:600;color:#e5e7eb;">Options</div>
 
         <!-- Row 1: Exit mode -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" class="bt-options-grid-2">
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:12px;">
             <input type="checkbox" id="bt-opt-partialtp" checked>
             <span style="padding:1px 5px;background:rgba(16,185,129,0.15);color:#10b981;border-radius:4px;font-size:10px;font-weight:700;">TP</span> Partial TPs (40/30/30)
@@ -212,7 +281,7 @@
         <!-- Row 2: Stop management -->
         <div style="border-top:1px solid #1e2a3a;padding-top:10px;display:grid;gap:8px;">
           <div style="font-size:11px;font-weight:600;color:#9ca3af;letter-spacing:.5px;text-transform:uppercase;">Stop Management</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" class="bt-options-grid-2">
             <div>
               <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:12px;">
                 <input type="checkbox" id="bt-opt-breakeven" onchange="document.getElementById('bt-be-atr-wrap').style.display=this.checked?'flex':'none'">
@@ -241,7 +310,7 @@
         <!-- Row 3: Entry Filters -->
         <div style="border-top:1px solid #1e2a3a;padding-top:10px;display:grid;gap:8px;">
           <div style="font-size:11px;font-weight:600;color:#9ca3af;letter-spacing:.5px;text-transform:uppercase;">Entry Filters</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" class="bt-options-grid-2">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:12px;">
               <input type="checkbox" id="bt-opt-htf" checked>
               <span style="padding:1px 5px;background:rgba(139,92,246,0.15);color:#a78bfa;border-radius:4px;font-size:10px;font-weight:700;">HTF</span> 4H Bias Filter
@@ -271,7 +340,7 @@
         </div>
       </div>
 
-      <div style="display:flex;gap:8px;margin-top:4px;">
+      <div class="bt-form-actions" style="display:flex;gap:8px;margin-top:4px;">
         <button type="submit" class="btn btn-primary" id="bt-run" style="flex:1;">Run Backtest</button>
         <button type="button" class="btn btn-outline" id="bt-close">Cancel</button>
       </div>
@@ -291,7 +360,7 @@
   <div id="bt-percoin-section" style="display:none;margin-bottom:16px;">
     <h4 style="color:#e5e7eb;font-size:13px;margin:0 0 8px 0;">Per-Coin Breakdown</h4>
     <div style="overflow-x:auto;max-height:220px;overflow-y:auto;">
-      <table class="data-table" style="background:rgba(15,23,42,0.4);">
+      <table class="data-table table-scroll-mobile" style="background:rgba(15,23,42,0.4);">
         <thead><tr><th>Coin</th><th>Trades</th><th>Win %</th><th>PnL</th><th>ROI %</th><th>PF</th></tr></thead>
         <tbody id="bt-percoin-body"></tbody>
       </table>
@@ -301,7 +370,7 @@
   <!-- Trade list -->
   <h4 style="color:#e5e7eb;font-size:13px;margin:0 0 8px 0;" id="bt-trades-title">Recent Trades</h4>
   <div style="max-height:240px;overflow-y:auto;">
-    <table class="data-table" style="background:rgba(15,23,42,0.4);">
+    <table class="data-table table-scroll-mobile" style="background:rgba(15,23,42,0.4);">
       <thead><tr><th>#</th><th>Date</th><th>Coin</th><th>Dir</th><th>Entry</th><th>Exit</th><th>Reason</th><th>PnL</th></tr></thead>
       <tbody id="bt-trades"></tbody>
     </table>
@@ -313,7 +382,7 @@
   <h3 style="color:#e5e7eb;margin:0 0 12px 0;">Market Scan Results</h3>
   <p id="scan-status" style="font-size:12px;color:#9ca3af;margin-bottom:12px;">Scanning...</p>
   <div style="overflow-x:auto;">
-    <table class="data-table" style="background:rgba(15,23,42,0.4);">
+    <table class="data-table table-scroll-mobile" style="background:rgba(15,23,42,0.4);">
       <thead><tr><th>Coin</th><th>Setup</th><th>Score</th><th>4h Bias</th><th>Ready</th><th>Chart</th></tr></thead>
       <tbody id="scan-tbody"></tbody>
     </table>
@@ -321,6 +390,8 @@
 </div>
 
 <div id="setup-error" style="display:none;padding:12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;color:#ef4444;margin-top:16px;"></div>
+
+</div><!-- .setups-page -->
 
 <script>
 (function() {
