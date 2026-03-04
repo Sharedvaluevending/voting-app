@@ -621,8 +621,7 @@ async function _closeTradeInner(userId, tradeId, trade, currentPrice, reason) {
     console.error(`[Bitget] Live close error: ${bitgetErr.message}`);
   }
 
-  // Push/SMS notification
-  const user = await User.findById(userId).select('settings pushSubscriptions phoneSmsEmail').lean();
+  // Push/SMS notification (reuse user from start of function)
   if (user && (user.settings?.notifyTradeClose !== false)) {
     const pnl = trade.pnl != null ? trade.pnl.toFixed(2) : '0';
     const pnlSign = (trade.pnl || 0) >= 0 ? '+' : '';
