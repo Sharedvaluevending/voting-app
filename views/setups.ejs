@@ -461,6 +461,39 @@
     };
     if (!isMulti) payload.coinId = document.getElementById('bt-coin').value;
 
+    function pollSetupJob(jobId) {
+      return new Promise(function(resolve, reject) {
+        var start = Date.now();
+        var interval = 2000;
+        function tick() {
+          fetch('/api/backtest/status/' + jobId, { credentials: 'same-origin' })
+            .then(function(r) {
+              if (r.status === 404) throw new Error('Job expired. Please try again.');
+              var ct = r.headers.get('content-type') || '';
+              if (!ct.includes('application/json')) throw new Error('Unexpected server response');
+              return r.json();
+            })
+            .then(function(d) {
+              if (d.status === 'running') {
+                btn.textContent = d.progress || ('Running... ' + (d.elapsed || 0) + 's');
+                if (Date.now() - start > 600000) return reject(new Error('Backtest timed out after 10 minutes.'));
+                if (interval < 5000) interval += 500;
+                setTimeout(tick, interval);
+              } else if (d.error) {
+                reject(new Error(d.error));
+              } else {
+                resolve(d);
+              }
+            })
+            .catch(function(e) {
+              if (Date.now() - start > 600000) return reject(e);
+              setTimeout(tick, interval);
+            });
+        }
+        setTimeout(tick, interval);
+      });
+    }
+
     fetch('/api/setups/backtest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
@@ -475,6 +508,14 @@
         throw new Error(msg);
       }
       return r.json();
+    })
+    .then(function(data) {
+      if (data.error) throw new Error(data.error);
+      if (data.jobId) {
+        btn.textContent = 'Running on ' + (data.coins || []).length + ' coins...';
+        return pollSetupJob(data.jobId);
+      }
+      return data;
     })
     .then(function(data) {
       if (data.error) throw new Error(data.error);

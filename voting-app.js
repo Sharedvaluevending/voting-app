@@ -2189,68 +2189,103 @@ app.post('/api/setups/backtest', async (req, res) => {
     const { runSetupBacktest } = require('./services/smc-backtest');
 
     if (multiCoin === true || multiCoin === 'true') {
-      // Run on all tracked coins in parallel, aggregate results
+      const SMC_BATCH_SIZE = 3;
+      const SMC_PER_COIN_TIMEOUT = 120000;
       const coins = TRACKED_COINS.slice(0, 40);
-      const results = await Promise.allSettled(
-        coins.map(cid => runSetupBacktest(cid, setupId, startMs, endMs, { ...btOpts }))
-      );
 
-      const allTrades = [];
-      const perCoin = [];
-      const totalEquity = 10000 * coins.length;
-      let totalPnl = 0;
-
-      for (let i = 0; i < results.length; i++) {
-        const r = results[i];
-        const cid = coins[i];
-        if (r.status === 'rejected' || r.value?.error) continue;
-        const v = r.value;
-        const s = v.summary || {};
-        if (s.totalTrades > 0) {
-          allTrades.push(...(v.trades || []).map(t => ({ ...t, coinId: cid })));
-          totalPnl += s.totalPnl || 0;
-          perCoin.push({ coinId: cid, ...s });
-        }
-      }
-
-      const wins = allTrades.filter(t => t.pnl > 0).length;
-      const losses = allTrades.filter(t => t.pnl <= 0).length;
-      const grossProfit = allTrades.filter(t => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
-      const grossLoss = Math.abs(allTrades.filter(t => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
-      const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999 : 0);
-      const finalBalance = totalEquity + totalPnl;
-
-      // Build combined equity curve for max drawdown (trades sorted by exit time, each coin ran with 10k)
-      const { computeMaxDrawdownPct } = require('./services/backtest/analytics');
-      const sortedByExit = [...allTrades].sort((a, b) => (a.exitTime || 0) - (b.exitTime || 0));
-      const equityCurve = [{ equity: totalEquity, date: 0 }];
-      let eq = totalEquity;
-      for (const t of sortedByExit) {
-        eq += t.pnl || 0;
-        equityCurve.push({ equity: Math.max(0, eq), date: t.exitTime || 0 });
-      }
-      const maxDrawdownPct = equityCurve.length > 1 ? computeMaxDrawdownPct(equityCurve) : 0;
-
-      const summary = {
-        totalTrades: allTrades.length,
-        wins,
-        losses,
-        winRate: allTrades.length > 0 ? (wins / allTrades.length) * 100 : 0,
-        totalPnl,
-        totalPnlPercent: (totalPnl / totalEquity) * 100,
-        profitFactor,
-        maxDrawdownPct,
-        initialBalance: totalEquity,
-        finalBalance,
-        setupId,
-        coinsRun: coins.length,
-        coinsWithTrades: perCoin.length
+      const jobId = crypto.randomBytes(12).toString('hex');
+      const job = {
+        id: jobId,
+        status: 'running',
+        progress: `Starting SMC backtest for ${coins.length} coin(s)...`,
+        coins,
+        createdAt: Date.now(),
+        result: null,
+        error: null
       };
+      backtestJobs.set(jobId, job);
 
-      return res.json({ success: true, summary, trades: allTrades.slice(0, 500), perCoin, multiCoin: true });
+      (async () => {
+        try {
+          const allTrades = [];
+          const perCoin = [];
+          const totalEquity = 10000 * coins.length;
+          let totalPnl = 0;
+          let completed = 0;
+
+          for (let i = 0; i < coins.length; i += SMC_BATCH_SIZE) {
+            const batch = coins.slice(i, i + SMC_BATCH_SIZE);
+            const batchResults = await Promise.allSettled(
+              batch.map(cid =>
+                Promise.race([
+                  runSetupBacktest(cid, setupId, startMs, endMs, { ...btOpts }),
+                  new Promise((_, rej) => setTimeout(() => rej(new Error(`Timeout: ${cid}`)), SMC_PER_COIN_TIMEOUT))
+                ])
+              )
+            );
+
+            for (let j = 0; j < batchResults.length; j++) {
+              completed++;
+              const r = batchResults[j];
+              const cid = batch[j];
+              if (r.status === 'rejected' || r.value?.error) continue;
+              const v = r.value;
+              const s = v.summary || {};
+              if (s.totalTrades > 0) {
+                allTrades.push(...(v.trades || []).map(t => ({ ...t, coinId: cid })));
+                totalPnl += s.totalPnl || 0;
+                perCoin.push({ coinId: cid, ...s });
+              }
+            }
+            job.progress = `Processed ${completed}/${coins.length} coins...`;
+            if (i + SMC_BATCH_SIZE < coins.length) await new Promise(r => setTimeout(r, 300));
+          }
+
+          const wins = allTrades.filter(t => t.pnl > 0).length;
+          const losses = allTrades.filter(t => t.pnl <= 0).length;
+          const grossProfit = allTrades.filter(t => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
+          const grossLoss = Math.abs(allTrades.filter(t => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
+          const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 999 : 0);
+          const finalBalance = totalEquity + totalPnl;
+
+          const { computeMaxDrawdownPct } = require('./services/backtest/analytics');
+          const sortedByExit = [...allTrades].sort((a, b) => (a.exitTime || 0) - (b.exitTime || 0));
+          const equityCurve = [{ equity: totalEquity, date: 0 }];
+          let eq = totalEquity;
+          for (const t of sortedByExit) {
+            eq += t.pnl || 0;
+            equityCurve.push({ equity: Math.max(0, eq), date: t.exitTime || 0 });
+          }
+          const maxDrawdownPct = equityCurve.length > 1 ? computeMaxDrawdownPct(equityCurve) : 0;
+
+          job.status = 'done';
+          job.progress = 'Complete';
+          job.result = {
+            success: true,
+            summary: {
+              totalTrades: allTrades.length, wins, losses,
+              winRate: allTrades.length > 0 ? (wins / allTrades.length) * 100 : 0,
+              totalPnl, totalPnlPercent: (totalPnl / totalEquity) * 100,
+              profitFactor, maxDrawdownPct,
+              initialBalance: totalEquity, finalBalance,
+              setupId, coinsRun: coins.length, coinsWithTrades: perCoin.length
+            },
+            trades: allTrades.slice(0, 500), perCoin, multiCoin: true
+          };
+          job.finishedAt = Date.now();
+          console.log(`[SMC-Backtest] Job ${jobId} completed in ${((job.finishedAt - job.createdAt) / 1000).toFixed(1)}s`);
+        } catch (err) {
+          job.status = 'error';
+          job.error = err.message || 'SMC backtest failed';
+          job.finishedAt = Date.now();
+          console.error(`[SMC-Backtest] Job ${jobId} failed:`, err.message);
+        }
+      })();
+
+      return res.json({ jobId, status: 'running', coins });
     }
 
-    // Single coin
+    // Single coin — fast enough to run inline
     const cid = coinId || 'bitcoin';
     const result = await runSetupBacktest(cid, setupId, startMs, endMs, btOpts);
     if (result.error) return res.status(400).json({ error: result.error });
@@ -3285,8 +3320,18 @@ app.get('/api/connectivity-test', async (req, res) => {
 // Keep old route as alias
 app.get('/api/bitget-test', (req, res) => res.redirect('/api/connectivity-test'));
 
-// Backtest API (historical simulation)
-// When user is logged in: uses strategy weights, excluded coins (live parity)
+// Backtest job queue — runs backtests in background to avoid gateway timeouts
+const backtestJobs = new Map();
+const BACKTEST_JOB_TTL = 30 * 60 * 1000; // keep results for 30 min
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, job] of backtestJobs) {
+    if (now - job.createdAt > BACKTEST_JOB_TTL) backtestJobs.delete(id);
+  }
+}, 5 * 60 * 1000);
+
+// Backtest API (historical simulation) — async background job pattern
+// POST starts the job and returns a jobId; client polls GET /api/backtest/status/:jobId
 app.post('/api/backtest', async (req, res) => {
   try {
     const { coinId, startDate, endDate, coins, minScore, leverage, features, primaryTf } = req.body || {};
@@ -3302,11 +3347,9 @@ app.post('/api/backtest', async (req, res) => {
     }
     let coinsToRun = coins && Array.isArray(coins) ? coins : (coinId ? [coinId] : undefined);
     if (!coinsToRun && TRACKED_COINS) {
-      // Limit to 3 coins by default to stay under typical 30s hosting timeout (Render, etc.)
       coinsToRun = TRACKED_COINS.slice(0, 3);
     }
 
-    // Fetch user settings when logged in (strategy weights, excluded coins, coin weights, maxOpenTrades)
     let strategyWeights = [];
     let strategyStats = {};
     let excludedCoins = [];
@@ -3334,7 +3377,6 @@ app.post('/api/backtest', async (req, res) => {
       });
     } catch (e) { /* DB may be unavailable */ }
 
-    // Filter out excluded coins (matches live/paper)
     if (excludedCoins.length > 0) {
       const excludeSet = new Set(excludedCoins);
       coinsToRun = coinsToRun.filter(c => !excludeSet.has(c));
@@ -3359,12 +3401,58 @@ app.post('/api/backtest', async (req, res) => {
       maxOpenTrades,
       coinWeightStrength
     };
-    const result = await runBacktest(startMs, endMs, options);
-    res.json({ success: true, ...result });
+
+    const jobId = crypto.randomBytes(12).toString('hex');
+    const job = {
+      id: jobId,
+      status: 'running',
+      progress: `Starting backtest for ${coinsToRun.length} coin(s)...`,
+      coins: coinsToRun,
+      createdAt: Date.now(),
+      result: null,
+      error: null
+    };
+    backtestJobs.set(jobId, job);
+
+    runBacktest(startMs, endMs, options)
+      .then(result => {
+        job.status = 'done';
+        job.progress = 'Complete';
+        job.result = { success: true, ...result };
+        job.finishedAt = Date.now();
+        console.log(`[Backtest] Job ${jobId} completed in ${((job.finishedAt - job.createdAt) / 1000).toFixed(1)}s`);
+      })
+      .catch(err => {
+        job.status = 'error';
+        job.error = err.message || 'Backtest failed';
+        job.finishedAt = Date.now();
+        console.error(`[Backtest] Job ${jobId} failed:`, err.message);
+      });
+
+    res.json({ jobId, status: 'running', coins: coinsToRun });
   } catch (err) {
-    console.error('[Backtest] Error:', err);
+    console.error('[Backtest] Error starting job:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+app.get('/api/backtest/status/:jobId', (req, res) => {
+  const job = backtestJobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Job not found or expired' });
+
+  if (job.status === 'done') {
+    const result = job.result;
+    backtestJobs.delete(job.id);
+    return res.json(result);
+  }
+  if (job.status === 'error') {
+    const error = job.error;
+    backtestJobs.delete(job.id);
+    return res.status(500).json({ error });
+  }
+
+  const elapsed = ((Date.now() - job.createdAt) / 1000).toFixed(0);
+  res.json({ status: 'running', progress: job.progress, elapsed: Number(elapsed), coins: job.coins });
 });
 
 // ====================================================

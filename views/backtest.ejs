@@ -379,7 +379,8 @@
 <!-- Loading -->
 <div id="backtest-loading" class="section" style="display:none;text-align:center;padding:40px;">
   <div style="font-size:32px;margin-bottom:12px;animation:pulse 1.5s infinite;">&#x23F3;</div>
-  <p style="color:#9ca3af;">Fetching historical candles and simulating trades...</p>
+  <p id="bt-progress-text" style="color:#9ca3af;">Starting backtest...</p>
+  <p id="bt-elapsed-text" style="color:#6b7280;font-size:13px;margin-top:4px;"></p>
 </div>
 
 <!-- Error banner (shown instead of cryptic JSON parse errors) -->
@@ -799,35 +800,65 @@ function loadLiveSettings() {
     document.getElementById('bt-risk-dollar-wrap').style.display = isDollar ? '' : 'none';
   });
 
+  function updateProgress(msg, elapsed) {
+    var el = document.getElementById('bt-progress-text');
+    var elapsedEl = document.getElementById('bt-elapsed-text');
+    if (el) el.textContent = msg || 'Running backtest...';
+    if (elapsedEl) elapsedEl.textContent = elapsed != null ? ('Elapsed: ' + elapsed + 's') : '';
+  }
+
+  async function pollBacktestJob(jobId, maxWaitMs) {
+    maxWaitMs = maxWaitMs || 600000; // 10 min max
+    var start = Date.now();
+    var pollInterval = 2000;
+    while (Date.now() - start < maxWaitMs) {
+      await new Promise(function(r) { setTimeout(r, pollInterval); });
+      if (pollInterval < 5000) pollInterval += 500;
+      var res;
+      try {
+        res = await fetch('/api/backtest/status/' + jobId, { credentials: 'same-origin' });
+      } catch (e) {
+        updateProgress('Connection lost, retrying...');
+        continue;
+      }
+      if (res.status === 404) throw new Error('Backtest job expired or not found. Please try again.');
+      var ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) continue;
+      var data = await res.json();
+      if (data.status === 'running') {
+        updateProgress(data.progress || 'Processing...', data.elapsed);
+        continue;
+      }
+      if (data.error) throw new Error(data.error);
+      return data;
+    }
+    throw new Error('Backtest timed out after ' + Math.round(maxWaitMs / 60000) + ' minutes. Try fewer coins or a shorter date range.');
+  }
+
   async function runOneBacktest(b) {
-    var controller = new AbortController();
-    var timeoutId = setTimeout(function() { controller.abort(); }, 300000); // 5 min for multi-month backtests
+    updateProgress('Submitting backtest job...');
     var res;
     try {
       res = await fetch('/api/backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(b),
-        signal: controller.signal,
         credentials: 'same-origin'
       });
     } catch (fetchErr) {
-      clearTimeout(timeoutId);
-      if (fetchErr.name === 'AbortError') throw new Error('Backtest timed out after 5 minutes. Try fewer coins or a shorter date range.');
       throw new Error('Network error: ' + fetchErr.message);
     }
-    clearTimeout(timeoutId);
-    // Guard: server may return an HTML error page (e.g. Render 30s gateway timeout)
-    // instead of JSON — detect it before trying to parse
     var contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
-      if (res.status === 504 || res.status === 503) {
-        throw new Error('Server timed out (gateway 504). The backtest is taking too long — try fewer coins or a shorter date range.');
-      }
-      throw new Error('Server returned an unexpected response (' + res.status + '). The backtest may have crashed — check fewer coins or a shorter date range.');
+      throw new Error('Server returned an unexpected response (' + res.status + '). Please try again.');
     }
     var data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Backtest failed');
+
+    if (data.jobId) {
+      updateProgress('Backtest started for ' + (data.coins || []).length + ' coin(s)... fetching candles & simulating trades');
+      return await pollBacktestJob(data.jobId);
+    }
     return data;
   }
 
