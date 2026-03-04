@@ -3942,7 +3942,8 @@ async function runAutoTrade() {
 
         if ((signalMode === 'setups' || signalMode === 'both' || autoTradeUseSetups) && setupIds.length > 0) {
           const { evaluateSetupsForAutoTrade } = require('./services/smc-scanner');
-          const setupSignals = evaluateSetupsForAutoTrade(setupIds, allCandles, TRACKED_COINS, prices);
+          const setupOpts = user.settings?.minVolume24hUsd != null ? { minVolume24hUsd: user.settings.minVolume24hUsd } : null;
+          const setupSignals = evaluateSetupsForAutoTrade(setupIds, allCandles, TRACKED_COINS, prices, setupOpts);
           if (signalMode === 'setups') {
             signals = setupSignals;
           } else {

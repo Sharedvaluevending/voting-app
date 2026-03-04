@@ -34,6 +34,28 @@ Answer questions about the market, trades, strategies, weights, features, and pl
 When asked about open trades, list them from the "Open trades" section. When asked about performance, use the Stats and Balance data.
 When the user asks to move stops, close trades, change settings, toggle features, adjust weights, etc., you can tell them to use "Execute actions" - or if they have it enabled, the agent will run and perform the actions.`;
 
+// Context window: ~4k tokens ≈ 16k chars for Ollama; leave room for response
+const MAX_CONTEXT_CHARS = 14000;
+const MAX_MESSAGES_WHEN_LARGE = 6;  // Keep last 3 exchanges when trimming
+
+/** Trim messages to fit context window; keep most recent when over limit. */
+function trimMessagesToFit(systemContent, messages) {
+  const systemLen = (systemContent || '').length;
+  let total = systemLen;
+  const trimmed = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    const len = (m?.content || '').length;
+    if (total + len > MAX_CONTEXT_CHARS && trimmed.length >= MAX_MESSAGES_WHEN_LARGE) break;
+    trimmed.unshift(m);
+    total += len;
+  }
+  if (trimmed.length < messages.length) {
+    console.log(`[LLMChat] Context trim: ${messages.length} -> ${trimmed.length} messages (${(total / 1024).toFixed(1)}k chars)`);
+  }
+  return trimmed;
+}
+
 /**
  * Run chat for a user. messages = [{role, content}, ...] (user + assistant history)
  */
@@ -74,12 +96,14 @@ async function runChat(userId, messages, deps, opts = {}) {
 
   const contextBlock = buildContextBlock(ctx, pulse);
   const systemContent = CHAT_SYSTEM + '\n\n---\nCurrent platform context (use this to answer):\n' + contextBlock;
-  // Cap context to ~8k chars (5k was too aggressive, cut off trades)
+  // Cap system to ~8k chars (5k was too aggressive, cut off trades)
   const systemContentTrimmed = systemContent.length > 8000 ? systemContent.slice(0, 8000) + '\n...[truncated]' : systemContent;
 
+  const recentMessages = messages.slice(-10);
+  const trimmedMessages = trimMessagesToFit(systemContentTrimmed, recentMessages);
   const fullMessages = [
     { role: 'system', content: systemContentTrimmed },
-    ...messages.slice(-10)
+    ...trimmedMessages
   ];
 
   try {

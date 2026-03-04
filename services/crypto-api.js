@@ -8,6 +8,7 @@
 // ====================================================
 
 const fetch = require('node-fetch');
+const { coingeckoThrottler } = require('../lib/api-queue');
 
 const cache = {
   prices: { data: [], timestamp: 0 },
@@ -142,38 +143,36 @@ function sleep(ms) {
 }
 
 // ====================================================
-// COINGECKO - Prices (single call)
+// COINGECKO - Prices (single call, queued + exponential backoff)
 // ====================================================
 async function fetchCoinGeckoPricesOnce() {
-  const ids = TRACKED_COINS.join(',');
-  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true&include_last_updated_at=true`;
-  const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
-  if (res.status === 429) {
-    throw new Error('Rate limited (429)');
-  }
-  if (!res.ok) {
-    throw new Error('HTTP ' + res.status);
-  }
-  const data = await res.json();
+  return coingeckoThrottler(async () => {
+    const ids = TRACKED_COINS.join(',');
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true&include_last_updated_at=true`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
+    if (res.status === 429) throw new Error('Rate limited (429)');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
   if (!data || typeof data !== 'object') {
     throw new Error('Invalid price response');
   }
-  return TRACKED_COINS.map(id => {
-    const info = data[id];
-    if (!info) return null;
-    const meta = COIN_META[id];
-    return {
-      id,
-      symbol: meta.symbol,
-      name: meta.name,
-      bybitSymbol: meta.bybit,
-      price: (info.usd && info.usd > 0) ? info.usd : null, // Reject zero/negative prices
-      change24h: info.usd_24h_change || 0,
-      volume24h: info.usd_24h_vol || 0,
-      marketCap: info.usd_market_cap || 0,
-      lastUpdated: info.last_updated_at ? new Date(info.last_updated_at * 1000) : new Date()
-    };
-  }).filter(p => p && p.price && p.price > 0); // Filter out null entries and zero prices
+    return TRACKED_COINS.map(id => {
+      const info = data[id];
+      if (!info) return null;
+      const meta = COIN_META[id];
+      return {
+        id,
+        symbol: meta.symbol,
+        name: meta.name,
+        bybitSymbol: meta.bybit,
+        price: (info.usd && info.usd > 0) ? info.usd : null, // Reject zero/negative prices
+        change24h: info.usd_24h_change || 0,
+        volume24h: info.usd_24h_vol || 0,
+        marketCap: info.usd_market_cap || 0,
+        lastUpdated: info.last_updated_at ? new Date(info.last_updated_at * 1000) : new Date()
+      };
+    }).filter(p => p && p.price && p.price > 0); // Filter out null entries and zero prices
+  });
 }
 
 // ====================================================
@@ -338,22 +337,30 @@ const BITGET_INTERVAL_MAP = { '15m': '15m', '1h': '1H', '4h': '4H', '1d': '1D', 
 async function fetchBitgetCandles(symbol, interval, limit, startMs, endMs) {
   const bitgetInterval = BITGET_INTERVAL_MAP[interval];
   if (!bitgetInterval || !symbol) return [];
-  try {
-    // Bitget limits the window between startTime and endTime to ~7 days.
-    // If wider, it silently truncates the response, breaking pagination.
-    const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-    let cappedEndMs = endMs;
-    if (startMs && endMs && (endMs - startMs) > MAX_WINDOW_MS) {
-      cappedEndMs = startMs + MAX_WINDOW_MS;
-    }
-    let url = `https://api.bitget.com/api/v2/mix/market/candles?symbol=${symbol}&productType=USDT-FUTURES&granularity=${bitgetInterval}&limit=${Math.min(limit, 200)}`;
-    if (startMs) url += `&startTime=${startMs}`;
-    if (cappedEndMs) url += `&endTime=${cappedEndMs}`;
-    const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
-    if (!res.ok) {
-      console.warn(`[Bitget] OHLC ${symbol} ${interval}: HTTP ${res.status} ${res.statusText}`);
-      return [];
-    }
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      // Bitget limits the window between startTime and endTime to ~7 days.
+      // If wider, it silently truncates the response, breaking pagination.
+      const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+      let cappedEndMs = endMs;
+      if (startMs && endMs && (endMs - startMs) > MAX_WINDOW_MS) {
+        cappedEndMs = startMs + MAX_WINDOW_MS;
+      }
+      let url = `https://api.bitget.com/api/v2/mix/market/candles?symbol=${symbol}&productType=USDT-FUTURES&granularity=${bitgetInterval}&limit=${Math.min(limit, 200)}`;
+      if (startMs) url += `&startTime=${startMs}`;
+      if (cappedEndMs) url += `&endTime=${cappedEndMs}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
+      if (res.status === 429) {
+        const wait = RATE_LIMIT_WAIT_BASE * (attempt + 1);
+        console.warn(`[Bitget] OHLC ${symbol} ${interval}: 429 rate limited. Waiting ${wait / 1000}s before retry ${attempt + 1}/${MAX_RETRIES + 1}...`);
+        await sleep(wait);
+        continue;
+      }
+      if (!res.ok) {
+        console.warn(`[Bitget] OHLC ${symbol} ${interval}: HTTP ${res.status} ${res.statusText}`);
+        return [];
+      }
     const json = await res.json();
     if (json.code !== '00000' || !json.data) {
       console.warn(`[Bitget] OHLC ${symbol} ${interval}: code=${json.code}, msg=${json.msg}`);
@@ -362,30 +369,40 @@ async function fetchBitgetCandles(symbol, interval, limit, startMs, endMs) {
     // Bitget returns [ts, open, high, low, close, volume, quoteVol] - newest first
     const raw = (json.data || []).reverse();
     const msPerCandle = { '15m': 900000, '1h': 3600000, '4h': 14400000, '1d': 86400000, '1w': 604800000 }[interval] || 3600000;
-    return raw.map(c => ({
-      openTime: parseInt(c[0]),
-      open: parseFloat(c[1]),
-      high: parseFloat(c[2]),
-      low: parseFloat(c[3]),
-      close: parseFloat(c[4]),
-      volume: parseFloat(c[5]),
-      closeTime: parseInt(c[0]) + msPerCandle,
-      quoteVolume: parseFloat(c[6]) || 0,
-      trades: 0,
-      takerBuyVolume: 0,
-      takerBuyQuoteVolume: 0
-    })).filter(c =>
-      Number.isFinite(c.open) && c.open > 0 &&
-      Number.isFinite(c.high) && c.high > 0 &&
-      Number.isFinite(c.low) && c.low > 0 &&
-      Number.isFinite(c.close) && c.close > 0 &&
-      Number.isFinite(c.openTime) &&
-      c.high >= c.low
-    );
-  } catch (err) {
-    console.error(`[Bitget] OHLC ${symbol} ${interval} failed:`, err.message);
-    return [];
+    try {
+      return raw.map(c => ({
+        openTime: parseInt(c[0]),
+        open: parseFloat(c[1]),
+        high: parseFloat(c[2]),
+        low: parseFloat(c[3]),
+        close: parseFloat(c[4]),
+        volume: parseFloat(c[5]),
+        closeTime: parseInt(c[0]) + msPerCandle,
+        quoteVolume: parseFloat(c[6]) || 0,
+        trades: 0,
+        takerBuyVolume: 0,
+        takerBuyQuoteVolume: 0
+      })).filter(c =>
+        Number.isFinite(c.open) && c.open > 0 &&
+        Number.isFinite(c.high) && c.high > 0 &&
+        Number.isFinite(c.low) && c.low > 0 &&
+        Number.isFinite(c.close) && c.close > 0 &&
+        Number.isFinite(c.openTime) &&
+        c.high >= c.low
+      );
+    } catch (parseErr) {
+      console.warn(`[Bitget] OHLC ${symbol} ${interval}: malformed candle data, skipping — ${parseErr.message}`);
+      return [];
+    }
+    } catch (err) {
+      if (attempt === MAX_RETRIES) {
+        console.error(`[Bitget] OHLC ${symbol} ${interval} failed:`, err.message);
+        return [];
+      }
+      await sleep(RETRY_DELAY);
+    }
   }
+  return [];
 }
 
 // ====================================================
@@ -396,40 +413,58 @@ const KRAKEN_INTERVAL_MAP = { '15m': 15, '1h': 60, '4h': 240, '1d': 1440, '1w': 
 async function fetchKrakenCandles(pair, interval, limit) {
   const krakenInterval = KRAKEN_INTERVAL_MAP[interval];
   if (!krakenInterval || !pair) return [];
-  try {
-    const url = `https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=${krakenInterval}`;
-    const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
-    if (!res.ok) return [];
-    const json = await res.json();
+  const MAX_RETRIES = 2;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const url = `https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=${krakenInterval}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
+      if (res.status === 429) {
+        const wait = RATE_LIMIT_WAIT_BASE * (attempt + 1);
+        console.warn(`[Kraken] OHLC ${pair} ${interval}: 429 rate limited. Waiting ${wait / 1000}s before retry ${attempt + 1}/${MAX_RETRIES + 1}...`);
+        await sleep(wait);
+        continue;
+      }
+      if (!res.ok) return [];
+      const json = await res.json();
     if (json.error && json.error.length > 0) return [];
     const result = json.result || {};
     const keys = Object.keys(result).filter(k => k !== 'last');
     if (keys.length === 0) return [];
     const raw = result[keys[0]];
     if (!Array.isArray(raw)) return [];
-    return raw.slice(-limit).map(c => ({
-      openTime: c[0] * 1000,
-      open: parseFloat(c[1]),
-      high: parseFloat(c[2]),
-      low: parseFloat(c[3]),
-      close: parseFloat(c[4]),
-      volume: parseFloat(c[6]),
-      closeTime: (c[0] + krakenInterval * 60) * 1000,
-      quoteVolume: 0,
-      trades: c[7] || 0,
-      takerBuyVolume: 0,
-      takerBuyQuoteVolume: 0
-    })).filter(c =>
-      Number.isFinite(c.open) && c.open > 0 &&
-      Number.isFinite(c.high) && c.high > 0 &&
-      Number.isFinite(c.low) && c.low > 0 &&
-      Number.isFinite(c.close) && c.close > 0 &&
-      c.high >= c.low
-    );
-  } catch (err) {
-    console.error(`[Kraken] OHLC ${pair} ${interval} failed:`, err.message);
-    return [];
+    try {
+      return raw.slice(-limit).map(c => ({
+        openTime: c[0] * 1000,
+        open: parseFloat(c[1]),
+        high: parseFloat(c[2]),
+        low: parseFloat(c[3]),
+        close: parseFloat(c[4]),
+        volume: parseFloat(c[6]),
+        closeTime: (c[0] + krakenInterval * 60) * 1000,
+        quoteVolume: 0,
+        trades: c[7] || 0,
+        takerBuyVolume: 0,
+        takerBuyQuoteVolume: 0
+      })).filter(c =>
+        Number.isFinite(c.open) && c.open > 0 &&
+        Number.isFinite(c.high) && c.high > 0 &&
+        Number.isFinite(c.low) && c.low > 0 &&
+        Number.isFinite(c.close) && c.close > 0 &&
+        c.high >= c.low
+      );
+    } catch (parseErr) {
+      console.warn(`[Kraken] OHLC ${pair} ${interval}: malformed candle data, skipping — ${parseErr.message}`);
+      return [];
+    }
+    } catch (err) {
+      if (attempt === MAX_RETRIES) {
+        console.error(`[Kraken] OHLC ${pair} ${interval} failed:`, err.message);
+        return [];
+      }
+      await sleep(RETRY_DELAY);
+    }
   }
+  return [];
 }
 
 /**
@@ -468,26 +503,34 @@ async function fetchHistoricalKrakenCandles(coinId, interval, startMs, endMs) {
 
     // Return ALL candles without date filtering.
     // The backtest handles warmup and trading range itself.
-    const candles = raw.map(c => ({
-      openTime: c[0] * 1000,
-      open: parseFloat(c[1]),
-      high: parseFloat(c[2]),
-      low: parseFloat(c[3]),
-      close: parseFloat(c[4]),
-      volume: parseFloat(c[6]),
-      closeTime: (c[0] * 1000) + msPerCandle,
-      quoteVolume: 0,
-      trades: c[7] || 0,
-      takerBuyVolume: 0,
-      takerBuyQuoteVolume: 0
-    })).filter(c =>
-      Number.isFinite(c.open) && c.open > 0 &&
-      Number.isFinite(c.high) && c.high > 0 &&
-      Number.isFinite(c.low) && c.low > 0 &&
-      Number.isFinite(c.close) && c.close > 0 &&
-      c.high >= c.low
-    );
-    console.log(`[Kraken] Historical ${coinId} ${interval}: ${candles.length} candles (${new Date(candles[0].openTime).toISOString().slice(0,10)} to ${new Date(candles[candles.length-1].openTime).toISOString().slice(0,10)})`);
+    let candles;
+    try {
+      candles = raw.map(c => ({
+        openTime: c[0] * 1000,
+        open: parseFloat(c[1]),
+        high: parseFloat(c[2]),
+        low: parseFloat(c[3]),
+        close: parseFloat(c[4]),
+        volume: parseFloat(c[6]),
+        closeTime: (c[0] * 1000) + msPerCandle,
+        quoteVolume: 0,
+        trades: c[7] || 0,
+        takerBuyVolume: 0,
+        takerBuyQuoteVolume: 0
+      })).filter(c =>
+        Number.isFinite(c.open) && c.open > 0 &&
+        Number.isFinite(c.high) && c.high > 0 &&
+        Number.isFinite(c.low) && c.low > 0 &&
+        Number.isFinite(c.close) && c.close > 0 &&
+        c.high >= c.low
+      );
+    } catch (parseErr) {
+      console.warn(`[Kraken] Historical ${coinId} ${interval}: malformed candle data, skipping — ${parseErr.message}`);
+      return [];
+    }
+    if (candles.length > 0) {
+      console.log(`[Kraken] Historical ${coinId} ${interval}: ${candles.length} candles (${new Date(candles[0].openTime).toISOString().slice(0,10)} to ${new Date(candles[candles.length-1].openTime).toISOString().slice(0,10)})`);
+    }
     return candles;
   } catch (err) {
     console.error(`[Kraken] Historical ${coinId} ${interval} failed:`, err.message);
@@ -624,23 +667,25 @@ async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
 }
 
 // ====================================================
-// COINGECKO HISTORY
+// COINGECKO HISTORY (queued + exponential backoff)
 // ====================================================
 async function fetchHistoryOnce(coinId, days = 7) {
-  const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
-  const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
-  if (res.status === 429) throw new Error('Rate limited (429)');
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const data = await res.json();
-  if (!data || typeof data !== 'object') throw new Error('Invalid history response');
-  const prices = Array.isArray(data.prices) ? data.prices : [];
-  const totalVolumes = Array.isArray(data.total_volumes) ? data.total_volumes : [];
-  const marketCaps = Array.isArray(data.market_caps) ? data.market_caps : [];
-  return {
-    prices: prices.map(([ts, price]) => ({ timestamp: ts, price })),
-    volumes: totalVolumes.map(([ts, vol]) => ({ timestamp: ts, volume: vol })),
-    marketCaps: marketCaps.map(([ts, mc]) => ({ timestamp: ts, marketCap: mc }))
-  };
+  return coingeckoThrottler(async () => {
+    const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
+    if (res.status === 429) throw new Error('Rate limited (429)');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (!data || typeof data !== 'object') throw new Error('Invalid history response');
+    const prices = Array.isArray(data.prices) ? data.prices : [];
+    const totalVolumes = Array.isArray(data.total_volumes) ? data.total_volumes : [];
+    const marketCaps = Array.isArray(data.market_caps) ? data.market_caps : [];
+    return {
+      prices: prices.map(([ts, price]) => ({ timestamp: ts, price })),
+      volumes: totalVolumes.map(([ts, vol]) => ({ timestamp: ts, volume: vol })),
+      marketCaps: marketCaps.map(([ts, mc]) => ({ timestamp: ts, marketCap: mc }))
+    };
+  });
 }
 
 async function fetchHistoryFromAPI(coinId, days = 7) {
@@ -810,28 +855,15 @@ async function refreshAllData() {
       }
     }
 
-    // Step 3: CoinGecko history as fallback for coins without candles
+    // Step 3: CoinGecko history as fallback for coins without candles (queued + exponential backoff)
     const coinsNeedingHistory = TRACKED_COINS.filter(id => !cache.candles[id]);
     for (const coinId of coinsNeedingHistory) {
       try {
-        await sleep(COINGECKO_DELAY);
         const history = await fetchHistoryOnce(coinId, 7);
         cache.history[coinId] = history;
         console.log(`[Refresh] CG history: ${COIN_META[coinId].symbol}`);
       } catch (err) {
-        if (err.message && err.message.includes('429')) {
-          console.log('[Refresh] CoinGecko rate limited – waiting 25s...');
-          await sleep(25000);
-          try {
-            const history = await fetchHistoryOnce(coinId, 7);
-            cache.history[coinId] = history;
-            console.log(`[Refresh] CG history: ${COIN_META[coinId].symbol} (after wait)`);
-          } catch (retryErr) {
-            console.error(`[Refresh] CG history failed for ${coinId}: ${retryErr.message}`);
-          }
-        } else {
-          console.error(`[Refresh] CG history failed for ${coinId}: ${err.message}`);
-        }
+        console.error(`[Refresh] CG history failed for ${coinId}: ${err.message}`);
       }
     }
 

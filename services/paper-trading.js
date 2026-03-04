@@ -26,6 +26,9 @@ const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
 const DEFAULT_COOLDOWN_HOURS = 6;  // no same-direction re-entry on same coin within N hours (matches schema default)
 const MIN_HOLD_MINUTES = 30;       // Don't score-exit trades within first 30 minutes
 
+// Trade IDs currently being closed — prevents double-close race (concurrent requests double-crediting balance)
+const closingTrades = new Set();
+
 // Correlated coin groups: avoid opening 2+ trades in same group (e.g. ETH + MATIC move together)
 const CORRELATED_GROUPS = [
   ['ethereum', 'polygon', 'arbitrum', 'optimism', 'sui', 'avalanche-2'],
@@ -404,6 +407,11 @@ async function closeTradePartial(trade, exitPrice, portionSize, reason) {
   const user = await User.findById(trade.userId);
   if (!user) throw new Error('User not found');
 
+  if (!trade.entryPrice || trade.entryPrice <= 0 || !Number.isFinite(trade.entryPrice)) {
+    console.error(`[Partial] Invalid trade ${trade.symbol}: entryPrice=${trade.entryPrice} — skipping partial close to prevent bad PnL math`);
+    return;
+  }
+
   const origSize = trade.originalPositionSize || trade.positionSize;
   const remainingAfter = trade.positionSize - portionSize;
 
@@ -471,8 +479,26 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
   const trade = await Trade.findOne({ _id: tradeId, userId, status: 'OPEN' });
   if (!trade) throw new Error('Trade not found or already closed');
 
+  const tradeKey = String(tradeId);
+  if (closingTrades.has(tradeKey)) {
+    throw new Error('Trade is already being closed');
+  }
+  closingTrades.add(tradeKey);
+  try {
+    return await _closeTradeInner(userId, tradeId, trade, currentPrice, reason);
+  } finally {
+    closingTrades.delete(tradeKey);
+  }
+}
+
+async function _closeTradeInner(userId, tradeId, trade, currentPrice, reason) {
   const user = await User.findById(userId);
   if (!user) throw new Error('User not found');
+
+  if (!trade.entryPrice || trade.entryPrice <= 0 || !Number.isFinite(trade.entryPrice)) {
+    console.error(`[CloseTrade] Invalid trade ${trade.symbol}: entryPrice=${trade.entryPrice} — skipping close to prevent bad PnL math`);
+    return null;
+  }
 
   // PRICE SANITY CHECK: don't close at a price that's impossibly far from entry
   // unless it's a manual close (user explicitly chose to close)
@@ -753,8 +779,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
     }
 
     // Fix stale trailingActivated from ping-pong bug:
-    // If trailingActivated is true but stop hasn't actually moved past breakeven,
-    // reset it so BE/lock-in can function again.
+    // Reset when stop is still at or before entry (so BE/lock-in can function again)
     if (trade.trailingActivated && trade.stopLoss != null) {
       const isLong = trade.direction === 'LONG';
       const stopAtOrWorseEntry = isLong
@@ -821,7 +846,12 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       }
 
       // === TRAILING TP MODE: trail from entry using trailingTpDistance (immediate, no 1.5R gate) ===
-      if (trade.tpMode === 'trailing' && trade.trailingTpDistance > 0) {
+      // Only set trailingActivated when price has moved past entry by minimum threshold (prevents stale flag)
+      const TRAIL_ACTIVATION_THRESHOLD = 0.003; // 0.3% past entry
+      const pricePastEntry = trade.direction === 'LONG'
+        ? currentPrice >= trade.entryPrice * (1 + TRAIL_ACTIVATION_THRESHOLD)
+        : currentPrice <= trade.entryPrice * (1 - TRAIL_ACTIVATION_THRESHOLD);
+      if (trade.tpMode === 'trailing' && trade.trailingTpDistance > 0 && pricePastEntry) {
         trade.trailingActivated = true;
         const trailDist = trade.trailingTpDistance;
         const trailSL = trade.direction === 'LONG'

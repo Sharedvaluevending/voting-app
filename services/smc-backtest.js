@@ -92,7 +92,8 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
     } catch (e) { c4h = null; }
   }
 
-  let startBar = Math.min(40, Math.floor(ctf.length / 4));
+  const WARMUP_BARS = timeframe === '4h' ? 25 : 50; // Indicator warm-up (RSI, MACD, BB, ATR)
+  let startBar = Math.max(WARMUP_BARS, Math.min(40, Math.floor(ctf.length / 4)));
   for (let i = 0; i < ctf.length; i++) {
     if (ctf[i].openTime >= startMs) {
       startBar = Math.max(40, i);

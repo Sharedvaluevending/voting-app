@@ -75,8 +75,8 @@ function sliceCandlesAt(candles, t, baseTf) {
     }
   }
 
-  // Engine needs at least 20 bars for 1h
-  const minBars = baseTf === '1h' ? 20 : 5;
+  // Indicator warm-up: RSI/MACD/BB/ATR need ~50 bars for 1h (MACD 26+9, BB 20, etc.)
+  const minBars = baseTf === '1h' ? 50 : baseTf === '4h' ? 30 : 5;
   if (slice[baseTf].length < minBars) return null;
   return slice;
 }

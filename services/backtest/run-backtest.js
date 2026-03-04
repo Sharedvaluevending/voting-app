@@ -19,6 +19,7 @@ const TAKER_FEE = 0.001;
 const COOLDOWN_BARS = 4;
 const SCORE_RECHECK_INTERVAL = 6;  // Every 6 bars (6h) — was 4, too frequent for crypto score noise
 const STOP_GRACE_BARS = 1;
+const INDICATOR_WARMUP_BARS = 50;   // RSI(14), MACD(26+9), BB(20), ATR(14) — no signals before warmup
 const TP1_PCT = 0.4;
 const TP2_PCT = 0.3;
 const TP3_PCT = 0.3;
@@ -77,10 +78,10 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   let lastClosedDirection = null;
   let streak = 0;
 
-  let tradeStartBar = 50;
+  let tradeStartBar = INDICATOR_WARMUP_BARS;
   for (let i = 0; i < c1h.length; i++) {
     if (c1h[i].openTime >= startMs) {
-      tradeStartBar = Math.max(50, i);
+      tradeStartBar = Math.max(INDICATOR_WARMUP_BARS, i);
       break;
     }
   }
@@ -97,7 +98,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const drawdownSizingEnabled = ft.drawdownSizingEnabled === true;
   const drawdownThresholdPercent = ft.drawdownThresholdPercent ?? 10;
 
-  for (let t = 50; t < c1h.length - 1; t++) {
+  for (let t = INDICATOR_WARMUP_BARS; t < c1h.length - 1; t++) {
     if (equity <= 0) break;
     if (equity > peakEquity) peakEquity = equity;
 

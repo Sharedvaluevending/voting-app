@@ -4,6 +4,7 @@
 // Scans coins for active SMC trade scenarios
 // ====================================================
 
+const { filterValidCandles } = require('../lib/candle-utils');
 const { analyzeOHLCV, ATR_OHLC } = require('./trading-engine');
 const { scoreScenariosForCoin, recentStructureShift } = require('./smc-scenarios/scenario-checks');
 const { getScenario, getAllScenarios } = require('./smc-scenarios/scenario-definitions');
@@ -31,13 +32,18 @@ function get4hBias(c4h) {
  * @returns {{ coinId, price, scenarios: Array }}
  */
 function scanCoinForSetups(coinId, candles, currentPrice, setupIds = null) {
-  const c1h = candles?.['1h'] || candles;
-  if (!c1h || !Array.isArray(c1h) || c1h.length < 50) {
+  const c1hRaw = candles?.['1h'] || candles;
+  if (!c1hRaw || !Array.isArray(c1hRaw) || c1hRaw.length < 50) {
+    return { coinId, price: currentPrice, scenarios: [] };
+  }
+  const c1h = filterValidCandles(c1hRaw);
+  if (c1h.length < 50) {
     return { coinId, price: currentPrice, scenarios: [] };
   }
 
   // 4h HTF bias — filter setups that trade against the higher timeframe trend
-  const c4h = candles?.['4h'] || null;
+  const c4hRaw = candles?.['4h'] || null;
+  const c4h = c4hRaw ? filterValidCandles(c4hRaw) : null;
   const htfBias = get4hBias(c4h);
 
   const analysis = analyzeOHLCV(c1h, currentPrice);
@@ -90,18 +96,34 @@ function scanCoinForSetups(coinId, candles, currentPrice, setupIds = null) {
   };
 }
 
+const MIN_VOLUME_24H_USD = 1e6; // Skip low-liquidity coins (bad fills, manipulated wicks)
+
 /**
  * Scan multiple coins for SMC setups.
  * @param {Object} candlesByCoin - { coinId: { '1h': [...] } }
- * @param {Object} pricesByCoin - { coinId: number } or array of { id, price }
+ * @param {Object} pricesByCoin - { coinId: number } or array of { id, price, volume24h? }
  * @param {string[]} setupIds - optional filter
+ * @param {Object} opts - { minVolume24hUsd?: number }
  * @returns {Array} [{ coinId, price, scenarios }]
  */
-function scanMarketForSetups(candlesByCoin, pricesByCoin, setupIds = null) {
+function scanMarketForSetups(candlesByCoin, pricesByCoin, setupIds = null, opts = null) {
   const results = [];
   const coinIds = Object.keys(candlesByCoin || {});
+  const minVol = (opts && opts.minVolume24hUsd != null) ? opts.minVolume24hUsd : MIN_VOLUME_24H_USD;
+
+  const getVolume = (id) => {
+    if (Array.isArray(pricesByCoin)) {
+      const p = pricesByCoin.find(x => (x.id || x.coinId) === id);
+      return p?.volume24h ?? null;
+    }
+    return null;
+  };
 
   for (const coinId of coinIds) {
+    if (minVol > 0) {
+      const vol = getVolume(coinId);
+      if (vol != null && vol < minVol) continue; // Skip low liquidity
+    }
     const candles = candlesByCoin[coinId];
     let price = 0;
     if (typeof pricesByCoin === 'object' && !Array.isArray(pricesByCoin)) {
@@ -139,14 +161,25 @@ const AUTO_TP_ATR_MULT = 4;  // 2:1 RR
  * @param {string[]} setupIds - enabled setup IDs to evaluate
  * @param {Object} allCandles - { coinId: { '1h': [...] } }
  * @param {string[]} coinIds - coins to evaluate
- * @param {Array} prices - price data [{ id, price }]
+ * @param {Array} prices - price data [{ id, price, volume24h? }]
+ * @param {Object} opts - { minVolume24hUsd?: number }
  * @returns {Array} signals in format { coin, _coinId, _direction, _overallScore, _bestStrat }
  */
-function evaluateSetupsForAutoTrade(setupIds, allCandles, coinIds, prices = []) {
+function evaluateSetupsForAutoTrade(setupIds, allCandles, coinIds, prices = [], opts = null) {
   const signals = [];
   if (!setupIds || setupIds.length === 0) return signals;
+  const minVol = (opts && opts.minVolume24hUsd != null) ? opts.minVolume24hUsd : MIN_VOLUME_24H_USD;
+
+  const getVolume = (id) => {
+    const p = Array.isArray(prices) ? prices.find(x => (x.id || x.coinId) === id) : null;
+    return p?.volume24h ?? null;
+  };
 
   for (const coinId of coinIds || []) {
+    if (minVol > 0) {
+      const vol = getVolume(coinId);
+      if (vol != null && vol < minVol) continue; // Skip low liquidity
+    }
     const candles = allCandles?.[coinId]?.['1h'];
     if (!candles || candles.length < 50) continue;
 

@@ -543,7 +543,7 @@ function analyzeOHLCV(candles, currentPrice, options) {
   const closes = validCandles.map(c => c.close);
   const highs = validCandles.map(c => c.high);
   const lows = validCandles.map(c => c.low);
-  const volumes = validCandles.map(c => c.volume);
+  const volumes = validCandles.map(c => (c.volume != null && Number.isFinite(c.volume)) ? c.volume : 0);
   const opens = validCandles.map(c => c.open);
 
   // Moving averages
@@ -1109,7 +1109,7 @@ function calculateVWAP(candles) {
   const recent = candles.slice(-20);
   let cumTPV = 0, cumVol = 0;
   for (const c of recent) {
-    const vol = c.volume ?? 0;
+    const vol = (c.volume != null && Number.isFinite(c.volume)) ? c.volume : 0;
     const tp = (c.high + c.low + c.close) / 3;
     cumTPV += tp * vol;
     cumVol += vol;
@@ -1442,7 +1442,20 @@ function detectOrderBlocks(opens, highs, lows, closes, atr) {
       if (blocks.length >= 2) break;
     }
   }
-  return blocks;
+  return filterInvalidOrderBlocks(blocks, highs, lows);
+}
+
+/** Remove order blocks invalidated by price trading through the zone. */
+function filterInvalidOrderBlocks(blocks, highs, lows) {
+  if (!blocks || blocks.length === 0) return blocks;
+  return blocks.filter(ob => {
+    const startIdx = (ob.idx ?? 0) + 1;
+    for (let j = startIdx; j < (highs?.length ?? 0); j++) {
+      if (ob.type === 'BULL' && lows[j] < ob.bottom) return false; // Price traded through bull OB
+      if (ob.type === 'BEAR' && highs[j] > ob.top) return false;  // Price traded through bear OB
+    }
+    return true;
+  });
 }
 
 // ====================================================
@@ -1466,7 +1479,20 @@ function detectFVGs(highs, lows) {
       if (fvgs.length >= 2) break;
     }
   }
-  return fvgs;
+  return filterInvalidFVGs(fvgs, highs, lows);
+}
+
+/** Remove FVGs that have been filled (price traded through the gap). */
+function filterInvalidFVGs(fvgs, highs, lows) {
+  if (!fvgs || fvgs.length === 0) return fvgs;
+  return fvgs.filter(fvg => {
+    const startIdx = (fvg.idxFormed ?? fvg.idx ?? 0) + 1;
+    for (let j = startIdx; j < (highs?.length ?? 0); j++) {
+      if (fvg.type === 'BULL' && lows[j] < fvg.bottom) return false; // Bull FVG filled
+      if (fvg.type === 'BEAR' && highs[j] > fvg.top) return false;    // Bear FVG filled
+    }
+    return true;
+  });
 }
 
 // ====================================================
@@ -1547,8 +1573,9 @@ function analyzeVolume(volumes, closes, opens) {
 
   const recent = volumes.slice(-5);
   const older = volumes.slice(-20, -5);
-  const recentAvg = recent.reduce((s, v) => s + v, 0) / recent.length;
-  const olderAvg = older.length > 0 ? older.reduce((s, v) => s + v, 0) / older.length : recentAvg;
+  const safe = (v) => (v != null && Number.isFinite(v)) ? v : 0;
+  const recentAvg = recent.reduce((s, v) => s + safe(v), 0) / recent.length;
+  const olderAvg = older.length > 0 ? older.reduce((s, v) => s + safe(v), 0) / older.length : recentAvg;
 
   const relativeVolume = olderAvg > 0 ? recentAvg / olderAvg : 1;
 
@@ -1559,16 +1586,18 @@ function analyzeVolume(volumes, closes, opens) {
   else trend = 'NORMAL';
 
   // Volume climax
-  const maxVol = Math.max(...volumes.slice(-20));
-  const lastVol = volumes[volumes.length - 1];
+  const volSlice = volumes.slice(-20).map(safe);
+  const maxVol = volSlice.length > 0 ? Math.max(...volSlice) : 0;
+  const lastVol = safe(volumes[volumes.length - 1]);
   const climax = lastVol > maxVol * 0.9;
 
   // Accumulation/Distribution proxy
   let adSum = 0;
   const lookback = Math.min(20, closes.length);
   for (let i = closes.length - lookback; i < closes.length; i++) {
-    if (closes[i] > opens[i]) adSum += volumes[i];
-    else if (closes[i] < opens[i]) adSum -= volumes[i];
+    const v = safe(volumes[i]);
+    if (closes[i] > opens[i]) adSum += v;
+    else if (closes[i] < opens[i]) adSum -= v;
   }
   const accDist = adSum > 0 ? 'ACCUMULATING' : adSum < 0 ? 'DISTRIBUTING' : 'NEUTRAL';
 
@@ -2347,7 +2376,7 @@ function resample(candles, factor) {
       high: Math.max(...chunk.map(c => c.high)),
       low: Math.min(...chunk.map(c => c.low)),
       close: chunk[chunk.length - 1].close,
-      volume: chunk.reduce((s, c) => s + c.volume, 0)
+      volume: chunk.reduce((s, c) => s + ((c.volume != null && Number.isFinite(c.volume)) ? c.volume : 0), 0)
     });
   }
   return result;
