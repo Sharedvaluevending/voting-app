@@ -54,10 +54,17 @@ const DEFAULT_STRATEGIES = [
 ];
 
 async function initializeStrategies() {
+  const defaultPerformance = {
+    totalTrades: 0, wins: 0, losses: 0, winRate: 0, avgRR: 0, profitFactor: 0, avgScore: 0,
+    byRegime: { trending: { wins: 0, losses: 0 }, ranging: { wins: 0, losses: 0 }, volatile: { wins: 0, losses: 0 }, compression: { wins: 0, losses: 0 }, mixed: { wins: 0, losses: 0 } }
+  };
   for (const strategy of DEFAULT_STRATEGIES) {
     await StrategyWeight.findOneAndUpdate(
       { strategyId: strategy.strategyId },
-      { $set: { weights: strategy.weights, description: strategy.description, active: true }, $setOnInsert: { name: strategy.name } },
+      {
+        $set: { weights: strategy.weights, description: strategy.description, active: true },
+        $setOnInsert: { name: strategy.name, performance: defaultPerformance }
+      },
       { upsert: true, new: true }
     );
   }
@@ -81,6 +88,13 @@ async function recordTradeOutcome(trade) {
 
   const strategy = await StrategyWeight.findOne({ strategyId });
   if (!strategy) return;
+
+  if (!strategy.performance) {
+    strategy.performance = { totalTrades: 0, wins: 0, losses: 0, winRate: 0, avgRR: 0, byRegime: {} };
+  }
+  if (!strategy.performance.byRegime) {
+    strategy.performance.byRegime = {};
+  }
 
   const isWin = trade.pnl > 0;
   const isLoss = trade.pnl < 0;

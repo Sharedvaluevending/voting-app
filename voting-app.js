@@ -3002,17 +3002,30 @@ app.get('/learning', async (req, res) => {
         totalTrades: perf.totalTrades || 0,
         wins: perf.wins || 0,
         losses: perf.losses || 0,
-        weights: s.weights,
+        weights: s.weights || {},
         byRegime: perf.byRegime || {},
         active: s.active,
         updatedAt: s.updatedAt
       };
     });
+
+    // User-specific trade counts: Optimize button needs 10+ trades for THIS user's strategy
+    let userTradeCounts = {};
+    if (req.session?.userId) {
+      const closedTrades = await Trade.find({ userId: req.session.userId, status: { $ne: 'OPEN' } })
+        .select('strategyType').lean();
+      const STRATEGY_ALIAS = { mean_reversion: 'mean_revert' };
+      closedTrades.forEach(t => {
+        const sid = STRATEGY_ALIAS[t.strategyType] || t.strategyType;
+        if (sid) userTradeCounts[sid] = (userTradeCounts[sid] || 0) + 1;
+      });
+    }
+
     const user = req.session?.userId ? await User.findById(req.session.userId).lean() : null;
-    res.render('learning', { activePage: 'learning', strategies, user });
+    res.render('learning', { activePage: 'learning', strategies, user, userTradeCounts });
   } catch (err) {
     console.error('[Learning] Error:', err);
-    res.render('learning', { activePage: 'learning', strategies: [], user: null });
+    res.render('learning', { activePage: 'learning', strategies: [], user: null, userTradeCounts: {} });
   }
 });
 

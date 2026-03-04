@@ -6,6 +6,9 @@
 
 const DIMS = ['trend', 'momentum', 'volume', 'structure', 'volatility', 'riskQuality'];
 
+// Align with learning-engine: trades may use mean_reversion, DB uses mean_revert
+const STRATEGY_ID_ALIASES = { mean_reversion: 'mean_revert' };
+
 // Regime-to-dimension emphasis: which dimensions tend to help in each regime
 const REGIME_DIM_MAP = {
   trending: { trend: 1.3, momentum: 1.1, structure: 1.1 },
@@ -61,7 +64,11 @@ function computeFitness(trades, weights) {
  */
 function optimizeWeights(strategyId, closedTrades, currentWeights, options = {}) {
   const maxIterations = options.maxIterations ?? 50;
-  const strategyTrades = closedTrades.filter(t => (t.strategyType || t.strategy) === strategyId);
+  const strategyTrades = closedTrades.filter(t => {
+    const tId = t.strategyType || t.strategy;
+    const normalized = STRATEGY_ID_ALIASES[tId] || tId;
+    return normalized === strategyId;
+  });
 
   if (strategyTrades.length < 10) {
     return { weights: currentWeights, fitness: null, improved: false, error: 'Need 10+ trades for this strategy' };
