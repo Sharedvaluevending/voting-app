@@ -2513,6 +2513,17 @@ app.get('/api/trench-warfare/trendings', async (req, res) => {
   }
 });
 
+app.get('/api/trench-warfare/market-categories', async (req, res) => {
+  const dexscreener = require('./services/dexscreener-api');
+  try {
+    const categories = await dexscreener.fetchMarketCategories();
+    res.json({ success: true, categories });
+  } catch (e) {
+    console.warn('[Trench] Market categories error:', e.message);
+    res.status(500).json({ success: false, error: e.message, categories: {} });
+  }
+});
+
 app.post('/api/trench-warfare/swap/quote', async (req, res) => {
   const mobula = require('./services/mobula-api');
   try {

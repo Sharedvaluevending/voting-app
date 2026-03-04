@@ -374,6 +374,87 @@ async function fetchSolanaTrendings(limit = 500) {
   return result;
 }
 
+/**
+ * Fetch top 10 tokens per category for Meme Market Explorer.
+ * Returns { categoryId: { id, label, tokens: [...] } }
+ */
+async function fetchMarketCategories() {
+  const TOP_N = 10;
+  const categories = {};
+
+  try {
+    // DexScreener: Top Boosted, Token Boosts
+    const [topBoosts, boosts] = await Promise.all([
+      fetchTopBoosts('solana').catch(() => []),
+      fetchTokenBoosts('solana').catch(() => [])
+    ]);
+    const dexAddrs = [...topBoosts, ...boosts]
+      .map(t => t.tokenAddress)
+      .filter(Boolean);
+    const seen = new Set();
+    const uniqueDex = dexAddrs.filter(a => { if (seen.has(a)) return false; seen.add(a); return true; });
+    const dexTokens = await fetchTokensBulk('solana', uniqueDex.slice(0, 50));
+    const sorted = dexTokens
+      .filter(t => t.price > 0)
+      .sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0));
+    categories.topBoosted = {
+      id: 'topBoosted',
+      label: 'Top Boosted',
+      tokens: sorted.slice(0, TOP_N)
+    };
+
+    // GeckoTerminal: Trending 5m, New Pools, Top Volume
+    const [gtTrend5m, gtNew, gtVol] = await Promise.all([
+      fetchGeckoTerminalPools('trending_pools?duration=5m', 2).catch(() => []),
+      fetchGeckoTerminalPools('new_pools', 2).catch(() => []),
+      fetchGeckoTerminalPools('pools?order=h24_volume_usd_desc', 2).catch(() => [])
+    ]);
+    categories.trending5m = {
+      id: 'trending5m',
+      label: 'Trending 5m',
+      tokens: gtTrend5m.filter(t => t.price > 0).slice(0, TOP_N)
+    };
+    categories.newPools = {
+      id: 'newPools',
+      label: 'New Pools',
+      tokens: gtNew.filter(t => t.price > 0).slice(0, TOP_N)
+    };
+    categories.topVolume = {
+      id: 'topVolume',
+      label: 'Top Volume',
+      tokens: gtVol.filter(t => t.price > 0).slice(0, TOP_N)
+    };
+
+    // Jupiter: Trending 5m, Top Traded 1h, Organic (if key)
+    const [jupTrend5m, jupTraded1h, jupOrganic] = await Promise.all([
+      fetchJupiterCategory('toptrending', '5m', 50).catch(() => []),
+      fetchJupiterCategory('toptraded', '1h', 50).catch(() => []),
+      fetchJupiterCategory('toporganicscore', '1h', 50).catch(() => [])
+    ]);
+    categories.jupiterTrending5m = {
+      id: 'jupiterTrending5m',
+      label: 'Jupiter Trending 5m',
+      tokens: jupTrend5m.filter(t => t.price > 0).slice(0, TOP_N)
+    };
+    categories.jupiterTraded1h = {
+      id: 'jupiterTraded1h',
+      label: 'Top Traded 1h',
+      tokens: jupTraded1h.filter(t => t.price > 0).slice(0, TOP_N)
+    };
+    if (jupOrganic.length > 0) {
+      categories.organicScore = {
+        id: 'organicScore',
+        label: 'Organic Score',
+        tokens: jupOrganic.filter(t => t.price > 0).slice(0, TOP_N)
+      };
+    }
+  } catch (e) {
+    console.warn('[MarketCategories] Error:', e.message);
+  }
+
+  return categories;
+}
+
 module.exports = {
   fetchTokenBoosts,
   fetchTopBoosts,
@@ -382,5 +463,6 @@ module.exports = {
   fetchCommunityTakeovers,
   fetchAds,
   fetchSolanaTrendings,
-  fetchTokensBulk
+  fetchTokensBulk,
+  fetchMarketCategories
 };

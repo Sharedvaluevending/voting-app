@@ -4,6 +4,8 @@
 /* Trench Warfare – mobile card layout for Open Positions & Trade History */
 .trench-warfare-page .section { background: rgba(15,23,42,0.6); border: 1px solid #1e2a3a; }
 .trench-warfare-page .data-table { background: rgba(15,23,42,0.4); }
+.trench-warfare-page #market-category-pills { scrollbar-width: thin; }
+.trench-warfare-page #market-tokens-row { scrollbar-width: thin; }
 @media (max-width: 600px) {
   .trench-warfare-page .section-header h2 { font-size: 18px; }
   .trench-warfare-page .section { padding: 12px; }
@@ -12,6 +14,7 @@
   .trench-warfare-page #trade-history-container .data-table { width: 100%; }
   .trench-warfare-page #open-positions-section > div,
   .trench-warfare-page #trade-history-container { overflow-x: visible; width: 100%; }
+  .trench-warfare-page #market-tokens-row > div { min-width: 130px; }
 }
 </style>
 
@@ -254,15 +257,43 @@
 </div>
 <% } %>
 
-<!-- Quick Links -->
+<!-- Meme Market Explorer -->
 <div class="section" style="margin-bottom:24px;">
-  <h3 style="color:#e5e7eb;margin-bottom:12px;">Quick Links</h3>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
-    <a href="https://dexscreener.com/solana" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">Dexscreener</a>
-    <a href="https://pump.fun" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">pump.fun</a>
-    <a href="https://jup.ag" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">Jupiter</a>
-    <a href="https://birdeye.so" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">Birdeye</a>
-    <a href="https://mobula.io" target="_blank" rel="noopener" style="padding:10px 14px;background:#1e293b;border:1px solid #1e2a3a;border-radius:8px;color:#3b82f6;text-decoration:none;font-size:13px;">Mobula</a>
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Meme Market Explorer</h3>
+  <p style="font-size:12px;color:#9ca3af;margin-bottom:12px;">Flip through top 10 lists by category. Click Buy to paper/live trade.</p>
+  <div id="market-category-pills" style="display:flex;gap:8px;margin-bottom:12px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:thin;">
+    <span style="color:#6b7280;font-size:12px;flex-shrink:0;align-self:center;">Categories:</span>
+  </div>
+  <div id="market-tokens-row" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch;scrollbar-width:thin;min-height:140px;">
+    <div id="market-tokens-loading" style="color:#6b7280;font-size:13px;padding:20px;">Loading...</div>
+  </div>
+</div>
+
+<!-- Dex Tools & Safety -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Dex Tools & Safety</h3>
+  <p style="font-size:12px;color:#9ca3af;margin-bottom:12px;">Charts, swaps, and honeypot/rug checkers before you buy.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;">
+    <div style="padding:10px 0;">
+      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Dex & Charts</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <a href="https://dexscreener.com/solana" target="_blank" rel="noopener" style="padding:8px 12px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#3b82f6;text-decoration:none;font-size:12px;">Dexscreener</a>
+        <a href="https://pump.fun" target="_blank" rel="noopener" style="padding:8px 12px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#3b82f6;text-decoration:none;font-size:12px;">pump.fun</a>
+        <a href="https://jup.ag" target="_blank" rel="noopener" style="padding:8px 12px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#3b82f6;text-decoration:none;font-size:12px;">Jupiter</a>
+        <a href="https://birdeye.so" target="_blank" rel="noopener" style="padding:8px 12px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#3b82f6;text-decoration:none;font-size:12px;">Birdeye</a>
+        <a href="https://mobula.io" target="_blank" rel="noopener" style="padding:8px 12px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#3b82f6;text-decoration:none;font-size:12px;">Mobula</a>
+        <a href="https://raydium.io" target="_blank" rel="noopener" style="padding:8px 12px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#3b82f6;text-decoration:none;font-size:12px;">Raydium</a>
+      </div>
+    </div>
+    <div style="padding:10px 0;">
+      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Honeypot & Rug Check</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <a href="https://honeypot.is" target="_blank" rel="noopener" style="padding:8px 12px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#eab308;text-decoration:none;font-size:12px;">Honeypot.is</a>
+        <a href="https://rugcheck.xyz" target="_blank" rel="noopener" style="padding:8px 12px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#eab308;text-decoration:none;font-size:12px;">Rugcheck.xyz</a>
+        <a href="https://solscan.io" target="_blank" rel="noopener" style="padding:8px 12px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#eab308;text-decoration:none;font-size:12px;">Solscan (holders)</a>
+        <a href="https://dexscreener.com/solana" target="_blank" rel="noopener" style="padding:8px 12px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#eab308;text-decoration:none;font-size:12px;">DexScreener (holders)</a>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -480,6 +511,98 @@
   document.getElementById('buy-modal').addEventListener('click', function(e) {
     if (e.target === this) hideModal();
   });
+
+  // Meme Market Explorer: load categories, render pills + tokens
+  (function initMarketExplorer() {
+    var marketCategories = {};
+    var activeCategoryId = null;
+    var pillsEl = document.getElementById('market-category-pills');
+    var rowEl = document.getElementById('market-tokens-row');
+    var loadingEl = document.getElementById('market-tokens-loading');
+    if (!pillsEl || !rowEl) return;
+
+    function renderPills() {
+      var ids = Object.keys(marketCategories);
+      if (ids.length === 0) return;
+      pillsEl.innerHTML = '<span style="color:#6b7280;font-size:12px;flex-shrink:0;align-self:center;">Categories:</span>';
+      ids.forEach(function(id) {
+        var cat = marketCategories[id];
+        if (!cat || !cat.tokens || cat.tokens.length === 0) return;
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'nav-btn';
+        btn.style.cssText = 'padding:6px 12px;font-size:12px;flex-shrink:0;white-space:nowrap;';
+        btn.textContent = cat.label;
+        btn.dataset.categoryId = id;
+        if (activeCategoryId === id) btn.classList.add('primary');
+        btn.addEventListener('click', function() {
+          activeCategoryId = id;
+          pillsEl.querySelectorAll('button').forEach(function(b) { b.classList.remove('primary'); if (b.dataset.categoryId === id) b.classList.add('primary'); });
+          renderTokens(cat.tokens);
+        });
+        pillsEl.appendChild(btn);
+      });
+      if (!activeCategoryId && ids.length > 0) {
+        activeCategoryId = ids[0];
+        pillsEl.querySelector('button[data-category-id="' + activeCategoryId + '"]')?.classList.add('primary');
+        renderTokens(marketCategories[activeCategoryId].tokens);
+      }
+    }
+
+    function renderTokens(tokens) {
+      loadingEl.style.display = 'none';
+      rowEl.innerHTML = '';
+      if (!tokens || tokens.length === 0) {
+        rowEl.innerHTML = '<div style="color:#6b7280;font-size:13px;padding:20px;">No tokens in this category.</div>';
+        return;
+      }
+      var trendings = window.__TRENDINGS__ || [];
+      tokens.forEach(function(t) {
+        var card = document.createElement('div');
+        card.style.cssText = 'flex-shrink:0;width:140px;padding:10px 12px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;';
+        var ch = (t.priceChange24h || t.priceChange5m || 0);
+        var chColor = ch >= 0 ? '#10b981' : '#ef4444';
+        var dexUrl = 'https://dexscreener.com/solana/' + (t.tokenAddress || '');
+        card.innerHTML = '<div style="font-weight:700;color:#e5e7eb;font-size:14px;margin-bottom:4px;">' + (t.symbol || '?') + '</div>' +
+          '<div style="font-size:12px;color:#9ca3af;">$' + (t.price < 0.0001 ? t.price.toExponential(2) : t.price.toFixed(6)) + '</div>' +
+          '<div style="font-size:12px;font-weight:600;color:' + chColor + ';margin:4px 0;">' + (ch >= 0 ? '+' : '') + (ch || 0).toFixed(1) + '%</div>' +
+          '<div style="display:flex;gap:6px;margin-top:8px;">' +
+          '<a href="' + dexUrl + '" target="_blank" rel="noopener" style="padding:4px 8px;font-size:11px;background:#1e293b;border-radius:4px;color:#3b82f6;text-decoration:none;">Chart</a>' +
+          '<button type="button" class="btn-buy-market-token nav-btn primary" style="padding:4px 8px;font-size:11px;" data-addr="' + (t.tokenAddress || '') + '" data-sym="' + (t.symbol || '').replace(/"/g, '&quot;') + '" data-name="' + (t.name || '').replace(/"/g, '&quot;') + '" data-price="' + (t.price || 0) + '">Buy</button>' +
+          '</div>';
+        rowEl.appendChild(card);
+        if (t.tokenAddress && t.price > 0) {
+          var exists = trendings.find(function(x) { return x.tokenAddress === t.tokenAddress; });
+          if (!exists) trendings.push({ tokenAddress: t.tokenAddress, price: t.price });
+        }
+      });
+      window.__TRENDINGS__ = trendings;
+    }
+
+    rowEl.addEventListener('click', function(e) {
+      var btn = e.target.closest('.btn-buy-market-token');
+      if (!btn) return;
+      var token = {
+        tokenAddress: btn.dataset.addr,
+        symbol: btn.dataset.sym || '?',
+        name: btn.dataset.name || '',
+        price: parseFloat(btn.dataset.price) || 0
+      };
+      if (token.price <= 0) { alert('Price not available'); return; }
+      showModal(token);
+    });
+
+    fetch('/api/trench-warfare/market-categories', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        marketCategories = d.categories || {};
+        renderPills();
+        if (loadingEl) loadingEl.style.display = 'none';
+      })
+      .catch(function(err) {
+        if (loadingEl) loadingEl.textContent = 'Failed to load. ' + (err.message || '');
+      });
+  })();
 
   var btnConnectBot = document.getElementById('btn-connect-bot');
   var btnDisconnectBot = document.getElementById('btn-disconnect-bot');
