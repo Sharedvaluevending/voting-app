@@ -458,6 +458,7 @@ function sanitizeSettings(raw) {
   s.tradingHoursEndUTC = Math.min(Math.max(s.tradingHoursEndUTC ?? 24, 0), 24);
   s.minProfitToActivateTrail = Math.min(Math.max(s.minProfitToActivateTrail ?? 0, 0), 10);
   s.minBuyPressure = Math.min(Math.max(s.minBuyPressure ?? 0.5, 0.45), 0.65);
+  s.usePartialTP = s.usePartialTP !== false;  // 40/30/30 partial exits, default on
   return s;
 }
 
@@ -705,6 +706,17 @@ function shouldSellPosition(pos, currentPrice, settings) {
 
   if (pnlPct <= -sl) return { sell: true, reason: 'stop_loss', pnlPct };
   // Fixed TP: skip when useTrailingTP (exit profit only via trailing)
+  // Partial TP (40/30/30): TP1=40% of TP, TP2=70%, TP3=100%
+  const usePartialTP = settings.usePartialTP !== false;
+  if (!settings.useTrailingTP && usePartialTP) {
+    const tp1 = tp * 0.4, tp2 = tp * 0.7;
+    const sold = pos.partialSoldAmount || 0;
+    const orig = pos.tokenAmount || 0;
+    const soldPct = orig > 0 ? (sold / orig) * 100 : 0;
+    if (pnlPct >= tp1 && soldPct < 1) return { sell: true, reason: 'partial_tp1', pnlPct, partialPercent: 40 };
+    if (pnlPct >= tp2 && soldPct >= 39 && soldPct < 71) return { sell: true, reason: 'partial_tp2', pnlPct, partialPercent: 30 };
+    if (pnlPct >= tp && soldPct >= 69) return { sell: true, reason: 'partial_tp3', pnlPct, partialPercent: 30 };
+  }
   if (!settings.useTrailingTP && pnlPct >= tp) return { sell: true, reason: 'take_profit', pnlPct };
 
   // Breakeven enforcement: once triggered, sell if price drops back to entry
@@ -760,13 +772,19 @@ function shouldSellPosition(pos, currentPrice, settings) {
 }
 
 // ====================================================
-// Live sell execution
+// Live sell execution (full or partial)
 // ====================================================
-async function executeLiveSell(user, pos, currentPrice, keypair) {
+async function executeLiveSell(user, pos, currentPrice, keypair, opts = {}) {
   const walletAddress = keypair.publicKey.toBase58();
-  const amountToSell = (pos.partialSoldAmount || 0) > 0
-    ? (pos.tokenAmount || 0) - pos.partialSoldAmount
-    : (pos.tokenAmount || 0);
+  const orig = pos.tokenAmount || 0;
+  const sold = pos.partialSoldAmount || 0;
+  const remaining = orig - sold;
+  let amountToSell;
+  if (opts.partialPercent != null && opts.partialPercent > 0 && opts.partialPercent < 100) {
+    amountToSell = orig * (opts.partialPercent / 100);
+  } else {
+    amountToSell = remaining;
+  }
   if (amountToSell <= 0) return false;
   try {
     const quote = await mobula.getSwapQuote(
@@ -787,8 +805,16 @@ async function executeLiveSell(user, pos, currentPrice, keypair) {
       const costBasis = pos.tokenAmount > 0 ? pos.amountIn * (amountToSell / pos.tokenAmount) : pos.amountIn;
       const pnl = valueOut - costBasis;
       const pnlPct = pos.entryPrice > 0 ? ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
+      const isPartial = opts.partialPercent != null && opts.partialPercent > 0 && opts.partialPercent < 100;
+      if (isPartial) {
+        await ScalpTrade.updateOne({ _id: pos._id }, {
+          $inc: { partialSoldAmount: amountToSell },
+          $set: { peakPrice: Math.max(pos.peakPrice || pos.entryPrice, currentPrice) }
+        });
+        return { pnl, pnlPct, partial: true };
+      }
       await ScalpTrade.updateOne({ _id: pos._id }, {
-        $set: { exitPrice: currentPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), txHash: data.transactionHash, exitReason: 'auto_sell' }
+        $set: { exitPrice: currentPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), txHash: data.transactionHash, exitReason: opts.reason || 'auto_sell' }
       });
       return { pnl, pnlPct };
     }
@@ -915,17 +941,29 @@ async function _exitTickInner(userId) {
 
     if (mode === 'paper') {
       const slippedPrice = currentPrice * (1 - PAPER_SLIPPAGE);
-      const tokenAmountToSell = pos.tokenAmount || 0;
+      const orig = pos.tokenAmount || 0;
+      const sold = pos.partialSoldAmount || 0;
+      const isPartial = decision.partialPercent != null && decision.partialPercent > 0 && decision.partialPercent < 100;
+      const tokenAmountToSell = isPartial ? orig * (decision.partialPercent / 100) : (orig - sold);
       const valueOut = tokenAmountToSell * slippedPrice;
-      const pnl = valueOut - (pos.amountIn || 0);
+      const costBasis = orig > 0 ? (pos.amountIn || 0) * (tokenAmountToSell / orig) : (pos.amountIn || 0);
+      const pnl = valueOut - costBasis;
       const pnlPct = ((slippedPrice - pos.entryPrice) / pos.entryPrice) * 100;
 
       user.trenchPaperBalance = Math.round(((user.trenchPaperBalance ?? 1000) + valueOut) * 100) / 100;
 
-      await ScalpTrade.updateOne({ _id: pos._id }, {
-        $set: { exitPrice: slippedPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), exitReason: decision.reason || 'auto' }
-      });
-      botLog(userId, `SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%) [slip: -${(PAPER_SLIPPAGE * 100).toFixed(0)}%]`);
+      if (isPartial) {
+        await ScalpTrade.updateOne({ _id: pos._id }, {
+          $inc: { partialSoldAmount: tokenAmountToSell },
+          $set: { peakPrice: Math.max(pos.peakPrice || pos.entryPrice, currentPrice) }
+        });
+        botLog(userId, `PARTIAL ${pos.tokenSymbol} [${decision.reason}] ${decision.partialPercent}% PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%)`);
+      } else {
+        await ScalpTrade.updateOne({ _id: pos._id }, {
+          $set: { exitPrice: slippedPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), exitReason: decision.reason || 'auto' }
+        });
+        botLog(userId, `SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%) [slip: -${(PAPER_SLIPPAGE * 100).toFixed(0)}%]`);
+      }
       sellCount++;
 
       user.trenchStats = user.trenchStats || {};
@@ -957,7 +995,10 @@ async function _exitTickInner(userId) {
     } else {
       const keypair = getBotKeypair(user);
       if (!keypair) continue;
-      const result = await executeLiveSell(user, pos, currentPrice, keypair);
+      const result = await executeLiveSell(user, pos, currentPrice, keypair, {
+        partialPercent: decision.partialPercent,
+        reason: decision.reason
+      });
       if (result) {
         const { pnl, pnlPct } = result;
         user.trenchStats = user.trenchStats || {};

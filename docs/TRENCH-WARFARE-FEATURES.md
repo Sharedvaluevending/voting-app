@@ -16,6 +16,7 @@
 - **Time-of-day filter**: Trading hours start/end (UTC); only scan during allowed hours
 - **Min profit to activate trail**: Only activate trailing stop after X% profit (0=always)
 - **Pre-buy checklist**: Rugcheck.xyz link in buy modal before confirming
+- **Partial take profits (40/30/30)**: TP1 at 40% of TP, TP2 at 70%, TP3 at 100%; sell 40% at TP1, 30% at TP2, 30% at TP3 (default on; disabled when trailing TP)
 
 ## Platform trading features (main app) vs Trench
 

@@ -2763,6 +2763,7 @@ app.post('/api/trench-warfare/auto/settings', requireLogin, async (req, res) => 
     if (b.tradingHoursEndUTC !== undefined) user.trenchAuto.tradingHoursEndUTC = Math.max(0, Math.min(24, Number(b.tradingHoursEndUTC) || 24));
     if (b.minProfitToActivateTrail !== undefined) user.trenchAuto.minProfitToActivateTrail = Math.max(0, Math.min(10, Number(b.minProfitToActivateTrail) || 0));
     if (b.minBuyPressure !== undefined) user.trenchAuto.minBuyPressure = Math.max(0.45, Math.min(0.65, Number(b.minBuyPressure) || 0.5));
+    if (b.usePartialTP !== undefined) user.trenchAuto.usePartialTP = !!b.usePartialTP;
     await user.save();
     res.json({ success: true, trenchAuto: user.trenchAuto });
   } catch (e) {
