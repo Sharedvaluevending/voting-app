@@ -1105,13 +1105,14 @@ function stochasticOHLC(highs, lows, closes, period) {
 
 function calculateVWAP(candles) {
   if (!candles.length) return 0;
-  // Use last 20 candles for VWAP
+  // Use last 20 candles for VWAP (rolling approximation; true VWAP is session-cumulative)
   const recent = candles.slice(-20);
   let cumTPV = 0, cumVol = 0;
   for (const c of recent) {
+    const vol = c.volume ?? 0;
     const tp = (c.high + c.low + c.close) / 3;
-    cumTPV += tp * c.volume;
-    cumVol += c.volume;
+    cumTPV += tp * vol;
+    cumVol += vol;
   }
   return cumVol > 0 ? cumTPV / cumVol : 0;
 }
@@ -1480,9 +1481,10 @@ function detectLiquidityClusters(highs, lows, currentPrice) {
 
   const swingHighs = [];
   const swingLows = [];
+  // 5-point swing (consistent with getSwingPoints, detectMarketStructure)
   for (let i = 2; i < recentH.length - 2; i++) {
-    if (recentH[i] > recentH[i - 1] && recentH[i] > recentH[i + 1]) swingHighs.push(recentH[i]);
-    if (recentL[i] < recentL[i - 1] && recentL[i] < recentL[i + 1]) swingLows.push(recentL[i]);
+    if (recentH[i] > recentH[i - 1] && recentH[i] > recentH[i - 2] && recentH[i] > recentH[i + 1] && recentH[i] > recentH[i + 2]) swingHighs.push(recentH[i]);
+    if (recentL[i] < recentL[i - 1] && recentL[i] < recentL[i - 2] && recentL[i] < recentL[i + 1] && recentL[i] < recentL[i + 2]) swingLows.push(recentL[i]);
   }
   if (swingHighs.length === 0 && swingLows.length === 0) return result;
 
@@ -1493,7 +1495,8 @@ function detectLiquidityClusters(highs, lows, currentPrice) {
     const groups = [];
     let group = [sorted[0]];
     for (let i = 1; i < sorted.length; i++) {
-      const diff = Math.abs(sorted[i] - group[group.length - 1]) / group[group.length - 1];
+      const ref = group[group.length - 1];
+      const diff = (ref && ref > 0) ? Math.abs(sorted[i] - ref) / ref : Math.abs(sorted[i] - ref);
       if (diff <= pctTolerance) group.push(sorted[i]);
       else { groups.push(group); group = [sorted[i]]; }
     }
@@ -1707,7 +1710,7 @@ function calculatePOC(candles) {
   const buckets = new Array(50).fill(0);
   for (const c of candles) {
     const mid = (c.high + c.low) / 2;
-    const idx = Math.min(49, Math.floor((mid - minP) / bucketSize));
+    const idx = Math.max(0, Math.min(49, Math.floor((mid - minP) / bucketSize)));
     buckets[idx] += c.volume || 0;
   }
   let maxVol = 0, maxIdx = 0;
