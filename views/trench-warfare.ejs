@@ -1,34 +1,34 @@
 <%- include('partials/header') %>
 
 <style>
-/* Trench Warfare – mobile card layout for Open Positions & Trade History */
-.trench-warfare-page .section { background: rgba(15,23,42,0.6); border: 1px solid #1e2a3a; }
+/* Trench Warfare – list/card layout like main trading history */
+.trench-warfare-page .section { background: rgba(15,23,42,0.6); border: 1px solid #1e2a3a; width: 100%; box-sizing: border-box; }
 .trench-warfare-page .data-table { background: rgba(15,23,42,0.4); }
 .trench-warfare-page #market-category-pills { scrollbar-width: thin; }
 .trench-warfare-page #market-tokens-row { scrollbar-width: thin; }
+.trench-warfare-page #open-positions-section,
+.trench-warfare-page #trade-history-container { width: 100%; }
+.trench-warfare-page #open-positions-section .data-table,
+.trench-warfare-page #trade-history-container .data-table { width: 100%; max-width: 100%; }
+.trench-warfare-page #open-positions-section > div,
+.trench-warfare-page #trade-history-container { overflow-x: auto; width: 100%; max-width: 100%; }
+/* Open Positions & Trade History: full-width cards on mobile (like history page) */
 @media (max-width: 600px) {
   .trench-warfare-page .section-header h2 { font-size: 18px; }
   .trench-warfare-page .section { padding: 12px; }
-  .trench-warfare-page .data-table { width: 100%; max-width: 100%; }
-  .trench-warfare-page #open-positions-section .data-table,
-  .trench-warfare-page #trade-history-container .data-table { width: 100%; }
-  .trench-warfare-page #open-positions-section > div,
-  .trench-warfare-page #trade-history-container { overflow-x: visible; width: 100%; }
-  .trench-warfare-page #market-tokens-row > div { min-width: 130px; }
-  /* Open Positions & Trade History: card layout on mobile */
   .trench-warfare-page .positions-table,
-  .trench-warfare-page .trade-history-table { display: block; }
+  .trench-warfare-page .trade-history-table { display: block; width: 100%; }
   .trench-warfare-page .positions-table thead,
   .trench-warfare-page .trade-history-table thead { display: none; }
   .trench-warfare-page .positions-table tbody tr,
   .trench-warfare-page .trade-history-table tbody tr {
-    display: block; margin-bottom: 12px; padding: 12px;
-    background: rgba(15,23,42,0.5); border: 1px solid #1e2a3a; border-radius: 8px;
+    display: block; width: 100%; margin-bottom: 12px; padding: 12px; box-sizing: border-box;
+    background: rgba(15,23,42,0.6); border: 1px solid #1e2a3a; border-radius: 8px;
   }
   .trench-warfare-page .positions-table tbody td,
   .trench-warfare-page .trade-history-table tbody td {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 0; border: none; font-size: 13px;
+    width: 100%; padding: 6px 0; border: none; font-size: 13px; box-sizing: border-box;
   }
   .trench-warfare-page .positions-table tbody td[data-label]:not([data-label=""]):not(:first-child)::before,
   .trench-warfare-page .trade-history-table tbody td[data-label]:not([data-label=""]):not(:first-child)::before {
@@ -38,12 +38,15 @@
   .trench-warfare-page .trade-history-table tbody td:first-child { flex-direction: column; align-items: flex-start; gap: 2px; padding-top: 0; }
   .trench-warfare-page .positions-table tbody td:first-child::before,
   .trench-warfare-page .trade-history-table tbody td:first-child::before { display: none; }
-  .trench-warfare-page .positions-table tbody td:last-child { flex-wrap: wrap; gap: 8px; padding-top: 10px; border-top: 1px solid #1e2a3a; }
+  .trench-warfare-page .positions-table tbody td:last-child,
+  .trench-warfare-page .trade-history-table tbody td:last-child { flex-wrap: wrap; gap: 8px; padding-top: 10px; border-top: 1px solid #1e2a3a; }
   .trench-warfare-page .positions-table tbody td:last-child::before,
   .trench-warfare-page .trade-history-table tbody td:last-child::before { display: none; }
   .trench-warfare-page #positions-empty-row,
   .trench-warfare-page #positions-empty-row td { display: table-row; }
   .trench-warfare-page #positions-empty-row td { display: table-cell; }
+  .trench-warfare-page #market-tokens-row > div { min-width: 130px; }
+  .trench-warfare-page #trench-analytics { grid-template-columns: repeat(2, 1fr); }
 }
 </style>
 
@@ -109,7 +112,8 @@
 <% if (typeof user !== 'undefined' && user) { %>
 <div class="section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Trench Analytics</h3>
-  <div id="trench-analytics" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;">
+  <div id="trench-analytics-error" style="display:none;padding:12px;background:rgba(239,68,68,0.15);border:1px solid #ef4444;border-radius:8px;color:#ef4444;font-size:13px;margin-bottom:12px;"></div>
+  <div id="trench-analytics" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;width:100%;">
     <div style="padding:12px;background:rgba(15,23,42,0.6);border-radius:8px;border:1px solid #1e2a3a;">
       <div style="font-size:11px;color:#6b7280;">Total PnL</div>
       <div id="stat-total-pnl" style="font-size:18px;font-weight:600;color:#e5e7eb;">$0</div>
@@ -877,10 +881,12 @@
   // ---- ANALYTICS + EQUITY CURVE ----
   var trenchEquityData = null;
   function loadAnalytics() {
+    var errEl = document.getElementById('trench-analytics-error');
+    if (errEl) errEl.style.display = 'none';
     fetch('/api/trench-warfare/analytics', { credentials: 'same-origin' })
-      .then(function(r) { return r.json(); })
+      .then(function(r) { if (!r.ok) throw new Error(r.status === 401 ? 'Please log in' : 'Analytics failed'); return r.json(); })
       .then(function(d) {
-        if (d.error) return;
+        if (d.error) { if (errEl) { errEl.textContent = d.error; errEl.style.display = 'block'; } return; }
         var el = document.getElementById('stat-total-pnl');
         if (el) { el.textContent = '$' + (d.totalPnl || 0).toFixed(2); el.style.color = (d.totalPnl || 0) >= 0 ? '#10b981' : '#ef4444'; }
         el = document.getElementById('stat-win-rate');
@@ -937,7 +943,10 @@
         } else if (eqSection) {
           eqSection.style.display = 'none';
         }
-      }).catch(function() { if (typeof showToast === 'function') showToast('Analytics failed to load'); });
+      }).catch(function(e) {
+        if (errEl) { errEl.textContent = e.message || 'Analytics failed to load'; errEl.style.display = 'block'; }
+        if (typeof showToast === 'function') showToast('Analytics failed to load');
+      });
   }
 
   function drawTrenchEquityCurve(canvas, data) {
