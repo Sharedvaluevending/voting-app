@@ -1393,6 +1393,12 @@ app.post('/account/settings', requireLogin, async (req, res) => {
     if (req.body.notifyTradeClose !== undefined) {
       s.notifyTradeClose = req.body.notifyTradeClose === 'true' || (Array.isArray(req.body.notifyTradeClose) && req.body.notifyTradeClose.includes('true'));
     }
+    if (req.body.notifyActionBadges !== undefined) {
+      s.notifyActionBadges = req.body.notifyActionBadges === 'true' || (Array.isArray(req.body.notifyActionBadges) && req.body.notifyActionBadges.includes('true'));
+    }
+    if (req.body.phoneSmsEmail !== undefined) {
+      u.phoneSmsEmail = (req.body.phoneSmsEmail || '').trim().toLowerCase();
+    }
     if (req.body.makerFeePercent != null) {
       const v = parseFloat(req.body.makerFeePercent);
       s.makerFeePercent = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0.1;
@@ -2354,6 +2360,58 @@ app.post('/api/setup-notifications/seen-all', requireLogin, async (req, res) => 
   try {
     const SetupNotification = require('./models/SetupNotification');
     await SetupNotification.updateMany({ userId: req.session.userId, seenAt: null }, { seenAt: new Date() });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ====================================================
+// PUSH NOTIFICATIONS (trades & action badges)
+// ====================================================
+app.get('/api/push/vapid-public', (req, res) => {
+  const key = process.env.VAPID_PUBLIC_KEY;
+  if (!key) return res.status(503).json({ error: 'Push notifications not configured' });
+  res.json({ publicKey: key });
+});
+
+app.post('/api/push/subscribe', requireLogin, async (req, res) => {
+  try {
+    const subscription = req.body?.subscription;
+    if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+      return res.status(400).json({ success: false, error: 'Invalid subscription' });
+    }
+    const sub = {
+      endpoint: subscription.endpoint,
+      keys: { p256dh: subscription.keys.p256dh, auth: subscription.keys.auth },
+      userAgent: req.headers['user-agent'] || ''
+    };
+    await User.updateOne(
+      { _id: req.session.userId },
+      { $pull: { pushSubscriptions: { endpoint: subscription.endpoint } } }
+    );
+    await User.updateOne(
+      { _id: req.session.userId },
+      { $push: { pushSubscriptions: sub } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Push] Subscribe error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/push/unsubscribe', requireLogin, async (req, res) => {
+  try {
+    const endpoint = req.body?.endpoint;
+    if (endpoint) {
+      await User.updateOne(
+        { _id: req.session.userId },
+        { $pull: { pushSubscriptions: { endpoint } } }
+      );
+    } else {
+      await User.updateOne({ _id: req.session.userId }, { $set: { pushSubscriptions: [] } });
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

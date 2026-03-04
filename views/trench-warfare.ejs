@@ -1,5 +1,21 @@
 <%- include('partials/header') %>
 
+<style>
+/* Trench Warfare – mobile card layout for Open Positions & Trade History */
+.trench-warfare-page .section { background: rgba(15,23,42,0.6); border: 1px solid #1e2a3a; }
+.trench-warfare-page .data-table { background: rgba(15,23,42,0.4); }
+@media (max-width: 600px) {
+  .trench-warfare-page .section-header h2 { font-size: 18px; }
+  .trench-warfare-page .section { padding: 12px; }
+  .trench-warfare-page .data-table { width: 100%; max-width: 100%; }
+  .trench-warfare-page #open-positions-section .data-table,
+  .trench-warfare-page #trade-history-container .data-table { width: 100%; }
+  .trench-warfare-page #open-positions-section > div,
+  .trench-warfare-page #trade-history-container { overflow-x: visible; width: 100%; }
+}
+</style>
+
+<div class="trench-warfare-page main-content-inner">
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Trench Warfare</h2>
   <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Solana memecoin scalping — find pumping coins, quick trades. Connect Phantom to trade directly.</p>
@@ -46,7 +62,7 @@
           <td data-label="PnL" class="pos-pnl" style="font-size:13px;font-weight:600;color:#6b7280;">—</td>
           <td data-label="Hold" class="pos-hold" style="font-size:12px;color:#6b7280;">—</td>
           <td data-label="Cost" style="font-size:12px;"><%= p.isPaper ? '$' + (p.amountIn || 0).toFixed(2) : (p.amountIn || 0) + ' SOL' %></td>
-          <td data-label=""><% if (p.isPaper) { %><button type="button" class="btn-sell-paper nav-btn" style="padding:4px 10px;font-size:12px;">Sell</button><% } else { %><span style="color:#6b7280;font-size:11px;">—</span><% } %></td>
+          <td data-label="Action"><% if (p.isPaper) { %><button type="button" class="btn-sell-paper nav-btn" style="padding:4px 10px;font-size:12px;">Sell</button><% } else { %><span style="color:#6b7280;font-size:11px;">—</span><% } %></td>
         </tr>
         <% }); } else { %>
         <tr id="positions-empty-row"><td colspan="7" style="text-align:center;color:#6b7280;font-size:13px;padding:16px;">No open positions. Start the bot or trade manually.</td></tr>
@@ -873,13 +889,13 @@
           var sellBtn = p.isPaper ? '<button type="button" class="btn-sell-paper nav-btn" style="padding:4px 10px;font-size:12px;">Sell</button>' : '<span style="color:#6b7280;font-size:11px;">—</span>';
           totalPnl += p.pnl;
           html += '<tr data-position-id="' + p._id + '" data-token-address="' + (p.tokenAddress || '') + '" data-entry-price="' + ep + '" data-amount-in="' + amt + '" data-token-amount="' + (p.tokenAmount || 0) + '" data-is-paper="' + (p.isPaper ? '1' : '0') + '" data-current-price="' + (p.currentPrice || 0) + '">';
-          html += '<td><strong>' + (p.tokenSymbol || '') + '</strong></td>';
-          html += '<td style="font-size:12px;">$' + ep.toFixed(8) + '</td>';
-          html += '<td class="pos-current-price" style="font-size:12px;color:' + priceClr + '">' + priceStr + '</td>';
-          html += '<td class="pos-pnl" style="font-size:13px;font-weight:600;color:' + pnlClr + '">' + pnlStr + '</td>';
-          html += '<td class="pos-hold" style="font-size:12px;color:' + holdClr + '">' + p.holdMinutes + 'm</td>';
-          html += '<td style="font-size:12px;">' + costStr + '</td>';
-          html += '<td>' + sellBtn + '</td></tr>';
+          html += '<td data-label="Token"><strong>' + (p.tokenSymbol || '') + '</strong></td>';
+          html += '<td data-label="Entry" style="font-size:12px;">$' + ep.toFixed(8) + '</td>';
+          html += '<td data-label="Now" class="pos-current-price" style="font-size:12px;color:' + priceClr + '">' + priceStr + '</td>';
+          html += '<td data-label="PnL" class="pos-pnl" style="font-size:13px;font-weight:600;color:' + pnlClr + '">' + pnlStr + '</td>';
+          html += '<td data-label="Hold" class="pos-hold" style="font-size:12px;color:' + holdClr + '">' + p.holdMinutes + 'm</td>';
+          html += '<td data-label="Cost" style="font-size:12px;">' + costStr + '</td>';
+          html += '<td data-label="Action">' + sellBtn + '</td></tr>';
         });
         tbody.innerHTML = html;
 
@@ -902,5 +918,7 @@
   }
 })();
 </script>
+
+</div><!-- .trench-warfare-page -->
 
 <%- include('partials/footer') %>

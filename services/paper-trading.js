@@ -9,6 +9,7 @@
 const Trade = require('../models/Trade');
 const User = require('../models/User');
 const { recordTradeOutcome, adjustWeights } = require('./learning-engine');
+const { notifyUser } = require('./notifications');
 const bitget = require('./bitget');
 const { plan: riskEnginePlan } = require('./engines/risk-engine');
 
@@ -376,6 +377,12 @@ async function openTrade(userId, signalData) {
 
   if (process.env.NODE_ENV !== 'production') console.log(`[OpenTrade] ${signalData.symbol} ${signalData.direction} | entry=$${entryPrice} | SL=$${stopLoss} | TP1=$${safeTP1} | TP2=$${safeTP2} | TP3=$${safeTP3} | size=$${finalPositionSize.toFixed(2)} | lev=${leverage}x | score=${signalData.score} | strategy=${signalData.strategyType || 'default'} | auto=${!!signalData.autoTriggered}${signalData.llmConfidence ? ` | llmConf=${signalData.llmConfidence}` : ''}`);
 
+  // Push/SMS notification
+  if (user.settings?.notifyTradeOpen !== false) {
+    const u = user.toObject ? user.toObject() : user;
+    notifyUser(userId, 'trade_open', `Trade opened: ${signalData.symbol} ${signalData.direction}`, `Score ${signalData.score} | Entry $${entryPrice.toFixed(2)}`, u).catch(() => {});
+  }
+
   // Atomic balance update — prevents race conditions between concurrent trade operations
   if (user.paperBalance == null) {
     await User.findByIdAndUpdate(userId, {
@@ -614,7 +621,13 @@ async function _closeTradeInner(userId, tradeId, trade, currentPrice, reason) {
     console.error(`[Bitget] Live close error: ${bitgetErr.message}`);
   }
 
-  // Push notification
+  // Push/SMS notification
+  const user = await User.findById(userId).select('settings pushSubscriptions phoneSmsEmail').lean();
+  if (user && (user.settings?.notifyTradeClose !== false)) {
+    const pnl = trade.pnl != null ? trade.pnl.toFixed(2) : '0';
+    const pnlSign = (trade.pnl || 0) >= 0 ? '+' : '';
+    notifyUser(userId, 'trade_close', `Trade closed: ${trade.symbol} ${trade.direction}`, `${pnlSign}$${pnl} — ${reason}`, user).catch(() => {});
+  }
 
   return trade;
 }
@@ -629,6 +642,11 @@ function logTradeAction(trade, type, description, oldValue, newValue, marketPric
     marketPrice: marketPrice != null ? marketPrice : undefined,
     timestamp: new Date()
   });
+  // Action badge notification (BE, TS, LOCK, DCA, EXIT, etc.)
+  const badgeTypes = ['BE', 'TS', 'LOCK', 'DCA', 'EXIT', 'PP', 'RP', 'LLM_SL'];
+  if (badgeTypes.includes(type) && trade.userId) {
+    notifyUser(trade.userId, 'action_badge', `${type}: ${trade.symbol}`, description || type, null).catch(() => {});
+  }
 }
 
 /**

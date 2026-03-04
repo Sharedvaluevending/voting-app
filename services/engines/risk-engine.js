@@ -29,6 +29,7 @@ function calculatePositionSize(balance, riskPercent, entryPrice, stopLoss, lever
   opts = opts || {};
   if (!entryPrice || entryPrice <= 0) return balance * 0.05 * leverage;
   const riskMode = opts.riskMode || 'percent';
+  // Dollar mode: use fixed $ risk. Never fall back to percent when dollar is explicitly selected.
   const riskAmount = riskMode === 'dollar' && Number.isFinite(opts.riskDollarsPerTrade) && opts.riskDollarsPerTrade > 0
     ? opts.riskDollarsPerTrade
     : balance * (riskPercent / 100);

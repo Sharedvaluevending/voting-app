@@ -83,7 +83,7 @@
   <% } %>
 
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Trading Settings</h3>
-  <form action="/account/settings" method="POST">
+  <form id="settings-form" action="/account/settings" method="POST" onsubmit="return syncPhoneSmsEmail()">
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
 
     <!-- 1. Position Sizing -->
@@ -385,9 +385,96 @@
       </div>
     </div>
 
+    <!-- 6. Push & SMS Notifications -->
+    <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #1e2a3a;">
+      <h4 style="color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px 0;">Push &amp; SMS Notifications</h4>
+      <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0;">Get notified on your phone when trades open/close and when action badges (BE, TS, LOCK, etc.) fire.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-bottom:10px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="hidden" name="notifyTradeOpen" value="false">
+          <input type="checkbox" name="notifyTradeOpen" value="true" <%= (user.settings && user.settings.notifyTradeOpen) !== false ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Trade opened</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="hidden" name="notifyTradeClose" value="false">
+          <input type="checkbox" name="notifyTradeClose" value="true" <%= (user.settings && user.settings.notifyTradeClose) !== false ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Trade closed</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="BE, TS, LOCK, DCA, EXIT, etc.">
+          <input type="hidden" name="notifyActionBadges" value="false">
+          <input type="checkbox" name="notifyActionBadges" value="true" <%= (user.settings && user.settings.notifyActionBadges) === true ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Action badges (BE, TS, LOCK)</span>
+        </label>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:end;">
+        <button type="button" id="push-enable-btn" onclick="enablePushNotifications()" style="padding:8px 16px;background:#10b981;border:none;color:#0f172a;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Enable Push (Phone)</button>
+        <span id="push-status" style="font-size:11px;color:#6b7280;"></span>
+        <div>
+          <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:2px;">SMS (phone + carrier)</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+            <input type="tel" id="smsPhone" placeholder="5551234567" maxlength="15" pattern="[0-9]*" inputmode="numeric" style="width:140px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="10-digit US phone number">
+            <select id="smsCarrier" style="padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;">
+              <option value="">Select carrier</option>
+              <option value="@vtext.com">Verizon</option>
+              <option value="@txt.att.net">AT&amp;T</option>
+              <option value="@tmomail.net">T-Mobile</option>
+              <option value="@messaging.sprintpcs.com">Sprint</option>
+              <option value="@vmobl.com">Virgin</option>
+              <option value="@message.alltel.com">Alltel</option>
+              <option value="@email.uscc.net">US Cellular</option>
+            </select>
+            <input type="hidden" name="phoneSmsEmail" id="phoneSmsEmail" value="<%= (user.phoneSmsEmail || '') %>">
+          </div>
+          <p style="font-size:10px;color:#6b7280;margin-top:4px;">Trade alerts via SMS. Enter your 10-digit number and carrier.</p>
+        </div>
+      </div>
+    </div>
 
     <button type="submit" class="btn btn-outline btn-sm">Save Settings</button>
   </form>
+  <script>
+  (function() {
+    var carriers = [
+      { gateway: '@vtext.com', name: 'Verizon' },
+      { gateway: '@txt.att.net', name: 'AT&T' },
+      { gateway: '@tmomail.net', name: 'T-Mobile' },
+      { gateway: '@messaging.sprintpcs.com', name: 'Sprint' },
+      { gateway: '@vmobl.com', name: 'Virgin' },
+      { gateway: '@message.alltel.com', name: 'Alltel' },
+      { gateway: '@email.uscc.net', name: 'US Cellular' }
+    ];
+    function parsePhoneSmsEmail(val) {
+      if (!val || typeof val !== 'string') return { phone: '', carrier: '' };
+      var at = val.indexOf('@');
+      if (at < 1) return { phone: val.replace(/\D/g, ''), carrier: '' };
+      var phone = val.slice(0, at).replace(/\D/g, '');
+      var gateway = val.slice(at);
+      var carrier = '';
+      for (var i = 0; i < carriers.length; i++) {
+        if (carriers[i].gateway === gateway) { carrier = carriers[i].gateway; break; }
+      }
+      if (!carrier) carrier = gateway;
+      return { phone: phone, carrier: carrier };
+    }
+    var existing = '<%= (user.phoneSmsEmail || "").replace(/'/g, "\\'") %>';
+    if (existing) {
+      var parsed = parsePhoneSmsEmail(existing);
+      var phoneEl = document.getElementById('smsPhone');
+      var carrierEl = document.getElementById('smsCarrier');
+      if (phoneEl) phoneEl.value = parsed.phone;
+      if (carrierEl) carrierEl.value = parsed.carrier;
+    }
+    window.syncPhoneSmsEmail = function() {
+      var phone = (document.getElementById('smsPhone')?.value || '').replace(/\D/g, '');
+      var carrier = document.getElementById('smsCarrier')?.value || '';
+      var hidden = document.getElementById('phoneSmsEmail');
+      if (hidden) {
+        hidden.value = (phone && carrier) ? phone + carrier : '';
+      }
+      return true;
+    };
+  })();
+  </script>
 </div>
 
 <!-- Feature Toggles for Live/Paper Trading -->
@@ -878,6 +965,50 @@
     if (el) el.addEventListener('input', updateCalc);
   });
   updateCalc();
+
+  window.enablePushNotifications = function() {
+    var btn = document.getElementById('push-enable-btn');
+    var status = document.getElementById('push-status');
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = 'Setting up...';
+    fetch('/api/push/vapid-public', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.publicKey) throw new Error('Push not configured');
+        return navigator.serviceWorker.register('/sw.js').then(function(reg) {
+          return reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(data.publicKey)
+          });
+        }).then(function(sub) {
+          return fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subscription: sub.toJSON() }),
+            credentials: 'same-origin'
+          });
+        });
+      })
+      .then(function(r) {
+        if (!r.ok) throw new Error('Subscribe failed');
+        if (status) status.textContent = 'Push enabled';
+        if (status) status.style.color = '#10b981';
+        if (btn) { btn.disabled = false; btn.textContent = 'Push enabled'; }
+      })
+      .catch(function(e) {
+        if (status) status.textContent = e.message || 'Failed (need HTTPS, or allow notifications)';
+        if (status) status.style.color = '#ef4444';
+        if (btn) btn.disabled = false;
+      });
+  };
+  function urlBase64ToUint8Array(base64) {
+    var padding = '='.repeat((4 - base64.length % 4) % 4);
+    var b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+    var raw = atob(b64);
+    var arr = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+    return arr;
+  }
 
   // Load Bitget balance when connected
   var bitgetEl = document.getElementById('bitget-balance-val');

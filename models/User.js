@@ -98,6 +98,7 @@ const userSchema = new mongoose.Schema({
     stopCheckGraceMinutes: { type: Number, default: 2, min: 0, max: 30 },
     notifyTradeOpen: { type: Boolean, default: true },
     notifyTradeClose: { type: Boolean, default: true },
+    notifyActionBadges: { type: Boolean, default: false },
     makerFeePercent: { type: Number, default: 0.1, min: 0, max: 1 },
     takerFeePercent: { type: Number, default: 0.1, min: 0, max: 1 },
     // Feature toggles (match backtest toggles for 1:1 config transfer)
@@ -147,6 +148,14 @@ const userSchema = new mongoose.Schema({
   coinWeightStrength: { type: String, enum: ['conservative', 'moderate', 'aggressive'], default: 'moderate' },
   resetToken: { type: String },
   resetTokenExpiry: { type: Date },
+  // Push notifications (Web Push API)
+  pushSubscriptions: [{
+    endpoint: { type: String, required: true },
+    keys: { p256dh: { type: String, required: true }, auth: { type: String, required: true } },
+    userAgent: { type: String }
+  }],
+  // SMS via email-to-SMS: 5551234567@vtext.com (Verizon), @txt.att.net (AT&T), @tmomail.net (T-Mobile)
+  phoneSmsEmail: { type: String, default: '' },
   bitget: {
     apiKey: { type: String, default: '' },
     secretKey: { type: String, default: '' },
