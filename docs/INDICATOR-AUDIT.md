@@ -120,6 +120,39 @@ Audit of FVG, Order Blocks, Liquidity Clusters, and all indicators. Logic and ma
 
 ---
 
+## Trading Logic Audit
+
+### Signal Engine — ✅ CORRECT
+- Wraps `analyzeCoin`, picks best strategy by score, normalizes to decision object.
+- Entry/stop/TP levels come from strategy or blended signal.
+
+### Risk Engine — ✅ CORRECT
+- **Position sizing:** `riskAmount / stopDistance * leverage` (riskAmount = balance × risk% or fixed $).
+- **SL validation:** Wrong-side SL corrected; max 15% distance; min 1× ATR.
+- **TP mode:** Fixed (TP1/2/3) or trailing (ATR-based).
+- **Kelly blend:** 70% risk-based + 30% Kelly when strategy has 15+ trades.
+
+### Manage Engine — ✅ CORRECT
+- **Breakeven:** At 0.75R, move SL to entry + 0.3%.
+- **Trailing:** Activates at 1.5R, trails 2R behind best price.
+- **Partial TPs:** TP1=40%, TP2=30%, TP3=30% of original size.
+- **Score recheck:** EXIT at -45 diff or signal flip; RP at -35; PP near TP1 when weakening.
+
+### Level Computation (trading-engine) — ✅ CORRECT
+- **Entry:** Current price (rounded).
+- **Stop:** ATR × mult + S/R bounds; Fib refinement when level between entry and stop.
+- **TPs:** R-multiples (1.5R, 2.5R, 4R default) from risk distance.
+- **Strategy levels:** STRATEGY_LEVELS defines atrMult, tp1R, tp2R, tp3R per strategy.
+
+---
+
+## Tests Run
+- `scripts/test-indicators-and-trading.js` — 12 checks (SMA, EMA, RSI, ATR, BB, FVG, OB, liquidity, analyzeOHLCV, position sizing, manage engine, risk plan).
+- `npm test tests/unit/risk-engine.test.js tests/unit/scoring.test.js` — 21 tests pass.
+- `scripts/test-backtest-risk-balance.js` — balance, risk %, fees, return %, dollar mode (requires API).
+
+---
+
 ## Summary of Fixes Applied
 1. **calculateVWAP:** Handle undefined volume with `(c.volume ?? 0)`.
 2. **detectLiquidityClusters:** Use 5-point swings and guard against division by zero.
