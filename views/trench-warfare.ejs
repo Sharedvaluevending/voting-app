@@ -1173,7 +1173,7 @@
         d.positions.forEach(function(p) {
           var ep = p.entryPrice || 0;
           var amt = p.amountIn || 0;
-          var costStr = p.isPaper ? '$' + amt.toFixed(2) : amt + ' SOL';
+          var costStr = (p.costUsd != null && p.costUsd > 0) ? '$' + p.costUsd.toFixed(2) : (p.isPaper ? '$' + amt.toFixed(2) : amt + ' SOL');
           var priceStr = p.currentPrice > 0 ? '$' + p.currentPrice.toFixed(8) : '—';
           var priceClr = p.currentPrice > 0 ? (p.currentPrice >= ep ? '#10b981' : '#ef4444') : '#6b7280';
           var sign = p.pnl >= 0 ? '+' : '';

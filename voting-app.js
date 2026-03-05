@@ -2894,11 +2894,25 @@ app.get('/api/trench-warfare/positions', requireLogin, async (req, res) => {
       }
     } catch (e) { /* ignore */ }
 
+    const hasLive = open.some(p => !p.isPaper);
+    let solPriceUsd = 0;
+    if (hasLive) {
+      const sol = getCurrentPrice('solana');
+      solPriceUsd = sol && Number.isFinite(sol.price) && sol.price > 0 ? sol.price : 0;
+    }
     const positions = open.map(p => {
       const currentPrice = prices[p.tokenAddress] || 0;
       const pnlPct = currentPrice > 0 && p.entryPrice > 0 ? ((currentPrice - p.entryPrice) / p.entryPrice) * 100 : 0;
       const currentValue = (p.tokenAmount || 0) * currentPrice;
-      const pnl = currentValue - (p.amountIn || 0);
+      let pnl;
+      let costDisplay = p.amountIn;
+      if (p.isPaper) {
+        pnl = currentValue - (p.amountIn || 0);
+      } else {
+        const costUsd = solPriceUsd > 0 ? (p.amountIn || 0) * solPriceUsd : 0;
+        pnl = costUsd > 0 ? currentValue - costUsd : 0;
+        costDisplay = solPriceUsd > 0 ? costUsd : p.amountIn;
+      }
       const holdMinutes = (Date.now() - new Date(p.createdAt).getTime()) / 60000;
       return {
         _id: p._id,
@@ -2908,6 +2922,7 @@ app.get('/api/trench-warfare/positions', requireLogin, async (req, res) => {
         entryPrice: p.entryPrice,
         currentPrice,
         amountIn: p.amountIn,
+        costUsd: costDisplay,
         currentValue,
         pnl,
         pnlPct,
