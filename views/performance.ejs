@@ -865,6 +865,7 @@
 <% if (Object.keys(stats.byStrategy).length > 0) { %>
 <div class="section">
   <h3>By Strategy</h3>
+  <div style="overflow-x:auto;">
   <table class="data-table">
     <thead><tr><th>Strategy</th><th>Wins</th><th>Losses</th><th>Win Rate</th><th>P&L</th></tr></thead>
     <tbody>
@@ -882,12 +883,14 @@
       <% }); %>
     </tbody>
   </table>
+  </div>
 </div>
 <% } %>
 
 <% if (Object.keys(stats.byCoin).length > 0) { %>
 <div class="section">
   <h3>By Coin</h3>
+  <div style="overflow-x:auto;">
   <table class="data-table">
     <thead><tr><th>Coin</th><th>Wins</th><th>Losses</th><th>Win Rate</th><th>P&L</th></tr></thead>
     <tbody>
@@ -905,6 +908,7 @@
       <% }); %>
     </tbody>
   </table>
+  </div>
 </div>
 <% } %>
 

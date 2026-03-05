@@ -251,7 +251,7 @@
           container.innerHTML = '<div style="color:#6b7280;font-size:13px;">No open positions on Bitget</div>';
           return;
         }
-        var html = '<table class="data-table"><thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>Mark</th><th>P&L</th><th>Leverage</th></tr></thead><tbody>';
+        var html = '<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>Mark</th><th>P&L</th><th>Leverage</th></tr></thead><tbody>';
         data.positions.forEach(function(p) {
           var pnl = parseFloat(p.unrealizedPL || p.achievedProfits || 0);
           html += '<tr>';
@@ -264,7 +264,7 @@
           html += '<td data-label="Leverage">' + (p.leverage || '-') + 'x</td>';
           html += '</tr>';
         });
-        html += '</tbody></table>';
+        html += '</tbody></table></div>';
         container.innerHTML = html;
       })
       .catch(function() {

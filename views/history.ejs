@@ -13,33 +13,6 @@
 @media (max-width: 600px) {
   .history-page .section-header h2 { font-size: 18px; }
   .history-page .section { padding: 12px; }
-  /* Row 1: Pair(15%) Dir(8%) Entry(13%) Exit(13%) P&L(15%) P&L%(10%) Lev(8%) Score(8%) = ~90% -> wraps */
-  .history-page .compact-mobile-table tbody td:nth-child(1) { width: 15%; font-weight: 700; }
-  .history-page .compact-mobile-table tbody td:nth-child(2) { width: 8%; }
-  .history-page .compact-mobile-table tbody td:nth-child(3) { width: 13%; }
-  .history-page .compact-mobile-table tbody td:nth-child(4) { width: 13%; }
-  .history-page .compact-mobile-table tbody td:nth-child(5) { width: 15%; }
-  .history-page .compact-mobile-table tbody td:nth-child(6) { width: 10%; }
-  .history-page .compact-mobile-table tbody td:nth-child(7) { width: 8%; }
-  .history-page .compact-mobile-table tbody td:nth-child(8) { width: 8%; }
-  /* Row 2: Strategy(16%) TimeHeld(10%) TP/Actions(22%) Status(12%) Date(14%) Journal(16%) */
-  .history-page .compact-mobile-table tbody td:nth-child(9) { width: 16%; }
-  .history-page .compact-mobile-table tbody td:nth-child(10) { width: 10%; }
-  .history-page .compact-mobile-table tbody td:nth-child(11) { width: 22%; }
-  .history-page .compact-mobile-table tbody td:nth-child(12) { width: 12%; }
-  .history-page .compact-mobile-table tbody td:nth-child(13) { width: 14%; }
-  .history-page .compact-mobile-table tbody td:nth-child(14) { width: 16%; }
-  /* Divider between sub-rows */
-  .history-page .compact-mobile-table tbody td:nth-child(9) {
-    border-top: 1px solid rgba(30,42,58,0.5); padding-top: 3px; margin-top: 1px;
-  }
-  /* Partial row: block layout on mobile */
-  .history-page .data-table tbody tr.history-partial.history-partial-visible {
-    display: flex !important; flex-wrap: wrap; margin-bottom: 4px;
-  }
-  .history-page .data-table tbody tr.history-partial.history-partial-visible td {
-    display: block !important; width: 100% !important; box-sizing: border-box;
-  }
 }
 </style>
 
@@ -107,7 +80,7 @@ function filterHistory() {
   </div>
 <% } else { %>
   <div class="section" style="overflow-x:auto;">
-    <table class="data-table compact-mobile-table">
+    <table class="data-table">
       <thead>
         <tr>
           <th>Pair</th>
