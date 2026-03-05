@@ -3,6 +3,16 @@
 <style>
 /* Analytics page – glass table background, mobile-friendly */
 .analytics-page .section { background: rgba(15,23,42,0.6); border: 1px solid #1e2a3a; }
+@media (max-width: 600px) {
+  /* Risk metrics tables (7 cols): Name(18%) Trades(10%) Sharpe(12%) Sortino(12%) Calmar(12%) PF(14%) P&L(14%) */
+  .analytics-page .compact-mobile-table tbody td:nth-child(1) { width: 18%; font-weight: 600; }
+  .analytics-page .compact-mobile-table tbody td:nth-child(2) { width: 10%; }
+  .analytics-page .compact-mobile-table tbody td:nth-child(3) { width: 12%; }
+  .analytics-page .compact-mobile-table tbody td:nth-child(4) { width: 12%; }
+  .analytics-page .compact-mobile-table tbody td:nth-child(5) { width: 12%; }
+  .analytics-page .compact-mobile-table tbody td:nth-child(6) { width: 14%; }
+  .analytics-page .compact-mobile-table tbody td:nth-child(7) { width: 14%; }
+}
 </style>
 
 <div class="analytics-page main-content-inner">
@@ -152,7 +162,7 @@
   <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Sharpe, Sortino, Calmar, and Profit Factor for each strategy and regime (min 2 trades).</p>
   <% var rbr = stats.riskByStrategyRegime || { byStrategy: {}, byRegime: {} }; %>
   <div style="overflow-x:auto;">
-    <table class="data-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+    <table class="data-table compact-mobile-table" style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead>
         <tr style="border-bottom:1px solid #1e2a3a;">
           <th style="text-align:left;padding:10px 8px;color:#9ca3af;">Strategy</th>
@@ -181,7 +191,7 @@
   </div>
   <h4 style="color:#9ca3af;font-size:14px;margin:20px 0 10px 0;">By Regime</h4>
   <div style="overflow-x:auto;">
-    <table class="data-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+    <table class="data-table compact-mobile-table" style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead>
         <tr style="border-bottom:1px solid #1e2a3a;">
           <th style="text-align:left;padding:10px 8px;color:#9ca3af;">Regime</th>

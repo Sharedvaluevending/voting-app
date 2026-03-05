@@ -1,5 +1,6 @@
 <%- include('partials/header') %>
 
+<div class="backtest-results-page main-content-inner">
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Backtest Results</h2>
   <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Latest 2-year massive backtest. Use these rankings to prioritize better-performing coins in auto-trade.</p>
@@ -50,10 +51,11 @@
         <tr style="border-bottom:1px solid #0d1320;">
           <td style="padding:10px 12px;color:#e5e7eb;"><%= i + 1 %></td>
           <td style="padding:10px 12px;">
-            <a href="/coin/<%= (result.allCoins || []).find(c => c.symbol === r.symbol)?.coinId || r.symbol.toLowerCase() %>" style="color:#3b82f6;text-decoration:none;font-weight:600;"><%= r.symbol %></a>
+            <% var coinMatch = (result.allCoins || []).find(function(c){ return c.symbol === r.symbol; }); %>
+            <a href="/coin/<%= coinMatch && coinMatch.coinId ? coinMatch.coinId : (r.symbol || '').toLowerCase() %>" style="color:#3b82f6;text-decoration:none;font-weight:600;"><%= r.symbol || '—' %></a>
           </td>
-          <td style="padding:10px 12px;text-align:right;color:<%= r.totalPnl >= 0 ? '#10b981' : '#ef4444' %>;">$<%= r.totalPnl.toLocaleString(undefined, {maximumFractionDigits: 0}) %></td>
-          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= ((result.allCoins || []).find(c => c.symbol === r.symbol)?.returnPct ?? r.returnPct ?? ((r.totalPnl || 0) / (result.initialBalance || 10000) * 100) || 0).toFixed(1) %>%</td>
+          <td style="padding:10px 12px;text-align:right;color:<%= (r.totalPnl || 0) >= 0 ? '#10b981' : '#ef4444' %>;">$<%= (r.totalPnl || 0).toLocaleString(undefined, {maximumFractionDigits: 0}) %></td>
+          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= (coinMatch && coinMatch.returnPct != null ? coinMatch.returnPct : (r.returnPct != null ? r.returnPct : ((r.totalPnl || 0) / (result.initialBalance || 10000) * 100))).toFixed(1) %>%</td>
           <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= (r.winRate || 0).toFixed(1) %>%</td>
           <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= (r.profitFactor || 0).toFixed(2) %></td>
           <td style="padding:10px 12px;text-align:right;color:#eab308;"><%= (r.maxDrawdownPct || 0).toFixed(1) %>%</td>
@@ -71,16 +73,17 @@
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">
     <% (result.allCoins || []).forEach(function(c) { %>
     <div style="background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;padding:12px;">
-      <div style="font-weight:600;color:#e5e7eb;"><%= c.symbol %></div>
-      <div style="font-size:12px;color:<%= c.totalPnl >= 0 ? '#10b981' : '#ef4444' %>;">$<%= c.totalPnl.toLocaleString(undefined, {maximumFractionDigits: 0}) %></div>
-      <div style="font-size:11px;color:#6b7280;"><%= (c.winRate || 0).toFixed(1) %>% WR · <%= c.totalTrades %> trades</div>
+      <div style="font-weight:600;color:#e5e7eb;"><%= c.symbol || '—' %></div>
+      <div style="font-size:12px;color:<%= (c.totalPnl || 0) >= 0 ? '#10b981' : '#ef4444' %>;">$<%= (c.totalPnl || 0).toLocaleString(undefined, {maximumFractionDigits: 0}) %></div>
+      <div style="font-size:11px;color:#6b7280;"><%= (c.winRate || 0).toFixed(1) %>% WR · <%= c.totalTrades || 0 %> trades</div>
     </div>
     <% }); %>
   </div>
 </div>
 
 <!-- Strategy Breakdown (from #1 coin) -->
-<% var topCoin = (result.allCoins || []).find(c => c.symbol === (result.top10 || [])[0]?.symbol); %>
+<% var top10first = (result.top10 || [])[0];
+   var topCoin = top10first ? (result.allCoins || []).find(function(c){ return c.symbol === top10first.symbol; }) : null; %>
 <% if (topCoin && topCoin.strategyBreakdown && Object.keys(topCoin.strategyBreakdown).length > 0) { %>
 <div class="section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Strategy Breakdown (<%= topCoin.symbol %>)</h3>
@@ -89,7 +92,7 @@
     <div style="background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:6px;padding:10px 14px;min-width:140px;">
       <div style="font-size:12px;color:#9ca3af;"><%= name %></div>
       <div style="font-size:14px;font-weight:600;color:<%= (s.pnl || 0) >= 0 ? '#10b981' : '#ef4444' %>;">$<%= (s.pnl || 0).toFixed(0) %></div>
-      <div style="font-size:11px;color:#6b7280;"><%= s.trades %> trades · <%= s.trades > 0 ? ((s.wins/s.trades)*100).toFixed(0) : 0 %>% WR</div>
+      <div style="font-size:11px;color:#6b7280;"><%= s.trades || 0 %> trades · <%= (s.trades || 0) > 0 ? (((s.wins || 0)/(s.trades || 1))*100).toFixed(0) : 0 %>% WR</div>
     </div>
     <% }); %>
   </div>
@@ -113,10 +116,10 @@
     <% ev.redFlags.forEach(function(f) { %><div>• <%= f.msg %></div><% }); %>
   </div>
   <% } %>
-  <% if (ev.byYear && Object.keys(ev.byYear).filter(k => k !== 'unknown').length > 0) { %>
+  <% if (ev.byYear && Object.keys(ev.byYear).filter(function(k){ return k !== 'unknown'; }).length > 0) { %>
   <div style="font-size:11px;color:#9ca3af;margin-top:8px;">Year-by-year:</div>
   <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">
-    <% Object.keys(ev.byYear).filter(k => k !== 'unknown').sort().forEach(function(y) {
+    <% Object.keys(ev.byYear).filter(function(k){ return k !== 'unknown'; }).sort().forEach(function(y) {
       var d = ev.byYear[y]; %>
     <span style="padding:4px 8px;border-radius:4px;background:rgba(30,41,59,0.8);font-size:11px;color:<%= (d.pnl || 0) >= 0 ? '#10b981' : '#ef4444' %>;"><%= y %>: $<%= (d.pnl || 0).toFixed(0) %> (<%= d.trades %>)</span>
     <% }); %>
@@ -156,5 +159,7 @@ async function loadCoinWeights() {
 }
 </script>
 <% } %>
+
+</div><!-- .backtest-results-page -->
 
 <%- include('partials/footer') %>
