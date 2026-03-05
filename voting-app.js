@@ -3405,20 +3405,29 @@ app.post('/api/backtest', async (req, res) => {
     let coinWeights = {};
     let maxOpenTrades = 3;
     let coinWeightStrength = 'moderate';
+    const DB_TIMEOUT_MS = 5000;
     if (req.session?.userId) {
       try {
-        const user = await User.findById(req.session.userId).select('excludedCoins coinWeights coinWeightEnabled coinWeightStrength settings').lean();
+        const userPromise = User.findById(req.session.userId).select('excludedCoins coinWeights coinWeightEnabled coinWeightStrength settings').lean();
+        const user = await Promise.race([
+          userPromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('DB timeout')), DB_TIMEOUT_MS))
+        ]);
         if (user) {
           excludedCoins = user.excludedCoins || [];
           coinWeights = user.coinWeights || {};
           maxOpenTrades = user.settings?.maxOpenTrades ?? 3;
           coinWeightStrength = user.coinWeightStrength || 'moderate';
         }
-      } catch (e) { /* non-fatal */ }
+      } catch (e) { /* non-fatal: use defaults */ }
     }
     try {
       const StrategyWeight = require('./models/StrategyWeight');
-      const sw = await StrategyWeight.find({ active: true }).lean();
+      const swPromise = StrategyWeight.find({ active: true }).lean();
+      const sw = await Promise.race([
+        swPromise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('DB timeout')), DB_TIMEOUT_MS))
+      ]);
       strategyWeights = sw || [];
       strategyStats = {};
       strategyWeights.forEach(s => {
@@ -3434,6 +3443,18 @@ app.post('/api/backtest', async (req, res) => {
       return res.status(400).json({ error: 'All selected coins are excluded. Add coins in Performance settings.' });
     }
 
+    const jobId = crypto.randomBytes(12).toString('hex');
+    const job = {
+      id: jobId,
+      status: 'running',
+      progress: `Starting backtest for ${coinsToRun.length} coin(s)...`,
+      coins: coinsToRun,
+      createdAt: Date.now(),
+      result: null,
+      error: null
+    };
+    backtestJobs.set(jobId, job);
+
     const options = {
       coins: coinsToRun,
       primaryTf: safePrimaryTf,
@@ -3448,20 +3469,9 @@ app.post('/api/backtest', async (req, res) => {
       strategyStats,
       coinWeights,
       maxOpenTrades,
-      coinWeightStrength
+      coinWeightStrength,
+      onProgress: (msg) => { job.progress = msg; }
     };
-
-    const jobId = crypto.randomBytes(12).toString('hex');
-    const job = {
-      id: jobId,
-      status: 'running',
-      progress: `Starting backtest for ${coinsToRun.length} coin(s)...`,
-      coins: coinsToRun,
-      createdAt: Date.now(),
-      result: null,
-      error: null
-    };
-    backtestJobs.set(jobId, job);
 
     runBacktest(startMs, endMs, options)
       .then(result => {

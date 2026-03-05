@@ -525,51 +525,52 @@ function setPresetsMinimal() {
   document.getElementById('ft-minSlDistance').checked = true;
 }
 function getFeatureFlags() {
+  var el = function(id) { return document.getElementById(id); };
   var flags = {
-    btcFilter: document.getElementById('ft-btcFilter').checked,
-    btcCorrelation: document.getElementById('ft-btcCorrelation').checked,
-    sessionFilter: document.getElementById('ft-sessionFilter').checked,
-    partialTP: document.getElementById('ft-partialTP').checked,
-    breakeven: document.getElementById('ft-breakeven').checked,
-    breakevenRMult: parseFloat(document.getElementById('ft-beRMult')?.value) || 0.75,
-    trailingStop: document.getElementById('ft-trailingStop').checked,
-    trailingStartR: parseFloat(document.getElementById('ft-trailingStartR')?.value) || 1.5,
-    trailingDistR: parseFloat(document.getElementById('ft-trailingDistR')?.value) || 2.0,
-    lockIn: document.getElementById('ft-lockIn').checked,
-    scoreRecheck: document.getElementById('ft-scoreRecheck').checked,
-    slCap: document.getElementById('ft-slCap').checked,
-    cooldown: document.getElementById('ft-cooldown').checked,
-    confidenceSizing: document.getElementById('ft-confidenceSizing').checked,
-    kellySizing: document.getElementById('ft-kellySizing').checked,
-    priceActionConfluence: document.getElementById('ft-priceActionConfluence').checked,
-    volatilityFilter: document.getElementById('ft-volatilityFilter').checked,
-    volumeConfirmation: document.getElementById('ft-volumeConfirmation').checked,
-    fundingRateFilter: document.getElementById('ft-fundingRateFilter')?.checked || false,
-    themeDetector: document.getElementById('ft-themeDetector')?.checked || false,
-    minRiskRewardEnabled: document.getElementById('ft-minRiskRewardEnabled').checked,
-    minRiskReward: parseFloat(document.getElementById('ft-minRiskReward').value) || 1.5,
-    maxDailyLossPercent: parseFloat(document.getElementById('ft-maxDailyLoss')?.value) || 0,
-    minVolume24hUsd: (document.getElementById('ft-minVolumeEnabled')?.checked ? parseFloat(document.getElementById('ft-minVolume')?.value) : 0) || 0,
-    drawdownSizingEnabled: document.getElementById('ft-drawdownSizing')?.checked || false,
-    drawdownThresholdPercent: parseFloat(document.getElementById('ft-drawdownThresh')?.value) || 10,
-    fees: document.getElementById('ft-fees').checked,
-    slippage: document.getElementById('ft-slippage').checked,
-    slippageMultiplier: document.getElementById('ft-slippageStress').checked ? 1.5 : 1,
-    closeBasedStops: document.getElementById('ft-closeBasedStops').checked,
-    minSlDistance: document.getElementById('ft-minSlDistance').checked,
-    trailingTp: document.getElementById('ft-trailingTp').checked,
-    dca: document.getElementById('ft-dca').checked
+    btcFilter: el('ft-btcFilter')?.checked ?? true,
+    btcCorrelation: el('ft-btcCorrelation')?.checked ?? true,
+    sessionFilter: el('ft-sessionFilter')?.checked ?? false,
+    partialTP: el('ft-partialTP')?.checked ?? true,
+    breakeven: el('ft-breakeven')?.checked ?? true,
+    breakevenRMult: parseFloat(el('ft-beRMult')?.value) || 0.75,
+    trailingStop: el('ft-trailingStop')?.checked ?? true,
+    trailingStartR: parseFloat(el('ft-trailingStartR')?.value) || 1.5,
+    trailingDistR: parseFloat(el('ft-trailingDistR')?.value) || 2.0,
+    lockIn: el('ft-lockIn')?.checked ?? true,
+    scoreRecheck: el('ft-scoreRecheck')?.checked ?? true,
+    slCap: el('ft-slCap')?.checked ?? true,
+    cooldown: el('ft-cooldown')?.checked ?? true,
+    confidenceSizing: el('ft-confidenceSizing')?.checked ?? true,
+    kellySizing: el('ft-kellySizing')?.checked ?? true,
+    priceActionConfluence: el('ft-priceActionConfluence')?.checked ?? true,
+    volatilityFilter: el('ft-volatilityFilter')?.checked ?? true,
+    volumeConfirmation: el('ft-volumeConfirmation')?.checked ?? true,
+    fundingRateFilter: el('ft-fundingRateFilter')?.checked ?? false,
+    themeDetector: el('ft-themeDetector')?.checked ?? false,
+    minRiskRewardEnabled: el('ft-minRiskRewardEnabled')?.checked ?? true,
+    minRiskReward: parseFloat(el('ft-minRiskReward')?.value) || 1.5,
+    maxDailyLossPercent: parseFloat(el('ft-maxDailyLoss')?.value) || 0,
+    minVolume24hUsd: (el('ft-minVolumeEnabled')?.checked ? parseFloat(el('ft-minVolume')?.value) : 0) || 0,
+    drawdownSizingEnabled: el('ft-drawdownSizing')?.checked ?? false,
+    drawdownThresholdPercent: parseFloat(el('ft-drawdownThresh')?.value) || 10,
+    fees: el('ft-fees')?.checked ?? true,
+    slippage: el('ft-slippage')?.checked ?? true,
+    slippageMultiplier: el('ft-slippageStress')?.checked ? 1.5 : 1,
+    closeBasedStops: el('ft-closeBasedStops')?.checked ?? true,
+    minSlDistance: el('ft-minSlDistance')?.checked ?? true,
+    trailingTp: el('ft-trailingTp')?.checked ?? false,
+    dca: el('ft-dca')?.checked ?? false
   };
   if (flags.trailingTp) {
-    flags.trailingTpDistanceMode = document.getElementById('bt-trailingTpDistMode').value;
-    flags.trailingTpAtrMultiplier = parseFloat(document.getElementById('bt-trailingTpAtrMult').value) || 1.5;
-    flags.trailingTpFixedPercent = parseFloat(document.getElementById('bt-trailingTpFixedPct').value) || 2;
+    flags.trailingTpDistanceMode = el('bt-trailingTpDistMode')?.value || 'atr';
+    flags.trailingTpAtrMultiplier = parseFloat(el('bt-trailingTpAtrMult')?.value) || 1.5;
+    flags.trailingTpFixedPercent = parseFloat(el('bt-trailingTpFixedPct')?.value) || 2;
   }
   if (flags.dca) {
-    flags.dcaMaxAdds = parseInt(document.getElementById('bt-dcaMaxAdds').value, 10) || 3;
-    flags.dcaDipPercent = parseFloat(document.getElementById('bt-dcaDipPct').value) || 2;
-    flags.dcaAddSizePercent = parseFloat(document.getElementById('bt-dcaAddSizePct').value) || 100;
-    flags.dcaMinScore = parseInt(document.getElementById('bt-dcaMinScore').value, 10) || 52;
+    flags.dcaMaxAdds = parseInt(el('bt-dcaMaxAdds')?.value, 10) || 3;
+    flags.dcaDipPercent = parseFloat(el('bt-dcaDipPct')?.value) || 2;
+    flags.dcaAddSizePercent = parseFloat(el('bt-dcaAddSizePct')?.value) || 100;
+    flags.dcaMinScore = parseInt(el('bt-dcaMinScore')?.value, 10) || 52;
   }
   return flags;
 }
@@ -851,16 +852,24 @@ function loadLiveSettings() {
   async function runOneBacktest(b) {
     updateProgress('Submitting backtest job...');
     var res;
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function() { controller.abort(); }, 60000);
     try {
       res = await fetch('/api/backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(b),
-        credentials: 'same-origin'
+        credentials: 'same-origin',
+        signal: controller.signal
       });
     } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      if (fetchErr.name === 'AbortError') {
+        throw new Error('Server took too long to start. Try fewer coins or check your connection.');
+      }
       throw new Error('Network error: ' + fetchErr.message);
     }
+    clearTimeout(timeoutId);
     var contentType = res.headers.get('content-type') || '';
     if (!contentType.includes('application/json')) {
       throw new Error('Server returned an unexpected response (' + res.status + '). Please try again.');

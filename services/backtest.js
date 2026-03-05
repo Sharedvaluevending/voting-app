@@ -169,6 +169,7 @@ async function runBacktest(startMs, endMs, options) {
   const backtestStart = Date.now();
   const days = Math.round((endMs - startMs) / 86400000);
   const primaryTf = options.primaryTf || '1h';
+  const onProgress = options.onProgress;
   console.log(`[Backtest] Starting: ${coins.length} coins, ${days} days range, TF=${primaryTf} (parallel batches of ${PARALLEL_BATCH_SIZE})`);
 
   // === PRE-FETCH BTC CANDLES (mirrors live system) ===
@@ -177,6 +178,7 @@ async function runBacktest(startMs, endMs, options) {
   let btcCandles = null;
   if (needBtc && (!coins.includes('bitcoin') || coins.length > 1)) {
     try {
+      if (onProgress) onProgress('Fetching BTC candles for signal filter...');
       console.log(`[Backtest] Pre-fetching BTC candles for signal filter...`);
       btcCandles = await fetchHistoricalCandlesMultiTF('bitcoin', startMs, endMs, { primaryTf: '1h' });
       const btcTf = btcCandles?.['1h'] ? '1h' : primaryTf;
@@ -195,6 +197,7 @@ async function runBacktest(startMs, endMs, options) {
   // Process coins in parallel batches
   for (let i = 0; i < coins.length; i += PARALLEL_BATCH_SIZE) {
     const batch = coins.slice(i, i + PARALLEL_BATCH_SIZE);
+    if (onProgress) onProgress(`Processing ${batch.join(', ')} (${i + batch.length}/${coins.length} coins)...`);
     const batchResults = await Promise.allSettled(
       batch.map(async (coinId) => {
         const coinStart = Date.now();
