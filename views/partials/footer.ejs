@@ -114,6 +114,7 @@
 
     var lastTrades = null;
     var lastPriceMap = {};
+    var failCount = 0;
 
     function computeAndShowPnl(priceMap) {
       if (!lastTrades || !priceMap) return;
@@ -147,7 +148,16 @@
       ]).then(function(results) {
         var tradesData = results[0];
         var pricesData = results[1];
-        if (!tradesData || !tradesData.success || !tradesData.trades) return;
+        if (!tradesData || !tradesData.success) {
+          lastTrades = null;
+          if (pnlEl) { pnlEl.style.display = 'none'; }
+          return;
+        }
+        if (!tradesData.trades || Object.keys(tradesData.trades).length === 0) {
+          lastTrades = null;
+          if (pnlEl) { pnlEl.style.display = 'none'; }
+          return;
+        }
         if (!pricesData || !pricesData.success || !pricesData.data) return;
 
         lastTrades = tradesData.trades;
@@ -164,8 +174,14 @@
           }
         }
         lastPriceMap = priceMap;
+        failCount = 0;
         computeAndShowPnl(priceMap);
-      }).catch(function() { if (typeof showToast === 'function') showToast('Live PnL update failed'); });
+      }).catch(function(err) {
+        failCount++;
+        if (failCount >= 3 && typeof showToast === 'function') {
+          showToast('Live PnL update failed — check connection');
+        }
+      });
     }
 
     window.addEventListener('ws-price-update', function(ev) {
