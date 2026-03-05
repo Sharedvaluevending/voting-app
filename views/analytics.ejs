@@ -79,7 +79,7 @@
 <% if (monteCarlo && !monteCarlo.error) { %>
 <div class="section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Monte Carlo Simulation</h3>
-  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Bootstrap of <%= monteCarlo.sampleSize %> trade returns over <%= monteCarlo.pathsRun %> paths. Equity percentiles after <%= monteCarlo.pathsRun === 500 ? '50' : '50' %> simulated trades.</p>
+  <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Bootstrap of <%= monteCarlo.sampleSize %> trade returns over <%= monteCarlo.pathsRun %> paths. Equity percentiles after <%= monteCarlo.horizonTrades || 50 %> simulated trades.</p>
   <div class="perf-grid" style="margin-bottom:16px;">
     <div class="perf-card">
       <div class="perf-label">Equity P5 (5th %ile)</div>
@@ -105,6 +105,7 @@
     </div>
   </div>
   <h4 style="color:#9ca3af;font-size:13px;margin:12px 0 8px 0;">Risk of Ruin (probability of hitting drawdown)</h4>
+  <p style="font-size:11px;color:#6b7280;margin:-4px 0 8px 0;">% of simulated paths where max drawdown reached or exceeded the threshold.</p>
   <div style="display:flex;flex-wrap:wrap;gap:12px;">
     <% Object.entries(monteCarlo.riskOfRuin || {}).forEach(function([k, v]) { %>
     <div style="padding:10px 16px;background:#1e293b;border-radius:8px;">

@@ -28,7 +28,10 @@ function runMonteCarlo(closedTrades, initialBalance, options = {}) {
       paths: [],
       percentiles: null,
       maxDrawdownDistribution: null,
-      riskOfRuin: null
+      riskOfRuin: null,
+      sampleSize: returns.length,
+      pathsRun: 0,
+      horizonTrades
     };
   }
 
@@ -96,7 +99,8 @@ function runMonteCarlo(closedTrades, initialBalance, options = {}) {
     maxDrawdownDistribution,
     riskOfRuin,
     sampleSize: returns.length,
-    pathsRun: paths
+    pathsRun: paths,
+    horizonTrades
   };
 }
 
