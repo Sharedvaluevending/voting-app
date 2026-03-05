@@ -23,7 +23,7 @@ async function testTf(primaryTf) {
 }
 
 async function main() {
-  const tfs = ['15m', '1h', '4h', '1d'];
+  const tfs = ['15m', '1h', '4h', '1d', '1w'];
   console.log('Testing backtest timeframes on', COIN, '(', DAYS, 'days)...\n');
   let allOk = true;
   for (const tf of tfs) {

@@ -28,7 +28,7 @@ async function fetchWithTimeout(promise, timeoutMs, label) {
     promise,
     new Promise((_, reject) => setTimeout(() => {
       const mins = Math.round(timeoutMs / 60000);
-      reject(new Error(`Timeout fetching ${label} (exceeded ${mins} min). Try 1h or 4h timeframe, or shorten date range to 90 days.`));
+      reject(new Error(`Timeout fetching ${label} (exceeded ${mins} min). 1yr+ is supported; try 1h/4h TF or fewer coins if slow.`));
     }, timeoutMs))
   ]);
 }
@@ -43,7 +43,7 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
   if (!meta?.bybit) return { error: `No Bitget symbol for ${coinId}` };
 
   // Warmup in primary TF units (100 bars of whatever TF we're trading on)
-  const MS_PER_TF_LOCAL = { '15m': 900000, '1h': 3600000, '4h': 14400000, '1d': 86400000 };
+  const MS_PER_TF_LOCAL = { '15m': 900000, '1h': 3600000, '4h': 14400000, '1d': 86400000, '1w': 604800000 };
   const warmupMs = WARMUP_BARS * (MS_PER_TF_LOCAL[primaryTf] || 3600000);
   const fetchStartMs = startMs - warmupMs;
 
@@ -57,9 +57,11 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
   }
 
   // Determine which timeframes to fetch. Engine requires 1h, 4h, 1d for analysis.
-  // Always fetch 1h+4h+1d; add 15m only when primary is 15m.
+  // Always fetch 1h+4h+1d; add 15m only when primary is 15m; add 1w when primary is 1w.
   const tfsToFetch = primaryTf === '15m'
     ? ['15m', '1h', '4h', '1d']
+    : primaryTf === '1w'
+    ? ['1w', '1h', '4h', '1d']
     : ['1h', '4h', '1d'];
 
   let fetchedCandles = {};
@@ -123,7 +125,7 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
     '1h': fetchedCandles['1h'] || null,
     '4h': fetchedCandles['4h'] && (fetchedCandles['4h'].length >= 5) ? fetchedCandles['4h'] : null,
     '1d': fetchedCandles['1d'] && (fetchedCandles['1d'].length >= 5) ? fetchedCandles['1d'] : null,
-    '1w': null
+    '1w': fetchedCandles['1w'] && (fetchedCandles['1w'].length >= 5) ? fetchedCandles['1w'] : null
   };
   if (useCache) saveCachedCandles(coinId, fetchStartMs, endMs, result);
   return result;

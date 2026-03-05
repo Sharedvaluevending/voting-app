@@ -108,7 +108,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     if (!slice) continue;
 
     let volume24h = options.volume24hByCoin?.[coinId];
-    const barsIn24h = { '15m': 96, '1h': 24, '4h': 6, '1d': 1 }[primaryTf] || 24;
+    const barsIn24h = { '15m': 96, '1h': 24, '4h': 6, '1d': 1, '1w': 1 }[primaryTf] || 24;
     if (volume24h == null && c1h[t].volume != null) {
       const last24 = c1h.slice(Math.max(0, t - barsIn24h + 1), t + 1);
       volume24h = last24.reduce((s, c) => s + (c.volume || 0), 0);
@@ -142,7 +142,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
     };
 
     // Re-evaluate BTC every ~4 hours regardless of primary TF
-    const btcRecheckBars = Math.max(1, Math.round(4 / ({ '15m': 0.25, '1h': 1, '4h': 4, '1d': 24 }[primaryTf] || 1)));
+    const btcRecheckBars = Math.max(1, Math.round(4 / ({ '15m': 0.25, '1h': 1, '4h': 4, '1d': 24, '1w': 168 }[primaryTf] || 1)));
     const btcTf = btcCandles ? (btcCandles['1h'] ? '1h' : primaryTf) : '1h';
     if (btcCandles && btcCandles[btcTf] && (t - lastBtcAnalysisBar >= btcRecheckBars)) {
       const btc1h = btcCandles[btcTf];

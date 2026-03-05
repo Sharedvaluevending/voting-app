@@ -52,7 +52,13 @@
     </div>
     <div>
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Start Date</label>
-      <input type="date" name="startDate" id="startDate" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input type="date" name="startDate" id="startDate" style="flex:1;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+        <div style="display:flex;gap:4px;flex-shrink:0;">
+          <button type="button" class="nav-btn" style="padding:6px 12px;font-size:11px;" title="Set to 6 months ago" id="bt-preset-6m">6m</button>
+          <button type="button" class="nav-btn" style="padding:6px 12px;font-size:11px;" title="Set to 1 year ago" id="bt-preset-1y">1yr</button>
+        </div>
+      </div>
     </div>
     <div>
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">End Date</label>
@@ -87,11 +93,12 @@
     </div>
     <div>
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Timeframe</label>
-      <select name="primaryTf" id="primaryTf" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;" title="Primary candle timeframe for trade signals. Higher TFs (4h, 1d) are always used as context.">
+      <select name="primaryTf" id="primaryTf" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;" title="Primary candle timeframe for trade signals. Higher TFs (4h, 1d, 1w) are always used as context.">
         <option value="15m">15 min</option>
         <option value="1h" selected>1 hour (default)</option>
         <option value="4h">4 hour</option>
         <option value="1d">Daily</option>
+        <option value="1w">Weekly</option>
       </select>
     </div>
     <div>
@@ -792,6 +799,12 @@ function loadLiveSettings() {
   start.setDate(start.getDate() - 90);
   document.getElementById('endDate').value = end.toISOString().slice(0, 10);
   document.getElementById('startDate').value = start.toISOString().slice(0, 10);
+
+  // Date presets: 6 months, 1 year (1yr+ supported; 1h/4h TF recommended for speed)
+  var preset6m = document.getElementById('bt-preset-6m');
+  var preset1y = document.getElementById('bt-preset-1y');
+  if (preset6m) preset6m.addEventListener('click', function() { var s = new Date(); s.setMonth(s.getMonth() - 6); document.getElementById('startDate').value = s.toISOString().slice(0, 10); });
+  if (preset1y) preset1y.addEventListener('click', function() { var s = new Date(); s.setFullYear(s.getFullYear() - 1); document.getElementById('startDate').value = s.toISOString().slice(0, 10); });
 
   // Risk mode toggle: show % or $ input
   document.getElementById('riskMode').addEventListener('change', function() {

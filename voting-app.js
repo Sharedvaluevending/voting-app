@@ -3369,7 +3369,7 @@ setInterval(() => {
 app.post('/api/backtest', async (req, res) => {
   try {
     const { coinId, startDate, endDate, coins, minScore, leverage, features, primaryTf } = req.body || {};
-    const VALID_TFS = ['15m', '1h', '4h', '1d'];
+    const VALID_TFS = ['15m', '1h', '4h', '1d', '1w'];
     const safePrimaryTf = VALID_TFS.includes(primaryTf) ? primaryTf : '1h';
     const startMs = startDate ? new Date(startDate).getTime() : Date.now() - 90 * 24 * 60 * 60 * 1000;
     const endMs = endDate ? new Date(endDate).getTime() : Date.now();
