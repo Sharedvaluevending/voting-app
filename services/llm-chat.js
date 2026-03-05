@@ -20,6 +20,7 @@ const CHAT_SYSTEM = `You are a crypto trading assistant with FULL access to this
 - Regime timeline
 - Current settings (risk, max trades, min score, auto-trade mode, leverage, etc.)
 - Last backtest results if any
+- SMC setups: run setup_backtest(coinId, setupId, days, timeframe) or scan_setups(setupId) to find active setups
 
 When analyzing trades or signals, consider ALL factors:
 - Score AND confidence (high score + low confidence = unreliable)
@@ -30,7 +31,30 @@ When analyzing trades or signals, consider ALL factors:
 - Market conditions (Fear & Greed, BTC correlation)
 
 Answer questions about the market, trades, strategies, weights, features, and platform. Be concise but helpful. Use the context provided.
+When asked about open trades, list them from the "Open trades" section. When asked about performance, use the Stats and Balance data.
 When the user asks to move stops, close trades, change settings, toggle features, adjust weights, etc., you can tell them to use "Execute actions" - or if they have it enabled, the agent will run and perform the actions.`;
+
+// Context window: ~4k tokens ≈ 16k chars for Ollama; leave room for response
+const MAX_CONTEXT_CHARS = 14000;
+const MAX_MESSAGES_WHEN_LARGE = 6;  // Keep last 3 exchanges when trimming
+
+/** Trim messages to fit context window; keep most recent when over limit. */
+function trimMessagesToFit(systemContent, messages) {
+  const systemLen = (systemContent || '').length;
+  let total = systemLen;
+  const trimmed = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    const len = (m?.content || '').length;
+    if (total + len > MAX_CONTEXT_CHARS && trimmed.length >= MAX_MESSAGES_WHEN_LARGE) break;
+    trimmed.unshift(m);
+    total += len;
+  }
+  if (trimmed.length < messages.length) {
+    console.log(`[LLMChat] Context trim: ${messages.length} -> ${trimmed.length} messages (${(total / 1024).toFixed(1)}k chars)`);
+  }
+  return trimmed;
+}
 
 /**
  * Run chat for a user. messages = [{role, content}, ...] (user + assistant history)
@@ -41,7 +65,8 @@ async function runChat(userId, messages, deps, opts = {}) {
   if (!user) return { success: false, error: 'User not found' };
 
   const ollamaUrl = user.settings?.ollamaUrl || 'http://localhost:11434';
-  const model = user.settings?.ollamaModel || 'qwen3-coder:480b-cloud';
+  const ollamaApiKey = user.settings?.ollamaApiKey || '';
+  const model = user.settings?.ollamaModel || 'llama3.1:8b';
 
   const extraDeps = (deps.fetchAllPrices && deps.buildEngineOptions && deps.analyzeAllCoins)
     ? {
@@ -71,28 +96,43 @@ async function runChat(userId, messages, deps, opts = {}) {
 
   const contextBlock = buildContextBlock(ctx, pulse);
   const systemContent = CHAT_SYSTEM + '\n\n---\nCurrent platform context (use this to answer):\n' + contextBlock;
+  // Cap system to ~8k chars (5k was too aggressive, cut off trades)
+  const systemContentTrimmed = systemContent.length > 8000 ? systemContent.slice(0, 8000) + '\n...[truncated]' : systemContent;
 
+  const recentMessages = messages.slice(-10);
+  const trimmedMessages = trimMessagesToFit(systemContentTrimmed, recentMessages);
   const fullMessages = [
-    { role: 'system', content: systemContent },
-    ...messages
+    { role: 'system', content: systemContentTrimmed },
+    ...trimmedMessages
   ];
 
   try {
-    const text = await chat(fullMessages, ollamaUrl, model);
-    const result = { success: true, text: text || '(No response)' };
-
+    let text = await chat(fullMessages, ollamaUrl, model, ollamaApiKey);
+    if (!text || !text.trim()) {
+      console.warn('[LLMChat] Empty response, raw length:', fullMessages.reduce((a, m) => a + (m.content?.length || 0), 0), 'chars input');
+    }
+    const result = { success: true };
+    let displayText = (text && text.trim()) || '';
     if (opts.executeActions && messages.length > 0) {
       const lastUser = messages.filter(m => m.role === 'user').pop();
       const userRequest = lastUser?.content?.trim();
       if (userRequest) {
         try {
+          if (!displayText) displayText = 'Executing your request...';
+          await new Promise(r => setTimeout(r, 2000));
           const agentResult = await runAgent(userId, deps, { userRequest, source: 'chat' });
+          if (agentResult?.success && displayText === 'Executing your request...') {
+            const actions = agentResult.actionsExecuted?.map(a => a.message).filter(Boolean);
+            displayText = actions?.length ? actions.join('; ') : (agentResult.reasoning || 'Done.');
+          }
           result.agentResult = agentResult;
         } catch (agentErr) {
           result.agentError = agentErr.message;
+          if (!displayText) displayText = 'Agent error: ' + agentErr.message;
         }
       }
     }
+    result.text = displayText || '(No response)';
 
     return result;
   } catch (err) {
@@ -102,6 +142,23 @@ async function runChat(userId, messages, deps, opts = {}) {
 
 function buildContextBlock(ctx, pulse) {
   const parts = [];
+
+  // Open trades first (most important for "close trade" etc.)
+  if (ctx.openTradesCount > 0) {
+    parts.push(`Open trades (${ctx.openTradesCount}):`);
+    ctx.openTrades.forEach(t => {
+      const badgeStr = t.badges?.length > 0 ? (t.badges.length > 3 ? `${t.badges[0]} x${t.badges.length}` : t.badges.join(',')) : '';
+      const tradeParts = [
+        `${t.symbol} ${t.direction} @ $${t.entryPrice?.toFixed(2)}`,
+        `P&L: $${(t.pnl || 0).toFixed(2)} (${(t.pnlPercent || 0).toFixed(1)}%)`,
+        `Score: ${t.score}`
+      ];
+      if (badgeStr) tradeParts.push(`Badges: ${badgeStr}`);
+      if (t.stopLoss) tradeParts.push(`SL: $${t.stopLoss.toFixed(2)}`);
+      parts.push(`  ${tradeParts.join(' | ')}`);
+    });
+    parts.push('');
+  }
 
   // Market pulse
   if (pulse) {
@@ -116,103 +173,51 @@ function buildContextBlock(ctx, pulse) {
     parts.push('');
   }
 
-  // Live signals with full detail
+  // Live signals with compact breakdown + indicators
   if (ctx.liveSignals && ctx.liveSignals.length > 0) {
-    parts.push('Live signals:');
-    ctx.liveSignals.slice(0, 10).forEach(s => {
-      const sigParts = [`${s.symbol} ${s.signal} score=${s.score}`];
-      if (s.confidence != null) sigParts.push(`conf=${s.confidence}`);
-      sigParts.push(`regime=${s.regime || 'N/A'} strategy=${s.strategyName || 'N/A'}`);
-      if (s.riskReward != null) sigParts.push(`RR=${s.riskReward.toFixed(2)}`);
-      if (s.scoreBreakdown) sigParts.push(`breakdown=${JSON.stringify(s.scoreBreakdown)}`);
-      if (s.timeframes) sigParts.push(`TFs=${JSON.stringify(s.timeframes)}`);
-      if (s.reasoning) sigParts.push(`why: ${s.reasoning}`);
-      parts.push(`  ${sigParts.join(' | ')}`);
+    parts.push('Live signals (top 5):');
+    ctx.liveSignals.slice(0, 5).forEach(s => {
+      const bd = s.scoreBreakdown ? ` [${[s.scoreBreakdown.trend,s.scoreBreakdown.momentum,s.scoreBreakdown.volume,s.scoreBreakdown.structure].map(v=>v??'?').join(',')}]` : '';
+      const ind = s.indicators ? ` RSI=${s.indicators.rsi?.toFixed(0)??'?'} ADX=${s.indicators.adx?.toFixed(0)??'?'}` : '';
+      parts.push(`  ${s.symbol} ${s.signal} ${s.score} conf=${s.confidence??'?'} RR=${s.riskReward?.toFixed(2)??'?'}${bd}${ind}`);
     });
     parts.push('');
   }
 
-  // Balance and stats
-  parts.push(`Balance: $${(ctx.balance || 0).toLocaleString()} (initial $${(ctx.initialBalance || 0).toLocaleString()}, return ${ctx.initialBalance > 0 ? ((ctx.balance - ctx.initialBalance) / ctx.initialBalance * 100).toFixed(2) : '0'}%)`);
-  if (ctx.stats && Object.keys(ctx.stats).length) {
-    parts.push('Stats: ' + JSON.stringify(ctx.stats));
-  }
-  if (ctx.stats?.riskByStrategyRegime) {
-    const rbr = ctx.stats.riskByStrategyRegime;
-    if (Object.keys(rbr.byStrategy || {}).length || Object.keys(rbr.byRegime || {}).length) {
-      parts.push('By strategy: ' + JSON.stringify(rbr.byStrategy || {}));
-      parts.push('By regime: ' + JSON.stringify(rbr.byRegime || {}));
-    }
+  // Strategy weights (compact)
+  if (ctx.strategyWeights && ctx.strategyWeights.length > 0) {
+    parts.push('Strategy perf: ' + ctx.strategyWeights.slice(0, 5).map(sw => `${sw.strategyId}: ${sw.performance?.totalTrades ?? 0}t WR=${(sw.performance?.winRate ?? 0).toFixed(0)}%`).join('; '));
   }
 
-  // Open trades with badges
-  if (ctx.openTradesCount > 0) {
-    parts.push(`\nOpen trades (${ctx.openTradesCount}):`);
-    ctx.openTrades.forEach(t => {
-      const tradeParts = [
-        `${t.symbol} ${t.direction} @ $${t.entryPrice?.toFixed(2)}`,
-        `P&L: $${(t.pnl || 0).toFixed(2)} (${(t.pnlPercent || 0).toFixed(1)}%)`,
-        `Score: ${t.score}`
-      ];
-      if (t.llmConfidence) tradeParts.push(`LLM_conf: ${t.llmConfidence}`);
-      if (t.badges && t.badges.length > 0) tradeParts.push(`Badges: [${t.badges.join(',')}]`);
-      if (t.timeHeld) tradeParts.push(`Held: ${t.timeHeld}`);
-      if (t.stopLoss) tradeParts.push(`SL: $${t.stopLoss.toFixed(2)}`);
-      parts.push(`  ${tradeParts.join(' | ')}`);
-    });
-    parts.push('');
+  // Last backtest (one line)
+  if (ctx.lastBacktest) {
+    parts.push(`Backtest: ${ctx.lastBacktest.days}d ${ctx.lastBacktest.totalTrades}t WR=${ctx.lastBacktest.winRate}% PnL=${ctx.lastBacktest.totalPnlPercent}%`);
   }
 
-  // Recent closed trades
+  // Features on/off
+  if (ctx.featureToggles) {
+    const on = Object.entries(ctx.featureToggles).filter(([, v]) => v === true).map(([k]) => k).slice(0, 8);
+    if (on.length) parts.push(`Features ON: ${on.join(', ')}`);
+  }
+
+  // Balance and stats (slimmed)
+  parts.push(`Balance: $${(ctx.balance || 0).toLocaleString()} (return ${ctx.initialBalance > 0 ? ((ctx.balance - ctx.initialBalance) / ctx.initialBalance * 100).toFixed(1) : '0'}%)`);
+  if (ctx.stats && (ctx.stats.wins != null || ctx.stats.totalTrades != null)) {
+    parts.push(`Stats: ${ctx.stats.wins ?? 0}W/${ctx.stats.losses ?? 0}L, WR ${ctx.stats.winRate ?? 0}%, PnL $${(ctx.stats.totalPnl ?? 0).toFixed(0)}`);
+  }
+
+  // Recent closed (last 5)
   if (ctx.recentTrades && ctx.recentTrades.length) {
     parts.push('Recent closed:');
-    ctx.recentTrades.slice(0, 10).forEach(t => {
-      const closeParts = [`${t.symbol} ${t.direction} P&L: $${(t.pnl || 0).toFixed(2)} (${(t.pnlPercent || 0)?.toFixed(1)}%)`];
-      if (t.closeReason) closeParts.push(`reason: ${t.closeReason}`);
-      if (t.badges && t.badges.length > 0) closeParts.push(`badges: [${t.badges.join(',')}]`);
-      parts.push(`  ${closeParts.join(' | ')}`);
+    ctx.recentTrades.slice(0, 5).forEach(t => {
+      parts.push(`  ${t.symbol} ${t.direction} P&L: $${(t.pnl || 0).toFixed(0)} (${(t.pnlPercent || 0)?.toFixed(1)}%)`);
     });
     parts.push('');
   }
 
-  // Strategy weights from learning engine
-  if (ctx.strategyWeights && ctx.strategyWeights.length > 0) {
-    parts.push('Strategy Weights (learning engine):');
-    for (const sw of ctx.strategyWeights) {
-      const p = sw.performance;
-      parts.push(`  ${sw.strategyId}: W=${JSON.stringify(sw.weights)} | ${p.totalTrades}trades WR=${(p.winRate || 0).toFixed(1)}% PF=${(p.profitFactor || 0).toFixed(2)} byRegime=${JSON.stringify(p.byRegime)}`);
-    }
-    parts.push('');
-  }
-
-  // Feature toggles
-  if (ctx.featureToggles) {
-    const on = Object.entries(ctx.featureToggles).filter(([, v]) => v === true).map(([k]) => k);
-    const off = Object.entries(ctx.featureToggles).filter(([, v]) => v === false).map(([k]) => k);
-    parts.push(`Features ON: ${on.join(', ') || 'none'}`);
-    parts.push(`Features OFF: ${off.join(', ') || 'none'}`);
-  }
-
-  // Coin weights
-  if (ctx.coinWeights) {
-    parts.push(`Coin Weights (${ctx.coinWeights.strength}): ${JSON.stringify(ctx.coinWeights.weights)}`);
-  }
-
-  // Score and regime history
-  if (ctx.scoreHistory && Object.keys(ctx.scoreHistory).length > 0) {
-    parts.push('Score history (recent): ' + JSON.stringify(ctx.scoreHistory));
-  }
-  if (ctx.regimeTimeline && ctx.regimeTimeline.length > 0) {
-    parts.push('Regime timeline: ' + JSON.stringify(ctx.regimeTimeline.slice(-3)));
-  }
-
-  // Settings
+  // Settings (essential only)
   const s = ctx.settings || {};
-  parts.push(`\nSettings: riskPerTrade=${s.riskPerTrade ?? 2}%, riskMode=${s.riskMode || 'percent'}, maxOpenTrades=${s.maxOpenTrades ?? 3}, autoTradeMinScore=${s.autoTradeMinScore ?? 55}, autoTrade=${s.autoTrade ?? false}, cooldownHours=${s.cooldownHours ?? 6}, defaultLeverage=${s.defaultLeverage ?? 2}, tpMode=${s.tpMode || 'fixed'}, minRiskReward=${s.minRiskReward ?? 1.2}`);
-
-  if (ctx.lastBacktest) {
-    parts.push(`Last backtest: ${ctx.lastBacktest.days}d, ${ctx.lastBacktest.totalTrades} trades, WR ${ctx.lastBacktest.winRate}%, PnL ${ctx.lastBacktest.totalPnlPercent}%`);
-  }
+  parts.push(`Settings: risk=${s.riskPerTrade ?? 2}%, maxTrades=${s.maxOpenTrades ?? 3}, minScore=${s.autoTradeMinScore ?? 55}, autoTrade=${s.autoTrade ?? false}, leverage=${s.defaultLeverage ?? 2}`);
 
   return parts.join('\n');
 }

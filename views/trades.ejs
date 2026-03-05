@@ -175,8 +175,15 @@
 
         <% if (trade.reasoning && trade.reasoning.length > 0) { %>
         <div class="reasoning">
-          <h4>Entry Thesis</h4>
+          <h4>Why Take This Trade</h4>
           <% trade.reasoning.forEach(function(r) { %><div class="reason"><%= r %></div><% }); %>
+        </div>
+        <% } %>
+
+        <% if (trade.counterReasoning && trade.counterReasoning.length > 0) { %>
+        <div class="reasoning counter-reasoning">
+          <h4>Why NOT Take This Trade</h4>
+          <% trade.counterReasoning.forEach(function(r) { %><div class="reason counter-reason"><%= r %></div><% }); %>
         </div>
         <% } %>
 
@@ -310,7 +317,7 @@
     // Trigger score check on load if trades are awaiting (helps cold start on Render)
     if (window.__hasPendingScoreChecks && window.__scoreRecheckEnabled) {
       setTimeout(function() {
-        fetch('/api/trigger-score-check', { method: 'POST', credentials: 'same-origin' }).catch(function() {});
+        fetch('/api/trigger-score-check', { method: 'POST', credentials: 'same-origin' }).catch(function() { if (typeof showToast === 'function') showToast('Score check failed to trigger'); });
       }, 2000);
     }
     // Run now button
@@ -329,6 +336,7 @@
           .catch(function() {
             btn.disabled = false;
             btn.textContent = 'Run now';
+            if (typeof showToast === 'function') showToast('Score check failed');
           });
       });
     });

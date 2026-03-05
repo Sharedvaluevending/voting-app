@@ -9,11 +9,12 @@
 const fetch = require('node-fetch');
 const { TRACKED_COINS } = require('./crypto-api');
 const { analyzeCoin } = require('./trading-engine');
+const { marketScannerThrottler } = require('../lib/api-queue');
 
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 min
-const COINGECKO_DELAY_MS = 1500;     // Rate limit: ~40/min
 const TOP_MARKET_LIMIT = 80;          // Scan top 80 by market cap
 const TOP_PICKS = 3;
+const MIN_VOLUME_24H_USD = 1e6;       // Skip low-liquidity coins (bad fills, manipulated wicks)
 
 const STABLECOINS = [
   'tether', 'usd-coin', 'dai', 'binance-usd', 'true-usd', 'first-digital-usd',
@@ -47,38 +48,38 @@ async function buildScannerOptions(marketCoins) {
   return opts;
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 /**
- * Fetch top coins from CoinGecko /coins/markets (by market cap).
+ * Fetch top coins from CoinGecko /coins/markets (by market cap). Queued + exponential backoff.
  */
 async function fetchTopMarketCoins(limit = TOP_MARKET_LIMIT) {
-  const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${limit}&page=1&sparkline=false`;
-  const res = await fetch(url, { headers: { Accept: 'application/json' }, timeout: 15000 });
-  if (res.status === 429) throw new Error('Rate limited');
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  return Array.isArray(data) ? data : [];
+  return marketScannerThrottler(async () => {
+    const url = `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${limit}&page=1&sparkline=false`;
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, timeout: 15000 });
+    if (res.status === 429) throw new Error('Rate limited');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  });
 }
 
 /**
- * Fetch CoinGecko market_chart for a coin (prices + volumes for analyzeWithHistory).
+ * Fetch CoinGecko market_chart for a coin (prices + volumes for analyzeWithHistory). Queued + exponential backoff.
  */
 async function fetchMarketChart(coinId, days = 7) {
-  const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
-  const res = await fetch(url, { headers: { Accept: 'application/json' }, timeout: 12000 });
-  if (res.status === 429) throw new Error('Rate limited');
-  if (!res.ok) return null;
-  const data = await res.json();
-  if (!data || typeof data !== 'object') return null;
-  const prices = Array.isArray(data.prices) ? data.prices : [];
-  const totalVolumes = Array.isArray(data.total_volumes) ? data.total_volumes : [];
-  return {
-    prices: prices.map(([ts, price]) => ({ timestamp: ts, price })),
-    volumes: totalVolumes.map(([ts, vol]) => ({ timestamp: ts, volume: vol }))
-  };
+  return marketScannerThrottler(async () => {
+    const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=${days}`;
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, timeout: 12000 });
+    if (res.status === 429) throw new Error('Rate limited');
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || typeof data !== 'object') return null;
+    const prices = Array.isArray(data.prices) ? data.prices : [];
+    const totalVolumes = Array.isArray(data.total_volumes) ? data.total_volumes : [];
+    return {
+      prices: prices.map(([ts, price]) => ({ timestamp: ts, price })),
+      volumes: totalVolumes.map(([ts, vol]) => ({ timestamp: ts, volume: vol }))
+    };
+  });
 }
 
 /**
@@ -112,10 +113,12 @@ async function scanMarket(options = {}) {
   try {
     const marketCoins = await fetchTopMarketCoins();
     const opts = (options && options.strategyWeights) ? options : await buildScannerOptions(marketCoins);
+    const minVol = (options && options.minVolume24hUsd != null) ? options.minVolume24hUsd : MIN_VOLUME_24H_USD;
     const outsideTracked = marketCoins.filter(m => {
       if (TRACKED_COINS.includes(m.id)) return false;
       if (STABLECOINS.includes(m.id)) return false;
       if (STABLECOIN_SYMBOLS.includes((m.symbol || '').toUpperCase())) return false;
+      if (minVol > 0 && (m.total_volume || 0) < minVol) return false; // Skip low liquidity
       return true;
     });
     if (outsideTracked.length === 0) {
@@ -135,7 +138,6 @@ async function scanMarket(options = {}) {
       let history = null;
       try {
         history = await fetchMarketChart(m.id, 7);
-        await sleep(COINGECKO_DELAY_MS);
       } catch (e) {
         // Fall through to basic signal
       }

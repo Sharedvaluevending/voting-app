@@ -116,14 +116,15 @@ function botLog(userId, msg) {
 // ====================================================
 // Quality scoring for candidate tokens
 // ====================================================
-function scoreCandidate(t) {
+function scoreCandidate(t, opts = {}) {
   const change = t.priceChange24h || 0;
   const change5m = t.priceChange5m;
   const change1h = t.priceChange1h || 0;
   const vol = t.volume24h || 0;
   const liq = t.liquidity || 0;
-  const buyPressure = t.buyPressure || 0.5;
-  const organicScore = t.organicScore || 0;
+  const minBuyPressure = opts.minBuyPressure ?? 0.5;
+  const buyPressure = t.buyPressure ?? 0.5;
+  const organicScore = t.organicScore ?? 0;
   const numBuyers1h = t.numBuyers1h || 0;
   const numBuyers5m = t.numBuyers5m || 0;
   const holderCount = t.holderCount || 0;
@@ -147,7 +148,7 @@ function scoreCandidate(t) {
 
   // Must be actively pumping (scalping: 5m or 1h or 24h proxy)
   if (changeShort < minChangeShort) return -1;
-  if (buyPressure < 0.50) return -1;  // was 0.45 - require stronger buy pressure
+  if (buyPressure < minBuyPressure) return -1;
 
   const buyVol5m = t.buyVolume5m || 0;
   const sellVol5m = t.sellVolume5m || 0;
@@ -252,13 +253,14 @@ function scoreCandidate(t) {
 // MEMECOIN: LOOSE scoring - let pumps through, filter by exits
 // Minimal bars: some vol, some liq, not dumping. Score everything else.
 // ====================================================
-function scoreCandidatePumpStart(t) {
+function scoreCandidatePumpStart(t, opts = {}) {
   const change5m = t.priceChange5m;
   const change1h = t.priceChange1h || 0;
   const change24 = t.priceChange24h || 0;
   const vol = t.volume24h || 0;
   const liq = t.liquidity || 0;
-  const buyPressure = t.buyPressure || 0.5;
+  const minBuyPressure = opts.minBuyPressure ?? 0.5;
+  const buyPressure = t.buyPressure ?? 0.5;
   const buyVol5m = t.buyVolume5m || 0;
   const sellVol5m = t.sellVolume5m || 0;
   const buyVol1h = t.buyVolume1h || 0;
@@ -293,7 +295,7 @@ function scoreCandidatePumpStart(t) {
   }
   if (changeShort > 15) return -1;  // memecoin: hard reject >15% 5m (already pumped)
   if (changeShort < 0.5) return -1;  // memecoin: require positive pump signal (reject flat/down)
-  if (changeShort > 0 && buyDominance < 0.4) return -1;  // require buy pressure when pumping
+  if (changeShort > 0 && buyDominance < minBuyPressure) return -1;  // require buy pressure when pumping
   if (avgHourlyVol > 0 && vol1h > 0 && volSurge < 1.0) return -1;  // require volume surge when we have data
   const numBuyers = numBuyers5m > 0 ? numBuyers5m : numBuyers1h;
   if (numBuyers > 0 && numBuyers < 8) return -1;         // require 8+ buyers (organic activity)
@@ -388,9 +390,10 @@ async function fetchTrendingsCached(settings = {}) {
   }
 
   const minScore = intervals.minScore;
+  const minBuyPressure = (settings.minBuyPressure ?? 0.5);
   const scoreFn = memecoin ? scoreCandidatePumpStart : scoreCandidate;
   const scored = Array.from(seen.values()).map(t => {
-    t._qualityScore = scoreFn(t);
+    t._qualityScore = scoreFn(t, { minBuyPressure });
     return t;
   }).filter(t => t._qualityScore >= minScore);
 
@@ -443,6 +446,19 @@ function sanitizeSettings(raw) {
   s.amountPerTradeUsd = Math.min(Math.max(s.amountPerTradeUsd ?? (memecoin ? 25 : 50), 5), 500);
   s.amountPerTradeSol = Math.min(Math.max(s.amountPerTradeSol ?? 0.05, 0.01), 1);
   s.minTrendingScore = 1;
+  s.useTrailingTP = s.useTrailingTP === true;
+  s.volumeFilterEnabled = s.volumeFilterEnabled === true;
+  s.volatilityFilterEnabled = s.volatilityFilterEnabled === true;
+  s.minVolume24hUsd = Math.min(Math.max(s.minVolume24hUsd ?? 25000, 5000), 500000);
+  s.maxVolatility24hPercent = Math.min(Math.max(s.maxVolatility24hPercent ?? 400, 100), 1000);
+  s.minVolatility24hPercent = Math.min(Math.max(s.minVolatility24hPercent ?? -30, -80), 50);
+  s.minOrganicScore = Math.min(Math.max(s.minOrganicScore ?? 0, 0), 100);
+  s.minPoolAgeMinutes = Math.min(Math.max(s.minPoolAgeMinutes ?? 0, 0), 60);
+  s.tradingHoursStartUTC = Math.min(Math.max(s.tradingHoursStartUTC ?? 0, 0), 23);
+  s.tradingHoursEndUTC = Math.min(Math.max(s.tradingHoursEndUTC ?? 24, 0), 24);
+  s.minProfitToActivateTrail = Math.min(Math.max(s.minProfitToActivateTrail ?? 0, 0), 10);
+  s.minBuyPressure = Math.min(Math.max(s.minBuyPressure ?? 0.5, 0.45), 0.65);
+  s.usePartialTP = s.usePartialTP !== false;  // 40/30/30 partial exits, default on
   return s;
 }
 
@@ -513,8 +529,35 @@ function resetDailyPnlIfNewDay(user) {
 // Entry filters & cooldown
 // ====================================================
 async function passesEntryFilters(t, settings, blacklist) {
-  if (!settings.useEntryFilters) return true;
+  if (!settings.useEntryFilters && !settings.volumeFilterEnabled && !settings.volatilityFilterEnabled) return true;
   if (blacklist && blacklist.includes(t.tokenAddress)) return false;
+
+  // Volume filter: require min 24h volume (when enabled or useEntryFilters)
+  if ((settings.useEntryFilters || settings.volumeFilterEnabled) && settings.minVolume24hUsd > 0) {
+    const vol = t.volume24h || 0;
+    if (vol < settings.minVolume24hUsd) return false;
+  }
+
+  // Volatility filter: skip tokens outside 24h change range (too flat or too parabolic)
+  if (settings.volatilityFilterEnabled) {
+    const ch24 = t.priceChange24h ?? 0;
+    const maxVol = settings.maxVolatility24hPercent ?? 400;
+    const minVol = settings.minVolatility24hPercent ?? -30;
+    if (ch24 > maxVol) return false;  // too parabolic
+    if (ch24 < minVol) return false;  // dumping
+  }
+
+  // Organic score filter (Jupiter): prefer tokens with organic activity
+  const minOrganic = settings.minOrganicScore ?? 0;
+  if (minOrganic > 0 && typeof t.organicScore === 'number' && t.organicScore < minOrganic) return false;
+
+  // Pool age filter (GeckoTerminal): skip very new pools (honeypot risk)
+  const minPoolAgeMin = settings.minPoolAgeMinutes ?? 0;
+  if (minPoolAgeMin > 0 && t.poolCreatedAt) {
+    const ageMin = (Date.now() - t.poolCreatedAt) / 60000;
+    if (ageMin < minPoolAgeMin) return false;
+  }
+
   const max24h = settings.maxPriceChange24hPercent ?? 500;
   if ((t.priceChange24h || 0) >= max24h) return false;
   const minLiq = settings.minLiquidityUsd ?? 25000;
@@ -662,7 +705,20 @@ function shouldSellPosition(pos, currentPrice, settings) {
   if (currentPrice > peakPrice) peakPrice = currentPrice;
 
   if (pnlPct <= -sl) return { sell: true, reason: 'stop_loss', pnlPct };
-  if (pnlPct >= tp) return { sell: true, reason: 'take_profit', pnlPct };
+  // Fixed TP: skip when useTrailingTP (exit profit only via trailing)
+  // Partial TP (40/30/30): TP1=40% of TP, TP2=70%, TP3=100%
+  const usePartialTP = settings.usePartialTP !== false;
+  if (!settings.useTrailingTP && usePartialTP) {
+    const tp1 = tp * 0.4, tp2 = tp * 0.7;
+    const sold = pos.partialSoldAmount || 0;
+    const orig = pos.tokenAmount || 0;
+    const soldPct = orig > 0 ? (sold / orig) * 100 : 0;
+    // Check TP3 first (70% sold), then TP2 (40% sold), then TP1 (0% sold)
+    if (pnlPct >= tp && soldPct >= 69) return { sell: true, reason: 'partial_tp3', pnlPct, partialPercent: 0 };
+    if (pnlPct >= tp2 && soldPct >= 39 && soldPct < 69) return { sell: true, reason: 'partial_tp2', pnlPct, partialPercent: 30 };
+    if (pnlPct >= tp1 && soldPct < 1) return { sell: true, reason: 'partial_tp1', pnlPct, partialPercent: 40 };
+  }
+  if (!settings.useTrailingTP && pnlPct >= tp) return { sell: true, reason: 'take_profit', pnlPct };
 
   // Breakeven enforcement: once triggered, sell if price drops back to entry
   if (useBreakeven && pos.breakevenTriggered && pnlPct <= 0) {
@@ -696,9 +752,11 @@ function shouldSellPosition(pos, currentPrice, settings) {
     return { sell: true, reason: 'time_limit_hard', pnlPct };
   }
 
-  // Adaptive trailing: use PEAK pnl to determine trail width so it doesn't
-  // tighten during normal pullbacks from a high
-  if (useTrail && pnlPct > 0 && peakPrice > 0) {
+  // Min profit to activate trail: don't trail until we're in profit by X%
+  const minProfitToTrail = settings.minProfitToActivateTrail ?? 0;
+  if (minProfitToTrail > 0 && pnlPct < minProfitToTrail) {
+    // Trail not active yet - skip trailing logic
+  } else if (useTrail && pnlPct > 0 && peakPrice > 0) {
     const peakPnlPct = ((peakPrice - entry) / entry) * 100;
     const adaptiveTrail = getAdaptiveTrail(peakPnlPct, baseTrail, memecoin);
     const dropFromPeak = ((peakPrice - currentPrice) / peakPrice) * 100;
@@ -715,13 +773,19 @@ function shouldSellPosition(pos, currentPrice, settings) {
 }
 
 // ====================================================
-// Live sell execution
+// Live sell execution (full or partial)
 // ====================================================
-async function executeLiveSell(user, pos, currentPrice, keypair) {
+async function executeLiveSell(user, pos, currentPrice, keypair, opts = {}) {
   const walletAddress = keypair.publicKey.toBase58();
-  const amountToSell = (pos.partialSoldAmount || 0) > 0
-    ? (pos.tokenAmount || 0) - pos.partialSoldAmount
-    : (pos.tokenAmount || 0);
+  const orig = pos.tokenAmount || 0;
+  const sold = pos.partialSoldAmount || 0;
+  const remaining = orig - sold;
+  let amountToSell;
+  if (opts.partialPercent != null && opts.partialPercent > 0 && opts.partialPercent < 100) {
+    amountToSell = orig * (opts.partialPercent / 100);
+  } else {
+    amountToSell = remaining;
+  }
   if (amountToSell <= 0) return false;
   try {
     const quote = await mobula.getSwapQuote(
@@ -742,8 +806,16 @@ async function executeLiveSell(user, pos, currentPrice, keypair) {
       const costBasis = pos.tokenAmount > 0 ? pos.amountIn * (amountToSell / pos.tokenAmount) : pos.amountIn;
       const pnl = valueOut - costBasis;
       const pnlPct = pos.entryPrice > 0 ? ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
+      const isPartial = opts.partialPercent != null && opts.partialPercent > 0 && opts.partialPercent < 100;
+      if (isPartial) {
+        await ScalpTrade.updateOne({ _id: pos._id }, {
+          $inc: { partialSoldAmount: amountToSell },
+          $set: { peakPrice: Math.max(pos.peakPrice || pos.entryPrice, currentPrice) }
+        });
+        return { pnl, pnlPct, partial: true };
+      }
       await ScalpTrade.updateOne({ _id: pos._id }, {
-        $set: { exitPrice: currentPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), txHash: data.transactionHash, exitReason: 'auto_sell' }
+        $set: { exitPrice: currentPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), txHash: data.transactionHash, exitReason: opts.reason || 'auto_sell' }
       });
       return { pnl, pnlPct };
     }
@@ -870,17 +942,29 @@ async function _exitTickInner(userId) {
 
     if (mode === 'paper') {
       const slippedPrice = currentPrice * (1 - PAPER_SLIPPAGE);
-      const tokenAmountToSell = pos.tokenAmount || 0;
+      const orig = pos.tokenAmount || 0;
+      const sold = pos.partialSoldAmount || 0;
+      const isPartial = decision.partialPercent != null && decision.partialPercent > 0 && decision.partialPercent < 100;
+      const tokenAmountToSell = isPartial ? orig * (decision.partialPercent / 100) : (orig - sold);
       const valueOut = tokenAmountToSell * slippedPrice;
-      const pnl = valueOut - (pos.amountIn || 0);
+      const costBasis = orig > 0 ? (pos.amountIn || 0) * (tokenAmountToSell / orig) : (pos.amountIn || 0);
+      const pnl = valueOut - costBasis;
       const pnlPct = ((slippedPrice - pos.entryPrice) / pos.entryPrice) * 100;
 
       user.trenchPaperBalance = Math.round(((user.trenchPaperBalance ?? 1000) + valueOut) * 100) / 100;
 
-      await ScalpTrade.updateOne({ _id: pos._id }, {
-        $set: { exitPrice: slippedPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), exitReason: decision.reason || 'auto' }
-      });
-      botLog(userId, `SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%) [slip: -${(PAPER_SLIPPAGE * 100).toFixed(0)}%]`);
+      if (isPartial) {
+        await ScalpTrade.updateOne({ _id: pos._id }, {
+          $inc: { partialSoldAmount: tokenAmountToSell },
+          $set: { peakPrice: Math.max(pos.peakPrice || pos.entryPrice, currentPrice) }
+        });
+        botLog(userId, `PARTIAL ${pos.tokenSymbol} [${decision.reason}] ${decision.partialPercent}% PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%)`);
+      } else {
+        await ScalpTrade.updateOne({ _id: pos._id }, {
+          $set: { exitPrice: slippedPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), exitReason: decision.reason || 'auto' }
+        });
+        botLog(userId, `SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%) [slip: -${(PAPER_SLIPPAGE * 100).toFixed(0)}%]`);
+      }
       sellCount++;
 
       user.trenchStats = user.trenchStats || {};
@@ -912,7 +996,10 @@ async function _exitTickInner(userId) {
     } else {
       const keypair = getBotKeypair(user);
       if (!keypair) continue;
-      const result = await executeLiveSell(user, pos, currentPrice, keypair);
+      const result = await executeLiveSell(user, pos, currentPrice, keypair, {
+        partialPercent: decision.partialPercent,
+        reason: decision.reason
+      });
       if (result) {
         const { pnl, pnlPct } = result;
         user.trenchStats = user.trenchStats || {};
@@ -976,6 +1063,18 @@ async function _entryTickInner(userId) {
 
   const user = await User.findById(userId);
   if (!user) { stopBot(userId); return; }
+
+  // Time-of-day filter: only scan during allowed hours (UTC)
+  const raw = user.trenchAuto || {};
+  const startH = raw.tradingHoursStartUTC ?? 0;
+  const endH = raw.tradingHoursEndUTC ?? 24;
+  if (startH > 0 || endH < 24) {
+    const hourUTC = new Date().getUTCHours();
+    const inRange = endH > startH
+      ? (hourUTC >= startH && hourUTC < endH)
+      : (hourUTC >= startH || hourUTC < endH);
+    if (!inRange) return;  // Outside trading hours
+  }
 
   const rawSettings = user.trenchAuto || {};
   const settings = sanitizeSettings(rawSettings);

@@ -43,6 +43,7 @@ const tradeSchema = new mongoose.Schema({
   tpType: { type: String },
   tpLabel: { type: String },
   reasoning: [String],
+  counterReasoning: [String],
   indicatorsAtEntry: { type: mongoose.Schema.Types.Mixed },
   scoreBreakdownAtEntry: { type: mongoose.Schema.Types.Mixed },
   llmConfidence: { type: Number, default: null },

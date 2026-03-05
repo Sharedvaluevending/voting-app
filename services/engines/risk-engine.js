@@ -29,14 +29,25 @@ function calculatePositionSize(balance, riskPercent, entryPrice, stopLoss, lever
   opts = opts || {};
   if (!entryPrice || entryPrice <= 0) return balance * 0.05 * leverage;
   const riskMode = opts.riskMode || 'percent';
-  const riskAmount = riskMode === 'dollar' && Number.isFinite(opts.riskDollarsPerTrade) && opts.riskDollarsPerTrade > 0
-    ? opts.riskDollarsPerTrade
-    : balance * (riskPercent / 100);
+
   let stopDistance = typeof stopLoss === 'number' && stopLoss > 0
     ? Math.abs(entryPrice - stopLoss) / entryPrice
     : 0.02;
   if (stopDistance <= 0 || !Number.isFinite(stopDistance)) stopDistance = 0.02;
-  const positionSize = (riskAmount / stopDistance) * leverage;
+
+  let positionSize;
+  if (riskMode === 'dollar' && Number.isFinite(opts.riskDollarsPerTrade) && opts.riskDollarsPerTrade > 0) {
+    // Dollar mode: position size such that loss at stop = exactly riskDollarsPerTrade.
+    // loss = positionSize × stopDistance → positionSize = riskDollars / stopDistance
+    // DO NOT multiply by leverage here — leverage affects the margin deposited, not the
+    // dollar loss at the stop. Multiplying by leverage would cause loss = riskDollars × leverage.
+    positionSize = opts.riskDollarsPerTrade / stopDistance;
+  } else {
+    // Percent mode: risk is a fraction of balance; leverage amplifies position (and loss).
+    const riskAmount = balance * (riskPercent / 100);
+    positionSize = (riskAmount / stopDistance) * leverage;
+  }
+
   const capped = Math.min(positionSize, balance * leverage * 0.95);
   return Number.isFinite(capped) ? capped : balance * 0.1 * leverage;
 }
@@ -74,7 +85,9 @@ function plan(decision, snapshot, context) {
     return null;
   }
   if (!decision.entry || !decision.stopLoss) {
-    console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: missing entry ($${decision.entry}) or stopLoss ($${decision.stopLoss})`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: missing entry ($${decision.entry}) or stopLoss ($${decision.stopLoss})`);
+    }
     return null;
   }
 
@@ -86,7 +99,9 @@ function plan(decision, snapshot, context) {
       const expectancy = (w * r) - (1 - w);
       const minExp = userSettings.minExpectancy ?? 0.15;
       if (expectancy < minExp) {
-        console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: strategy "${decision.strategy}" expectancy ${expectancy.toFixed(3)} < min ${minExp}`);
+        if (process.env.NODE_ENV !== 'production') {
+          console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: strategy "${decision.strategy}" expectancy ${expectancy.toFixed(3)} < min ${minExp}`);
+        }
         return null;
       }
     }
@@ -185,10 +200,14 @@ function plan(decision, snapshot, context) {
     }
   }
 
-  // Cap margin to max % of balance
-  const maxMarginByPct = balance * (Math.min(100, Math.max(5, maxBalancePct)) / 100);
-  const maxPositionByMarginPct = maxMarginByPct * leverage;
-  positionSize = Math.min(positionSize, Math.max(0, maxPositionByMarginPct));
+  // Cap margin to max % of balance.
+  // In dollar mode, skip this cap — the dollar risk already controls position size.
+  // Applying a % cap would make positions scale with balance, defeating fixed-dollar intent.
+  if (riskMode !== 'dollar') {
+    const maxMarginByPct = balance * (Math.min(100, Math.max(5, maxBalancePct)) / 100);
+    const maxPositionByMarginPct = maxMarginByPct * leverage;
+    positionSize = Math.min(positionSize, Math.max(0, maxPositionByMarginPct));
+  }
 
   const makerFee = getMakerFee(userSettings);
   const maxSpend = Math.max(0, balance - 0.50);
@@ -212,7 +231,9 @@ function plan(decision, snapshot, context) {
   }
 
   if (balance <= 0 || required > balance) {
-    console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: balance $${balance} insufficient (need $${required.toFixed(2)})`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`[RiskEngine] Rejected ${decision.symbol || '?'}: balance $${balance} insufficient (need $${required.toFixed(2)})`);
+    }
     return null;
   }
 

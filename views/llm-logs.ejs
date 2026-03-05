@@ -28,21 +28,21 @@
       <tbody>
         <% logs.forEach(function(log) { %>
           <tr>
-            <td style="font-size:12px;color:#9ca3af;white-space:nowrap;"><%= log.at ? new Date(log.at).toLocaleString() : '-' %></td>
-            <td>
+            <td data-label="Date" style="font-size:12px;color:#9ca3af;white-space:nowrap;"><%= log.at ? new Date(log.at).toLocaleString() : '-' %></td>
+            <td data-label="Source">
               <span style="font-size:11px;padding:2px 8px;border-radius:6px;background:rgba(139,92,246,0.2);color:#a78bfa;">
                 <%= log.source === 'scheduled' ? '24/7' : log.source === 'chat' ? 'Chat' : 'Manual' %>
               </span>
             </td>
-            <td>
+            <td data-label="Status">
               <% if (log.success) { %>
                 <span style="color:#10b981;font-size:12px;">✓ OK</span>
               <% } else { %>
                 <span style="color:#ef4444;font-size:12px;">✗ Failed</span>
               <% } %>
             </td>
-            <td style="font-size:12px;color:#c4b5fd;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="<%= (log.reasoning || '').replace(/"/g, '&quot;') %>"><%= log.reasoning || '-' %></td>
-            <td style="font-size:12px;">
+            <td data-label="Reasoning" style="font-size:12px;color:#c4b5fd;max-width:200px;overflow:hidden;text-overflow:ellipsis;" title="<%= (log.reasoning || '').replace(/"/g, '&quot;') %>"><%= log.reasoning || '-' %></td>
+            <td data-label="Actions Executed" style="font-size:12px;">
               <% if (log.actionsExecuted && log.actionsExecuted.length > 0) { %>
                 <ul style="margin:0;padding-left:16px;list-style:disc;">
                   <% log.actionsExecuted.forEach(function(a) { %>
@@ -51,7 +51,7 @@
                 </ul>
               <% } else { %>-<% } %>
             </td>
-            <td style="font-size:12px;color:#fca5a5;">
+            <td data-label="Actions Failed" style="font-size:12px;color:#fca5a5;">
               <% if (log.actionsFailed && log.actionsFailed.length > 0) { %>
                 <ul style="margin:0;padding-left:16px;list-style:disc;">
                   <% log.actionsFailed.forEach(function(a) { %>
@@ -62,7 +62,7 @@
                 <span title="<%= (log.error || '').replace(/"/g, '&quot;') %>"><%= log.error %></span>
               <% } else { %>-<% } %>
             </td>
-            <td style="font-size:11px;color:#6b7280;max-width:150px;overflow:hidden;text-overflow:ellipsis;" title="<%= (log.userRequest || '').replace(/"/g, '&quot;') %>"><%= log.userRequest || '-' %></td>
+            <td data-label="User Request" style="font-size:11px;color:#6b7280;max-width:150px;overflow:hidden;text-overflow:ellipsis;" title="<%= (log.userRequest || '').replace(/"/g, '&quot;') %>"><%= log.userRequest || '-' %></td>
           </tr>
         <% }); %>
       </tbody>

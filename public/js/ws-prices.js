@@ -12,7 +12,7 @@
     if (price == null || isNaN(price)) return '0.00';
     var n = Number(price);
     if (n >= 1000) return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (n >= 1) return n.toFixed(2);
+    if (n >= 1) return n.toFixed(4);   // e.g. 1.3677
     if (n >= 0.01) return n.toFixed(4);
     return n.toFixed(8);
   }

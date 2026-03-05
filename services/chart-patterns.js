@@ -18,6 +18,8 @@
 //                  Symmetrical Triangle, Channel/Rectangle
 // ====================================================
 
+const { filterValidCandles } = require('../lib/candle-utils');
+
 // ====================================================
 // HELPERS
 // ====================================================
@@ -879,6 +881,8 @@ function detectChannels(candles, highs, lows, swingHighs, swingLows) {
 // ====================================================
 function detectChartPatterns(candles) {
   if (!candles || candles.length < 20) return [];
+  candles = filterValidCandles(candles);
+  if (candles.length < 20) return [];
 
   const highs = candles.map(c => c.high);
   const lows = candles.map(c => c.low);

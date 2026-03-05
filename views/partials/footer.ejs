@@ -10,6 +10,49 @@
   <!-- Real-time WebSocket prices (all pages: ticker, cards, trades, nav PnL) -->
   <script src="/js/ws-prices.js"></script>
 
+  <!-- Toast helper for user-facing error feedback -->
+  <script>
+  window.showToast = function(msg, type) {
+    try {
+      var existing = document.getElementById('global-toast');
+      if (existing) existing.remove();
+      var t = document.createElement('div');
+      t.id = 'global-toast';
+      t.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:99998;padding:10px 20px;border-radius:8px;font-size:14px;color:#fff;background:#7f1d1d;box-shadow:0 4px 12px rgba(0,0,0,0.3);max-width:90vw;';
+      t.textContent = msg || 'Something went wrong';
+      document.body.appendChild(t);
+      setTimeout(function() { if (t.parentNode) t.remove(); }, 4000);
+    } catch (e) {}
+  };
+  </script>
+  <!-- Global error handlers: catch uncaught errors, show user-friendly message -->
+  <script>
+  (function() {
+    var isProd = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? false : true;
+    function showUserError() {
+      try {
+        var existing = document.getElementById('global-error-banner');
+        if (existing) return;
+        var banner = document.createElement('div');
+        banner.id = 'global-error-banner';
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#7f1d1d;color:#fecaca;padding:12px 16px;text-align:center;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
+        banner.textContent = 'Something went wrong. Please refresh the page or try again later.';
+        document.body.appendChild(banner);
+        setTimeout(function() { if (banner.parentNode) banner.remove(); }, 8000);
+      } catch (e) {}
+    }
+    window.onerror = function(msg, url, line, col, err) {
+      showUserError();
+      if (!isProd && typeof console !== 'undefined' && console.error) console.error('[Error]', msg, url, line, col, err);
+      return false;
+    };
+    window.addEventListener('unhandledrejection', function(ev) {
+      showUserError();
+      if (!isProd && typeof console !== 'undefined' && console.error) console.error('[UnhandledRejection]', ev.reason);
+    });
+  })();
+  </script>
+
   <script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then(function(regs) {
@@ -20,6 +63,50 @@
 
   <% if (typeof user !== 'undefined' && user) { %>
   <script>
+  (function() {
+    var badge = document.getElementById('setup-notif-badge');
+    var lastCount = null;
+    var firstCheck = true;
+
+    function updateBadge(count) {
+      if (badge && count > 0) {
+        badge.textContent = count > 99 ? '99+' : count;
+        badge.style.display = 'inline';
+      }
+    }
+
+    function checkNotifications() {
+      fetch('/api/setup-notifications', { credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (!d.success) return;
+          var count = d.count || 0;
+          updateBadge(count);
+          if (!firstCheck && lastCount != null && count > lastCount && 'Notification' in window && Notification.permission === 'granted') {
+            var added = count - lastCount;
+            var title = 'SMC Setup Found';
+            var body = added === 1 ? '1 new setup found by LLM' : added + ' new setups found by LLM';
+            try {
+              new Notification(title, { body: body, icon: '/favicon.ico' });
+            } catch (e) {}
+          }
+          firstCheck = false;
+          lastCount = count;
+        })
+        .catch(function() { if (typeof showToast === 'function') showToast('Notifications unavailable'); });
+    }
+
+    checkNotifications();
+    setInterval(checkNotifications, 60000);
+
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then(function(p) {
+        if (p === 'granted') checkNotifications();
+      });
+    }
+  })();
+  </script>
+  <script>
   // Live PNL — real-time via WebSocket + fallback poll every 5s
   (function() {
     var pnlEl = document.getElementById('nav-live-pnl');
@@ -27,6 +114,7 @@
 
     var lastTrades = null;
     var lastPriceMap = {};
+    var failCount = 0;
 
     function computeAndShowPnl(priceMap) {
       if (!lastTrades || !priceMap) return;
@@ -60,7 +148,16 @@
       ]).then(function(results) {
         var tradesData = results[0];
         var pricesData = results[1];
-        if (!tradesData || !tradesData.success || !tradesData.trades) return;
+        if (!tradesData || !tradesData.success) {
+          lastTrades = null;
+          if (pnlEl) { pnlEl.style.display = 'none'; }
+          return;
+        }
+        if (!tradesData.trades || Object.keys(tradesData.trades).length === 0) {
+          lastTrades = null;
+          if (pnlEl) { pnlEl.style.display = 'none'; }
+          return;
+        }
         if (!pricesData || !pricesData.success || !pricesData.data) return;
 
         lastTrades = tradesData.trades;
@@ -77,8 +174,14 @@
           }
         }
         lastPriceMap = priceMap;
+        failCount = 0;
         computeAndShowPnl(priceMap);
-      }).catch(function() {});
+      }).catch(function(err) {
+        failCount++;
+        if (failCount >= 3 && typeof showToast === 'function') {
+          showToast('Live PnL update failed — check connection');
+        }
+      });
     }
 
     window.addEventListener('ws-price-update', function(ev) {
@@ -104,6 +207,68 @@
         toggle.setAttribute('aria-expanded', links.classList.contains('nav-open'));
       });
     }
+
+    // Dropdown: JS-controlled open/close with hide-delay so mouse can travel to menu
+    var hideTimers = new WeakMap();
+
+    function openDropdown(dd) {
+      clearTimeout(hideTimers.get(dd));
+      // Close any other open dropdowns
+      document.querySelectorAll('.nav-dropdown.open').forEach(function(other) {
+        if (other !== dd) closeDropdownNow(other);
+      });
+      dd.classList.add('open');
+      var btn = dd.querySelector('.nav-dropdown-trigger');
+      if (btn) btn.setAttribute('aria-expanded', 'true');
+    }
+
+    function scheduleClose(dd) {
+      hideTimers.set(dd, setTimeout(function() { closeDropdownNow(dd); }, 150));
+    }
+
+    function closeDropdownNow(dd) {
+      dd.classList.remove('open');
+      var btn = dd.querySelector('.nav-dropdown-trigger');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+
+    document.querySelectorAll('.nav-dropdown').forEach(function(dd) {
+      var trigger = dd.querySelector('.nav-dropdown-trigger');
+      var menu = dd.querySelector('.nav-dropdown-menu');
+
+      // Desktop: hover to open, delayed close
+      if (trigger) {
+        trigger.addEventListener('mouseenter', function() {
+          if (window.innerWidth > 600) openDropdown(dd);
+        });
+        trigger.addEventListener('mouseleave', function() {
+          if (window.innerWidth > 600) scheduleClose(dd);
+        });
+        // Mobile: click to toggle
+        trigger.addEventListener('click', function(e) {
+          if (window.innerWidth <= 600) {
+            e.preventDefault();
+            if (dd.classList.contains('open')) closeDropdownNow(dd);
+            else openDropdown(dd);
+          }
+        });
+      }
+      if (menu) {
+        menu.addEventListener('mouseenter', function() {
+          if (window.innerWidth > 600) clearTimeout(hideTimers.get(dd));
+        });
+        menu.addEventListener('mouseleave', function() {
+          if (window.innerWidth > 600) scheduleClose(dd);
+        });
+      }
+    });
+
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('.nav-dropdown')) {
+        document.querySelectorAll('.nav-dropdown.open').forEach(closeDropdownNow);
+      }
+    });
   })();
   </script>
 </body>

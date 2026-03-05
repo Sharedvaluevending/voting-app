@@ -22,7 +22,15 @@ const BARS_PER_TF = {
   '15m': { '1h': 4, '4h': 16, '1d': 96, '1w': 672 },
   '1h': { '4h': 4, '1d': 24, '1w': 168 },
   '4h': { '1d': 6, '1w': 42 },
-  '1d': { '1w': 7 }
+  '1d': { '1w': 7 },
+  '1w': {}
+};
+
+// Lower TF bars per base bar (engine needs 1h/4h when base is 4h/1d/1w)
+const LOWER_TF_PER_BASE = {
+  '4h': { '1h': 4 },
+  '1d': { '1h': 24, '4h': 6 },
+  '1w': { '1h': 168, '4h': 42, '1d': 7 }
 };
 
 /**
@@ -39,8 +47,8 @@ function sliceCandlesAt(candles, t, baseTf) {
   if (!candles || !baseCandles || t >= baseCandles.length) return null;
 
   const slice = { [baseTf]: baseCandles.slice(0, t + 1) };
-  const ratios = BARS_PER_TF[baseTf];
-  if (!ratios) {
+  const ratios = BARS_PER_TF[baseTf] || {};
+  if (Object.keys(ratios).length === 0) {
     slice['4h'] = candles['4h'] || null;
     slice['1d'] = candles['1d'] || null;
     slice['15m'] = candles['15m'] || null;
@@ -58,8 +66,19 @@ function sliceCandlesAt(candles, t, baseTf) {
     }
   }
 
-  // Engine needs at least 20 bars for 1h
-  const minBars = baseTf === '1h' ? 20 : 5;
+  // Engine requires 1h, 4h, 1d. When base is 4h or 1d, add lower TFs for analysis
+  const lowerMap = LOWER_TF_PER_BASE[baseTf];
+  if (lowerMap) {
+    for (const [ltf, barsPerBase] of Object.entries(lowerMap)) {
+      const arr = candles[ltf];
+      if (!arr || arr.length === 0) continue;
+      const count = Math.min((t + 1) * barsPerBase, arr.length);
+      if (count >= 20) slice[ltf] = arr.slice(0, count);
+    }
+  }
+
+  // Indicator warm-up: RSI/MACD/BB/ATR need ~50 bars for 1h (MACD 26+9, BB 20, etc.)
+  const minBars = baseTf === '1h' ? 50 : baseTf === '4h' ? 30 : baseTf === '1d' || baseTf === '1w' ? 20 : 5;
   if (slice[baseTf].length < minBars) return null;
   return slice;
 }
@@ -84,7 +103,7 @@ function buildSnapshot(candles, t, baseTf, coinId, coinMeta, nextBar) {
   if (!slice) return null;
 
   const price = bar.close;
-  const prev24Idx = baseTf === '1h' ? 24 : baseTf === '15m' ? 96 : baseTf === '5m' ? 288 : 60;
+  const prev24Idx = baseTf === '1h' ? 24 : baseTf === '15m' ? 96 : baseTf === '5m' ? 288 : baseTf === '4h' ? 6 : baseTf === '1d' ? 1 : baseTf === '1w' ? 1 : 60;
   const prev24 = t >= prev24Idx && baseCandles[t - prev24Idx] ? baseCandles[t - prev24Idx].close : 0;
   const change24h = prev24 > 0 ? ((price - prev24) / prev24) * 100 : 0;
 

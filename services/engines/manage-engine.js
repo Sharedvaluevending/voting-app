@@ -15,14 +15,18 @@ const TP1_PCT = 0.4;
 const TP2_PCT = 0.3;
 const TP3_PCT = 0.3;
 
-const BE_R_MULT = 0.75;  // Breakeven at 0.75R (matches paper-trading)
-const TRAILING_START_R = 1.5;
-const TRAILING_DIST_R = 1.5;  // Must match paper-trading: trail 1.5R behind max price
+// Default constants — overridable via opts.breakevenRMult / opts.trailingStartR / opts.trailingDistR
+const DEFAULT_BE_R_MULT = 0.75;      // Move stop to entry at 0.75R profit
+const DEFAULT_TRAILING_START_R = 1.5; // Activate trailing stop at 1.5R profit
+const DEFAULT_TRAILING_DIST_R = 2.0;  // Trail 2R behind best price (wider = fewer premature stops)
 const BE_BUFFER = 0.003;
+
+const PRICE_EPSILON = 0.0001;
 
 function getProgressTowardTP(trade, currentPrice) {
   const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
-  if (!tp || !trade.entryPrice || tp === trade.entryPrice) return 0;
+  if (!tp || !trade.entryPrice) return 0;
+  if (Math.abs(tp - trade.entryPrice) < PRICE_EPSILON) return 0;
   const isLong = trade.direction === 'LONG';
   if (isLong && tp > trade.entryPrice) {
     return Math.min(1, (currentPrice - trade.entryPrice) / (tp - trade.entryPrice));
@@ -65,6 +69,10 @@ function update(openTrade, snapshot, opts) {
   const ff = opts.featureFlags || {};
   const stopGraceMinutes = opts.stopGraceMinutes ?? 2;
   const entryTime = opts.entryTime || openTrade.createdAt || openTrade.entryTime;
+  // Configurable stop management parameters
+  const BE_R_MULT = Number(opts.breakevenRMult ?? DEFAULT_BE_R_MULT);
+  const TRAILING_START_R = Number(opts.trailingStartR ?? DEFAULT_TRAILING_START_R);
+  const TRAILING_DIST_R = Number(opts.trailingDistR ?? DEFAULT_TRAILING_DIST_R);
 
   const actions = [];
   const trade = { ...openTrade };
@@ -113,8 +121,12 @@ function update(openTrade, snapshot, opts) {
     }
   }
 
-  // --- Trailing TP mode ---
-  if (trade.tpMode === 'trailing' && trade.trailingTpDistance > 0) {
+  // --- Trailing TP mode --- (only activate when price past entry by min threshold)
+  const TRAIL_ACTIVATION_THRESHOLD = 0.003; // 0.3% past entry
+  const pricePastEntry = isLong
+    ? currentPrice >= trade.entryPrice * (1 + TRAIL_ACTIVATION_THRESHOLD)
+    : currentPrice <= trade.entryPrice * (1 - TRAIL_ACTIVATION_THRESHOLD);
+  if (trade.tpMode === 'trailing' && trade.trailingTpDistance > 0 && pricePastEntry) {
     trade.trailingActivated = true;
     const trailDist = trade.trailingTpDistance;
     const bestP = isLong ? trade.maxPrice : trade.minPrice;
@@ -292,6 +304,9 @@ module.exports = {
   TP1_PCT,
   TP2_PCT,
   TP3_PCT,
+  DEFAULT_BE_R_MULT,
+  DEFAULT_TRAILING_START_R,
+  DEFAULT_TRAILING_DIST_R,
   getProgressTowardTP,
   getLockInStopPrice,
   getCurrentLockR

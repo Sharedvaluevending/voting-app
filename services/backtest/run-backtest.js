@@ -19,6 +19,7 @@ const TAKER_FEE = 0.001;
 const COOLDOWN_BARS = 4;
 const SCORE_RECHECK_INTERVAL = 6;  // Every 6 bars (6h) — was 4, too frequent for crypto score noise
 const STOP_GRACE_BARS = 1;
+const INDICATOR_WARMUP_BARS = 50;   // RSI(14), MACD(26+9), BB(20), ATR(14) — no signals before warmup
 const TP1_PCT = 0.4;
 const TP2_PCT = 0.3;
 const TP3_PCT = 0.3;
@@ -30,8 +31,13 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   options = options || {};
   const candles = options.candles;
   const btcCandles = options.btcCandles;
-  if (!candles || !candles['1h']) {
+  const primaryTf = options.primaryTf || '1h';
+  if (!candles || !candles[primaryTf]) {
     return { error: 'No candles provided', trades: [], equityCurve: [] };
+  }
+  // Engine requires 1h, 4h, 1d for analysis; 4h/1d primary still need 1h in slice
+  if (!candles['1h'] || !candles['4h'] || !candles['1d']) {
+    return { error: 'Engine requires 1h, 4h, 1d candles for analysis', trades: [], equityCurve: [] };
   }
 
   const minScore = options.minScore ?? 52;
@@ -55,24 +61,27 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const dcaAddSizePct = ft.dcaAddSizePercent ?? 100;
   const dcaMinScore = ft.dcaMinScore ?? 52;
   const F_MIN_RR = ft.minRiskRewardEnabled === true;
-  const minRiskReward = (ft.minRiskReward != null && Number.isFinite(ft.minRiskReward)) ? Number(ft.minRiskReward) : 1.2;
+  const minRiskReward = (ft.minRiskReward != null && Number.isFinite(ft.minRiskReward)) ? Number(ft.minRiskReward) : 1.5;
   const maxDailyLossPct = (ft.maxDailyLossPercent != null && ft.maxDailyLossPercent > 0) ? Number(ft.maxDailyLossPercent) : null;
   const minVolume24hUsd = (ft.minVolume24hUsd != null && ft.minVolume24hUsd > 0) ? Number(ft.minVolume24hUsd) : 0;
   const slippageMultiplier = (ft.slippageMultiplier != null && ft.slippageMultiplier > 0) ? Number(ft.slippageMultiplier) : 1;
 
-  const c1h = candles['1h'];
+  const c1h = candles[primaryTf];
+  if (!c1h || c1h.length < 50) {
+    return { error: `Not enough ${primaryTf} candles (got ${c1h ? c1h.length : 0}, need 50+)`, trades: [], equityCurve: [] };
+  }
   const history = { prices: [], volumes: [], marketCaps: [] };
   const trades = [];
   let equity = initialBalance;
   let position = null;
   let lastClosedBar = -999;
   let lastClosedDirection = null;
-  let streak = 0;  // Track win/loss streak (matches live trading behavior)
+  let streak = 0;
 
-  let tradeStartBar = 50;
+  let tradeStartBar = INDICATOR_WARMUP_BARS;
   for (let i = 0; i < c1h.length; i++) {
     if (c1h[i].openTime >= startMs) {
-      tradeStartBar = Math.max(50, i);
+      tradeStartBar = Math.max(INDICATOR_WARMUP_BARS, i);
       break;
     }
   }
@@ -89,18 +98,19 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const drawdownSizingEnabled = ft.drawdownSizingEnabled === true;
   const drawdownThresholdPercent = ft.drawdownThresholdPercent ?? 10;
 
-  for (let t = 50; t < c1h.length - 1; t++) {
+  for (let t = INDICATOR_WARMUP_BARS; t < c1h.length - 1; t++) {
     if (equity <= 0) break;
     if (equity > peakEquity) peakEquity = equity;
 
     const bar = c1h[t];
     const nextBar = c1h[t + 1];
-    const slice = sliceCandlesAt(candles, t, '1h');
+    const slice = sliceCandlesAt(candles, t, primaryTf);
     if (!slice) continue;
 
     let volume24h = options.volume24hByCoin?.[coinId];
+    const barsIn24h = { '15m': 96, '1h': 24, '4h': 6, '1d': 1, '1w': 1 }[primaryTf] || 24;
     if (volume24h == null && c1h[t].volume != null) {
-      const last24 = c1h.slice(Math.max(0, t - 23), t + 1);
+      const last24 = c1h.slice(Math.max(0, t - barsIn24h + 1), t + 1);
       volume24h = last24.reduce((s, c) => s + (c.volume || 0), 0);
     }
     const coinData = {
@@ -108,7 +118,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       symbol: coinMeta.symbol,
       name: coinMeta.name,
       price: bar.close,
-      change24h: t >= 24 ? ((bar.close - c1h[t - 24].close) / c1h[t - 24].close) * 100 : 0,
+      change24h: t >= barsIn24h ? ((bar.close - c1h[t - barsIn24h].close) / c1h[t - barsIn24h].close) * 100 : 0,
       volume24h: volume24h ?? 0,
       marketCap: 0,
       lastUpdated: new Date(bar.openTime)
@@ -127,15 +137,19 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       featurePriceActionConfluence: ft.priceActionConfluence === true,
       featureVolatilityFilter: ft.volatilityFilter === true,
       featureVolumeConfirmation: ft.volumeConfirmation === true,
-      featureFundingRateFilter: ft.fundingRateFilter === true
+      featureFundingRateFilter: ft.fundingRateFilter === true,
+      featureThemeDetector: ft.themeDetector === true
     };
 
-    if (btcCandles && btcCandles['1h'] && (t - lastBtcAnalysisBar >= 4)) {
-      const btc1h = btcCandles['1h'];
+    // Re-evaluate BTC every ~4 hours regardless of primary TF
+    const btcRecheckBars = Math.max(1, Math.round(4 / ({ '15m': 0.25, '1h': 1, '4h': 4, '1d': 24, '1w': 168 }[primaryTf] || 1)));
+    const btcTf = btcCandles ? (btcCandles['1h'] ? '1h' : primaryTf) : '1h';
+    if (btcCandles && btcCandles[btcTf] && (t - lastBtcAnalysisBar >= btcRecheckBars)) {
+      const btc1h = btcCandles[btcTf];
       const btcIdx = btc1h.findIndex(b => b.openTime >= bar.openTime);
       const btcT = btcIdx >= 0 ? Math.min(btcIdx, btc1h.length - 1) : btc1h.length - 1;
       if (btcT >= 50) {
-        const btcSlice = sliceCandlesAt(btcCandles, btcT, '1h');
+        const btcSlice = sliceCandlesAt(btcCandles, btcT, btcTf);
         if (btcSlice) {
           const btcData = { id: 'bitcoin', symbol: 'BTC', price: btc1h[btcT].close, change24h: 0 };
           const btcDecision = evaluate({ coinData: btcData, candles: btcSlice, history, options: {} });
@@ -158,7 +172,7 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       open: nextBar.open,
       nextBar,
       bar,
-      closed: { '1h': true },
+      closed: { [primaryTf]: true },
       closeBasedStops: F_CLOSE_STOPS,
       indicators: null
     };
@@ -209,7 +223,10 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
       const { actions, updatedTrade } = manageUpdate(position, manageSnapshot, {
         featureFlags: ff,
         stopGraceMinutes: 2,
-        entryTime: c1h[position.entryBar]?.openTime
+        entryTime: c1h[position.entryBar]?.openTime,
+        breakevenRMult:  ft.breakevenRMult  ?? 0.75,
+        trailingStartR:  ft.trailingStartR  ?? 1.5,
+        trailingDistR:   ft.trailingDistR   ?? 1.5
       });
 
       let closed = false;
@@ -275,7 +292,9 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
         }
         if (action.type === 'RP' || action.type === 'PP') {
           const portion = action.portion || 0;
-          const exitPrice = action.marketPrice;
+          const rawExit = action.marketPrice;
+          const slipMul = F_SLIPPAGE ? (1 + (SLIPPAGE_BPS * slippageMultiplier / 10000)) : 1;
+          const exitPrice = position.direction === 'LONG' ? rawExit / slipMul : rawExit * slipMul;
           const exitFees = F_FEES ? portion * TAKER_FEE : 0;
           const pnl = position.direction === 'LONG'
             ? ((exitPrice - position.entry) / position.entry) * portion
@@ -506,11 +525,16 @@ async function runBacktestForCoin(coinId, startMs, endMs, options) {
   const summary = { totalTrades: trades.length, wins, losses, winRate: trades.length > 0 ? (wins / trades.length) * 100 : 0, totalPnl, returnPct: (totalPnl / initialBalance) * 100, profitFactor, maxDrawdownPct: computeMaxDrawdownPct(equityCurve) };
   const evaluation = evaluateBacktest(summary, trades, { byYear });
 
+  const firstBarTime = c1h[tradeStartBar]?.openTime || c1h[0]?.openTime || startMs;
+  const lastBarTime  = c1h[c1h.length - 1]?.openTime || endMs;
+
   return {
     coinId,
     symbol: coinMeta.symbol,
     startMs,
     endMs,
+    firstBarTime,
+    lastBarTime,
     bars: c1h.length,
     trades,
     totalTrades: trades.length,

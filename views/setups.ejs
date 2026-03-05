@@ -1,0 +1,704 @@
+<%- include('partials/header') %>
+
+<style>
+/* Setups page – mobile friendly */
+.setups-page .section-header h2 { font-size: 20px; }
+.setups-page .section-header p { font-size: 12px; }
+.setups-page .section { padding: 14px; }
+.setups-page .data-table th,
+.setups-page .data-table td { padding: 10px 12px; }
+.setups-page .btn, .setups-page .btn-sm { min-height: 44px; touch-action: manipulation; }
+.setups-page .btn-sm { padding: 8px 12px; }
+
+/* Modal mobile */
+#setup-backtest-modal {
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  align-items: flex-start;
+  -webkit-overflow-scrolling: touch;
+}
+#setup-backtest-modal > div { margin: 12px auto; max-height: calc(100vh - 24px); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+/* Backtest form – stack on mobile */
+.setups-page .bt-form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.setups-page .bt-form-options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.setups-page .bt-date-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.setups-page .bt-form-actions { display: flex; gap: 8px; margin-top: 4px; }
+.setups-page .bt-form-actions .btn { flex: 1; }
+
+@media (max-width: 768px) {
+  .setups-page .section-header h2 { font-size: 18px; }
+  .setups-page .section-header p { font-size: 12px; margin-top: 4px; }
+  .setups-page .section { padding: 12px; margin-bottom: 16px; }
+  .setups-page .section h3 { font-size: 13px; margin-bottom: 10px; }
+  #setup-backtest-modal { padding: 8px; align-items: flex-start; }
+  #setup-backtest-modal > div { padding: 16px; max-width: 100%; }
+  .setups-page .bt-form-grid-2 { grid-template-columns: 1fr; }
+  .setups-page .bt-form-options-grid,
+  .setups-page .bt-options-grid-2 { grid-template-columns: 1fr; }
+  .setups-page .bt-form-actions { flex-direction: column; }
+  .setups-page .bt-form-actions .btn { width: 100%; }
+  #bt-summary { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .setups-page .setup-actions { flex-direction: column; }
+  .setups-page .setup-actions .btn { width: 100%; }
+}
+
+@media (max-width: 600px) {
+  .setups-page .section-header h2 { font-size: 16px; }
+  .setups-page .section { padding: 10px; }
+  #bt-summary { grid-template-columns: 1fr; }
+}
+
+</style>
+
+<div class="setups-page main-content-inner">
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Setups</h2>
+  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Smart Money Concepts (SMC) trade scenarios. Pick a setup to backtest, run live/paper, or scan the market for active setups.</p>
+</div>
+
+<div class="section" style="margin-bottom:20px;padding:16px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;">
+  <h3 style="color:#eab308;font-size:12px;margin:0 0 8px 0;text-transform:uppercase;">How it works</h3>
+  <p style="font-size:12px;color:#9ca3af;margin:0;line-height:1.6;">Each setup is a phased checklist (FVG, liquidity, structure shift, POI, etc.). <strong>Backtest</strong> to see win rate and ROI. <strong>Scan Market</strong> to find coins with active setups. <strong>Enable</strong> per setup, then turn on <strong>Use Setups for Auto-Trade</strong> below to trade them alongside (or instead of) the scoring engine.</p>
+</div>
+
+<% if (typeof user !== 'undefined' && user) { %>
+<div class="section" style="margin-bottom:24px;padding:16px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.3);border-radius:8px;">
+  <h3 style="color:#10b981;margin:0 0 12px 0;font-size:14px;">Use Setups for Auto-Trade</h3>
+  <p style="font-size:12px;color:#9ca3af;margin:0 0 12px 0;">When ON, the system scans for your enabled setups and opens trades when found. Works alongside the scoring engine (Both) or set Signal source to &quot;Setups&quot; on <a href="/performance" style="color:#3b82f6;">Performance</a> for setups only.</p>
+  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+    <input type="checkbox" id="use-setups-autotrade" <%= (user.settings && user.settings.autoTradeUseSetups) ? 'checked' : '' %>>
+    <span style="font-size:13px;color:#e5e7eb;font-weight:600;">Use Setups for Auto-Trade</span>
+  </label>
+</div>
+<% } %>
+
+<% if (typeof user !== 'undefined' && user && typeof setupNotifications !== 'undefined' && setupNotifications.length > 0) { %>
+<div class="section" style="margin-bottom:24px;background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.25);border-radius:8px;overflow-x:auto;backdrop-filter:blur(8px);">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:16px 16px 0;">
+    <h3 style="color:#10b981;margin:0 0 12px 0;font-size:14px;">LLM Found Setups</h3>
+    <button type="button" id="mark-all-seen" class="btn btn-outline btn-sm" style="padding:6px 10px;">Mark all seen</button>
+  </div>
+    <table class="data-table setup-notif-table" style="background:rgba(15,23,42,0.4);">
+    <thead>
+      <tr style="border-bottom:1px solid #334155;">
+        <th style="text-align:left;padding:12px 16px;color:#9ca3af;">Coin</th>
+        <th style="text-align:left;padding:12px 16px;color:#9ca3af;">Setup</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Dir</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Score</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Source</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Time</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% setupNotifications.forEach(function(n) {
+        var chartHref = '/chart/' + n.coinId;
+        if (n.entry != null && n.sl != null) {
+          chartHref += '?entry=' + encodeURIComponent(n.entry) + '&sl=' + encodeURIComponent(n.sl);
+          if (n.tp1 != null) chartHref += '&tp1=' + encodeURIComponent(n.tp1);
+          if (n.tp2 != null) chartHref += '&tp2=' + encodeURIComponent(n.tp2);
+          if (n.tp3 != null) chartHref += '&tp3=' + encodeURIComponent(n.tp3);
+          chartHref += '&setupId=' + encodeURIComponent(n.setupId || '') + '&setupName=' + encodeURIComponent(n.setupName || '');
+        }
+        var sourceLabel = n.source === 'llm_autonomous' ? 'Auto' : 'Chat';
+        var timeAgo = n.createdAt ? (function() {
+          var d = new Date(n.createdAt);
+          var s = Math.floor((Date.now() - d) / 1000);
+          if (s < 60) return s + 's ago';
+          if (s < 3600) return Math.floor(s/60) + 'm ago';
+          if (s < 86400) return Math.floor(s/3600) + 'h ago';
+          return Math.floor(s/86400) + 'd ago';
+        })() : '—';
+      %>
+      <tr style="border-bottom:1px solid rgba(30,42,58,0.5);" data-notif-id="<%= n._id %>" class="<%= n.seenAt ? '' : 'setup-notif-unread' %>">
+        <td style="padding:12px 16px;" data-label="Coin"><a href="/coin/<%= n.coinId %>" style="color:#3b82f6;"><%= n.coinId %></a></td>
+        <td style="padding:12px 16px;color:#e5e7eb;" data-label="Setup"><%= n.setupName %></td>
+        <td style="text-align:center;padding:12px 16px;" data-label="Dir"><span style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:<%= n.direction === 'LONG' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' %>;color:<%= n.direction === 'LONG' ? '#10b981' : '#ef4444' %>;"><%= n.direction %></span></td>
+        <td style="text-align:center;padding:12px 16px;color:#9ca3af;" data-label="Score"><%= n.score != null ? n.score : '—' %></td>
+        <td style="text-align:center;padding:12px 16px;color:#6b7280;font-size:11px;" data-label="Source"><%= sourceLabel %></td>
+        <td style="text-align:center;padding:12px 16px;color:#6b7280;font-size:11px;" data-label="Time"><%= timeAgo %></td>
+        <td style="padding:12px 16px;" data-label="">
+          <a href="<%= chartHref %>" class="btn btn-outline btn-sm" style="padding:4px 8px;">View Chart</a>
+          <% if (!n.seenAt) { %><button type="button" class="btn btn-outline btn-sm mark-seen" data-id="<%= n._id %>" style="padding:4px 8px;margin-left:4px;">Seen</button><% } %>
+        </td>
+      </tr>
+      <% }); %>
+    </tbody>
+  </table>
+</div>
+<% } %>
+
+<div class="section" style="margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;overflow-x:auto;backdrop-filter:blur(8px);">
+  <h3 style="color:#e5e7eb;margin:0 0 12px 0;padding:16px 16px 0;">Setup List</h3>
+    <table class="data-table setup-list-table" style="background:rgba(15,23,42,0.4);">
+    <thead>
+      <tr style="border-bottom:1px solid #334155;">
+        <th style="text-align:left;padding:12px 16px;color:#9ca3af;">Setup</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Dir</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Win Rate</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">ROI</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Max DD</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Trades</th>
+        <th style="text-align:center;padding:12px 16px;color:#9ca3af;">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="setups-tbody">
+      <% setups.forEach(function(s) {
+        var stats = setupStats[s.id] || {};
+        var wr = stats.winRate != null ? stats.winRate.toFixed(1) : '—';
+        var roi = stats.totalPnlPercent != null ? (stats.totalPnlPercent >= 0 ? '+' : '') + stats.totalPnlPercent.toFixed(1) + '%' : '—';
+        var dd = stats.maxDrawdownPct != null ? stats.maxDrawdownPct.toFixed(1) + '%' : '—';
+        var trades = stats.totalTrades != null ? stats.totalTrades : '—';
+        var isEnabled = (user && user.settings && user.settings.autoTradeSetupIds || []).indexOf(s.id) >= 0;
+      %>
+      <tr style="border-bottom:1px solid rgba(30,42,58,0.5);" data-setup-id="<%= s.id %>">
+        <td style="padding:12px 16px;" data-label="">
+          <div style="font-weight:600;color:#e5e7eb;"><%= s.name %></div>
+          <div style="font-size:11px;color:#6b7280;margin-top:2px;"><%= s.description %></div>
+        </td>
+        <td style="text-align:center;padding:12px 16px;" data-label="Dir">
+          <span style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:<%= s.direction === 'LONG' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)' %>;color:<%= s.direction === 'LONG' ? '#10b981' : '#ef4444' %>;"><%= s.direction %></span>
+        </td>
+        <td style="text-align:center;padding:12px 16px;color:<%= wr !== '—' && parseFloat(wr) > 50 ? '#10b981' : wr !== '—' ? '#eab308' : '#6b7280' %>;font-weight:600;" data-label="Win Rate"><%= wr %><%= wr !== '—' ? '%' : '' %></td>
+        <td style="text-align:center;padding:12px 16px;color:<%= roi !== '—' && roi.indexOf('+') >= 0 ? '#10b981' : roi !== '—' ? '#ef4444' : '#6b7280' %>;" data-label="ROI"><%= roi %></td>
+        <td style="text-align:center;padding:12px 16px;color:#eab308;" data-label="Max DD"><%= dd %></td>
+        <td style="text-align:center;padding:12px 16px;color:#9ca3af;" data-label="Trades"><%= trades %></td>
+        <td style="padding:12px 16px;" data-label="">
+          <div class="setup-actions" style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-outline btn-sm setup-backtest" data-id="<%= s.id %>" data-name="<%= s.name %>" style="padding:6px 10px;">Backtest</button>
+            <button type="button" class="btn btn-outline btn-sm setup-scan" data-id="<%= s.id %>" style="padding:6px 10px;">Scan</button>
+            <% if (typeof user !== 'undefined' && user) { %>
+            <button type="button" class="btn btn-sm setup-enable <%= isEnabled ? 'btn-primary' : 'btn-outline' %>" data-id="<%= s.id %>" data-enabled="<%= isEnabled %>" style="padding:6px 10px;"><%= isEnabled ? 'Enabled' : 'Enable' %></button>
+            <% } %>
+          </div>
+        </td>
+      </tr>
+      <% }); %>
+    </tbody>
+  </table>
+</div>
+
+<!-- Backtest Modal -->
+<div id="setup-backtest-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:1000;align-items:center;justify-content:center;padding:20px;overflow-y:auto;">
+  <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:24px;max-width:560px;width:100%;margin:auto;">
+    <h3 style="color:#e5e7eb;margin:0 0 16px 0;">Backtest: <span id="bt-setup-name" style="color:#3b82f6;"></span></h3>
+    <form id="setup-backtest-form" style="display:grid;gap:12px;">
+      <input type="hidden" id="bt-setup-id" name="setupId">
+
+      <!-- Multi-coin toggle -->
+      <div style="padding:10px 14px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.3);border-radius:8px;">
+        <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
+          <input type="checkbox" id="bt-multicoin">
+          <div>
+            <span style="color:#93c5fd;font-size:13px;font-weight:600;">Multi-Coin Mode</span>
+            <div style="color:#6b7280;font-size:11px;margin-top:2px;">Run on all tracked coins and aggregate — generates 200+ trades for strong statistical confidence.</div>
+          </div>
+        </label>
+      </div>
+
+      <!-- Single coin select (hidden in multi-coin mode) -->
+      <div id="bt-single-coin-wrap">
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Coin</label>
+        <select id="bt-coin" name="coinId" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+          <% (TRACKED_COINS || ['bitcoin','ethereum','solana']).forEach(function(cid) { %>
+          <option value="<%= cid %>"><%= cid %></option>
+          <% }); %>
+        </select>
+      </div>
+
+      <!-- Date range -->
+      <div class="bt-form-grid-2" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div>
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Start</label>
+          <input type="date" id="bt-start" name="startDate" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">End</label>
+          <input type="date" id="bt-end" name="endDate" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+        </div>
+      </div>
+      <div class="bt-date-btns" style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button type="button" id="bt-30d" class="btn btn-outline btn-sm">30d</button>
+        <button type="button" id="bt-90d" class="btn btn-outline btn-sm">90d</button>
+        <button type="button" id="bt-180d" class="btn btn-outline btn-sm">180d</button>
+        <button type="button" id="bt-1y" class="btn btn-outline btn-sm">1 Year</button>
+      </div>
+
+      <!-- Timeframe -->
+      <div>
+        <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Timeframe</label>
+        <select id="bt-timeframe" name="timeframe" style="width:100%;padding:10px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+          <option value="15m">15m — Scalping / short-term</option>
+          <option value="1h">1h — Higher frequency signals</option>
+          <option value="4h" selected>4h — Higher timeframe setups (recommended for SMC)</option>
+          <option value="1d">Daily — Swing trades</option>
+        </select>
+      </div>
+
+      <!-- Feature Options -->
+      <div class="bt-form-options-grid" style="padding:12px 14px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;display:grid;gap:12px;">
+        <div style="font-size:12px;font-weight:600;color:#e5e7eb;">Options</div>
+
+        <!-- Row 1: Exit mode -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" class="bt-options-grid-2">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:12px;">
+            <input type="checkbox" id="bt-opt-partialtp" checked>
+            <span style="padding:1px 5px;background:rgba(16,185,129,0.15);color:#10b981;border-radius:4px;font-size:10px;font-weight:700;">TP</span> Partial TPs (40/30/30)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:12px;">
+            <input type="checkbox" id="bt-opt-trailingtp" onchange="var w=document.getElementById('bt-trailingtp-atr-wrap');var p=document.getElementById('bt-opt-partialtp');w.style.display=this.checked?'flex':'none';if(this.checked){p.checked=false;}p.disabled=this.checked;">
+            <span style="padding:1px 5px;background:rgba(139,92,246,0.15);color:#a78bfa;border-radius:4px;font-size:10px;font-weight:700;">TP</span> Trailing Take Profit
+          </label>
+          <div id="bt-trailingtp-atr-wrap" style="display:none;align-items:center;gap:4px;grid-column:1/-1;padding-left:22px;">
+            <span style="font-size:11px;color:#6b7280;">Trail</span>
+            <input type="number" id="bt-opt-trailingtp-atr" value="1.5" min="0.5" max="5" step="0.1" style="width:55px;padding:3px 6px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
+            <span style="font-size:11px;color:#6b7280;">× ATR behind best price</span>
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:12px;">
+            <input type="checkbox" id="bt-opt-fees" checked>
+            <span style="padding:1px 5px;background:rgba(99,102,241,0.15);color:#818cf8;border-radius:4px;font-size:10px;font-weight:700;">COST</span> Trading Fees (0.1%)
+          </label>
+        </div>
+
+        <!-- Row 2: Stop management -->
+        <div style="border-top:1px solid #1e2a3a;padding-top:10px;display:grid;gap:8px;">
+          <div style="font-size:11px;font-weight:600;color:#9ca3af;letter-spacing:.5px;text-transform:uppercase;">Stop Management</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" class="bt-options-grid-2">
+            <div>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:12px;">
+                <input type="checkbox" id="bt-opt-breakeven" onchange="document.getElementById('bt-be-atr-wrap').style.display=this.checked?'flex':'none'">
+                <span style="padding:1px 5px;background:rgba(245,158,11,0.15);color:#f59e0b;border-radius:4px;font-size:10px;font-weight:700;">BE</span> Breakeven Stop
+              </label>
+              <div id="bt-be-atr-wrap" style="display:none;align-items:center;gap:4px;margin-top:4px;padding-left:22px;">
+                <span style="font-size:11px;color:#6b7280;">Trigger at</span>
+                <input type="number" id="bt-opt-be-atr" value="1.0" min="0.5" max="3" step="0.1" style="width:55px;padding:3px 6px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
+                <span style="font-size:11px;color:#6b7280;">× ATR</span>
+              </div>
+            </div>
+            <div>
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:12px;">
+                <input type="checkbox" id="bt-opt-trailsl" onchange="document.getElementById('bt-trail-atr-wrap').style.display=this.checked?'flex':'none'">
+                <span style="padding:1px 5px;background:rgba(239,68,68,0.15);color:#f87171;border-radius:4px;font-size:10px;font-weight:700;">TSL</span> Trailing Stop Loss
+              </label>
+              <div id="bt-trail-atr-wrap" style="display:none;align-items:center;gap:4px;margin-top:4px;padding-left:22px;">
+                <span style="font-size:11px;color:#6b7280;">Trail</span>
+                <input type="number" id="bt-opt-trail-atr" value="1.5" min="0.5" max="5" step="0.1" style="width:55px;padding:3px 6px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
+                <span style="font-size:11px;color:#6b7280;">× ATR</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 3: Entry Filters -->
+        <div style="border-top:1px solid #1e2a3a;padding-top:10px;display:grid;gap:8px;">
+          <div style="font-size:11px;font-weight:600;color:#9ca3af;letter-spacing:.5px;text-transform:uppercase;">Entry Filters</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" class="bt-options-grid-2">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:12px;">
+              <input type="checkbox" id="bt-opt-htf" checked>
+              <span style="padding:1px 5px;background:rgba(139,92,246,0.15);color:#a78bfa;border-radius:4px;font-size:10px;font-weight:700;">HTF</span> 4H Bias Filter
+            </label>
+            <div></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:12px;">
+              <input type="checkbox" id="bt-opt-minrr-enabled" onchange="document.getElementById('bt-minrr-wrap').style.display=this.checked?'flex':'none'">
+              <span style="padding:1px 5px;background:rgba(59,130,246,0.15);color:#60a5fa;border-radius:4px;font-size:10px;font-weight:700;">RR</span> Min R:R Filter
+            </label>
+            <div id="bt-minrr-wrap" style="display:none;align-items:center;gap:4px;">
+              <input type="number" id="bt-opt-minrr" value="1.5" min="1" max="5" step="0.1" style="width:60px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
+              <span style="font-size:11px;color:#6b7280;">min R:R</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:12px;">
+              <input type="checkbox" id="bt-opt-minscore-enabled" onchange="document.getElementById('bt-minscore-wrap').style.display=this.checked?'flex':'none'">
+              <span style="padding:1px 5px;background:rgba(234,179,8,0.15);color:#fbbf24;border-radius:4px;font-size:10px;font-weight:700;">SCORE</span> Min Signal Score Filter
+            </label>
+            <div id="bt-minscore-wrap" style="display:none;align-items:center;gap:4px;">
+              <input type="number" id="bt-opt-minscore" value="52" min="30" max="90" step="1" style="width:60px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;">
+              <span style="font-size:11px;color:#6b7280;">score</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="bt-form-actions" style="display:flex;gap:8px;margin-top:4px;">
+        <button type="submit" class="btn btn-primary" id="bt-run" style="flex:1;">Run Backtest</button>
+        <button type="button" class="btn btn-outline" id="bt-close">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Backtest Results -->
+<div id="setup-bt-results" class="section" style="display:none;margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;padding:16px;backdrop-filter:blur(8px);">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+    <h3 style="color:#e5e7eb;margin:0;" id="bt-results-title">Backtest Results</h3>
+    <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('setup-bt-results').style.display='none'">Close</button>
+  </div>
+  <div id="bt-summary" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:16px;"></div>
+
+  <!-- Per-coin breakdown (multi-coin mode) -->
+  <div id="bt-percoin-section" style="display:none;margin-bottom:16px;">
+    <h4 style="color:#e5e7eb;font-size:13px;margin:0 0 8px 0;">Per-Coin Breakdown</h4>
+    <div style="overflow-x:auto;max-height:220px;overflow-y:auto;">
+      <table class="data-table table-scroll-mobile" style="background:rgba(15,23,42,0.4);">
+        <thead><tr><th>Coin</th><th>Trades</th><th>Win %</th><th>PnL</th><th>ROI %</th><th>PF</th></tr></thead>
+        <tbody id="bt-percoin-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Trade list -->
+  <h4 style="color:#e5e7eb;font-size:13px;margin:0 0 8px 0;" id="bt-trades-title">Recent Trades</h4>
+  <div style="max-height:240px;overflow-y:auto;">
+    <table class="data-table table-scroll-mobile" style="background:rgba(15,23,42,0.4);">
+      <thead><tr><th>#</th><th>Date</th><th>Coin</th><th>Dir</th><th>Entry</th><th>Exit</th><th>Reason</th><th>PnL</th></tr></thead>
+      <tbody id="bt-trades"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Market Scan Results -->
+<div id="setup-scan-results" class="section" style="display:none;margin-bottom:24px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;padding:16px;">
+  <h3 style="color:#e5e7eb;margin:0 0 12px 0;">Market Scan Results</h3>
+  <p id="scan-status" style="font-size:12px;color:#9ca3af;margin-bottom:12px;">Scanning...</p>
+  <div style="overflow-x:auto;">
+    <table class="data-table table-scroll-mobile" style="background:rgba(15,23,42,0.4);">
+      <thead><tr><th>Coin</th><th>Setup</th><th>Score</th><th>4h Bias</th><th>Ready</th><th>Chart</th></tr></thead>
+      <tbody id="scan-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="setup-error" style="display:none;padding:12px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);border-radius:8px;color:#ef4444;margin-top:16px;"></div>
+
+</div><!-- .setups-page -->
+
+<script>
+(function() {
+  var csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+  function setDateRange(days) {
+    var end = new Date();
+    var start = new Date(end);
+    start.setDate(start.getDate() - days);
+    document.getElementById('bt-end').value = end.toISOString().slice(0,10);
+    document.getElementById('bt-start').value = start.toISOString().slice(0,10);
+  }
+  setDateRange(90);
+
+  document.getElementById('bt-30d').addEventListener('click', function() { setDateRange(30); });
+  document.getElementById('bt-90d').addEventListener('click', function() { setDateRange(90); });
+  document.getElementById('bt-180d').addEventListener('click', function() { setDateRange(180); });
+  document.getElementById('bt-1y').addEventListener('click', function() { setDateRange(365); });
+
+  document.getElementById('bt-multicoin').addEventListener('change', function() {
+    document.getElementById('bt-single-coin-wrap').style.display = this.checked ? 'none' : 'block';
+  });
+
+  document.querySelectorAll('.setup-backtest').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.getElementById('bt-setup-id').value = this.dataset.id;
+      document.getElementById('bt-setup-name').textContent = this.dataset.name;
+      document.getElementById('setup-backtest-modal').style.display = 'flex';
+    });
+  });
+
+  document.getElementById('bt-close').addEventListener('click', function() {
+    document.getElementById('setup-backtest-modal').style.display = 'none';
+  });
+
+  document.getElementById('setup-backtest-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var btn = document.getElementById('bt-run');
+    var isMulti = document.getElementById('bt-multicoin').checked;
+    btn.disabled = true;
+    btn.textContent = isMulti ? 'Running on all coins...' : 'Running...';
+    document.getElementById('setup-error').style.display = 'none';
+
+    var minRREnabled = document.getElementById('bt-opt-minrr-enabled').checked;
+    var minScoreEnabled = document.getElementById('bt-opt-minscore-enabled').checked;
+    var useBreakeven = document.getElementById('bt-opt-breakeven').checked;
+    var useTrailingSL = document.getElementById('bt-opt-trailsl').checked;
+    var useTrailingTP = document.getElementById('bt-opt-trailingtp').checked;
+
+    var payload = {
+      setupId: document.getElementById('bt-setup-id').value,
+      startDate: document.getElementById('bt-start').value,
+      endDate: document.getElementById('bt-end').value,
+      timeframe: document.getElementById('bt-timeframe').value,
+      multiCoin: isMulti,
+      partialTP: document.getElementById('bt-opt-partialtp').checked,
+      fees: document.getElementById('bt-opt-fees').checked,
+      minRR: minRREnabled ? parseFloat(document.getElementById('bt-opt-minrr').value) : 0,
+      minScore: minScoreEnabled ? parseInt(document.getElementById('bt-opt-minscore').value) : 0,
+      breakeven: useBreakeven,
+      breakevenAtr: useBreakeven ? parseFloat(document.getElementById('bt-opt-be-atr').value) : 1.0,
+      trailingSL: useTrailingSL,
+      trailingSLAtr: useTrailingSL ? parseFloat(document.getElementById('bt-opt-trail-atr').value) : 1.5,
+      trailingTP: useTrailingTP,
+      trailingTPAtr: useTrailingTP ? parseFloat(document.getElementById('bt-opt-trailingtp-atr').value) : 1.5,
+      htfFilter: document.getElementById('bt-opt-htf').checked
+    };
+    if (!isMulti) payload.coinId = document.getElementById('bt-coin').value;
+
+    function pollSetupJob(jobId) {
+      return new Promise(function(resolve, reject) {
+        var start = Date.now();
+        var interval = 2000;
+        function tick() {
+          fetch('/api/backtest/status/' + jobId, { credentials: 'same-origin' })
+            .then(function(r) {
+              if (r.status === 404) throw new Error('Job expired. Please try again.');
+              var ct = r.headers.get('content-type') || '';
+              if (!ct.includes('application/json')) throw new Error('Unexpected server response');
+              return r.json();
+            })
+            .then(function(d) {
+              if (d.status === 'running') {
+                btn.textContent = d.progress || ('Running... ' + (d.elapsed || 0) + 's');
+                if (Date.now() - start > 600000) return reject(new Error('Backtest timed out after 10 minutes.'));
+                if (interval < 5000) interval += 500;
+                setTimeout(tick, interval);
+              } else if (d.error) {
+                reject(new Error(d.error));
+              } else {
+                resolve(d);
+              }
+            })
+            .catch(function(e) {
+              if (Date.now() - start > 600000) return reject(e);
+              setTimeout(tick, interval);
+            });
+        }
+        setTimeout(tick, interval);
+      });
+    }
+
+    fetch('/api/setups/backtest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      body: JSON.stringify(payload)
+    })
+    .then(function(r) {
+      var ct = r.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) {
+        var msg = (r.status === 504 || r.status === 503)
+          ? 'Server timed out (gateway 504). Try fewer coins or a shorter date range.'
+          : 'Server returned an unexpected response (' + r.status + '). The backtest may have crashed.';
+        throw new Error(msg);
+      }
+      return r.json();
+    })
+    .then(function(data) {
+      if (data.error) throw new Error(data.error);
+      if (data.jobId) {
+        btn.textContent = 'Running on ' + (data.coins || []).length + ' coins...';
+        return pollSetupJob(data.jobId);
+      }
+      return data;
+    })
+    .then(function(data) {
+      if (data.error) throw new Error(data.error);
+      var s = data.summary || {};
+
+      // Title
+      var setupName = document.getElementById('bt-setup-name').textContent;
+      var titleEl = document.getElementById('bt-results-title');
+      titleEl.textContent = isMulti ? 'Multi-Coin Results: ' + setupName : 'Results: ' + setupName;
+
+      // Summary cards
+      function card(label, val, color) {
+        return '<div style="padding:10px 12px;background:rgba(30,42,58,0.5);border:1px solid #1e2a3a;border-radius:8px;"><div style="font-size:10px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">' + label + '</div><div style="font-size:20px;font-weight:700;' + (color ? 'color:' + color : '') + '">' + val + '</div></div>';
+      }
+      var wr = (s.winRate || 0).toFixed(1);
+      var roi = (s.totalPnlPercent || 0).toFixed(1);
+      var roiColor = parseFloat(roi) >= 0 ? '#10b981' : '#ef4444';
+      var pfVal = (s.profitFactor || 0).toFixed(2);
+      var pfColor = parseFloat(pfVal) >= 1 ? '#10b981' : '#ef4444';
+      var rangeNote = data.dataRangeNote ? '<div style="grid-column:1/-1;font-size:11px;color:#6b7280;padding:4px 0;">' + data.dataRangeNote + (isMulti ? ' · ' + (s.coinsWithTrades||0) + '/' + (s.coinsRun||0) + ' coins had trades' : '') + '</div>' : '';
+      document.getElementById('bt-summary').innerHTML = rangeNote +
+        card('Total Trades', s.totalTrades || 0, '#e5e7eb') +
+        card('Win Rate', wr + '%', parseFloat(wr) >= 50 ? '#10b981' : '#eab308') +
+        card('Wins / Losses', (s.wins||0) + ' / ' + (s.losses||0), null) +
+        card('ROI', (parseFloat(roi) >= 0 ? '+' : '') + roi + '%', roiColor) +
+        card('Profit Factor', pfVal, pfColor) +
+        card('Max Drawdown', (s.maxDrawdownPct || 0).toFixed(1) + '%', '#eab308');
+
+      // Per-coin section (multi-coin only)
+      var perCoinSec = document.getElementById('bt-percoin-section');
+      if (isMulti && data.perCoin && data.perCoin.length > 0) {
+        perCoinSec.style.display = 'block';
+        var pcBody = document.getElementById('bt-percoin-body');
+        pcBody.innerHTML = '';
+        data.perCoin.sort(function(a, b) { return (b.totalPnl||0) - (a.totalPnl||0); }).forEach(function(c) {
+          var pnlColor = (c.totalPnl||0) >= 0 ? '#10b981' : '#ef4444';
+          var tr = document.createElement('tr');
+          tr.innerHTML = '<td style="color:#3b82f6;">' + c.coinId + '</td>' +
+            '<td>' + (c.totalTrades||0) + '</td>' +
+            '<td style="color:' + ((c.winRate||0)>=50?'#10b981':'#eab308') + ';">' + (c.winRate||0).toFixed(1) + '%</td>' +
+            '<td style="color:' + pnlColor + ';">$' + (c.totalPnl||0).toFixed(2) + '</td>' +
+            '<td style="color:' + pnlColor + ';">' + ((c.totalPnlPercent||0)>=0?'+':'') + (c.totalPnlPercent||0).toFixed(1) + '%</td>' +
+            '<td style="color:' + ((c.profitFactor||0)>=1?'#10b981':'#ef4444') + ';">' + (c.profitFactor||0).toFixed(2) + '</td>';
+          pcBody.appendChild(tr);
+        });
+      } else {
+        perCoinSec.style.display = 'none';
+      }
+
+      // Trade list
+      var tradesTitle = document.getElementById('bt-trades-title');
+      var allTrades = data.trades || [];
+      tradesTitle.textContent = 'Trades (' + allTrades.length + (allTrades.length >= 500 ? '+' : '') + ')';
+      var tbody = document.getElementById('bt-trades');
+      tbody.innerHTML = '';
+      allTrades.slice(0, 200).forEach(function(t, i) {
+        var pnlColor = (t.pnl || 0) >= 0 ? '#10b981' : '#ef4444';
+        var dirColor = t.direction === 'LONG' ? '#10b981' : '#ef4444';
+        var dateStr = t.exitTime ? new Date(t.exitTime).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'2-digit' }) : '-';
+        var tr = document.createElement('tr');
+        tr.innerHTML = '<td style="color:#6b7280;">' + (i+1) + '</td>' +
+          '<td style="color:#9ca3af;font-size:11px;">' + dateStr + '</td>' +
+          '<td style="color:#3b82f6;">' + (t.coinId || payload.coinId || '—') + '</td>' +
+          '<td style="color:' + dirColor + ';font-weight:600;">' + (t.direction || 'LONG') + '</td>' +
+          '<td>$' + (t.entry || 0).toFixed(4) + '</td>' +
+          '<td>$' + (t.exit || 0).toFixed(4) + '</td>' +
+          '<td style="color:#9ca3af;font-size:11px;">' + (t.reason || '—') + '</td>' +
+          '<td style="color:' + pnlColor + ';font-weight:600;">$' + (t.pnl || 0).toFixed(2) + '</td>';
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('setup-bt-results').style.display = 'block';
+      document.getElementById('setup-backtest-modal').style.display = 'none';
+      document.getElementById('setup-bt-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    })
+    .catch(function(err) {
+      document.getElementById('setup-error').textContent = err.message || 'Backtest failed';
+      document.getElementById('setup-error').style.display = 'block';
+    })
+    .finally(function() {
+      btn.disabled = false;
+      btn.textContent = 'Run Backtest';
+    });
+  });
+
+  document.querySelectorAll('.setup-scan').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var setupId = this.dataset.id;
+      document.getElementById('setup-scan-results').style.display = 'block';
+      document.getElementById('scan-status').textContent = 'Scanning market...';
+      document.getElementById('scan-tbody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:16px;">Loading...</td></tr>';
+
+      fetch('/api/setups/scan?setupId=' + encodeURIComponent(setupId))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        document.getElementById('scan-status').textContent = (data.results || []).length + ' match(es) found.';
+        var tbody = document.getElementById('scan-tbody');
+        tbody.innerHTML = '';
+        if (!data.results || data.results.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:16px;">No active setups found. Try a different setup or check back later.</td></tr>';
+        } else {
+          data.results.forEach(function(r) {
+            (r.scenarios || []).forEach(function(sc) {
+              if (setupId && sc.scenarioId !== setupId) return;
+              var tr = document.createElement('tr');
+              var chartHref = '/chart/' + r.coinId;
+              var chartBtnText = 'Chart';
+              if (sc.ready && sc.entry != null && sc.sl != null) {
+                chartHref += '?entry=' + encodeURIComponent(sc.entry) + '&sl=' + encodeURIComponent(sc.sl);
+                if (sc.tp1 != null) chartHref += '&tp1=' + encodeURIComponent(sc.tp1);
+                if (sc.tp2 != null) chartHref += '&tp2=' + encodeURIComponent(sc.tp2);
+                if (sc.tp3 != null) chartHref += '&tp3=' + encodeURIComponent(sc.tp3);
+                chartHref += '&setupId=' + encodeURIComponent(sc.scenarioId || '');
+                chartHref += '&setupName=' + encodeURIComponent(sc.name || '');
+                var passedPhases = (sc.phases || []).filter(function(p) { return p.passed; }).map(function(p) { return { id: p.id, name: p.name, priceDetails: p.priceDetails || null }; });
+                chartHref += '&phases=' + encodeURIComponent(JSON.stringify(passedPhases));
+                chartBtnText = 'View Chart';
+              }
+              var bias = sc.htfBias || r.htfBias || 'N/A';
+              var biasStyle = bias === 'BULL' ? 'color:#10b981;' : bias === 'BEAR' ? 'color:#ef4444;' : 'color:#6b7280;';
+              tr.innerHTML = '<td><a href="/coin/' + r.coinId + '" style="color:#3b82f6;">' + r.coinId + '</a></td>'
+                + '<td>' + (sc.name || sc.scenarioId) + '</td>'
+                + '<td>' + (sc.score || 0) + '/' + (sc.totalPhases || 0) + '</td>'
+                + '<td style="' + biasStyle + 'font-weight:600;">' + bias + '</td>'
+                + '<td>' + (sc.ready ? '<span style="color:#10b981;">Yes</span>' : 'No') + '</td>'
+                + '<td><a href="' + chartHref + '" class="btn btn-outline btn-sm" style="padding:4px 8px;">' + chartBtnText + '</a></td>';
+              tbody.appendChild(tr);
+            });
+          });
+        }
+      })
+      .catch(function(err) {
+        document.getElementById('scan-status').textContent = 'Error: ' + (err.message || 'Scan failed');
+        document.getElementById('scan-tbody').innerHTML = '<tr><td colspan="6" style="text-align:center;color:#ef4444;">' + (err.message || 'Scan failed') + '</td></tr>';
+      });
+    });
+  });
+
+  document.querySelectorAll('.setup-enable').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var setupId = this.dataset.id;
+      var enabled = this.dataset.enabled === 'true';
+      fetch('/api/setups/enable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ setupId: setupId, enabled: !enabled })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) throw new Error(data.error);
+        location.reload();
+      })
+      .catch(function(err) { alert(err.message); });
+    });
+  });
+
+  document.querySelectorAll('.mark-seen').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var id = this.dataset.id;
+      document.querySelector('[data-notif-id="' + id + '"]')?.classList.remove('setup-notif-unread');
+      this.remove();
+      fetch('/api/setup-notifications/' + id + '/seen', { method: 'POST', credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.success && document.getElementById('setup-notif-badge')) {
+            var badge = document.getElementById('setup-notif-badge');
+            var n = parseInt(badge.textContent, 10) || 0;
+            badge.textContent = Math.max(0, n - 1) > 0 ? Math.max(0, n - 1) : '';
+            if (badge.textContent === '' || badge.textContent === '0') badge.style.display = 'none';
+          }
+        });
+    });
+  });
+
+  var markAllSeenEl = document.getElementById('mark-all-seen');
+  if (markAllSeenEl) {
+    markAllSeenEl.addEventListener('click', function() {
+      fetch('/api/setup-notifications/seen-all', { method: 'POST', credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.success) location.reload();
+        });
+    });
+  }
+
+  var useSetupsEl = document.getElementById('use-setups-autotrade');
+  if (useSetupsEl) {
+    useSetupsEl.addEventListener('change', function() {
+      fetch('/api/setups/use-for-autotrade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: this.checked })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.error) throw new Error(data.error);
+      })
+      .catch(function(err) { alert(err.message); });
+    });
+  }
+})();
+</script>
+
+<%- include('partials/footer') %>

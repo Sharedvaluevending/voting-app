@@ -15,27 +15,56 @@
       <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Toggle menu">Menu</button>
       <div class="nav-links" id="nav-links">
         <a href="/" class="<%= typeof activePage !== 'undefined' && activePage === 'dashboard' ? 'active' : '' %>">Dashboard</a>
+
+        <div class="nav-dropdown <%= ['trades','history','setups','journal','performance','exchange'].indexOf(typeof activePage !== 'undefined' ? activePage : '') >= 0 ? 'active' : '' %>">
+          <button type="button" class="nav-dropdown-trigger" aria-haspopup="true" aria-expanded="false">Trading ▾</button>
+          <div class="nav-dropdown-menu">
+            <% if (typeof user !== 'undefined' && user) { %>
+            <a href="/trades" class="<%= typeof activePage !== 'undefined' && activePage === 'trades' ? 'active' : '' %>">Trades</a>
+            <a href="/history" class="<%= typeof activePage !== 'undefined' && activePage === 'history' ? 'active' : '' %>">History</a>
+            <% } %>
+            <a href="/setups" class="<%= typeof activePage !== 'undefined' && activePage === 'setups' ? 'active' : '' %>" id="nav-setups-link">Setups<span id="setup-notif-badge" style="display:none;margin-left:4px;padding:1px 5px;background:#10b981;color:#0f172a;border-radius:10px;font-size:10px;font-weight:700;"></span></a>
+            <% if (typeof user !== 'undefined' && user) { %>
+            <a href="/journal" class="<%= typeof activePage !== 'undefined' && activePage === 'journal' ? 'active' : '' %>">Journal</a>
+            <a href="/performance" class="<%= typeof activePage !== 'undefined' && activePage === 'performance' ? 'active' : '' %>">Performance</a>
+            <a href="/exchange" class="<%= typeof activePage !== 'undefined' && activePage === 'exchange' ? 'active' : '' %>">Exchange</a>
+            <% } %>
+          </div>
+        </div>
+
+        <div class="nav-dropdown <%= ['analytics','crypto-alerts','themes','market-pulse'].indexOf(typeof activePage !== 'undefined' ? activePage : '') >= 0 ? 'active' : '' %>">
+          <button type="button" class="nav-dropdown-trigger" aria-haspopup="true" aria-expanded="false">Insights ▾</button>
+          <div class="nav-dropdown-menu">
+            <% if (typeof user !== 'undefined' && user) { %>
+            <a href="/analytics" class="<%= typeof activePage !== 'undefined' && activePage === 'analytics' ? 'active' : '' %>">Analytics</a>
+            <a href="/crypto-alerts" class="<%= typeof activePage !== 'undefined' && activePage === 'crypto-alerts' ? 'active' : '' %>">Crypto Alerts</a>
+            <% } %>
+            <a href="/themes" class="<%= typeof activePage !== 'undefined' && activePage === 'themes' ? 'active' : '' %>">Themes</a>
+            <a href="/market-pulse" class="<%= typeof activePage !== 'undefined' && activePage === 'market-pulse' ? 'active' : '' %>">Market Pulse</a>
+          </div>
+        </div>
+
+        <div class="nav-dropdown <%= ['learning','comparison','backtest','backtest-results'].indexOf(typeof activePage !== 'undefined' ? activePage : '') >= 0 ? 'active' : '' %>">
+          <button type="button" class="nav-dropdown-trigger" aria-haspopup="true" aria-expanded="false">Strategy ▾</button>
+          <div class="nav-dropdown-menu">
+            <a href="/learning" class="<%= typeof activePage !== 'undefined' && activePage === 'learning' ? 'active' : '' %>">Strategy Optimizer</a>
+            <a href="/strategy-comparison" class="<%= typeof activePage !== 'undefined' && activePage === 'comparison' ? 'active' : '' %>">Compare</a>
+            <a href="/backtest" class="<%= typeof activePage !== 'undefined' && activePage === 'backtest' ? 'active' : '' %>">Backtest</a>
+            <a href="/backtest-results" class="<%= typeof activePage !== 'undefined' && activePage === 'backtest-results' ? 'active' : '' %>">Results</a>
+          </div>
+        </div>
+
         <% if (typeof user !== 'undefined' && user) { %>
-          <a href="/trades" class="<%= typeof activePage !== 'undefined' && activePage === 'trades' ? 'active' : '' %>">Trades</a>
-          <a href="/history" class="<%= typeof activePage !== 'undefined' && activePage === 'history' ? 'active' : '' %>">History</a>
-          <a href="/performance" class="<%= typeof activePage !== 'undefined' && activePage === 'performance' ? 'active' : '' %>">Performance</a>
-          <a href="/analytics" class="<%= typeof activePage !== 'undefined' && activePage === 'analytics' ? 'active' : '' %>">Analytics</a>
-          <a href="/exchange" class="<%= typeof activePage !== 'undefined' && activePage === 'exchange' ? 'active' : '' %>">Exchange</a>
-          <a href="/journal" class="<%= typeof activePage !== 'undefined' && activePage === 'journal' ? 'active' : '' %>">Journal</a>
-          <a href="/crypto-alerts" class="<%= typeof activePage !== 'undefined' && activePage === 'crypto-alerts' ? 'active' : '' %>">Crypto Alerts</a>
+        <div class="nav-dropdown <%= ['llm-chat','llm-logs'].indexOf(typeof activePage !== 'undefined' ? activePage : '') >= 0 ? 'active' : '' %>">
+          <button type="button" class="nav-dropdown-trigger" aria-haspopup="true" aria-expanded="false">AI ▾</button>
+          <div class="nav-dropdown-menu">
+            <a href="/llm-chat" class="<%= typeof activePage !== 'undefined' && activePage === 'llm-chat' ? 'active' : '' %>">LLM Chat</a>
+            <a href="/llm-logs" class="<%= typeof activePage !== 'undefined' && activePage === 'llm-logs' ? 'active' : '' %>">LLM Logs</a>
+          </div>
+        </div>
         <% } %>
-        <a href="/themes" class="<%= typeof activePage !== 'undefined' && activePage === 'themes' ? 'active' : '' %>">Themes</a>
-          <a href="/market-pulse" class="<%= typeof activePage !== 'undefined' && activePage === 'market-pulse' ? 'active' : '' %>">Market Pulse</a>
-        <% if (typeof user !== 'undefined' && user) { %>
-          <a href="/llm-chat" class="<%= typeof activePage !== 'undefined' && activePage === 'llm-chat' ? 'active' : '' %>">LLM Chat</a>
-          <a href="/llm-logs" class="<%= typeof activePage !== 'undefined' && activePage === 'llm-logs' ? 'active' : '' %>">LLM Logs</a>
-        <% } %>
+
         <a href="/learn" class="<%= typeof activePage !== 'undefined' && activePage === 'learn' ? 'active' : '' %>">Learn</a>
-        <a href="/learning" class="<%= typeof activePage !== 'undefined' && activePage === 'learning' ? 'active' : '' %>">Strategy Optimizer</a>
-        <a href="/strategy-comparison" class="<%= typeof activePage !== 'undefined' && activePage === 'comparison' ? 'active' : '' %>">Compare</a>
-        <a href="/strategy-builder" class="<%= typeof activePage !== 'undefined' && activePage === 'strategy-builder' ? 'active' : '' %>">Strategy Builder</a>
-        <a href="/backtest" class="<%= typeof activePage !== 'undefined' && activePage === 'backtest' ? 'active' : '' %>">Backtest</a>
-        <a href="/backtest-results" class="<%= typeof activePage !== 'undefined' && activePage === 'backtest-results' ? 'active' : '' %>">Results</a>
         <a href="/trench-warfare" class="<%= typeof activePage !== 'undefined' && activePage === 'trench-warfare' ? 'active' : '' %>">Trench Warfare</a>
       </div>
       <div class="nav-right">

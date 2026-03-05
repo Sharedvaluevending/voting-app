@@ -78,15 +78,18 @@ const userSchema = new mongoose.Schema({
     autoTradeMinScore: { type: Number, default: 56, min: 30, max: 95 },
     llmEnabled: { type: Boolean, default: false },
     ollamaUrl: { type: String, default: 'http://localhost:11434' },
-    ollamaModel: { type: String, default: 'qwen3-coder:480b-cloud' },
+    ollamaApiKey: { type: String, default: '' },
+    ollamaModel: { type: String, default: 'llama3.1:8b' },
     llmAgentEnabled: { type: Boolean, default: false },
-    llmAgentIntervalMinutes: { type: Number, default: 60, min: 15, max: 1440 },
+    llmAgentIntervalMinutes: { type: Number, default: 15, min: 5, max: 1440 },
     // Which coins to auto-trade: 'tracked' (20 only), 'tracked+top1' (20 + top market pick), 'top1' (only top market pick)
     autoTradeCoinsMode: { type: String, enum: ['tracked', 'tracked+top1', 'top1'], default: 'tracked' },
-    // Signal source: 'original' = scoring engine, 'indicators' = Strategy Builder rules, 'both' = either
-    autoTradeSignalMode: { type: String, enum: ['original', 'indicators', 'both'], default: 'original' },
+    // Signal source: 'original' = scoring engine, 'indicators' = Strategy Builder rules, 'setups' = SMC setups, 'both' = either
+    autoTradeSignalMode: { type: String, enum: ['original', 'indicators', 'setups', 'both'], default: 'original' },
     autoTradeBothLogic: { type: String, enum: ['or', 'and'], default: 'or' },
     autoTradeStrategyConfigId: { type: mongoose.Schema.Types.ObjectId, ref: 'StrategyConfig', default: null },
+    autoTradeSetupIds: { type: [String], default: [] },
+    autoTradeUseSetups: { type: Boolean, default: false },
     disableLeverage: { type: Boolean, default: false },
     autoMoveBreakeven: { type: Boolean, default: true },
     autoTrailingStop: { type: Boolean, default: true },
@@ -95,6 +98,7 @@ const userSchema = new mongoose.Schema({
     stopCheckGraceMinutes: { type: Number, default: 2, min: 0, max: 30 },
     notifyTradeOpen: { type: Boolean, default: true },
     notifyTradeClose: { type: Boolean, default: true },
+    notifyActionBadges: { type: Boolean, default: false },
     makerFeePercent: { type: Number, default: 0.1, min: 0, max: 1 },
     takerFeePercent: { type: Number, default: 0.1, min: 0, max: 1 },
     // Feature toggles (match backtest toggles for 1:1 config transfer)
@@ -144,6 +148,14 @@ const userSchema = new mongoose.Schema({
   coinWeightStrength: { type: String, enum: ['conservative', 'moderate', 'aggressive'], default: 'moderate' },
   resetToken: { type: String },
   resetTokenExpiry: { type: Date },
+  // Push notifications (Web Push API)
+  pushSubscriptions: [{
+    endpoint: { type: String, required: true },
+    keys: { p256dh: { type: String, required: true }, auth: { type: String, required: true } },
+    userAgent: { type: String }
+  }],
+  // SMS via email-to-SMS: 5551234567@vtext.com (Verizon), @txt.att.net (AT&T), @tmomail.net (T-Mobile)
+  phoneSmsEmail: { type: String, default: '' },
   bitget: {
     apiKey: { type: String, default: '' },
     secretKey: { type: String, default: '' },
