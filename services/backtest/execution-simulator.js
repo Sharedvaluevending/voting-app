@@ -16,6 +16,8 @@ const DEFAULT_TAKER_FEE = 0.001;
 function computeMarketSlippageBps(order, snapshot, config) {
   config = config || {};
   const minBps = config.minSlipBps ?? 5;
+  // minSlipBps <= 0 means slippage is disabled — skip ATR computation entirely
+  if (minBps <= 0) return 0;
   const mult = config.slippageMultiplier ?? 1;
   const k = config.slippageK ?? 3;
   const sizeFactor = config.sizeFactor ?? 1;

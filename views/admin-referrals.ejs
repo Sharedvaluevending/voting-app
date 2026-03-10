@@ -1,0 +1,84 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Referral Partners</h2>
+</div>
+
+<% if (typeof success !== 'undefined' && success) { %>
+  <div class="alert alert-success"><%= success %></div>
+<% } %>
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="alert alert-error"><%= error %></div>
+<% } %>
+
+<div class="section" style="background:rgba(15,23,42,0.62);">
+  <h3>Create Partner</h3>
+  <form action="/admin/referrals/create" method="POST" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;align-items:end;">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:6px;">Name</label>
+      <input name="name" required style="width:100%;padding:10px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:6px;">Email</label>
+      <input type="email" name="email" required style="width:100%;padding:10px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:6px;">Twitter</label>
+      <input name="twitterHandle" placeholder="@handle" style="width:100%;padding:10px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:6px;">Discord</label>
+      <input name="discordUsername" placeholder="user#1234" style="width:100%;padding:10px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:6px;">Referral Code</label>
+      <input name="referralCode" placeholder="CHAD10" style="width:100%;padding:10px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:6px;">Commission %</label>
+      <input type="number" min="1" max="100" name="commissionRate" value="10" style="width:100%;padding:10px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;">
+    </div>
+    <button class="btn btn-primary" type="submit">Create Partner</button>
+  </form>
+</div>
+
+<div class="section themes-table-wrap" style="margin-top:16px;">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Twitter</th>
+        <th>Code</th>
+        <th>Signups</th>
+        <th>Active Subs</th>
+        <th>Pending</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% (partners || []).forEach(function(p) { %>
+        <tr>
+          <td><strong><%= p.name %></strong><div style="font-size:11px;color:#6b7280;"><%= p.email %></div></td>
+          <td><%= p.twitterHandle || '-' %></td>
+          <td><code><%= p.referralCode %></code></td>
+          <td><%= p.totalSignups || 0 %></td>
+          <td><%= p.activeSubscribers || 0 %></td>
+          <td>$<%= Number(p.pendingEarnings || 0).toFixed(2) %></td>
+          <td><%= p.status %></td>
+          <td style="display:flex;gap:6px;flex-wrap:wrap;">
+            <a class="btn btn-outline btn-sm" href="/admin/referrals/<%= p._id %>">Detail</a>
+            <form action="/admin/referrals/<%= p._id %>/status" method="POST" style="display:inline;">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <input type="hidden" name="status" value="<%= p.status === 'active' ? 'paused' : 'active' %>">
+              <button class="btn btn-outline btn-sm" type="submit"><%= p.status === 'active' ? 'Pause' : 'Activate' %></button>
+            </form>
+          </td>
+        </tr>
+      <% }); %>
+    </tbody>
+  </table>
+</div>
+
+<%- include('partials/footer') %>

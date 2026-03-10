@@ -1,8 +1,15 @@
 <%- include('partials/header') %>
 <div class="auth-container">
+  <div class="auth-logo">
+    <img src="/images/logo-full.png" alt="AlphaConfluence">
+  </div>
   <div class="form-card">
     <h2>Create Account</h2>
-    <p class="subtitle">Start with $10,000 paper balance to practice trading</p>
+    <% if (typeof betaEnabled !== 'undefined' && betaEnabled) { %>
+    <p class="subtitle" style="color:#f59e0b;">Closed Beta — Access code required</p>
+    <% } else { %>
+    <p class="subtitle">Start your 14-day free trial with $10,000 paper balance</p>
+    <% } %>
     <% if (typeof error !== 'undefined' && error) { %>
       <div class="alert alert-error"><%= error %></div>
     <% } %>
@@ -15,6 +22,7 @@
     <% } %>
     <form action="/register" method="POST">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <input type="hidden" name="selectedPlan" value="<%= typeof selectedPlan !== 'undefined' ? selectedPlan : '' %>">
       <div class="form-group">
         <label>Username</label>
         <input type="text" name="username" required minlength="3" maxlength="20" placeholder="trader123">
@@ -27,9 +35,63 @@
         <label>Password</label>
         <input type="password" name="password" required minlength="6" placeholder="Min 6 characters">
       </div>
+      <% if (typeof betaEnabled !== 'undefined' && betaEnabled) { %>
+      <div class="form-group">
+        <label>Beta Access Code <span style="color:#ef4444;">*</span></label>
+        <input type="text" name="betaAccessCode" required placeholder="BETA-XXXXXXXX" style="text-transform:uppercase;letter-spacing:1px;">
+      </div>
+      <% } %>
+      <div class="form-group">
+        <label>Referral code (optional)</label>
+        <input type="text" name="referralCode" id="referralCodeInput" placeholder="CHAD10" value="<%= typeof referralCode !== 'undefined' ? referralCode : '' %>">
+        <span id="referralStatus" style="display:block;margin-top:6px;font-size:12px;color:#9ca3af;"></span>
+      </div>
       <button type="submit" class="form-btn">Create Account</button>
     </form>
     <p class="form-link">Already have an account? <a href="/login">Log in</a></p>
   </div>
 </div>
+<script>
+  (function () {
+    const input = document.getElementById('referralCodeInput');
+    const status = document.getElementById('referralStatus');
+    if (!input || !status) return;
+
+    function setStatus(text, ok) {
+      status.textContent = text || '';
+      status.style.color = ok == null ? '#9ca3af' : (ok ? '#10b981' : '#ef4444');
+    }
+
+    async function validateReferralCode(code) {
+      const value = String(code || '').trim().toUpperCase();
+      if (!value) {
+        setStatus('', null);
+        return;
+      }
+      try {
+        const res = await fetch('/api/referral/validate?code=' + encodeURIComponent(value));
+        const out = await res.json();
+        if (res.ok && out.valid) {
+          setStatus('Code applied!', true);
+        } else {
+          setStatus(out.error || 'Invalid referral code', false);
+        }
+      } catch (err) {
+        setStatus('Could not validate referral code', false);
+      }
+    }
+
+    input.addEventListener('blur', function () {
+      validateReferralCode(input.value);
+    });
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const refCode = urlParams.get('ref');
+    if (refCode) {
+      input.value = refCode.toUpperCase();
+      validateReferralCode(refCode);
+      document.cookie = 'ref=' + encodeURIComponent(refCode) + ';max-age=2592000;path=/';
+    }
+  })();
+</script>
 <%- include('partials/footer') %>

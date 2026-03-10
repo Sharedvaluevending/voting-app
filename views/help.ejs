@@ -1,0 +1,40 @@
+<%- include('partials/header') %>
+<div class="section" style="margin-bottom:16px;">
+  <h2 style="margin:0 0 8px 0;color:#e5e7eb;">Help Center</h2>
+  <p style="margin:0;color:#9ca3af;font-size:13px;">Quick guides for setup, troubleshooting, and safe operation.</p>
+</div>
+
+<div class="section" style="margin-bottom:16px;">
+  <h3 style="margin:0 0 10px 0;color:#e5e7eb;">Getting Started</h3>
+  <div class="journal-entry"><strong>1) Configure risk first</strong><br>Set account balance, risk mode, risk per trade, and max open trades in Performance.</div>
+  <div class="journal-entry"><strong>2) Enable auto-trade cautiously</strong><br>Use strict entry gates (min score, cooldown, confidence filter) until behavior is stable.</div>
+  <div class="journal-entry"><strong>3) Backtest before deploying</strong><br>Use the Backtest page and save presets before applying to live paper auto-trade.</div>
+  <div class="journal-entry"><strong>4) Monitor logs and alerts</strong><br>Use Trades/History and action badges to verify stops, lock-in, and exits are firing.</div>
+</div>
+
+<div class="section" style="margin-bottom:16px;">
+  <h3 style="margin:0 0 10px 0;color:#e5e7eb;">Common Issues</h3>
+  <div class="journal-entry"><strong>Only 1 trade open with 3 max trades</strong><br>Usually blocked by correlation filter, cooldown, or quality gates. Check Performance toggles and logs.</div>
+  <div class="journal-entry"><strong>No action badges on some losses</strong><br>A direct stop-out can happen before breakeven/trailing thresholds activate.</div>
+  <div class="journal-entry"><strong>No new entries</strong><br>Review min score, confidence filter, cooldown hours, volume floor, and expectancy/correlation filters.</div>
+  <div class="journal-entry"><strong>Backtest differs from live</strong><br>Match feature toggles and entry gates exactly. Load/sync presets before comparing results.</div>
+</div>
+
+<div class="section" style="margin-bottom:16px;">
+  <h3 style="margin:0 0 10px 0;color:#e5e7eb;">Safety Checklist</h3>
+  <div class="journal-entry">Use a conservative risk per trade and max daily loss cap.</div>
+  <div class="journal-entry">Avoid disabling stops or all quality filters at once.</div>
+  <div class="journal-entry">Re-check settings after major changes or restarts.</div>
+  <div class="journal-entry">Treat backtests as simulations, not guarantees.</div>
+</div>
+
+<div class="section">
+  <h3 style="margin:0 0 10px 0;color:#e5e7eb;">Legal & Policy</h3>
+  <p style="margin:0;color:#9ca3af;font-size:13px;line-height:1.6;">
+    See <a href="/faq">FAQ</a>,
+    <a href="/risk-disclosure">Risk Disclosure</a>,
+    <a href="/terms">Terms of Service</a>, and
+    <a href="/privacy">Privacy Policy</a>.
+  </p>
+</div>
+<%- include('partials/footer') %>

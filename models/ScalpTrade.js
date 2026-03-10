@@ -21,8 +21,14 @@ const scalpTradeSchema = new mongoose.Schema({
   peakPrice: { type: Number, default: 0 },
   breakevenTriggered: { type: Boolean, default: false },
   partialSoldAmount: { type: Number, default: 0 },
+  partialPnl: { type: Number, default: 0 },
+  partialCount: { type: Number, default: 0 },
   exitReason: { type: String, default: '' },
   createdAt: { type: Date, default: Date.now }
 });
+
+scalpTradeSchema.index({ userId: 1, status: 1, createdAt: -1 });
+scalpTradeSchema.index({ userId: 1, tokenAddress: 1, status: 1 });
+scalpTradeSchema.index({ userId: 1, status: 1, exitTime: -1 });
 
 module.exports = mongoose.model('ScalpTrade', scalpTradeSchema);

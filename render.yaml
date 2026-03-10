@@ -3,7 +3,7 @@ services:
     name: crypto-trading-signals
     runtime: node
     buildCommand: npm install
-    startCommand: node voting-app.js
+    startCommand: node --max-old-space-size=768 voting-app.js
     envVars:
       # Use the STANDARD connection string (mongodb://host:port,...) not mongodb+srv
       # to avoid DNS ENOTFOUND on Render. In Atlas: Connect → your app → copy standard URI.
@@ -14,3 +14,21 @@ services:
         sync: false
       - key: NODE_ENV
         value: production
+      - key: REFRESH_INTERVAL_MS
+        value: "180000"
+      - key: MAX_RUNNING_BACKTEST_JOBS
+        value: "1"
+      - key: MAX_BACKTEST_COINS
+        value: "10"
+      - key: MAX_SMC_BACKTEST_COINS
+        value: "12"
+      - key: MONGO_MAX_POOL_SIZE
+        value: "60"
+      - key: MONGO_MIN_POOL_SIZE
+        value: "5"
+      - key: MONGO_WAIT_QUEUE_TIMEOUT_MS
+        value: "12000"
+      - key: SLOW_HTTP_MS
+        value: "1200"
+      - key: SLOW_DB_MS
+        value: "300"

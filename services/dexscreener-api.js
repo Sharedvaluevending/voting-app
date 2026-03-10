@@ -82,6 +82,8 @@ async function fetchTokenPairs(chainId, tokenAddress) {
   const priceChange5m = pair.priceChange?.m5;
   const vol24 = parseFloat(pair.volume?.h24) || 0;
   const vol1h = parseFloat(pair.volume?.h1) || 0;
+  const socials = Array.isArray(pair.info?.socials) ? pair.info.socials : [];
+  const websites = Array.isArray(pair.info?.websites) ? pair.info.websites : [];
   return {
     tokenAddress: base.address || tokenAddress,
     symbol: base.symbol || '?',
@@ -94,7 +96,9 @@ async function fetchTokenPairs(chainId, tokenAddress) {
     volume1h: vol1h > 0 ? vol1h : undefined,
     liquidity: parseFloat(pair.liquidity?.usd) || 0,
     trendingScore: 1,
-    logo: pair.info?.imageUrl || ''
+    logo: pair.info?.imageUrl || '',
+    hasSocials: socials.length > 0 || websites.length > 0,
+    socialCount: socials.length + websites.length
   };
 }
 
@@ -176,6 +180,7 @@ async function fetchGeckoTerminalPools(endpoint, maxPages = 3) {
         const priceChange1h = parseFloat(a.price_change_percentage?.h1);
         const priceChange5m = parseFloat(a.price_change_percentage?.m5);
         const volume1h = parseFloat(a.volume_usd?.h1) || 0;
+        const poolCreatedAt = a.pool_created_at ? new Date(a.pool_created_at).getTime() : null;
         tokens.push({
           tokenAddress: addr,
           symbol: a.name ? a.name.split(' / ')[0] || '?' : '?',
@@ -187,6 +192,7 @@ async function fetchGeckoTerminalPools(endpoint, maxPages = 3) {
           volume24h: parseFloat(a.volume_usd?.h24) || 0,
           volume1h: volume1h > 0 ? volume1h : undefined,
           liquidity: parseFloat(a.reserve_in_usd) || 0,
+          poolCreatedAt,
           trendingScore: 1,
           source: 'geckoterminal'
         });
@@ -374,6 +380,94 @@ async function fetchSolanaTrendings(limit = 500) {
   return result;
 }
 
+/**
+ * Fetch tokens per category for Meme Market Explorer.
+ * @param {number} limit - max tokens per category (0 = all the API returns)
+ */
+async function fetchMarketCategories(limit = 10) {
+  const TOP_N = limit > 0 ? limit : 9999;
+  const categories = {};
+
+  try {
+    // DexScreener: Top Boosted, Token Boosts
+    const [topBoosts, boosts] = await Promise.all([
+      fetchTopBoosts('solana').catch(() => []),
+      fetchTokenBoosts('solana').catch(() => [])
+    ]);
+    const dexAddrs = [...topBoosts, ...boosts]
+      .map(t => t.tokenAddress)
+      .filter(Boolean);
+    const seen = new Set();
+    const uniqueDex = dexAddrs.filter(a => { if (seen.has(a)) return false; seen.add(a); return true; });
+    const bulkLimit = TOP_N > 50 ? 120 : 50;
+    const dexTokens = await fetchTokensBulk('solana', uniqueDex.slice(0, bulkLimit));
+    const sorted = dexTokens
+      .filter(t => t.price > 0)
+      .sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0));
+    categories.topBoosted = {
+      id: 'topBoosted',
+      label: 'Top Boosted',
+      tokens: sorted.slice(0, TOP_N)
+    };
+
+    // GeckoTerminal + Jupiter in parallel for speed
+    const gtPages = TOP_N > 10 ? 3 : 2;
+    const jupLimit = TOP_N > 10 ? 200 : 50;
+
+    async function fetchGT() {
+      const delay = () => new Promise(r => setTimeout(r, 2000));
+      const t5m = await fetchGeckoTerminalPools('trending_pools?duration=5m', gtPages).catch(() => []);
+      await delay();
+      const np = await fetchGeckoTerminalPools('new_pools', gtPages).catch(() => []);
+      await delay();
+      const vol = await fetchGeckoTerminalPools('pools?order=h24_volume_usd_desc', gtPages).catch(() => []);
+      return { t5m, np, vol };
+    }
+
+    async function fetchJup() {
+      const [t5m, traded1h, organic, recent, traded5m] = await Promise.all([
+        fetchJupiterCategory('toptrending', '5m', jupLimit).catch(() => []),
+        fetchJupiterCategory('toptraded', '1h', jupLimit).catch(() => []),
+        fetchJupiterCategory('toporganicscore', '1h', jupLimit).catch(() => []),
+        fetchJupiterRecent(jupLimit).catch(() => []),
+        fetchJupiterCategory('toptraded', '5m', jupLimit).catch(() => [])
+      ]);
+      return { t5m, traded1h, organic, recent, traded5m };
+    }
+
+    const [gt, jup] = await Promise.all([fetchGT(), fetchJup()]);
+
+    if (gt.t5m.length > 0) {
+      categories.trending5m = { id: 'trending5m', label: 'Trending 5m', tokens: gt.t5m.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (gt.np.length > 0) {
+      categories.newPools = { id: 'newPools', label: 'New Pools', tokens: gt.np.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (gt.vol.length > 0) {
+      categories.topVolume = { id: 'topVolume', label: 'Top Volume', tokens: gt.vol.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (jup.t5m.length > 0) {
+      categories.jupiterTrending5m = { id: 'jupiterTrending5m', label: 'Jupiter Trending 5m', tokens: jup.t5m.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (jup.traded5m.length > 0) {
+      categories.jupiterTraded5m = { id: 'jupiterTraded5m', label: 'Top Traded 5m', tokens: jup.traded5m.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (jup.traded1h.length > 0) {
+      categories.jupiterTraded1h = { id: 'jupiterTraded1h', label: 'Top Traded 1h', tokens: jup.traded1h.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (jup.organic.length > 0) {
+      categories.organicScore = { id: 'organicScore', label: 'Organic Score', tokens: jup.organic.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (jup.recent.length > 0) {
+      categories.justLaunched = { id: 'justLaunched', label: 'Just Launched', tokens: jup.recent.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+  } catch (e) {
+    console.warn('[MarketCategories] Error:', e.message);
+  }
+
+  return categories;
+}
+
 module.exports = {
   fetchTokenBoosts,
   fetchTopBoosts,
@@ -382,5 +476,6 @@ module.exports = {
   fetchCommunityTakeovers,
   fetchAds,
   fetchSolanaTrendings,
-  fetchTokensBulk
+  fetchTokensBulk,
+  fetchMarketCategories
 };

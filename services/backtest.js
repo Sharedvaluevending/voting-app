@@ -6,27 +6,32 @@
 // ====================================================
 
 const { ENGINE_CONFIG } = require('./trading-engine');
-const { fetchHistoricalCandlesForCoin, fetchHistoricalKrakenCandles, COIN_META, TRACKED_COINS } = require('./crypto-api');
-const { loadCachedCandles, saveCachedCandles, BYBIT_DELAY_MS } = require('./backtest-cache');
+const { fetchHistoricalKrakenCandles, COIN_META, TRACKED_COINS, markBacktestLoad } = require('./crypto-api');
+const { loadCachedCandles, saveCachedCandles } = require('./backtest-cache');
+const { getCandles } = require('./candle-cache');
 const { runBacktestForCoin: runBacktestForCoinNew } = require('./backtest/run-backtest');
-const fetch = require('node-fetch');
+const { computeMaxDrawdownPct } = require('./backtest/analytics');
 
 const MIN_SCORE = ENGINE_CONFIG.MIN_SIGNAL_SCORE || 52;
 const INITIAL_BALANCE = 10000;
-const RISK_PER_TRADE = 0.02;  // 2% per trade
+const DEFAULT_RISK_PER_TRADE = 0.02;
 const DEFAULT_LEVERAGE = 2;
 const WARMUP_BARS = 100;      // Extra 1h bars to fetch before start date for indicator warmup
+const MAX_DOLLAR_RISK_FRACTION = 0.10;
 
 /**
  * Fetch multi-timeframe historical candles for a coin
  * Wraps each fetch in a per-coin timeout so one slow coin doesn't block everything.
  */
-const PER_COIN_FETCH_TIMEOUT = 15000; // 15s max per coin fetch (keep under Render's 30s req timeout)
+const PER_COIN_FETCH_TIMEOUT = 600000; // 10 min per coin (1yr 1h = ~52 pages; 429 waits can be long)
 
 async function fetchWithTimeout(promise, timeoutMs, label) {
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout fetching ${label}`)), timeoutMs))
+    new Promise((_, reject) => setTimeout(() => {
+      const mins = Math.round(timeoutMs / 60000);
+      reject(new Error(`Timeout fetching ${label} (exceeded ${mins} min). 1yr+ is supported; try 1h/4h TF or fewer coins if slow.`));
+    }, timeoutMs))
   ]);
 }
 
@@ -34,12 +39,14 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
   options = options || {};
   const useBitgetOnly = options.useBitgetOnly === true;
   const useCache = options.useCache !== false;  // default ON for scripts
+  const primaryTf = options.primaryTf || '1h';
 
   const meta = COIN_META[coinId];
   if (!meta?.bybit) return { error: `No Bitget symbol for ${coinId}` };
 
-  // Extend start backward to get warmup bars for indicator calculation.
-  const warmupMs = WARMUP_BARS * 3600000;
+  // Warmup in primary TF units (100 bars of whatever TF we're trading on)
+  const MS_PER_TF_LOCAL = { '15m': 900000, '1h': 3600000, '4h': 14400000, '1d': 86400000, '1w': 604800000 };
+  const warmupMs = WARMUP_BARS * (MS_PER_TF_LOCAL[primaryTf] || 3600000);
   const fetchStartMs = startMs - warmupMs;
 
   // Check cache first (avoids API calls entirely)
@@ -51,70 +58,79 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
     }
   }
 
-  let candles1h, candles4h, candles1d;
-  let source = 'kraken';
-  let krakenError = null;
-  let bitgetError = null;
+  // Determine which timeframes to fetch. Engine requires 1h, 4h, 1d for analysis.
+  // Always fetch 1h+4h+1d; add 15m only when primary is 15m; add 1w when primary is 1w.
+  const tfsToFetch = primaryTf === '15m'
+    ? ['15m', '1h', '4h', '1d']
+    : primaryTf === '1w'
+    ? ['1w', '1h', '4h', '1d']
+    : ['1h', '4h', '1d'];
 
-  // useBitgetOnly: skip Kraken entirely to avoid rate limits
-  if (!useBitgetOnly) {
+  let fetchedCandles = {};
+  const sourceByTf = {};
+  let source = 'bitget';
+  let bitgetError = null;
+  let krakenError = null;
+
+  // Bitget is primary: fetch TFs sequentially to avoid rate limits
+  try {
+    const fetchStartTime = Date.now();
+    for (const tf of tfsToFetch) {
+      const elapsed = Date.now() - fetchStartTime;
+      if (elapsed > PER_COIN_FETCH_TIMEOUT) throw new Error(`Timeout fetching ${coinId}-bitget (exceeded ${Math.round(PER_COIN_FETCH_TIMEOUT / 60000)} min)`);
+      console.log(`[Backtest] ${coinId}: fetching ${tf} candles...`);
+      const cachedOrLive = await getCandles(coinId, tf, fetchStartMs, endMs);
+      fetchedCandles[tf] = cachedOrLive.candles || [];
+      sourceByTf[tf] = cachedOrLive.source || 'live';
+      if (tf !== tfsToFetch[tfsToFetch.length - 1]) await new Promise(r => setTimeout(r, 300));
+    }
+    if (!fetchedCandles[primaryTf] || fetchedCandles[primaryTf].length === 0) {
+      bitgetError = 'Bitget returned 0 candles';
+    }
+  } catch (err) {
+    bitgetError = `Bitget error: ${err.message}`;
+    console.warn(`[Backtest] ${coinId}: ${bitgetError}`);
+  }
+
+  // Kraken fallback (capped at ~720 bars, but covers many coins)
+  if (!fetchedCandles[primaryTf] || fetchedCandles[primaryTf].length < 50) {
     try {
-      [candles1h, candles4h, candles1d] = await fetchWithTimeout(
-        Promise.all([
-          fetchHistoricalKrakenCandles(coinId, '1h', fetchStartMs, endMs),
-          fetchHistoricalKrakenCandles(coinId, '4h', fetchStartMs, endMs),
-          fetchHistoricalKrakenCandles(coinId, '1d', fetchStartMs, endMs)
-        ]),
-        PER_COIN_FETCH_TIMEOUT,
-        `${coinId}-kraken`
-      );
-      if (!candles1h || candles1h.length === 0) krakenError = 'Kraken returned 0 candles';
+      console.log(`[Backtest] ${coinId}: Bitget insufficient (${fetchedCandles[primaryTf]?.length || 0} candles), trying Kraken fallback...`);
+      source = 'kraken';
+      for (const tf of tfsToFetch) {
+        fetchedCandles[tf] = await fetchHistoricalKrakenCandles(coinId, tf, fetchStartMs, endMs);
+        sourceByTf[tf] = 'kraken';
+        await new Promise(r => setTimeout(r, 200));
+      }
+      if (!fetchedCandles[primaryTf] || fetchedCandles[primaryTf].length === 0) {
+        krakenError = 'Kraken returned 0 candles';
+      }
     } catch (err) {
       krakenError = `Kraken error: ${err.message}`;
       console.warn(`[Backtest] ${coinId}: ${krakenError}`);
     }
   }
 
-  if (useBitgetOnly || !candles1h || candles1h.length < 50) {
-    try {
-      if (!useBitgetOnly) console.log(`[Backtest] ${coinId}: trying Bitget...`);
-      source = 'bitget';
-      [candles1h, candles4h, candles1d] = await fetchWithTimeout(
-        Promise.all([
-          fetchHistoricalCandlesForCoin(coinId, '1h', fetchStartMs, endMs),
-          fetchHistoricalCandlesForCoin(coinId, '4h', fetchStartMs, endMs),
-          fetchHistoricalCandlesForCoin(coinId, '1d', fetchStartMs, endMs)
-        ]),
-        PER_COIN_FETCH_TIMEOUT,
-        coinId
-      );
-      if (!candles1h || candles1h.length === 0) bitgetError = 'Bitget returned 0 candles';
-    } catch (err) {
-      bitgetError = `Bitget error: ${err.message}`;
-      console.warn(`[Backtest] ${coinId}: ${bitgetError}`);
-    }
-  }
+  const primaryCount = (fetchedCandles[primaryTf] || []).length;
+  const logParts = tfsToFetch.map(tf => `${tf}=${(fetchedCandles[tf] || []).length}`).join(', ');
+  console.log(`[Backtest] ${coinId}: fetched ${logParts} candles [${source}] (${WARMUP_BARS} warmup, primary=${primaryTf})`);
 
-  const c1h = (candles1h || []).length;
-  const c4h = (candles4h || []).length;
-  const c1d = (candles1d || []).length;
-  console.log(`[Backtest] ${coinId}: fetched 1h=${c1h}, 4h=${c4h}, 1d=${c1d} candles [${source}] (${WARMUP_BARS} warmup)`);
-
-  if (!candles1h || c1h < 50) {
+  if (primaryCount < 50) {
     const details = [bitgetError, krakenError].filter(Boolean).join('; ');
-    const reason = c1h === 0
+    const reason = primaryCount === 0
       ? `No candles from either API. ${details}`
-      : `Only ${c1h} candles from ${source} (need 50+). ${details}`;
+      : `Only ${primaryCount} ${primaryTf} candles from ${source} (need 50+). ${details}`;
     console.warn(`[Backtest] ${coinId}: ${reason}`);
     return { error: reason };
   }
 
   const result = {
-    '1h': candles1h,
-    '4h': candles4h && c4h >= 5 ? candles4h : null,
-    '1d': candles1d && c1d >= 5 ? candles1d : null,
-    '15m': null,
-    '1w': null
+    '15m': fetchedCandles['15m'] || null,
+    '1h': fetchedCandles['1h'] || null,
+    '4h': fetchedCandles['4h'] && (fetchedCandles['4h'].length >= 5) ? fetchedCandles['4h'] : null,
+    '1d': fetchedCandles['1d'] && (fetchedCandles['1d'].length >= 5) ? fetchedCandles['1d'] : null,
+    '1w': fetchedCandles['1w'] && (fetchedCandles['1w'].length >= 5) ? fetchedCandles['1w'] : null,
+    _sourceByTf: sourceByTf
   };
   if (useCache) saveCachedCandles(coinId, fetchStartMs, endMs, result);
   return result;
@@ -126,28 +142,50 @@ async function fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, options) {
  */
 async function runBacktestForCoin(coinId, startMs, endMs, options) {
   options = options || {};
+  const primaryTf = options.primaryTf || '1h';
 
   const fetchOpts = {
     useBitgetOnly: options.useBitgetOnly === true,
-    useCache: options.useCache === true
+    useCache: options.useCache === true,
+    primaryTf
   };
   const candles = await fetchHistoricalCandlesMultiTF(coinId, startMs, endMs, fetchOpts);
   if (!candles || candles.error) return { error: candles?.error || 'Insufficient candles', trades: [], equityCurve: [] };
-
-  return runBacktestForCoinNew(coinId, startMs, endMs, { ...options, candles, btcCandles: options.btcCandles });
+  const sourceByTf = candles._sourceByTf || {};
+  const primarySource = sourceByTf[primaryTf] || sourceByTf['1h'] || 'live';
+  const backtestResult = await runBacktestForCoinNew(coinId, startMs, endMs, { ...options, candles, btcCandles: options.btcCandles, primaryTf });
+  return {
+    ...backtestResult,
+    dataSource: primarySource,
+    sourceByTf
+  };
 }
 
 // Legacy backtest removed. Backtest uses run-backtest.js (shared engines) exclusively.
 /**
  * Run backtest for all coins or a subset.
- * Coins are processed in parallel batches to stay within API rate limits
- * while keeping total time well under Render's 30s request timeout.
+ * Coins are processed in parallel batches to stay within API rate limits.
+ * Per-coin timeout allows long candle fetches (e.g. 1yr 15m = ~175 Bitget pages).
  */
-const PER_COIN_BACKTEST_TIMEOUT = 12000; // 12s max per coin (fits ~30s hosting timeout)
-const PARALLEL_BATCH_SIZE = 2; // 2 coins at a time (stays under Render/Heroku 30s limit)
+const PER_COIN_BACKTEST_TIMEOUT = 900000; // 15 min per coin (1yr fetches can take 3-5 min + backtest run)
+const PARALLEL_BATCH_SIZE = 1; // 1 coin at a time — avoids API rate limits that cause empty pages
 
 async function runBacktest(startMs, endMs, options) {
+  markBacktestLoad(1);
+  try {
   options = options || {};
+  const usedInitialBalance = options.initialBalance ?? INITIAL_BALANCE;
+  const requestedRiskDollarsPerTrade = options.riskDollarsPerTrade ?? 200;
+  let appliedRiskDollarsPerTrade = requestedRiskDollarsPerTrade;
+  let riskWarnings = [];
+  if ((options.riskMode || 'percent') === 'dollar' && usedInitialBalance > 0) {
+    const maxAllowed = Math.max(1, usedInitialBalance * MAX_DOLLAR_RISK_FRACTION);
+    if (requestedRiskDollarsPerTrade > maxAllowed) {
+      appliedRiskDollarsPerTrade = maxAllowed;
+      riskWarnings.push(`Risk per trade exceeds 10% of account — consider lowering. Auto-capped from $${requestedRiskDollarsPerTrade.toFixed(2)} to $${appliedRiskDollarsPerTrade.toFixed(2)}.`);
+    }
+  }
+  options.riskDollarsPerTrade = appliedRiskDollarsPerTrade;
   options.startMs = startMs;
   options.endMs = endMs;
   const coins = options.coins || TRACKED_COINS;
@@ -155,21 +193,22 @@ async function runBacktest(startMs, endMs, options) {
   const failed = [];
   const backtestStart = Date.now();
   const days = Math.round((endMs - startMs) / 86400000);
-  console.log(`[Backtest] Starting: ${coins.length} coins, ${days} days range (parallel batches of ${PARALLEL_BATCH_SIZE})`);
+  const primaryTf = options.primaryTf || '1h';
+  const onProgress = options.onProgress;
+  console.log(`[Backtest] Starting: ${coins.length} coins, ${days} days range, TF=${primaryTf} (parallel batches of ${PARALLEL_BATCH_SIZE})`);
 
   // === PRE-FETCH BTC CANDLES (mirrors live system) ===
-  // The live system analyzes BTC first and uses the result to filter altcoin signals.
-  // We fetch BTC candles once and share across all coin backtests.
-  // Skip entirely if both BTC features are toggled off (saves API call time)
   const ft = options.features || {};
   const needBtc = ft.btcFilter !== false || ft.btcCorrelation !== false;
   let btcCandles = null;
   if (needBtc && (!coins.includes('bitcoin') || coins.length > 1)) {
     try {
+      if (onProgress) onProgress('Fetching BTC candles for signal filter...');
       console.log(`[Backtest] Pre-fetching BTC candles for signal filter...`);
-      btcCandles = await fetchHistoricalCandlesMultiTF('bitcoin', startMs, endMs);
-      if (btcCandles && !btcCandles.error && btcCandles['1h'] && btcCandles['1h'].length >= 50) {
-        console.log(`[Backtest] BTC candles loaded: ${btcCandles['1h'].length} bars`);
+      btcCandles = await fetchHistoricalCandlesMultiTF('bitcoin', startMs, endMs, { primaryTf: '1h' });
+      const btcTf = btcCandles?.['1h'] ? '1h' : primaryTf;
+      if (btcCandles && !btcCandles.error && btcCandles[btcTf] && btcCandles[btcTf].length >= 50) {
+        console.log(`[Backtest] BTC candles loaded: ${btcCandles[btcTf].length} bars (${btcTf})`);
       } else {
         console.warn(`[Backtest] BTC candle fetch failed (${btcCandles?.error || 'insufficient data'}) - running without BTC filter`);
         btcCandles = null;
@@ -183,6 +222,7 @@ async function runBacktest(startMs, endMs, options) {
   // Process coins in parallel batches
   for (let i = 0; i < coins.length; i += PARALLEL_BATCH_SIZE) {
     const batch = coins.slice(i, i + PARALLEL_BATCH_SIZE);
+    if (onProgress) onProgress(`Processing ${batch.join(', ')} (${i + batch.length}/${coins.length} coins)...`);
     const batchResults = await Promise.allSettled(
       batch.map(async (coinId) => {
         const coinStart = Date.now();
@@ -220,12 +260,38 @@ async function runBacktest(startMs, endMs, options) {
   const totalPnl = allTrades.reduce((s, t) => s + t.pnl, 0);
   const grossProfit = allTrades.filter(t => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
   const grossLoss = Math.abs(allTrades.filter(t => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
-  const usedInitialBalance = options.initialBalance ?? INITIAL_BALANCE;
-  // Capital aggregation: each coin runs with its own balance, so total capital = coins × balance
-  const totalCapital = Math.max(1, successResults.length) * usedInitialBalance;
-  const returnPct = totalCapital > 0 ? (totalPnl / totalCapital) * 100 : 0;
+  const capitalMode = options.capitalMode || 'perCoin';
+
+  // Compute max concurrent exposure: how many positions were open simultaneously
+  let maxConcurrentPositions = 0;
+  if (allTrades.length > 0) {
+    const events = [];
+    for (const t of allTrades) {
+      const entryTime = t.exitTime ? (t.exitTime - ((t.exitBar - t.entryBar) || 1) * 3600000) : startMs;
+      const exitTime = t.exitTime || endMs;
+      events.push({ time: entryTime, delta: 1 });
+      events.push({ time: exitTime, delta: -1 });
+    }
+    events.sort((a, b) => a.time - b.time || a.delta - b.delta);
+    let concurrent = 0;
+    for (const e of events) {
+      concurrent += e.delta;
+      if (concurrent > maxConcurrentPositions) maxConcurrentPositions = concurrent;
+    }
+  }
+
+  let totalCapital, returnPct;
+  if (capitalMode === 'shared') {
+    totalCapital = usedInitialBalance;
+    returnPct = usedInitialBalance > 0 ? (totalPnl / usedInitialBalance) * 100 : 0;
+  } else {
+    totalCapital = Math.max(1, successResults.length) * usedInitialBalance;
+    returnPct = totalCapital > 0 ? (totalPnl / totalCapital) * 100 : 0;
+  }
 
   const totalBars = successResults.reduce((s, r) => s + (r.bars || 0), 0);
+  const cachedCoins = successResults.filter((r) => r.dataSource === 'cache').length;
+  const liveCoins = successResults.filter((r) => r.dataSource !== 'cache').length;
 
   // Aggregate equity curve: sort all trades by exit time, build combined curve
   const tradesWithExit = allTrades.filter(t => t.exitBar != null || t.exitTime);
@@ -240,6 +306,15 @@ async function runBacktest(startMs, endMs, options) {
     eq += t.pnl || 0;
     equityCurve.push({ t: i + 1, equity: Math.max(0, eq), date: t.exitTime || startMs, trade: i + 1, pnl: t.pnl });
   });
+  const maxDrawdownPctAggregateRealized = equityCurve.length > 1 ? computeMaxDrawdownPct(equityCurve) : 0;
+  const maxDrawdownPctWorstCoinRealized = successResults.reduce((m, r) => {
+    const dd = r.maxDrawdownPctRealized ?? r.maxDrawdownPct ?? 0;
+    return dd > m ? dd : m;
+  }, 0);
+  const maxDrawdownPctWorstCoinMtm = successResults.reduce((m, r) => {
+    const dd = r.maxDrawdownPctMtm ?? r.maxDrawdownPct ?? 0;
+    return dd > m ? dd : m;
+  }, 0);
 
   // Regime breakdown
   const regimeBreakdown = {};
@@ -264,7 +339,21 @@ async function runBacktest(startMs, endMs, options) {
       returnPct,
       coinsProcessed: successResults.length,
       coinsFailed: failed.length,
-      totalBars
+      totalBars,
+      initialBalance: usedInitialBalance,
+      capitalMode,
+      totalCapital,
+      maxConcurrentPositions,
+      cachedCoins,
+      liveCoins,
+      riskMode: options.riskMode || 'percent',
+      riskPerTrade: options.riskPerTrade ?? 2,
+      riskDollarsPerTradeRequested: requestedRiskDollarsPerTrade,
+      riskDollarsPerTrade: appliedRiskDollarsPerTrade,
+      riskWarnings,
+      maxDrawdownPctAggregateRealized,
+      maxDrawdownPctWorstCoinRealized,
+      maxDrawdownPctWorstCoinMtm
     },
     equityCurve,
     regimeBreakdown,
@@ -272,6 +361,9 @@ async function runBacktest(startMs, endMs, options) {
     startMs,
     endMs
   };
+  } finally {
+    markBacktestLoad(-1);
+  }
 }
 
 module.exports = {

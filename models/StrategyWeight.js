@@ -32,4 +32,6 @@ const strategyWeightSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
+strategyWeightSchema.index({ active: 1, strategyId: 1 });
+
 module.exports = mongoose.model('StrategyWeight', strategyWeightSchema);

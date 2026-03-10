@@ -1,9 +1,37 @@
 <%- include('partials/header') %>
 
+<div class="backtest-results-page main-content-inner">
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Backtest Results</h2>
   <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Latest 2-year massive backtest. Use these rankings to prioritize better-performing coins in auto-trade.</p>
 </div>
+
+<% if (typeof successMsg !== 'undefined' && successMsg) { %>
+<div class="alert alert-success" style="margin-bottom:14px;"><%= successMsg %></div>
+<% } %>
+<% if (typeof errorMsg !== 'undefined' && errorMsg) { %>
+<div class="alert alert-error" style="margin-bottom:14px;"><%= errorMsg %></div>
+<% } %>
+
+<% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+<div class="section" style="margin-bottom:20px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:10px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Admin Discord: Backtest Channel</h3>
+  <form action="/admin/backtest-discord-settings" method="POST" style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <input type="text" name="backtestDiscordWebhook" value="<%= (adminDiscordConfig && adminDiscordConfig.backtest && adminDiscordConfig.backtest.webhookUrl) ? adminDiscordConfig.backtest.webhookUrl : '' %>" placeholder="Discord webhook URL for backtest results" style="padding:10px;border-radius:8px;border:1px solid #334155;background:rgba(15,23,42,0.55);color:#e5e7eb;">
+    <label style="display:flex;align-items:center;gap:6px;color:#d1d5db;font-size:13px;">
+      <input type="hidden" name="backtestDiscordEnabled" value="false">
+      <input type="checkbox" name="backtestDiscordEnabled" value="true" <%= (adminDiscordConfig && adminDiscordConfig.backtest && adminDiscordConfig.backtest.enabled) ? 'checked' : '' %>>
+      Enabled
+    </label>
+    <button type="submit" class="btn btn-outline btn-sm">Save</button>
+  </form>
+  <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+    <button type="button" class="btn btn-primary btn-sm" onclick="postMassiveBacktestToDiscord()">Post Latest Massive Result to Discord</button>
+    <span id="bt-discord-status" style="font-size:12px;color:#9ca3af;"></span>
+  </div>
+</div>
+<% } %>
 
 <% if (typeof error !== 'undefined' && error) { %>
 <div class="alert alert-error" style="margin-bottom:20px;"><%= error %></div>
@@ -50,10 +78,11 @@
         <tr style="border-bottom:1px solid #0d1320;">
           <td style="padding:10px 12px;color:#e5e7eb;"><%= i + 1 %></td>
           <td style="padding:10px 12px;">
-            <a href="/coin/<%= (result.allCoins || []).find(c => c.symbol === r.symbol)?.coinId || r.symbol.toLowerCase() %>" style="color:#3b82f6;text-decoration:none;font-weight:600;"><%= r.symbol %></a>
+            <% var coinMatch = (result.allCoins || []).find(function(c){ return c.symbol === r.symbol; }); %>
+            <a href="/coin/<%= coinMatch && coinMatch.coinId ? coinMatch.coinId : (r.symbol || '').toLowerCase() %>" style="color:#3b82f6;text-decoration:none;font-weight:600;"><%= r.symbol || '—' %></a>
           </td>
-          <td style="padding:10px 12px;text-align:right;color:<%= r.totalPnl >= 0 ? '#10b981' : '#ef4444' %>;">$<%= r.totalPnl.toLocaleString(undefined, {maximumFractionDigits: 0}) %></td>
-          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= ((result.allCoins || []).find(c => c.symbol === r.symbol)?.returnPct ?? r.totalPnl/100 ?? 0).toFixed(1) %>%</td>
+          <td style="padding:10px 12px;text-align:right;color:<%= (r.totalPnl || 0) >= 0 ? '#10b981' : '#ef4444' %>;">$<%= (r.totalPnl || 0).toLocaleString(undefined, {maximumFractionDigits: 0}) %></td>
+          <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= (coinMatch && coinMatch.returnPct != null ? coinMatch.returnPct : (r.returnPct != null ? r.returnPct : ((r.totalPnl || 0) / (result.initialBalance || 10000) * 100))).toFixed(1) %>%</td>
           <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= (r.winRate || 0).toFixed(1) %>%</td>
           <td style="padding:10px 12px;text-align:right;color:#e5e7eb;"><%= (r.profitFactor || 0).toFixed(2) %></td>
           <td style="padding:10px 12px;text-align:right;color:#eab308;"><%= (r.maxDrawdownPct || 0).toFixed(1) %>%</td>
@@ -71,16 +100,17 @@
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">
     <% (result.allCoins || []).forEach(function(c) { %>
     <div style="background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:8px;padding:12px;">
-      <div style="font-weight:600;color:#e5e7eb;"><%= c.symbol %></div>
-      <div style="font-size:12px;color:<%= c.totalPnl >= 0 ? '#10b981' : '#ef4444' %>;">$<%= c.totalPnl.toLocaleString(undefined, {maximumFractionDigits: 0}) %></div>
-      <div style="font-size:11px;color:#6b7280;"><%= (c.winRate || 0).toFixed(1) %>% WR · <%= c.totalTrades %> trades</div>
+      <div style="font-weight:600;color:#e5e7eb;"><%= c.symbol || '—' %></div>
+      <div style="font-size:12px;color:<%= (c.totalPnl || 0) >= 0 ? '#10b981' : '#ef4444' %>;">$<%= (c.totalPnl || 0).toLocaleString(undefined, {maximumFractionDigits: 0}) %></div>
+      <div style="font-size:11px;color:#6b7280;"><%= (c.winRate || 0).toFixed(1) %>% WR · <%= c.totalTrades || 0 %> trades</div>
     </div>
     <% }); %>
   </div>
 </div>
 
 <!-- Strategy Breakdown (from #1 coin) -->
-<% var topCoin = (result.allCoins || []).find(c => c.symbol === (result.top10 || [])[0]?.symbol); %>
+<% var top10first = (result.top10 || [])[0];
+   var topCoin = top10first ? (result.allCoins || []).find(function(c){ return c.symbol === top10first.symbol; }) : null; %>
 <% if (topCoin && topCoin.strategyBreakdown && Object.keys(topCoin.strategyBreakdown).length > 0) { %>
 <div class="section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Strategy Breakdown (<%= topCoin.symbol %>)</h3>
@@ -89,7 +119,7 @@
     <div style="background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:6px;padding:10px 14px;min-width:140px;">
       <div style="font-size:12px;color:#9ca3af;"><%= name %></div>
       <div style="font-size:14px;font-weight:600;color:<%= (s.pnl || 0) >= 0 ? '#10b981' : '#ef4444' %>;">$<%= (s.pnl || 0).toFixed(0) %></div>
-      <div style="font-size:11px;color:#6b7280;"><%= s.trades %> trades · <%= s.trades > 0 ? ((s.wins/s.trades)*100).toFixed(0) : 0 %>% WR</div>
+      <div style="font-size:11px;color:#6b7280;"><%= s.trades || 0 %> trades · <%= (s.trades || 0) > 0 ? (((s.wins || 0)/(s.trades || 1))*100).toFixed(0) : 0 %>% WR</div>
     </div>
     <% }); %>
   </div>
@@ -113,10 +143,10 @@
     <% ev.redFlags.forEach(function(f) { %><div>• <%= f.msg %></div><% }); %>
   </div>
   <% } %>
-  <% if (ev.byYear && Object.keys(ev.byYear).filter(k => k !== 'unknown').length > 0) { %>
+  <% if (ev.byYear && Object.keys(ev.byYear).filter(function(k){ return k !== 'unknown'; }).length > 0) { %>
   <div style="font-size:11px;color:#9ca3af;margin-top:8px;">Year-by-year:</div>
   <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;">
-    <% Object.keys(ev.byYear).filter(k => k !== 'unknown').sort().forEach(function(y) {
+    <% Object.keys(ev.byYear).filter(function(k){ return k !== 'unknown'; }).sort().forEach(function(y) {
       var d = ev.byYear[y]; %>
     <span style="padding:4px 8px;border-radius:4px;background:rgba(30,41,59,0.8);font-size:11px;color:<%= (d.pnl || 0) >= 0 ? '#10b981' : '#ef4444' %>;"><%= y %>: $<%= (d.pnl || 0).toFixed(0) %> (<%= d.trades %>)</span>
     <% }); %>
@@ -143,6 +173,26 @@
 <% if (typeof user !== 'undefined' && user) { %>
 <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>" id="backtest-csrf">
 <script>
+async function postMassiveBacktestToDiscord() {
+  try {
+    var csrf = document.getElementById('backtest-csrf')?.value || '';
+    var status = document.getElementById('bt-discord-status');
+    if (status) status.textContent = 'Posting...';
+    var res = await fetch('/api/admin/backtest-results/post-discord', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      credentials: 'same-origin',
+      body: JSON.stringify({})
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to post');
+    if (status) status.textContent = 'Posted successfully.';
+  } catch (e) {
+    var statusErr = document.getElementById('bt-discord-status');
+    if (statusErr) statusErr.textContent = 'Error: ' + e.message;
+  }
+}
+
 async function loadCoinWeights() {
   try {
     var csrf = document.getElementById('backtest-csrf')?.value || document.querySelector('input[name="_csrf"]')?.value || '';
@@ -156,5 +206,7 @@ async function loadCoinWeights() {
 }
 </script>
 <% } %>
+
+</div><!-- .backtest-results-page -->
 
 <%- include('partials/footer') %>

@@ -1,0 +1,128 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Candle Cache Status</h2>
+  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">40 coins x 4 timeframes cache health, freshness, and storage.</p>
+</div>
+
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+  <button id="cache-refresh-all" class="btn btn-outline">Refresh All</button>
+  <button id="cache-populate-missing" class="btn btn-outline">Populate Missing</button>
+  <span id="cache-action-msg" style="font-size:12px;color:#9ca3af;"></span>
+</div>
+
+<div class="section" style="margin-bottom:16px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;backdrop-filter:blur(8px);">
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">
+    <div style="padding:10px 12px;background:rgba(15,23,42,0.5);border:1px solid #334155;border-radius:8px;">
+      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;">Total Candles</div>
+      <div id="cache-total-candles" style="font-size:18px;color:#e5e7eb;font-weight:700;"><%= (stats && stats.totalCandles != null) ? Number(stats.totalCandles).toLocaleString() : '0' %></div>
+    </div>
+    <div style="padding:10px 12px;background:rgba(15,23,42,0.5);border:1px solid #334155;border-radius:8px;">
+      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;">Storage Used</div>
+      <div id="cache-storage-used" style="font-size:18px;color:#e5e7eb;font-weight:700;"><%= (stats && stats.storageUsed) ? stats.storageUsed : '0MB' %></div>
+    </div>
+    <div style="padding:10px 12px;background:rgba(15,23,42,0.5);border:1px solid #334155;border-radius:8px;">
+      <div style="font-size:11px;color:#6b7280;text-transform:uppercase;">Ready Coins</div>
+      <div id="cache-ready-coins" style="font-size:18px;color:#e5e7eb;font-weight:700;"><%= (stats && stats.readyCoins != null) ? stats.readyCoins : 0 %>/<%= totalCoins || 40 %></div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;backdrop-filter:blur(8px);overflow-x:auto;">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Coin</th>
+        <th>TF</th>
+        <th>Status</th>
+        <th>Oldest</th>
+        <th>Newest</th>
+        <th>Total Candles</th>
+        <th>Last Updated</th>
+      </tr>
+    </thead>
+    <tbody id="cache-status-body">
+      <% (rows || []).forEach(function(r) { %>
+        <tr>
+          <td data-label="Coin"><strong><%= r.symbol %></strong> <span style="color:#6b7280;font-size:11px;">(<%= r.coinId %>)</span></td>
+          <td data-label="TF"><%= r.timeframe %></td>
+          <td data-label="Status">
+            <% if (r.freshness === 'green') { %>
+              <span style="color:#10b981;">✅ Fresh</span>
+            <% } else if (r.freshness === 'yellow') { %>
+              <span style="color:#f59e0b;">⚠ Aging</span>
+            <% } else { %>
+              <span style="color:#ef4444;">❌ Stale</span>
+            <% } %>
+          </td>
+          <td data-label="Oldest"><%= r.oldest ? new Date(r.oldest).toISOString().slice(0,10) : '-' %></td>
+          <td data-label="Newest"><%= r.newest ? new Date(r.newest).toISOString().slice(0,10) : '-' %></td>
+          <td data-label="Total Candles"><%= Number(r.totalCandles || 0).toLocaleString() %></td>
+          <td data-label="Last Updated"><%= r.lastUpdated ? new Date(r.lastUpdated).toLocaleString() : '-' %></td>
+        </tr>
+      <% }); %>
+    </tbody>
+  </table>
+</div>
+
+<script>
+async function refreshCacheStatusView() {
+  const res = await fetch('/api/admin/cache-status', { credentials: 'same-origin' });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed to load cache status');
+
+  const body = document.getElementById('cache-status-body');
+  const totalEl = document.getElementById('cache-total-candles');
+  const storageEl = document.getElementById('cache-storage-used');
+  const readyEl = document.getElementById('cache-ready-coins');
+  if (totalEl) totalEl.textContent = Number(data.stats.totalCandles || 0).toLocaleString();
+  if (storageEl) storageEl.textContent = data.stats.storageUsed || '0MB';
+  if (readyEl) readyEl.textContent = String(data.stats.readyCoins || 0) + '/' + String(data.stats.totalCoins || 40);
+
+  body.innerHTML = '';
+  (data.rows || []).forEach(function(r) {
+    const tr = document.createElement('tr');
+    const freshness = r.freshness === 'green'
+      ? '<span style="color:#10b981;">✅ Fresh</span>'
+      : r.freshness === 'yellow'
+      ? '<span style="color:#f59e0b;">⚠ Aging</span>'
+      : '<span style="color:#ef4444;">❌ Stale</span>';
+    tr.innerHTML = ''
+      + '<td data-label="Coin"><strong>' + r.symbol + '</strong> <span style="color:#6b7280;font-size:11px;">(' + r.coinId + ')</span></td>'
+      + '<td data-label="TF">' + r.timeframe + '</td>'
+      + '<td data-label="Status">' + freshness + '</td>'
+      + '<td data-label="Oldest">' + (r.oldest ? new Date(r.oldest).toISOString().slice(0,10) : '-') + '</td>'
+      + '<td data-label="Newest">' + (r.newest ? new Date(r.newest).toISOString().slice(0,10) : '-') + '</td>'
+      + '<td data-label="Total Candles">' + Number(r.totalCandles || 0).toLocaleString() + '</td>'
+      + '<td data-label="Last Updated">' + (r.lastUpdated ? new Date(r.lastUpdated).toLocaleString() : '-') + '</td>';
+    body.appendChild(tr);
+  });
+}
+
+async function runCacheAction(url, buttonId, doneText) {
+  const msg = document.getElementById('cache-action-msg');
+  const btn = document.getElementById(buttonId);
+  btn.disabled = true;
+  msg.textContent = 'Running...';
+  try {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Action failed');
+    msg.textContent = doneText + ' ' + (data.message || '');
+    await refreshCacheStatusView();
+  } catch (err) {
+    msg.textContent = err.message || 'Action failed';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('cache-refresh-all').addEventListener('click', function() {
+  runCacheAction('/api/admin/cache-status/refresh-all', 'cache-refresh-all', 'Refresh completed.');
+});
+document.getElementById('cache-populate-missing').addEventListener('click', function() {
+  runCacheAction('/api/admin/cache-status/populate-missing', 'cache-populate-missing', 'Populate missing completed.');
+});
+</script>
+
+<%- include('partials/footer') %>

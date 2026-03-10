@@ -9,6 +9,9 @@ const User = require('../models/User');
 const ScalpTrade = require('../models/ScalpTrade');
 const mobula = require('./mobula-api');
 const dexscreener = require('./dexscreener-api');
+const { analyzeCoin } = require('./trading-engine');
+const { fetchAllCandlesForCoin, fetchPriceHistory, COIN_META } = require('./crypto-api');
+const { getJsonCache, setJsonCache } = require('./cache-store');
 const crypto = require('crypto');
 
 const ENCRYPT_KEY = process.env.TRENCH_SECRET || process.env.SESSION_SECRET || 'trench-default-key-change-me';
@@ -16,7 +19,9 @@ const ALGO = 'aes-256-gcm';
 
 const MAX_LOG_ENTRIES = 50;
 const PAPER_SLIPPAGE = 0.008; // 0.8% simulated slippage each way (~1.6% round trip)
-const MAX_BUYS_PER_SCAN = 2;  // stagger entries across scans
+const MAX_BUYS_PER_SCAN = 1;  // one entry per scan to reduce clustering risk
+const ENGINE_MIN_PASS_RATE = 0.15; // skip entries when engine quality too weak
+const ENGINE_MIN_ANALYZED = 10; // require enough analyzed tokens before applying guardrail
 
 // Memecoin: pump-start detection, micro scalps (1-3% TP)
 const MEMECOIN_EXIT_INTERVAL = 3 * 1000;   // 3s - check exits very fast
@@ -24,7 +29,7 @@ const MEMECOIN_ENTRY_INTERVAL = 25 * 1000; // 25s - scan often
 const MEMECOIN_CACHE_TTL = 25 * 1000;      // 25s
 const MEMECOIN_MOMENTUM_MS = 20 * 1000;    // 20s - quick confirm
 const MEMECOIN_MOMENTUM_MIN_PCT = 0.3;    // require slight positive momentum (was 0)
-const MEMECOIN_MIN_SCORE = 25;   // filter weak candidates (target 20%+ win rate)
+const MEMECOIN_MIN_SCORE = 20;   // filter weak candidates, let more through for engine to evaluate
 const MEMECOIN_FRESH_DROP_SKIP = 1.0;      // skip if dropped >1% since confirm
 
 // Scalping: traditional (current behavior)
@@ -41,10 +46,15 @@ const SCALP_FRESH_DROP_SKIP = 1.0;
 // ====================================================
 const activeBots = new Map();
 const trendingCacheByStrategy = { memecoin: { data: [], fetchedAt: 0 }, scalping: { data: [], fetchedAt: 0 } };
+const explorerCache = { data: [], fetchedAt: 0, byCategory: {} };
 const tickLocks = new Map();
+const ALLOWED_EXPLORER_CATEGORIES = new Set(['auto', 'topBoosted', 'trending5m', 'newPools', 'topVolume', 'jupiterTrending5m', 'jupiterTraded5m', 'jupiterTraded1h', 'organicScore', 'justLaunched']);
 
 // Momentum tracking: tokenAddress -> { price, seenAt }
 const momentumCache = new Map();
+const SYMBOL_TO_COIN_ID = new Map(
+  Object.entries(COIN_META || {}).map(([coinId, meta]) => [String(meta?.symbol || '').toUpperCase(), coinId]).filter(row => row[0])
+);
 
 function isMemecoinMode(settings) {
   return (settings?.strategy ?? 'memecoin') === 'memecoin';  // memecoin default
@@ -116,14 +126,15 @@ function botLog(userId, msg) {
 // ====================================================
 // Quality scoring for candidate tokens
 // ====================================================
-function scoreCandidate(t) {
+function scoreCandidate(t, opts = {}) {
   const change = t.priceChange24h || 0;
   const change5m = t.priceChange5m;
   const change1h = t.priceChange1h || 0;
   const vol = t.volume24h || 0;
   const liq = t.liquidity || 0;
-  const buyPressure = t.buyPressure || 0.5;
-  const organicScore = t.organicScore || 0;
+  const minBuyPressure = opts.minBuyPressure ?? 0.5;
+  const buyPressure = t.buyPressure ?? 0.5;
+  const organicScore = t.organicScore ?? 0;
   const numBuyers1h = t.numBuyers1h || 0;
   const numBuyers5m = t.numBuyers5m || 0;
   const holderCount = t.holderCount || 0;
@@ -147,7 +158,7 @@ function scoreCandidate(t) {
 
   // Must be actively pumping (scalping: 5m or 1h or 24h proxy)
   if (changeShort < minChangeShort) return -1;
-  if (buyPressure < 0.50) return -1;  // was 0.45 - require stronger buy pressure
+  if (buyPressure < minBuyPressure) return -1;
 
   const buyVol5m = t.buyVolume5m || 0;
   const sellVol5m = t.sellVolume5m || 0;
@@ -252,13 +263,14 @@ function scoreCandidate(t) {
 // MEMECOIN: LOOSE scoring - let pumps through, filter by exits
 // Minimal bars: some vol, some liq, not dumping. Score everything else.
 // ====================================================
-function scoreCandidatePumpStart(t) {
+function scoreCandidatePumpStart(t, opts = {}) {
   const change5m = t.priceChange5m;
   const change1h = t.priceChange1h || 0;
   const change24 = t.priceChange24h || 0;
   const vol = t.volume24h || 0;
   const liq = t.liquidity || 0;
-  const buyPressure = t.buyPressure || 0.5;
+  const minBuyPressure = opts.minBuyPressure ?? 0.5;
+  const buyPressure = t.buyPressure ?? 0.5;
   const buyVol5m = t.buyVolume5m || 0;
   const sellVol5m = t.sellVolume5m || 0;
   const buyVol1h = t.buyVolume1h || 0;
@@ -289,44 +301,51 @@ function scoreCandidatePumpStart(t) {
   // Already pumped: 5m is most of 1h move = we're late (bought the top)
   if (typeof change5m === 'number' && typeof change1h === 'number' && change1h > 5) {
     const ratio = change5m / change1h;
-    if (ratio > 0.85 && change5m > 10) return -1;  // 85%+ of 1h pump in 5m = late
+    if (ratio > 0.85 && change5m > 20) return -1;
   }
-  if (changeShort > 15) return -1;  // memecoin: hard reject >15% 5m (already pumped)
-  if (changeShort < 0.5) return -1;  // memecoin: require positive pump signal (reject flat/down)
-  if (changeShort > 0 && buyDominance < 0.4) return -1;  // require buy pressure when pumping
-  if (avgHourlyVol > 0 && vol1h > 0 && volSurge < 1.0) return -1;  // require volume surge when we have data
+  if (changeShort > 30) return -1;
+  if (changeShort < -10) return -1;
   const numBuyers = numBuyers5m > 0 ? numBuyers5m : numBuyers1h;
-  if (numBuyers > 0 && numBuyers < 8) return -1;         // require 8+ buyers (organic activity)
+  if (numBuyers > 0 && numBuyers < 3) return -1;
 
   const isNewOrRecent = source === 'geckoterminal' || (t._sourceCount || 1) <= 1;
 
-  let score = 25;  // base - almost everything passes
+  let score = 20;  // base
 
-  // Price move bonus (only reachable ranges: changeShort >= 0.5 due to hard reject above)
+  // Price move bonus — sweet spot is early pump (0.5-15%)
   if (changeShort >= 0.5 && changeShort <= 10) score += 30;
-  else if (changeShort > 10 && changeShort <= 15) score += 20;
+  else if (changeShort > 10 && changeShort <= 20) score += 20;
+  else if (changeShort > 0 && changeShort < 0.5) score += 10;
+  else if (changeShort > 20) score += 5;
 
-  // Volume surge (loose thresholds)
-  if (volSurge >= 1.5) score += 15;
+  // Volume surge
+  if (volSurge >= 2.0) score += 20;
+  else if (volSurge >= 1.5) score += 15;
   else if (volSurge >= 1) score += 10;
   else if (volSurge >= 0.5) score += 5;
 
-  // Buy dominance (loose)
-  if (buyDominance >= 0.55) score += 15;
-  else if (buyDominance >= 0.48) score += 10;
-  else if (buyDominance >= 0.40) score += 5;
+  // Buy dominance
+  if (buyDominance >= 0.60) score += 15;
+  else if (buyDominance >= 0.52) score += 10;
+  else if (buyDominance >= 0.45) score += 5;
 
   // Volume velocity
   if (volVelocity >= 0.5) score += 10;
   else if (volVelocity >= 0.2) score += 5;
 
   if (isNewOrRecent) score += 5;
-  if (numBuyers >= 15) score += 10;
-  else if (numBuyers >= 8) score += 5;
-  if ((t.organicScore || 0) >= 50) score += 10;         // Jupiter: prefer organic pumps
+  if (numBuyers >= 20) score += 15;
+  else if (numBuyers >= 10) score += 10;
+  else if (numBuyers >= 5) score += 5;
+  if ((t.organicScore || 0) >= 50) score += 10;
   if (liq >= 50000) score += 5;
 
-  return score;
+  // Penalty for negative short-term moves
+  if (changeShort < 0) score -= 10;
+  // Penalty for low buy pressure when pumping
+  if (changeShort > 0 && buyDominance < minBuyPressure) score -= 15;
+
+  return Math.max(score, 1);
 }
 
 // ====================================================
@@ -388,9 +407,10 @@ async function fetchTrendingsCached(settings = {}) {
   }
 
   const minScore = intervals.minScore;
+  const minBuyPressure = (settings.minBuyPressure ?? 0.5);
   const scoreFn = memecoin ? scoreCandidatePumpStart : scoreCandidate;
   const scored = Array.from(seen.values()).map(t => {
-    t._qualityScore = scoreFn(t);
+    t._qualityScore = scoreFn(t, { minBuyPressure });
     return t;
   }).filter(t => t._qualityScore >= minScore);
 
@@ -405,6 +425,43 @@ async function fetchTrendingsCached(settings = {}) {
   return scored;
 }
 
+async function fetchExplorerCandidates(settings = {}) {
+  const cacheTtl = 60 * 1000;
+  const now = Date.now();
+  const selectedRaw = String(settings.explorerCategoryId || 'auto');
+  const selected = ALLOWED_EXPLORER_CATEGORIES.has(selectedRaw) ? selectedRaw : 'auto';
+  if ((now - explorerCache.fetchedAt) < cacheTtl && explorerCache.data.length > 0) {
+    if (selected === 'auto') return explorerCache.data;
+    return explorerCache.byCategory[selected] || explorerCache.data;
+  }
+
+  let categories = {};
+  try {
+    categories = await dexscreener.fetchMarketCategories(0);
+  } catch (e) {
+    console.warn('[TrenchBot] Market Explorer fetch failed:', e.message);
+    return [];
+  }
+
+  const byCategory = {};
+  const merged = new Map();
+  Object.keys(categories || {}).forEach((k) => {
+    const cat = categories[k];
+    const toks = Array.isArray(cat?.tokens) ? cat.tokens.filter(t => t && t.tokenAddress && t.price > 0) : [];
+    byCategory[k] = toks;
+    toks.forEach((t) => {
+      if (!merged.has(t.tokenAddress)) merged.set(t.tokenAddress, t);
+    });
+  });
+
+  explorerCache.fetchedAt = now;
+  explorerCache.byCategory = byCategory;
+  explorerCache.data = Array.from(merged.values());
+  console.log(`[TrenchBot] Explorer fetched ${explorerCache.data.length} unique tokens across ${Object.keys(byCategory).length} categories`);
+  if (selected === 'auto') return explorerCache.data;
+  return byCategory[selected] || explorerCache.data;
+}
+
 // ====================================================
 // Settings sanitizer - clamps wild DB values to sane ranges
 // Memecoin mode: 1-3% TP, 2% SL, 2-5min hold
@@ -412,9 +469,9 @@ async function fetchTrendingsCached(settings = {}) {
 function sanitizeSettings(raw) {
   const s = { ...raw };
   const memecoin = (s.strategy ?? 'memecoin') === 'memecoin';
-  const defTp = memecoin ? 2 : 10;
+  const defTp = memecoin ? 3 : 10;
   const defSl = memecoin ? 2 : 8;
-  const defHold = memecoin ? 4 : 10;
+  const defHold = memecoin ? 4 : 12;
   const minTp = memecoin ? 1 : 5;
   const maxTp = memecoin ? 5 : 50;
   const minHold = memecoin ? 2 : 5;
@@ -434,16 +491,109 @@ function sanitizeSettings(raw) {
   s.consecutiveLossesToPause = Math.min(Math.max(s.consecutiveLossesToPause ?? 3, 2), 10);
   s.cooldownHours = Math.min(Math.max(s.cooldownHours ?? 1, 0.25), 4);
   s.bigLossPauseMinutes = Math.min(Math.max(s.bigLossPauseMinutes ?? 20, 5), 60);
-  s.maxPriceChange24hPercent = Math.min(Math.max(s.maxPriceChange24hPercent ?? 500, 100), 1000);
-  s.minLiquidityUsd = Math.min(Math.max(s.minLiquidityUsd ?? 25000, 25000), 100000);
-  s.maxTop10HoldersPercent = Math.min(Math.max(s.maxTop10HoldersPercent ?? 80, 50), 100);
+  s.maxPriceChange24hPercent = Math.min(Math.max(s.maxPriceChange24hPercent ?? 400, 100), 1000);
+  s.minLiquidityUsd = Math.min(Math.max(s.minLiquidityUsd ?? 15000, 5000), 100000);
+  s.maxTop10HoldersPercent = Math.min(Math.max(s.maxTop10HoldersPercent ?? 60, 50), 100);
   s.maxDailyLossPercent = Math.min(Math.max(s.maxDailyLossPercent ?? 15, 5), 50);
-  s.trailingStopPercent = Math.min(Math.max(s.trailingStopPercent ?? (memecoin ? 2 : 5), 1), 20);
-  s.breakevenAtPercent = Math.min(Math.max(s.breakevenAtPercent ?? (memecoin ? 1 : 3), 1), 15);
-  s.amountPerTradeUsd = Math.min(Math.max(s.amountPerTradeUsd ?? (memecoin ? 25 : 50), 5), 500);
+  s.trailingStopPercent = Math.min(Math.max(s.trailingStopPercent ?? (memecoin ? 1.5 : 5), 1), 20);
+  s.breakevenAtPercent = Math.min(Math.max(s.breakevenAtPercent ?? (memecoin ? 1.5 : 3), 1), 15);
+  s.amountPerTradeUsd = Math.min(Math.max(s.amountPerTradeUsd ?? 25, 5), 500);
   s.amountPerTradeSol = Math.min(Math.max(s.amountPerTradeSol ?? 0.05, 0.01), 1);
   s.minTrendingScore = 1;
+  s.useTrailingTP = s.useTrailingTP !== false;
+  s.volumeFilterEnabled = s.volumeFilterEnabled !== false;
+  s.volatilityFilterEnabled = s.volatilityFilterEnabled !== false;
+  s.minVolume24hUsd = Math.min(Math.max(s.minVolume24hUsd ?? 25000, 5000), 500000);
+  s.maxVolatility24hPercent = Math.min(Math.max(s.maxVolatility24hPercent ?? 400, 100), 1000);
+  s.minVolatility24hPercent = Math.min(Math.max(s.minVolatility24hPercent ?? -30, -80), 50);
+  s.minOrganicScore = Math.min(Math.max(s.minOrganicScore ?? 0, 0), 100);
+  s.minPoolAgeMinutes = Math.min(Math.max(s.minPoolAgeMinutes ?? 0, 0), 60);
+  s.tradingHoursStartUTC = Math.min(Math.max(s.tradingHoursStartUTC ?? 0, 0), 23);
+  s.tradingHoursEndUTC = Math.min(Math.max(s.tradingHoursEndUTC ?? 24, 0), 24);
+  s.minProfitToActivateTrail = Math.min(Math.max(s.minProfitToActivateTrail ?? 1, 0), 10);
+  s.minBuyPressure = Math.min(Math.max(s.minBuyPressure ?? 0.5, 0.45), 0.65);
+  s.usePartialTP = s.usePartialTP !== false;  // 40/30/30 partial exits, default on
+  s.marketSource = ['explorer', 'launches', 'trendings'].includes(s.marketSource) ? s.marketSource : 'trendings';
+  s.requireSocials = s.requireSocials !== false;
+  s.explorerCategoryId = String(s.explorerCategoryId || 'auto');
+  if (!ALLOWED_EXPLORER_CATEGORIES.has(s.explorerCategoryId)) s.explorerCategoryId = 'auto';
+  s.useEngineConfirmation = s.useEngineConfirmation !== false;
+  s.engineMinScore = Math.min(Math.max(s.engineMinScore ?? 55, 45), 95);
+  s.enginePatternStrictness = ['off', 'light', 'strict'].includes(s.enginePatternStrictness) ? s.enginePatternStrictness : 'light';
+  s.engineTopCandidates = Math.min(Math.max(s.engineTopCandidates ?? 40, 5), 60);
   return s;
+}
+
+function resolveEngineCoinId(token) {
+  const symbol = String(token?.symbol || '').toUpperCase();
+  if (!symbol) return null;
+  return SYMBOL_TO_COIN_ID.get(symbol) || null;
+}
+
+function sumPatternPoints(timeframes, bucket, direction) {
+  const tfKeys = ['1H', '4H', '1D'];
+  return tfKeys.reduce((sum, key) => {
+    const p = timeframes?.[key]?.[bucket];
+    const add = direction === 'bull' ? (p?.bullPoints || 0) : (p?.bearPoints || 0);
+    return sum + add;
+  }, 0);
+}
+
+async function evaluateCandidateWithEngine(token, settings, cache = {}) {
+  const strictness = settings.enginePatternStrictness || 'light';
+  const coinId = resolveEngineCoinId(token);
+  if (!coinId) return { allow: strictness !== 'strict', unavailable: true, reason: 'engine:no_map' };
+
+  const candleCache = cache.candles || new Map();
+  const historyCache = cache.history || new Map();
+
+  let candles = candleCache.get(coinId);
+  if (candles === undefined) {
+    try { candles = await fetchAllCandlesForCoin(coinId); } catch (_) { candles = null; }
+    candleCache.set(coinId, candles || null);
+  }
+  if (!candles || !candles['1h'] || candles['1h'].length < 20) {
+    return { allow: strictness !== 'strict', unavailable: true, reason: 'engine:no_candles', coinId };
+  }
+
+  let history = historyCache.get(coinId);
+  if (history === undefined) {
+    try { history = await fetchPriceHistory(coinId); } catch (_) { history = { prices: [], volumes: [], marketCaps: [] }; }
+    historyCache.set(coinId, history || { prices: [], volumes: [], marketCaps: [] });
+  }
+
+  const meta = COIN_META?.[coinId] || {};
+  const coinData = {
+    id: coinId,
+    symbol: meta.symbol || token.symbol || '?',
+    name: meta.name || token.name || token.symbol || coinId,
+    price: Number(token.price || 0),
+    change24h: Number(token.priceChange24h || 0),
+    volume24h: Number(token.volume24h || 0),
+    marketCap: Number(meta.marketCap || 0)
+  };
+
+  let result = null;
+  try { result = analyzeCoin(coinData, candles, history || {}, {}); } catch (_) { result = null; }
+  if (!result) return { allow: strictness !== 'strict', unavailable: true, reason: 'engine:error', coinId };
+
+  const score = Number(result.score || 0);
+  const signal = String(result.signal || '');
+  const isLong = signal === 'BUY' || signal === 'STRONG_BUY';
+  const tf = result.timeframes || {};
+  const candleBull = sumPatternPoints(tf, 'candlestickPatterns', 'bull');
+  const candleBear = sumPatternPoints(tf, 'candlestickPatterns', 'bear');
+  const chartBull = sumPatternPoints(tf, 'chartPatterns', 'bull');
+  const chartBear = sumPatternPoints(tf, 'chartPatterns', 'bear');
+  const bullPattern = (candleBull + chartBull) > (candleBear + chartBear);
+  const bearPattern = (candleBear + chartBear) > (candleBull + chartBull);
+
+  if (score < settings.engineMinScore) return { allow: false, reason: `engine:score<${settings.engineMinScore}`, coinId, score };
+  if (!isLong) return { allow: false, reason: `engine:signal_${signal || 'HOLD'}`, coinId, score };
+  if (strictness === 'strict' && !bullPattern) return { allow: false, reason: 'engine:no_bull_pattern', coinId, score };
+  if (strictness === 'light' && bearPattern && !bullPattern) return { allow: false, reason: 'engine:bear_pattern', coinId, score };
+
+  return { allow: true, reason: 'engine:ok', coinId, score };
 }
 
 /** Kelly-based position size multiplier when useKellySizing is enabled. Uses trenchStats win rate. */
@@ -513,12 +663,39 @@ function resetDailyPnlIfNewDay(user) {
 // Entry filters & cooldown
 // ====================================================
 async function passesEntryFilters(t, settings, blacklist) {
-  if (!settings.useEntryFilters) return true;
+  if (!settings.useEntryFilters && !settings.volumeFilterEnabled && !settings.volatilityFilterEnabled) return true;
   if (blacklist && blacklist.includes(t.tokenAddress)) return false;
+
+  // Volume filter: require min 24h volume (when enabled or useEntryFilters)
+  if ((settings.useEntryFilters || settings.volumeFilterEnabled) && settings.minVolume24hUsd > 0) {
+    const vol = t.volume24h || 0;
+    if (vol < settings.minVolume24hUsd) return false;
+  }
+
+  // Volatility filter: skip tokens outside 24h change range (too flat or too parabolic)
+  if (settings.volatilityFilterEnabled) {
+    const ch24 = t.priceChange24h ?? 0;
+    const maxVol = settings.maxVolatility24hPercent ?? 400;
+    const minVol = settings.minVolatility24hPercent ?? -30;
+    if (ch24 > maxVol) return false;  // too parabolic
+    if (ch24 < minVol) return false;  // dumping
+  }
+
+  // Organic score filter (Jupiter): prefer tokens with organic activity
+  const minOrganic = settings.minOrganicScore ?? 0;
+  if (minOrganic > 0 && typeof t.organicScore === 'number' && t.organicScore < minOrganic) return false;
+
+  // Pool age filter (GeckoTerminal): skip very new pools (honeypot risk)
+  const minPoolAgeMin = settings.minPoolAgeMinutes ?? 0;
+  if (minPoolAgeMin > 0 && t.poolCreatedAt) {
+    const ageMin = (Date.now() - t.poolCreatedAt) / 60000;
+    if (ageMin < minPoolAgeMin) return false;
+  }
+
   const max24h = settings.maxPriceChange24hPercent ?? 500;
   if ((t.priceChange24h || 0) >= max24h) return false;
   const minLiq = settings.minLiquidityUsd ?? 25000;
-  const maxTop10 = settings.maxTop10HoldersPercent ?? 80;
+  const maxTop10 = settings.maxTop10HoldersPercent ?? 60;
   try {
     const mk = await mobula.getTokenMarkets('solana', t.tokenAddress);
     if (mk) {
@@ -661,8 +838,30 @@ function shouldSellPosition(pos, currentPrice, settings) {
   let peakPrice = pos.peakPrice || pos.entryPrice;
   if (currentPrice > peakPrice) peakPrice = currentPrice;
 
+  // Emergency stop: if price dropped more than 2× SL, bypass all other logic
+  const MAX_LOSS_CAP = Math.max(sl * 2.5, 15);
+  if (pnlPct <= -MAX_LOSS_CAP) return { sell: true, reason: 'emergency_stop', pnlPct, partialPercent: 0 };
+
   if (pnlPct <= -sl) return { sell: true, reason: 'stop_loss', pnlPct };
-  if (pnlPct >= tp) return { sell: true, reason: 'take_profit', pnlPct };
+  // Fixed TP: skip when useTrailingTP (exit profit only via trailing)
+  // Partial TP (40/30/30): TP1=40% of TP, TP2=70%, TP3=100%
+  const usePartialTP = settings.usePartialTP !== false;
+  if (!settings.useTrailingTP && usePartialTP) {
+    const tp1 = tp * 0.4, tp2 = tp * 0.7;
+    const sold = pos.partialSoldAmount || 0;
+    const orig = pos.tokenAmount || 0;
+    const soldPct = orig > 0 ? (sold / orig) * 100 : 0;
+    // Check TP3 first (70% sold), then TP2 (40% sold), then TP1 (0% sold)
+    if (pnlPct >= tp && soldPct >= 69) return { sell: true, reason: 'partial_tp3', pnlPct, partialPercent: 0 };
+    if (pnlPct >= tp2 && soldPct >= 39 && soldPct < 69) return { sell: true, reason: 'partial_tp2', pnlPct, partialPercent: 30 };
+    if (pnlPct >= tp1 && soldPct < 1) return { sell: true, reason: 'partial_tp1', pnlPct, partialPercent: 40, setBreakeven: true };
+
+    // After any partial sell, if price drops below entry + 0.5% buffer, close remaining
+    if (soldPct >= 1 && pnlPct <= 0.5) {
+      return { sell: true, reason: 'partial_breakeven', pnlPct, partialPercent: 0 };
+    }
+  }
+  if (!settings.useTrailingTP && pnlPct >= tp) return { sell: true, reason: 'take_profit', pnlPct };
 
   // Breakeven enforcement: once triggered, sell if price drops back to entry
   if (useBreakeven && pos.breakevenTriggered && pnlPct <= 0) {
@@ -696,9 +895,11 @@ function shouldSellPosition(pos, currentPrice, settings) {
     return { sell: true, reason: 'time_limit_hard', pnlPct };
   }
 
-  // Adaptive trailing: use PEAK pnl to determine trail width so it doesn't
-  // tighten during normal pullbacks from a high
-  if (useTrail && pnlPct > 0 && peakPrice > 0) {
+  // Min profit to activate trail: don't trail until we're in profit by X%
+  const minProfitToTrail = settings.minProfitToActivateTrail ?? 0;
+  if (minProfitToTrail > 0 && pnlPct < minProfitToTrail) {
+    // Trail not active yet - skip trailing logic
+  } else if (useTrail && pnlPct > 0 && peakPrice > 0) {
     const peakPnlPct = ((peakPrice - entry) / entry) * 100;
     const adaptiveTrail = getAdaptiveTrail(peakPnlPct, baseTrail, memecoin);
     const dropFromPeak = ((peakPrice - currentPrice) / peakPrice) * 100;
@@ -715,13 +916,19 @@ function shouldSellPosition(pos, currentPrice, settings) {
 }
 
 // ====================================================
-// Live sell execution
+// Live sell execution (full or partial)
 // ====================================================
-async function executeLiveSell(user, pos, currentPrice, keypair) {
+async function executeLiveSell(user, pos, currentPrice, keypair, opts = {}) {
   const walletAddress = keypair.publicKey.toBase58();
-  const amountToSell = (pos.partialSoldAmount || 0) > 0
-    ? (pos.tokenAmount || 0) - pos.partialSoldAmount
-    : (pos.tokenAmount || 0);
+  const orig = pos.tokenAmount || 0;
+  const sold = pos.partialSoldAmount || 0;
+  const remaining = orig - sold;
+  let amountToSell;
+  if (opts.partialPercent != null && opts.partialPercent > 0 && opts.partialPercent < 100) {
+    amountToSell = orig * (opts.partialPercent / 100);
+  } else {
+    amountToSell = remaining;
+  }
   if (amountToSell <= 0) return false;
   try {
     const quote = await mobula.getSwapQuote(
@@ -742,8 +949,16 @@ async function executeLiveSell(user, pos, currentPrice, keypair) {
       const costBasis = pos.tokenAmount > 0 ? pos.amountIn * (amountToSell / pos.tokenAmount) : pos.amountIn;
       const pnl = valueOut - costBasis;
       const pnlPct = pos.entryPrice > 0 ? ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100 : 0;
+      const isPartial = opts.partialPercent != null && opts.partialPercent > 0 && opts.partialPercent < 100;
+      if (isPartial) {
+        await ScalpTrade.updateOne({ _id: pos._id }, {
+          $inc: { partialSoldAmount: amountToSell },
+          $set: { peakPrice: Math.max(pos.peakPrice || pos.entryPrice, currentPrice) }
+        });
+        return { pnl, pnlPct, partial: true };
+      }
       await ScalpTrade.updateOne({ _id: pos._id }, {
-        $set: { exitPrice: currentPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), txHash: data.transactionHash, exitReason: 'auto_sell' }
+        $set: { exitPrice: currentPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), txHash: data.transactionHash, exitReason: opts.reason || 'auto_sell' }
       });
       return { pnl, pnlPct };
     }
@@ -870,41 +1085,61 @@ async function _exitTickInner(userId) {
 
     if (mode === 'paper') {
       const slippedPrice = currentPrice * (1 - PAPER_SLIPPAGE);
-      const tokenAmountToSell = pos.tokenAmount || 0;
+      const orig = pos.tokenAmount || 0;
+      const sold = pos.partialSoldAmount || 0;
+      const isPartial = decision.partialPercent != null && decision.partialPercent > 0 && decision.partialPercent < 100;
+      const tokenAmountToSell = isPartial ? orig * (decision.partialPercent / 100) : (orig - sold);
       const valueOut = tokenAmountToSell * slippedPrice;
-      const pnl = valueOut - (pos.amountIn || 0);
+      const costBasis = orig > 0 ? (pos.amountIn || 0) * (tokenAmountToSell / orig) : (pos.amountIn || 0);
+      const tranchePnl = valueOut - costBasis;
       const pnlPct = ((slippedPrice - pos.entryPrice) / pos.entryPrice) * 100;
 
       user.trenchPaperBalance = Math.round(((user.trenchPaperBalance ?? 1000) + valueOut) * 100) / 100;
 
-      await ScalpTrade.updateOne({ _id: pos._id }, {
-        $set: { exitPrice: slippedPrice, amountOut: valueOut, pnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), exitReason: decision.reason || 'auto' }
-      });
-      botLog(userId, `SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${pnl.toFixed(2)} (${pnlPct.toFixed(1)}%) [slip: -${(PAPER_SLIPPAGE * 100).toFixed(0)}%]`);
+      if (isPartial) {
+        const updateFields = {
+          peakPrice: Math.max(pos.peakPrice || pos.entryPrice, currentPrice)
+        };
+        if (decision.setBreakeven) updateFields.breakevenTriggered = true;
+        await ScalpTrade.updateOne({ _id: pos._id }, {
+          $inc: { partialSoldAmount: tokenAmountToSell, partialPnl: tranchePnl, partialCount: 1 },
+          $set: updateFields
+        });
+        botLog(userId, `PARTIAL ${pos.tokenSymbol} [${decision.reason}] ${decision.partialPercent}% PnL: $${tranchePnl.toFixed(2)} (${pnlPct.toFixed(1)}%)`);
+      } else {
+        const cumulativePnl = (pos.partialPnl || 0) + tranchePnl;
+        const totalAmountOut = (pos.amountOut || 0) + valueOut;
+        await ScalpTrade.updateOne({ _id: pos._id }, {
+          $set: { exitPrice: slippedPrice, amountOut: totalAmountOut, pnl: cumulativePnl, pnlPercent: pnlPct, status: 'CLOSED', exitTime: new Date(), exitReason: decision.reason || 'auto', partialPnl: (pos.partialPnl || 0) + tranchePnl }
+        });
+        botLog(userId, `SELL ${pos.tokenSymbol} [${decision.reason}] PnL: $${cumulativePnl.toFixed(2)} (${pnlPct.toFixed(1)}%) [slip: -${(PAPER_SLIPPAGE * 100).toFixed(0)}%]`);
+      }
       sellCount++;
 
+      // Only update win/loss stats on final close, not on partials
       user.trenchStats = user.trenchStats || {};
-      user.trenchStats.totalPnl = (user.trenchStats.totalPnl || 0) + pnl;
-      if (pnl > 0) {
-        user.trenchStats.wins = (user.trenchStats.wins || 0) + 1;
-        user.trenchStats.consecutiveLosses = 0;
-        user.trenchStats.bestTrade = Math.max(user.trenchStats.bestTrade || 0, pnl);
-      } else {
-        user.trenchStats.losses = (user.trenchStats.losses || 0) + 1;
-        user.trenchStats.consecutiveLosses = (user.trenchStats.consecutiveLosses || 0) + 1;
-        user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, pnl);
-        // Big loss cooldown: pause after -$25+ to avoid tilt
-        if (pnl <= -25) {
-          user.trenchAuto = user.trenchAuto || {};
-          user.trenchAuto.lastBigLossAt = new Date();
-          user.trenchAuto.lastBigLossAmount = pnl;
-        }
-        // Auto-blacklist tokens that rugged (-50%+)
-        if (pnlPct <= -50) {
-          if (!user.trenchBlacklist) user.trenchBlacklist = [];
-          if (!user.trenchBlacklist.includes(pos.tokenAddress)) {
-            user.trenchBlacklist.push(pos.tokenAddress);
-            botLog(userId, `BLACKLIST ${pos.tokenSymbol} (rug: ${pnlPct.toFixed(0)}%)`);
+      user.trenchStats.totalPnl = (user.trenchStats.totalPnl || 0) + tranchePnl;
+      if (!isPartial) {
+        const totalTradePnl = (pos.partialPnl || 0) + tranchePnl;
+        if (totalTradePnl > 0) {
+          user.trenchStats.wins = (user.trenchStats.wins || 0) + 1;
+          user.trenchStats.consecutiveLosses = 0;
+          user.trenchStats.bestTrade = Math.max(user.trenchStats.bestTrade || 0, totalTradePnl);
+        } else {
+          user.trenchStats.losses = (user.trenchStats.losses || 0) + 1;
+          user.trenchStats.consecutiveLosses = (user.trenchStats.consecutiveLosses || 0) + 1;
+          user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, totalTradePnl);
+          if (totalTradePnl <= -25) {
+            user.trenchAuto = user.trenchAuto || {};
+            user.trenchAuto.lastBigLossAt = new Date();
+            user.trenchAuto.lastBigLossAmount = totalTradePnl;
+          }
+          if (pnlPct <= -50) {
+            if (!user.trenchBlacklist) user.trenchBlacklist = [];
+            if (!user.trenchBlacklist.includes(pos.tokenAddress)) {
+              user.trenchBlacklist.push(pos.tokenAddress);
+              botLog(userId, `BLACKLIST ${pos.tokenSymbol} (rug: ${pnlPct.toFixed(0)}%)`);
+            }
           }
         }
       }
@@ -912,26 +1147,44 @@ async function _exitTickInner(userId) {
     } else {
       const keypair = getBotKeypair(user);
       if (!keypair) continue;
-      const result = await executeLiveSell(user, pos, currentPrice, keypair);
+      const result = await executeLiveSell(user, pos, currentPrice, keypair, {
+        partialPercent: decision.partialPercent,
+        reason: decision.reason
+      });
       if (result) {
-        const { pnl, pnlPct } = result;
+        const { pnl, pnlPct, partial } = result;
         user.trenchStats = user.trenchStats || {};
         user.trenchStats.totalPnl = (user.trenchStats.totalPnl || 0) + pnl;
-        if (pnl > 0) { user.trenchStats.wins = (user.trenchStats.wins || 0) + 1; user.trenchStats.consecutiveLosses = 0; user.trenchStats.bestTrade = Math.max(user.trenchStats.bestTrade || 0, pnl); }
-        else {
-          user.trenchStats.losses = (user.trenchStats.losses || 0) + 1;
-          user.trenchStats.consecutiveLosses = (user.trenchStats.consecutiveLosses || 0) + 1;
-          user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, pnl);
-          if (pnl <= -25) {
-            user.trenchAuto = user.trenchAuto || {};
-            user.trenchAuto.lastBigLossAt = new Date();
-            user.trenchAuto.lastBigLossAmount = pnl;
-          }
-          if (pnlPct <= -50) {
-            if (!user.trenchBlacklist) user.trenchBlacklist = [];
-            if (!user.trenchBlacklist.includes(pos.tokenAddress)) {
-              user.trenchBlacklist.push(pos.tokenAddress);
-              botLog(userId, `BLACKLIST ${pos.tokenSymbol} (rug: ${pnlPct.toFixed(0)}%)`);
+        // Accumulate partialPnl on the trade document for live sells too
+        if (partial) {
+          await ScalpTrade.updateOne({ _id: pos._id }, {
+            $inc: { partialPnl: pnl, partialCount: 1 },
+            $set: decision.setBreakeven ? { breakevenTriggered: true } : {}
+          });
+        } else {
+          const totalTradePnl = (pos.partialPnl || 0) + pnl;
+          await ScalpTrade.updateOne({ _id: pos._id }, {
+            $set: { pnl: totalTradePnl, partialPnl: totalTradePnl }
+          });
+        }
+        if (!partial) {
+          const totalTradePnl = (pos.partialPnl || 0) + pnl;
+          if (totalTradePnl > 0) { user.trenchStats.wins = (user.trenchStats.wins || 0) + 1; user.trenchStats.consecutiveLosses = 0; user.trenchStats.bestTrade = Math.max(user.trenchStats.bestTrade || 0, totalTradePnl); }
+          else {
+            user.trenchStats.losses = (user.trenchStats.losses || 0) + 1;
+            user.trenchStats.consecutiveLosses = (user.trenchStats.consecutiveLosses || 0) + 1;
+            user.trenchStats.worstTrade = Math.min(user.trenchStats.worstTrade || 0, totalTradePnl);
+            if (totalTradePnl <= -25) {
+              user.trenchAuto = user.trenchAuto || {};
+              user.trenchAuto.lastBigLossAt = new Date();
+              user.trenchAuto.lastBigLossAmount = totalTradePnl;
+            }
+            if (pnlPct <= -50) {
+              if (!user.trenchBlacklist) user.trenchBlacklist = [];
+              if (!user.trenchBlacklist.includes(pos.tokenAddress)) {
+                user.trenchBlacklist.push(pos.tokenAddress);
+                botLog(userId, `BLACKLIST ${pos.tokenSymbol} (rug: ${pnlPct.toFixed(0)}%)`);
+              }
             }
           }
         }
@@ -977,6 +1230,18 @@ async function _entryTickInner(userId) {
   const user = await User.findById(userId);
   if (!user) { stopBot(userId); return; }
 
+  // Time-of-day filter: only scan during allowed hours (UTC)
+  const raw = user.trenchAuto || {};
+  const startH = raw.tradingHoursStartUTC ?? 0;
+  const endH = raw.tradingHoursEndUTC ?? 24;
+  if (startH > 0 || endH < 24) {
+    const hourUTC = new Date().getUTCHours();
+    const inRange = endH > startH
+      ? (hourUTC >= startH && hourUTC < endH)
+      : (hourUTC >= startH || hourUTC < endH);
+    if (!inRange) return;  // Outside trading hours
+  }
+
   const rawSettings = user.trenchAuto || {};
   const settings = sanitizeSettings(rawSettings);
   const intervals = getIntervals(rawSettings);
@@ -996,9 +1261,43 @@ async function _entryTickInner(userId) {
     return;
   }
 
-  const validTrendings = await fetchTrendingsCached(rawSettings);
+  const marketSource = String(rawSettings.marketSource || 'trendings');
+  const useExplorer = marketSource === 'explorer';
+  const useLaunchDetection = marketSource === 'launches';
+  let validTrendings = [];
+  if (useLaunchDetection) {
+    validTrendings = await fetchExplorerCandidates({ ...rawSettings, explorerCategoryId: 'justLaunched' });
+    if (validTrendings.length === 0) {
+      validTrendings = await fetchExplorerCandidates({ ...rawSettings, explorerCategoryId: 'newPools' });
+    }
+    const scoreFn = isMemecoinMode(rawSettings) ? scoreCandidatePumpStart : scoreCandidate;
+    const minScore = Math.max(intervals.minScore - 10, 10);
+    const minBuyPressure = (settings.minBuyPressure ?? 0.5);
+    validTrendings = validTrendings.map(t => {
+      t._qualityScore = scoreFn(t, { minBuyPressure });
+      return t;
+    }).filter(t => t._qualityScore >= minScore);
+    validTrendings.sort((a, b) => (b._qualityScore || 0) - (a._qualityScore || 0));
+  } else if (useExplorer) {
+    validTrendings = await fetchExplorerCandidates(rawSettings);
+    const scoreFn = isMemecoinMode(rawSettings) ? scoreCandidatePumpStart : scoreCandidate;
+    const minScore = intervals.minScore;
+    const minBuyPressure = (settings.minBuyPressure ?? 0.5);
+    const preCount = validTrendings.length;
+    validTrendings = validTrendings.map(t => {
+      t._qualityScore = scoreFn(t, { minBuyPressure });
+      return t;
+    }).filter(t => t._qualityScore >= minScore);
+    validTrendings.sort((a, b) => (b._qualityScore || 0) - (a._qualityScore || 0));
+    if (bot.scanCount <= 2 || bot.scanCount % 10 === 0) {
+      console.log(`[TrenchBot] Explorer scoring: ${preCount} raw → ${validTrendings.length} pass (minScore=${minScore})`);
+    }
+  } else {
+    validTrendings = await fetchTrendingsCached(rawSettings);
+  }
   if (validTrendings.length === 0) {
-    botLog(userId, 'No trending tokens found, waiting...');
+    const srcLabel = useLaunchDetection ? 'No new launches found' : useExplorer ? 'No Market Explorer tokens found' : 'No trending tokens found';
+    botLog(userId, srcLabel + ', waiting...');
     return;
   }
 
@@ -1011,9 +1310,45 @@ async function _entryTickInner(userId) {
 
   const heldTokens = new Set((await ScalpTrade.find({ userId: user._id, status: 'OPEN' }).lean()).map(p => p.tokenAddress));
 
-  const candidates = validTrendings
+  let candidates = validTrendings
     .filter(t => !heldTokens.has(t.tokenAddress) && !blacklist.includes(t.tokenAddress) && t.price > 0)
     .slice(0, 300);
+
+  let engineRejected = 0;
+  let engineUnavailable = 0;
+  let engineAnalyzed = 0;
+  let enginePassed = 0;
+  const skipEngine = useExplorer || useLaunchDetection;
+  if (!skipEngine && settings.useEngineConfirmation && settings.enginePatternStrictness !== 'off' && candidates.length > 0) {
+    const limit = Math.min(candidates.length, settings.engineTopCandidates || 20);
+    const enginePool = candidates.slice(0, limit);
+    const engineCache = { candles: new Map(), history: new Map() };
+    const verified = [];
+    engineAnalyzed = enginePool.length;
+    for (const t of enginePool) {
+      const verdict = await evaluateCandidateWithEngine(t, settings, engineCache);
+      if (verdict.allow) {
+        t._engineVerdict = verdict.reason;
+        if (verdict.score != null) t._engineScore = verdict.score;
+        verified.push(t);
+        enginePassed++;
+      } else {
+        if (verdict.unavailable) engineUnavailable++;
+        else engineRejected++;
+      }
+    }
+    const passRate = engineAnalyzed > 0 ? (enginePassed / engineAnalyzed) : 0;
+    if (engineAnalyzed >= ENGINE_MIN_ANALYZED && passRate < ENGINE_MIN_PASS_RATE) {
+      botLog(
+        userId,
+        `Scan blocked: engine quality low (${enginePassed}/${engineAnalyzed} pass, ${(passRate * 100).toFixed(0)}% < ${(ENGINE_MIN_PASS_RATE * 100).toFixed(0)}%)`
+      );
+      user.trenchAuto.lastRunAt = new Date();
+      await user.save({ validateBeforeSave: false });
+      return;
+    }
+    candidates = verified;
+  }
 
   if (candidates.length === 0) {
     botLog(userId, `Scanning... ${validTrendings.length} tokens, 0 candidates after filters`);
@@ -1063,9 +1398,13 @@ async function _entryTickInner(userId) {
       const pass = await passesEntryFilters(t, settings, blacklist);
       if (!pass) { filteredOut++; continue; }
 
-      // Fetch fresh pair data right before buy — price + momentum confirmation
+      // Fetch fresh pair data right before buy — price + momentum + social confirmation
       let freshPair = null;
       try { freshPair = await dexscreener.fetchTokenPairs('solana', t.tokenAddress); } catch (e) { /* proceed */ }
+      if (freshPair && settings.requireSocials !== false && !freshPair.hasSocials) {
+        botLog(userId, `SKIP ${t.symbol} no social links`);
+        continue;
+      }
       const freshPrice = freshPair?.price > 0 ? freshPair.price : null;
       const refPrice = momentumFreshPrices[t.tokenAddress] ?? t.price;
       if (freshPrice && refPrice > 0) {
@@ -1103,7 +1442,8 @@ async function _entryTickInner(userId) {
         const bv1h = (t.buyVolume1h || 0) + (t.sellVolume1h || 0);
         const vel = t.liquidity > 0 ? (bv1h / t.liquidity).toFixed(1) : '0';
         const holders = t.holderCount ? ` hldr:${t.holderCount}` : '';
-        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${slippedEntry.toFixed(8)} (${h1}${bp} vel:${vel}x score:${t._qualityScore || 0} vol:${vol} liq:${liq}${holders} mom:+${(momentum.changeSinceFirstSight || 0).toFixed(1)}%)`);
+        const eng = t._engineScore != null ? ` eng:${Math.round(t._engineScore)}` : '';
+        botLog(userId, `BUY ${t.symbol} $${amount.toFixed(2)} @ $${slippedEntry.toFixed(8)} (${h1}${bp} vel:${vel}x score:${t._qualityScore || 0}${eng} vol:${vol} liq:${liq}${holders} mom:+${(momentum.changeSinceFirstSight || 0).toFixed(1)}%)`);
       } catch (err) {
         botLog(userId, `Buy failed ${t.symbol}: ${err.message}`);
       }
@@ -1143,6 +1483,10 @@ async function _entryTickInner(userId) {
 
       let freshPairLive = null;
       try { freshPairLive = await dexscreener.fetchTokenPairs('solana', t.tokenAddress); } catch (e) { /* proceed */ }
+      if (freshPairLive && settings.requireSocials !== false && !freshPairLive.hasSocials) {
+        botLog(userId, `SKIP ${t.symbol} no social links`);
+        continue;
+      }
       const freshPrice = freshPairLive?.price > 0 ? freshPairLive.price : null;
       const refPrice = momentumFreshPrices[t.tokenAddress] ?? t.price;
       if (freshPrice && refPrice > 0) {
@@ -1179,7 +1523,8 @@ async function _entryTickInner(userId) {
           });
           buyCount++;
           bot.tradesOpened++;
-          botLog(userId, `LIVE BUY ${t.symbol} ${amountPerTrade} SOL @ $${t.price.toFixed(8)}`);
+          const eng = t._engineScore != null ? ` eng:${Math.round(t._engineScore)}` : '';
+          botLog(userId, `LIVE BUY ${t.symbol} ${amountPerTrade} SOL @ $${t.price.toFixed(8)}${eng}`);
         }
       } catch (err) {
         botLog(userId, `Live buy failed ${t.symbol}: ${err.message}`);
@@ -1189,10 +1534,18 @@ async function _entryTickInner(userId) {
 
   // Always log scan summary so Live Activity shows regular updates
   const parts = [`${candidates.length} candidates`, `${slotsAvailable} slots`];
+  if (useExplorer) parts.unshift(`source:explorer(${rawSettings.explorerCategoryId || 'auto'})`);
+  else parts.unshift('source:trendings');
   if (buyCount > 0) parts.push(`${buyCount} bought`);
   if (filteredOut > 0) parts.push(`${filteredOut} filtered`);
   if (cooldownBlocked > 0) parts.push(`${cooldownBlocked} cooldown`);
   if (momentumWaiting > 0) parts.push(`${momentumWaiting} momentum`);
+  if (settings.useEngineConfirmation && settings.enginePatternStrictness !== 'off') {
+    parts.push(`engine:${settings.enginePatternStrictness}`);
+    if (engineAnalyzed > 0) parts.push(`${enginePassed}/${engineAnalyzed} eng_pass`);
+    if (engineRejected > 0) parts.push(`${engineRejected} eng_reject`);
+    if (engineUnavailable > 0) parts.push(`${engineUnavailable} eng_unavail`);
+  }
   botLog(userId, `Scan: ${parts.join(' | ')}`);
 
   user.trenchAuto.lastRunAt = new Date();
@@ -1211,10 +1564,17 @@ async function startBot(userId) {
   const intervals = getIntervals(rawSettings);
   const s = sanitizeSettings(rawSettings);
   const memecoin = isMemecoinMode(rawSettings);
+  const sourceLabel = s.marketSource === 'launches'
+    ? 'launches'
+    : s.marketSource === 'explorer'
+      ? `explorer:${s.explorerCategoryId || 'auto'}`
+      : 'trendings';
 
   const bot = {
     startedAt: new Date(),
     strategy: memecoin ? 'memecoin' : 'scalping',
+    marketSource: s.marketSource || 'trendings',
+    explorerCategoryId: s.explorerCategoryId || 'auto',
     scanCount: 0,
     tradesOpened: 0,
     tradesClosed: 0,
@@ -1226,7 +1586,7 @@ async function startBot(userId) {
   activeBots.set(uid, bot);
 
   const modeLabel = memecoin ? 'Meme Bot' : 'Scalp Bot';
-  botLog(userId, `${modeLabel} — TP:${s.tpPercent}% SL:${s.slPercent}% hold:${s.maxHoldMinutes}m | ${intervals.momentumMs / 1000}s mom +${intervals.momentumMinPct}%`);
+  botLog(userId, `${modeLabel} [${sourceLabel}] — TP:${s.tpPercent}% SL:${s.slPercent}% hold:${s.maxHoldMinutes}m | ${intervals.momentumMs / 1000}s mom +${intervals.momentumMinPct}%`);
 
   // First tick: run entry scan immediately (which also seeds momentum cache)
   entryTick(userId).catch(err => botLog(userId, `Entry error: ${err.message}`));
@@ -1252,6 +1612,7 @@ function stopBot(userId) {
   if (bot.entryInterval) clearInterval(bot.entryInterval);
   botLog(userId, 'Bot STOPPED');
   activeBots.delete(uid);
+  setJsonCache(`trench:bot:${uid}`, { running: false }, 5).catch(() => {});
   return { stopped: true, scanCount: bot.scanCount, tradesOpened: bot.tradesOpened, tradesClosed: bot.tradesClosed };
 }
 
@@ -1259,9 +1620,11 @@ function getBotStatus(userId) {
   const uid = userId.toString();
   const bot = activeBots.get(uid);
   if (!bot) return { running: false };
-  return {
+  const status = {
     running: true,
     strategy: bot.strategy || 'scalping',
+    marketSource: bot.marketSource || 'trendings',
+    explorerCategoryId: bot.explorerCategoryId || 'auto',
     startedAt: bot.startedAt,
     scanCount: bot.scanCount,
     tradesOpened: bot.tradesOpened,
@@ -1270,10 +1633,46 @@ function getBotStatus(userId) {
     lastAction: bot.lastAction,
     log: bot.log.slice(-30)
   };
+  setJsonCache(`trench:bot:${uid}`, status, 30).catch(() => {});
+  return status;
+}
+
+async function getBotStatusWithDb(userId) {
+  const uid = userId.toString();
+  const local = getBotStatus(uid);
+  if (local.running) return local;
+
+  const cached = await getJsonCache(`trench:bot:${uid}`).catch(() => null);
+  if (cached && cached.running) {
+    cached.uptime = cached.startedAt ? Math.round((Date.now() - new Date(cached.startedAt).getTime()) / 1000) : 0;
+    return cached;
+  }
+
+  const user = await User.findById(uid).select('trenchAuto').lean();
+  if (user?.trenchAuto?.enabled && !user.trenchAuto.lastPausedAt) {
+    return { running: true, strategy: user.trenchAuto.strategy || 'memecoin', startedAt: user.trenchAuto.lastRunAt || new Date(), scanCount: 0, tradesOpened: 0, tradesClosed: 0, uptime: 0, log: [], remoteWorker: true };
+  }
+  return local;
+}
+
+async function ensureBotRunning(userId) {
+  const uid = userId.toString();
+  if (activeBots.has(uid)) return { already: true };
+  const user = await User.findById(uid).select('trenchAuto').lean();
+  if (user?.trenchAuto?.enabled && !user.trenchAuto.lastPausedAt) {
+    return startBot(uid);
+  }
+  return { running: false };
+}
+
+function stopAllBots() {
+  const ids = Array.from(activeBots.keys());
+  ids.forEach((uid) => stopBot(uid));
+  return { stopped: ids.length };
 }
 
 // ====================================================
-// Legacy: background scheduler
+// Background scheduler — auto-start bots for enabled users
 // ====================================================
 async function runTrenchAutoTrade(opts = {}) {
   const runForUserId = opts.runForUserId;
@@ -1286,27 +1685,24 @@ async function runTrenchAutoTrade(opts = {}) {
     return { started: true };
   }
 
-  const users = await User.find({ 'trenchAuto.enabled': true }).lean();
+  const users = await User.find({
+    'trenchAuto.enabled': true,
+    'trenchAuto.lastPausedAt': { $in: [null, undefined] }
+  }).lean();
   let started = 0;
   for (const u of users) {
     const uid = u._id.toString();
     if (!activeBots.has(uid)) {
-      const settings = u.trenchAuto || {};
-      const intervalMin = settings.checkIntervalMinutes ?? 15;
-      const lastRun = settings.lastRunAt;
-      if (lastRun && intervalMin > 0) {
-        const elapsed = (Date.now() - new Date(lastRun).getTime()) / 60000;
-        if (elapsed < intervalMin) continue;
-      }
       try {
-        await entryTick(u._id);
+        await startBot(u._id);
         started++;
+        console.log(`[TrenchBot] Auto-started bot for ${u.username || uid}`);
       } catch (e) {
-        console.error(`[TrenchBot] Background tick error for ${u.username}:`, e.message);
+        console.error(`[TrenchBot] Auto-start error for ${u.username}:`, e.message);
       }
     }
   }
-  return { users: users.length, ticked: started };
+  return { users: users.length, started };
 }
 
-module.exports = { runTrenchAutoTrade, startBot, stopBot, getBotStatus, encrypt, decrypt, getBotKeypair, scoreCandidate };
+module.exports = { runTrenchAutoTrade, startBot, stopBot, stopAllBots, getBotStatus, getBotStatusWithDb, ensureBotRunning, encrypt, decrypt, getBotKeypair, scoreCandidate };

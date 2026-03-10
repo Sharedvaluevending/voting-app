@@ -301,8 +301,9 @@ async function main() {
   const resultsPath = path.join(resultsDir, `massive-${Date.now()}.json`);
   fs.writeFileSync(resultsPath, JSON.stringify({
     timestamp: new Date().toISOString(),
+    initialBalance: INITIAL_BALANCE,
     config: { features, useBitgetOnly: true, useCache: !NO_CACHE },
-    top10: top10.map(r => ({ symbol: r.symbol, totalPnl: r.totalPnl, winRate: r.winRate, profitFactor: r.profitFactor, maxDrawdownPct: r.maxDrawdownPct, sharpeRatio: r.sharpeRatio })),
+    top10: top10.map(r => ({ symbol: r.symbol, totalPnl: r.totalPnl, returnPct: r.returnPct, winRate: r.winRate, profitFactor: r.profitFactor, maxDrawdownPct: r.maxDrawdownPct, sharpeRatio: r.sharpeRatio })),
     allCoins: aggregated,
     monthRanges: monthRanges.length
   }, null, 2), 'utf8');

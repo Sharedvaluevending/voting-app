@@ -1,0 +1,171 @@
+{
+  "runAt": "2026-03-07T06:02:20.766Z",
+  "config": {
+    "baseUrl": "http://127.0.0.1:3000",
+    "metricsPath": "/api/ops/metrics",
+    "metricsIntervalMs": 5000,
+    "hasOpsKey": false,
+    "concurrency": 500,
+    "durationSec": 120,
+    "paths": "/api/health,/"
+  },
+  "loadtestExitCode": 0,
+  "loadtestStdout": "[loadtest] target=http://127.0.0.1:3000 concurrency=500 duration=120s paths=/api/health,/\n[loadtest] sent=632 ok=133 fail=0 inflight=499 rps~126 p95=4503ms\n[loadtest] sent=1150 ok=547 fail=208 inflight=395 rps~115 p95=8289ms\n[loadtest] sent=1641 ok=1019 fail=246 inflight=376 rps~109 p95=7996ms\n[loadtest] sent=2416 ok=1689 fail=456 inflight=271 rps~121 p95=7900ms\n[loadtest] sent=3012 ok=2285 fail=456 inflight=271 rps~120 p95=7688ms\n[loadtest] sent=3864 ok=3032 fail=666 inflight=166 rps~129 p95=7501ms\n[loadtest] sent=4638 ok=3719 fail=840 inflight=79 rps~133 p95=7407ms\n[loadtest] sent=5503 ok=4566 fail=876 inflight=61 rps~138 p95=7394ms\n[loadtest] sent=6438 ok=5396 fail=1086 inflight=-44 rps~143 p95=7317ms\n[loadtest] sent=7241 ok=6199 fail=1086 inflight=-44 rps~145 p95=7301ms\n[loadtest] sent=7933 ok=6786 fail=1296 inflight=-149 rps~144 p95=7291ms\n[loadtest] sent=8424 ok=7172 fail=1506 inflight=-254 rps~140 p95=7291ms\n[loadtest] sent=9245 ok=7993 fail=1506 inflight=-254 rps~142 p95=7303ms\n[loadtest] sent=10166 ok=8863 fail=1608 inflight=-305 rps~145 p95=7291ms\n[loadtest] sent=11120 ok=9763 fail=1716 inflight=-359 rps~148 p95=7206ms\n[loadtest] sent=12123 ok=10669 fail=1910 inflight=-456 rps~152 p95=7193ms\n[loadtest] sent=13117 ok=11652 fail=1932 inflight=-467 rps~154 p95=7112ms\n[loadtest] sent=13998 ok=12463 fail=2072 inflight=-537 rps~156 p95=7094ms\n[loadtest] sent=14908 ok=13337 fail=2144 inflight=-573 rps~157 p95=6914ms\n[loadtest] sent=15792 ok=14151 fail=2284 inflight=-643 rps~158 p95=6813ms\n[loadtest] sent=16526 ok=14842 fail=2369 inflight=-685 rps~157 p95=6711ms\n[loadtest] sent=17440 ok=15698 fail=2486 inflight=-744 rps~159 p95=6512ms\n[loadtest] sent=18129 ok=16344 fail=2572 inflight=-787 rps~158 p95=6387ms\n[loadtest] sent=18862 ok=17045 fail=2666 inflight=-849 rps~157 p95=6207ms\n[loadtest] sent=18862 ok=17424 fail=2785 inflight=-1347 rps~151 p95=6101ms\n\n=== Load Test Summary ===\nsent: 18862\nok: 17455\nfailed: 2814\ntimeouts: 1407\nsuccessRate: 92.54%\nrps: 157.2\np50: 3411ms\np95: 6294ms\np99: 7597ms\n",
+  "loadtestStderr": "",
+  "snapshots": [
+    {
+      "at": "2026-03-07T06:00:08.956Z",
+      "ok": true,
+      "status": 200,
+      "json": {
+        "uptimeSec": 21,
+        "thresholds": {
+          "slowHttpMs": 1200,
+          "slowDbMs": 300
+        },
+        "http": {
+          "total": 11,
+          "errors5xx": 0,
+          "p50": 15,
+          "p95": 359,
+          "p99": 359,
+          "topRoutes": [
+            {
+              "route": "GET /api/candles/:coinId",
+              "count": 2,
+              "avgMs": 313.5,
+              "maxMs": 359,
+              "slow": 0,
+              "status5xx": 0
+            },
+            {
+              "route": "GET /api/trades/active",
+              "count": 3,
+              "avgMs": 66,
+              "maxMs": 173,
+              "slow": 0,
+              "status5xx": 0
+            },
+            {
+              "route": "GET /api/prices",
+              "count": 5,
+              "avgMs": 50.2,
+              "maxMs": 197,
+              "slow": 0,
+              "status5xx": 0
+            },
+            {
+              "route": "GET /api/ops/metrics",
+              "count": 1,
+              "avgMs": 11,
+              "maxMs": 11,
+              "slow": 0,
+              "status5xx": 0
+            }
+          ]
+        },
+        "db": {
+          "total": 17,
+          "errors": 0,
+          "p50": 5,
+          "p95": 216,
+          "p99": 216,
+          "topOps": [
+            {
+              "op": "StrategyWeight.findOneAndUpdate",
+              "count": 7,
+              "avgMs": 59,
+              "maxMs": 216,
+              "slow": 0
+            },
+            {
+              "op": "Trade.find",
+              "count": 9,
+              "avgMs": 20,
+              "maxMs": 89,
+              "slow": 0
+            },
+            {
+              "op": "Alert.find",
+              "count": 1,
+              "avgMs": 4,
+              "maxMs": 4,
+              "slow": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": "2026-03-07T06:00:14.071Z",
+      "ok": false,
+      "status": 429,
+      "body": "{\"success\":false,\"error\":\"API rate limit exceeded. Please slow down.\"}"
+    },
+    {
+      "at": "2026-03-07T06:00:19.656Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:00:30.658Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:00:41.664Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:00:52.672Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:01:03.676Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:01:14.749Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:01:29.953Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:01:43.164Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:01:54.249Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:02:09.549Z",
+      "ok": false,
+      "status": 429,
+      "body": "{\"success\":false,\"error\":\"API rate limit exceeded. Please slow down.\"}"
+    }
+  ],
+  "finalSnapshot": {
+    "ok": false,
+    "status": 429,
+    "body": "{\"success\":false,\"error\":\"API rate limit exceeded. Please slow down.\"}"
+  }
+}

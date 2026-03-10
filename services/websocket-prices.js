@@ -112,6 +112,31 @@ function startPing() {
   }, PING_INTERVAL_MS);
 }
 
+function shutdown() {
+  if (pingInterval) {
+    clearInterval(pingInterval);
+    pingInterval = null;
+  }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  isConnected = false;
+  try {
+    if (bitgetWs) {
+      bitgetWs.removeAllListeners();
+      if (bitgetWs.readyState === WebSocket.OPEN || bitgetWs.readyState === WebSocket.CONNECTING) {
+        bitgetWs.close();
+      }
+    }
+  } catch (e) { /* ignore */ }
+  bitgetWs = null;
+  browserClients.forEach((client) => {
+    try { client.close(); } catch (e) { /* ignore */ }
+  });
+  browserClients = [];
+}
+
 function broadcast(payload) {
   const msg = JSON.stringify(payload);
   browserClients = browserClients.filter(client => {
@@ -152,6 +177,7 @@ startPing();
 
 module.exports = {
   connect,
+  shutdown,
   getWebSocketPrice,
   getAllWebSocketPrices,
   isWebSocketConnected,

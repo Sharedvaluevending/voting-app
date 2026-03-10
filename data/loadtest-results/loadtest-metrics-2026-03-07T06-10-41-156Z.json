@@ -1,0 +1,76 @@
+{
+  "runAt": "2026-03-07T06:13:05.953Z",
+  "config": {
+    "baseUrl": "http://127.0.0.1:3000",
+    "metricsPath": "/api/ops/metrics",
+    "metricsIntervalMs": 10000,
+    "hasOpsKey": false,
+    "concurrency": 500,
+    "durationSec": 120,
+    "paths": "/api/health,/"
+  },
+  "loadtestExitCode": 0,
+  "loadtestStdout": "[loadtest] target=http://127.0.0.1:3000 concurrency=500 duration=120s paths=/api/health,/\n[loadtest] sent=2934 ok=0 fail=2435 inflight=499 rps~587 p95=1211ms\n[loadtest] sent=5192 ok=77 fail=4616 inflight=499 rps~519 p95=1201ms\n[loadtest] sent=5516 ok=401 fail=4616 inflight=499 rps~368 p95=1292ms\n[loadtest] sent=6196 ok=711 fail=4986 inflight=499 rps~310 p95=8706ms\n[loadtest] sent=6788 ok=1266 fail=5023 inflight=499 rps~272 p95=8606ms\n[loadtest] sent=7676 ok=1821 fail=5356 inflight=499 rps~256 p95=9104ms\n[loadtest] sent=8360 ok=2291 fail=5570 inflight=499 rps~239 p95=9109ms\n[loadtest] sent=9281 ok=3047 fail=5735 inflight=499 rps~232 p95=9186ms\n[loadtest] sent=10256 ok=3661 fail=6096 inflight=499 rps~228 p95=9119ms\n[loadtest] sent=10998 ok=4366 fail=6133 inflight=499 rps~220 p95=9116ms\n[loadtest] sent=11619 ok=4654 fail=6466 inflight=499 rps~211 p95=9108ms\n[loadtest] sent=11881 ok=4887 fail=6495 inflight=499 rps~198 p95=9108ms\n[loadtest] sent=12637 ok=5302 fail=6836 inflight=499 rps~194 p95=9296ms\n[loadtest] sent=13303 ok=5931 fail=6873 inflight=499 rps~190 p95=9293ms\n[loadtest] sent=14019 ok=6288 fail=7232 inflight=499 rps~184 p95=9303ms\n[loadtest] sent=14818 ok=6858 fail=7461 inflight=499 rps~183 p95=9300ms\n[loadtest] sent=15739 ok=7627 fail=7613 inflight=499 rps~183 p95=9291ms\n[loadtest] sent=16831 ok=8386 fail=7946 inflight=499 rps~185 p95=9204ms\n[loadtest] sent=17774 ok=9292 fail=7983 inflight=499 rps~185 p95=9195ms\n[loadtest] sent=18813 ok=9972 fail=8342 inflight=499 rps~186 p95=9187ms\n[loadtest] sent=19705 ok=10789 fail=8417 inflight=499 rps~186 p95=9121ms\n[loadtest] sent=20969 ok=11747 fail=8723 inflight=499 rps~189 p95=9112ms\n[loadtest] sent=21666 ok=12345 fail=8822 inflight=499 rps~187 p95=9107ms\n[loadtest] sent=22622 ok=13080 fail=9111 inflight=431 rps~187 p95=9199ms\n[loadtest] sent=22622 ok=13159 fail=9322 inflight=141 rps~180 p95=9209ms\n\n=== Load Test Summary ===\nsent: 22622\nok: 13159\nfailed: 9463\ntimeouts: 4847\nsuccessRate: 58.17%\nrps: 188.5\np50: 914ms\np95: 9207ms\np99: 10488ms\n",
+  "loadtestStderr": "",
+  "snapshots": [
+    {
+      "at": "2026-03-07T06:10:41.168Z",
+      "ok": false,
+      "status": 0,
+      "body": "connect ECONNREFUSED 127.0.0.1:3000"
+    },
+    {
+      "at": "2026-03-07T06:10:51.453Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:11:07.556Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:11:23.563Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:11:39.662Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:11:55.668Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:12:11.748Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:12:27.854Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:12:43.861Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    }
+  ],
+  "finalSnapshot": {
+    "ok": false,
+    "status": 0,
+    "body": "timeout"
+  }
+}

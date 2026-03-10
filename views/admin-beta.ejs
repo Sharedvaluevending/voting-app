@@ -1,0 +1,136 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Beta Management</h2>
+</div>
+
+<% if (typeof success !== 'undefined' && success) { %>
+  <div class="alert alert-success"><%= success %></div>
+<% } %>
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="alert alert-error"><%= error %></div>
+<% } %>
+
+<!-- Toggles -->
+<div class="section" style="background:rgba(15,23,42,0.62);">
+  <h3 style="margin-bottom:14px;">Launch Controls</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:600px;">
+    <div style="padding:16px;background:rgba(0,0,0,0.25);border:1px solid #1e2a3a;border-radius:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:14px;font-weight:600;color:#e5e7eb;">Closed Beta</div>
+          <div style="font-size:11px;color:#6b7280;margin-top:4px;">Registration requires a beta code</div>
+        </div>
+        <form action="/admin/beta/toggle" method="POST" style="margin:0;">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <input type="hidden" name="setting" value="betaEnabled">
+          <input type="hidden" name="value" value="<%= betaConfig.enabled ? 'false' : 'true' %>">
+          <button type="submit" class="btn btn-sm" style="min-width:60px;background:<%= betaConfig.enabled ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.15)' %>;color:<%= betaConfig.enabled ? '#10b981' : '#ef4444' %>;border:1px solid <%= betaConfig.enabled ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.3)' %>;">
+            <%= betaConfig.enabled ? 'ON' : 'OFF' %>
+          </button>
+        </form>
+      </div>
+    </div>
+    <div style="padding:16px;background:rgba(0,0,0,0.25);border:1px solid #1e2a3a;border-radius:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div>
+          <div style="font-size:14px;font-weight:600;color:#e5e7eb;">Referrals Active</div>
+          <div style="font-size:11px;color:#6b7280;margin-top:4px;">Partners can refer new users</div>
+        </div>
+        <form action="/admin/beta/toggle" method="POST" style="margin:0;">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <input type="hidden" name="setting" value="referralsEnabled">
+          <input type="hidden" name="value" value="<%= betaConfig.referralsEnabled ? 'false' : 'true' %>">
+          <button type="submit" class="btn btn-sm" style="min-width:60px;background:<%= betaConfig.referralsEnabled ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.15)' %>;color:<%= betaConfig.referralsEnabled ? '#10b981' : '#ef4444' %>;border:1px solid <%= betaConfig.referralsEnabled ? 'rgba(16,185,129,0.4)' : 'rgba(239,68,68,0.3)' %>;">
+            <%= betaConfig.referralsEnabled ? 'ON' : 'OFF' %>
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:12px;font-size:12px;color:#6b7280;line-height:1.6;">
+    <strong>Closed Beta ON</strong> = new signups need a beta access code. Existing users still log in normally.<br>
+    <strong>Referrals OFF</strong> = partner referral links won't work at registration (partners still see their dashboard). Turn ON at full launch.
+  </div>
+</div>
+
+<!-- Generate Codes -->
+<div class="section" style="background:rgba(15,23,42,0.62);margin-top:16px;">
+  <h3 style="margin-bottom:14px;">Generate Beta Codes</h3>
+  <form action="/admin/beta/generate" method="POST" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:6px;">Number of codes</label>
+      <input type="number" name="count" value="5" min="1" max="50" style="width:100px;padding:10px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:6px;">Label (optional)</label>
+      <input type="text" name="label" placeholder="e.g. Twitter batch 1" style="width:200px;padding:10px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;">
+    </div>
+    <div>
+      <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:6px;">Custom code (single)</label>
+      <input type="text" name="customCode" placeholder="e.g. VIP-CHAD" style="width:180px;padding:10px;background:#0d1320;border:1px solid #1e2a3a;border-radius:8px;color:#e5e7eb;">
+    </div>
+    <button class="btn btn-primary" type="submit">Generate</button>
+  </form>
+  <p style="font-size:11px;color:#6b7280;margin-top:8px;">Custom code generates exactly one code with that value. Leave blank to auto-generate random codes.</p>
+</div>
+
+<!-- Codes Table -->
+<div class="section themes-table-wrap" style="margin-top:16px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <h3 style="margin:0;">Beta Codes (<%= codes.length %>)</h3>
+    <div style="font-size:13px;color:#9ca3af;">
+      <span style="color:#10b981;font-weight:600;"><%= codes.filter(c => !c.usedBy && c.active).length %></span> available &nbsp;·&nbsp;
+      <span style="color:#3b82f6;font-weight:600;"><%= codes.filter(c => c.usedBy).length %></span> used &nbsp;·&nbsp;
+      <span style="color:#ef4444;font-weight:600;"><%= codes.filter(c => !c.active && !c.usedBy).length %></span> disabled
+    </div>
+  </div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Code</th>
+        <th>Label</th>
+        <th>Status</th>
+        <th>Used By</th>
+        <th>Used At</th>
+        <th>Created</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% (codes || []).forEach(function(c) { %>
+        <tr style="<%= c.usedBy ? 'opacity:0.6;' : '' %>">
+          <td><code style="font-size:13px;background:rgba(59,130,246,0.12);padding:3px 8px;border-radius:4px;color:#93c5fd;cursor:pointer;" onclick="navigator.clipboard.writeText('<%= c.code %>');this.style.color='#10b981';setTimeout(()=>this.style.color='#93c5fd',1000)"><%= c.code %></code></td>
+          <td style="color:#9ca3af;font-size:12px;"><%= c.label || '—' %></td>
+          <td>
+            <% if (c.usedBy) { %>
+              <span style="color:#3b82f6;font-size:12px;">Used</span>
+            <% } else if (c.active) { %>
+              <span style="color:#10b981;font-size:12px;">Available</span>
+            <% } else { %>
+              <span style="color:#ef4444;font-size:12px;">Disabled</span>
+            <% } %>
+          </td>
+          <td style="font-size:12px;color:#9ca3af;"><%= c.usedByEmail || '—' %></td>
+          <td style="font-size:12px;color:#9ca3af;"><%= c.usedAt ? new Date(c.usedAt).toLocaleDateString() : '—' %></td>
+          <td style="font-size:12px;color:#6b7280;"><%= new Date(c.createdAt).toLocaleDateString() %></td>
+          <td>
+            <% if (!c.usedBy) { %>
+              <form action="/admin/beta/toggle-code" method="POST" style="display:inline;">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <input type="hidden" name="codeId" value="<%= c._id %>">
+                <input type="hidden" name="active" value="<%= c.active ? 'false' : 'true' %>">
+                <button class="btn btn-outline btn-sm" type="submit"><%= c.active ? 'Disable' : 'Enable' %></button>
+              </form>
+            <% } else { %>
+              <span style="color:#6b7280;font-size:11px;">—</span>
+            <% } %>
+          </td>
+        </tr>
+      <% }); %>
+    </tbody>
+  </table>
+</div>
+
+<%- include('partials/footer') %>

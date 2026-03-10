@@ -1,0 +1,183 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Choose Your Plan</h2>
+</div>
+
+<div class="signals-grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));">
+  <div class="section" style="background:rgba(15,23,42,0.65);">
+    <h3 style="color:#60a5fa;">Pro</h3>
+    <div style="font-size:34px;font-weight:700;color:#fff;margin:4px 0;">$49<span style="font-size:14px;color:#9ca3af;">/month</span></div>
+    <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">14-day free trial, no card charged during trial.</p>
+    <ul style="margin:0 0 14px 18px;color:#cbd5e1;font-size:13px;line-height:1.7;">
+      <li>100 copilot questions / month</li>
+      <li>100 LLM messages / month</li>
+      <li>Trench Warfare add-on available (+$5/mo)</li>
+    </ul>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="startCheckout('pro')">Start Pro Trial</button>
+      <button class="btn btn-outline" onclick="startTrenchAddon()">Add Trench Warfare — $5/mo</button>
+    </div>
+  </div>
+
+  <div class="section" style="background:rgba(15,23,42,0.65);border-color:rgba(59,130,246,0.45);">
+    <div style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:999px;background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.4);font-size:11px;color:#93c5fd;font-weight:700;margin-bottom:8px;">MOST POPULAR</div>
+    <h3 style="color:#c4b5fd;">Elite</h3>
+    <div style="font-size:34px;font-weight:700;color:#fff;margin:4px 0;">$99<span style="font-size:14px;color:#9ca3af;">/month</span></div>
+    <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Everything in Pro plus Trench included and voice monthly minutes.</p>
+    <ul style="margin:0 0 14px 18px;color:#cbd5e1;font-size:13px;line-height:1.7;">
+      <li>500 copilot + 500 LLM per month</li>
+      <li>60 voice minutes per month</li>
+      <li>Trench Warfare included</li>
+      <li>Advanced backtest endpoints</li>
+    </ul>
+    <button class="btn btn-primary" onclick="startCheckout('elite')">Start Elite Trial</button>
+  </div>
+</div>
+
+<div class="section" style="margin-top:16px;background:rgba(15,23,42,0.62);">
+  <h3 style="color:#e5e7eb;margin-top:0;">How the 14-day trial works</h3>
+  <ul style="margin:8px 0 0 18px;color:#cbd5e1;font-size:13px;line-height:1.7;">
+    <li>All new accounts start on a 14-day trial with Pro-level access.</li>
+    <li>No hidden setup fees and you can cancel anytime in the billing portal.</li>
+    <li>After day 14, choose Pro or Elite to keep premium access and automation features.</li>
+    <li>Each network can only claim one trial to prevent repeat signup abuse.</li>
+  </ul>
+</div>
+
+<div class="section" style="margin-top:16px;background:rgba(15,23,42,0.62);">
+  <h3 style="color:#e5e7eb;margin-top:0;">Packs (one-time)</h3>
+  <p style="font-size:13px;color:#9ca3af;">Need more usage before reset? Packs are instant and carry over.</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;">
+    <div style="padding:12px;border:1px solid #1e2a3a;border-radius:10px;background:rgba(15,23,42,0.5);">
+      <div style="font-size:13px;color:#93c5fd;font-weight:700;">Copilot Question Packs</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button class="btn btn-outline btn-sm" onclick="buyPack('copilot', 50)">50 — $2.99</button>
+        <button class="btn btn-outline btn-sm" onclick="buyPack('copilot', 200)">200 — $7.99</button>
+        <button class="btn btn-outline btn-sm" onclick="buyPack('copilot', 500)">500 — $14.99</button>
+      </div>
+    </div>
+    <div style="padding:12px;border:1px solid #1e2a3a;border-radius:10px;background:rgba(15,23,42,0.5);">
+      <div style="font-size:13px;color:#a5b4fc;font-weight:700;">LLM Message Packs</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button class="btn btn-outline btn-sm" onclick="buyPack('llm', 50)">50 — $2.99</button>
+        <button class="btn btn-outline btn-sm" onclick="buyPack('llm', 200)">200 — $7.99</button>
+        <button class="btn btn-outline btn-sm" onclick="buyPack('llm', 500)">500 — $14.99</button>
+      </div>
+    </div>
+    <div style="padding:12px;border:1px solid #1e2a3a;border-radius:10px;background:rgba(15,23,42,0.5);">
+      <div style="font-size:13px;color:#67e8f9;font-weight:700;">Voice Minute Packs</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button class="btn btn-outline btn-sm" onclick="buyPack('voice', 30)">30 min — $2.99</button>
+        <button class="btn btn-outline btn-sm" onclick="buyPack('voice', 120)">120 min — $7.99</button>
+        <button class="btn btn-outline btn-sm" onclick="buyPack('voice', 300)">300 min — $14.99</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:16px;background:rgba(15,23,42,0.62);">
+  <h3 style="color:#e5e7eb;margin-top:0;">Comparison</h3>
+  <div style="overflow-x:auto;">
+    <table class="data-table" style="min-width:680px;background:rgba(15,23,42,0.45);">
+      <thead>
+        <tr><th>Feature</th><th>Trial (14d)</th><th>Pro</th><th>Elite</th><th>Partner</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Trade execution + advanced signals</td><td>Included</td><td>Included</td><td>Included</td><td>Included</td></tr>
+        <tr><td>Backtest advanced endpoints</td><td>Pro-level</td><td>Pro-level</td><td>Full</td><td>Full</td></tr>
+        <tr><td>Trench Warfare</td><td>Locked</td><td>Add-on available</td><td>Included</td><td>Included</td></tr>
+        <tr><td>Voice</td><td>Locked</td><td>Packs only</td><td>60 mins/month</td><td>60 mins/month</td></tr>
+        <tr><td>Copilot monthly usage</td><td>100</td><td>100</td><td>500</td><td>500</td></tr>
+        <tr><td>LLM monthly usage</td><td>100</td><td>100</td><td>500</td><td>500</td></tr>
+        <tr><td>Referral commission dashboard</td><td>No</td><td>No</td><td>No</td><td>Yes</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="section" style="margin-top:16px;background:rgba(15,23,42,0.62);border:1px solid rgba(34,197,94,0.35);">
+  <h3 style="color:#bbf7d0;margin-top:0;">Want to become a Partner?</h3>
+  <p style="font-size:13px;color:#cbd5e1;line-height:1.7;margin-bottom:10px;">
+    Earn commission on every paid referral and get full Partner access to the app (Elite-level features) at no cost.
+  </p>
+  <p style="font-size:13px;color:#9ca3af;line-height:1.7;margin:0 0 12px 0;">
+    Join Discord and message us to see if you qualify.
+  </p>
+  <a
+    href="https://discord.gg/aCuJDTAs"
+    target="_blank"
+    rel="noopener noreferrer"
+    class="btn btn-outline"
+    style="display:inline-flex;align-items:center;justify-content:center;border-color:rgba(34,197,94,0.45);color:#bbf7d0;background:rgba(22,101,52,0.18);"
+  >
+    Join Partner Discord
+  </a>
+</div>
+
+<script>
+  const hasUserSession = <%= user ? 'true' : 'false' %>;
+  const autoStartPlan = '<%= typeof autoStartPlan !== "undefined" ? autoStartPlan : "" %>';
+
+  async function startCheckout(tier) {
+    if (!hasUserSession) {
+      window.location.href = '/register?plan=' + encodeURIComponent(String(tier || 'pro'));
+      return;
+    }
+    try {
+      const resp = await fetch('/api/stripe/create-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tier })
+      });
+      const out = await resp.json();
+      if (!resp.ok) throw new Error(out.error || 'Checkout failed');
+      if (out.url) window.location.href = out.url;
+    } catch (err) {
+      alert(err.message || 'Unable to start checkout');
+    }
+  }
+
+  async function startTrenchAddon() {
+    try {
+      const resp = await fetch('/api/stripe/add-trench', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const out = await resp.json();
+      if (!resp.ok) throw new Error(out.error || 'Checkout failed');
+      if (out.url) window.location.href = out.url;
+    } catch (err) {
+      alert(err.message || 'Unable to start trench checkout');
+    }
+  }
+
+  async function buyPack(packType, packAmount) {
+    try {
+      const resp = await fetch('/api/stripe/buy-pack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packType: packType, packAmount: packAmount })
+      });
+      const out = await resp.json();
+      if (!resp.ok) throw new Error(out.error || 'Pack checkout failed');
+      if (out.url) window.location.href = out.url;
+    } catch (err) {
+      alert(err.message || 'Unable to start pack checkout');
+    }
+  }
+
+  <% if (typeof forceTrenchUpgrade !== 'undefined' && forceTrenchUpgrade) { %>
+  setTimeout(function() {
+    alert('Unlock Trench Warfare with the $5/mo add-on or upgrade to Elite.');
+  }, 150);
+  <% } %>
+
+  if (autoStartPlan === 'pro' || autoStartPlan === 'elite') {
+    setTimeout(function() {
+      startCheckout(autoStartPlan);
+    }, 150);
+  }
+</script>
+
+<%- include('partials/footer') %>

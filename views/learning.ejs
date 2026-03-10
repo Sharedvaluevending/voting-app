@@ -1,4 +1,5 @@
 <%- include('partials/header') %>
+<input type="hidden" id="learning-csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>">
 
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Strategy Learning & Optimization</h2>
@@ -88,15 +89,18 @@
         <% strategies.forEach(function(s) { %>
           <tr>
             <td style="font-weight:700;"><%= s.name %></td>
-            <td><%= s.weights.trend %></td>
-            <td><%= s.weights.momentum %></td>
-            <td><%= s.weights.volume %></td>
-            <td><%= s.weights.structure %></td>
-            <td><%= s.weights.volatility %></td>
-            <td><%= s.weights.riskQuality %></td>
+            <td><%= (s.weights && s.weights.trend) != null ? s.weights.trend : '-' %></td>
+            <td><%= (s.weights && s.weights.momentum) != null ? s.weights.momentum : '-' %></td>
+            <td><%= (s.weights && s.weights.volume) != null ? s.weights.volume : '-' %></td>
+            <td><%= (s.weights && s.weights.structure) != null ? s.weights.structure : '-' %></td>
+            <td><%= (s.weights && s.weights.volatility) != null ? s.weights.volatility : '-' %></td>
+            <td><%= (s.weights && s.weights.riskQuality) != null ? s.weights.riskQuality : '-' %></td>
             <td>
-              <% if (s.totalTrades >= 10 && typeof user !== 'undefined' && user) { %>
+              <% var userCount = (typeof userTradeCounts !== 'undefined' && userTradeCounts && userTradeCounts[s.id]) ? userTradeCounts[s.id] : 0; %>
+              <% if (userCount >= 10 && typeof user !== 'undefined' && user) { %>
               <button type="button" class="btn btn-outline btn-sm optimize-btn" data-strategy-id="<%= s.id %>" style="font-size:11px;padding:4px 8px;">Optimize</button>
+              <% } else if (userCount > 0 && userCount < 10 && typeof user !== 'undefined' && user) { %>
+              <span style="color:#6b7280;font-size:11px;"><%= userCount %>/10 trades</span>
               <% } %>
             </td>
           </tr>
@@ -171,20 +175,25 @@
       this.textContent = 'Running...';
       fetch('/api/learning/optimize/' + encodeURIComponent(sid), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': (document.querySelector('meta[name="csrf-token"]') || {}).content || '' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.getElementById('learning-csrf')?.value || document.querySelector('input[name="_csrf"]')?.value || '' },
         body: JSON.stringify({ apply: confirm('Apply new weights if improved?') ? 'true' : 'false' }),
         credentials: 'same-origin'
       })
-      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        return r.json().then(function(data) {
+          if (!r.ok) throw new Error(data.error || 'Request failed');
+          return data;
+        });
+      })
       .then(function(data) {
         if (data.success) {
-          alert('Fitness: ' + (data.fitness || '-') + (data.improved ? ' (improved from ' + data.baseFitness + ')' : '') + (data.applied ? ' Applied.' : ' Not applied.'));
+          alert('Fitness: ' + (data.fitness ?? '-') + (data.improved ? ' (improved from ' + data.baseFitness + ')' : '') + (data.applied ? ' Applied.' : ' Not applied.'));
           if (data.applied) location.reload();
         } else {
           alert('Error: ' + (data.error || 'Unknown'));
         }
       })
-      .catch(function() { alert('Request failed'); })
+      .catch(function(err) { alert('Error: ' + (err && err.message || 'Request failed')); })
       .finally(function() {
         btn.disabled = false;
         btn.textContent = 'Optimize';

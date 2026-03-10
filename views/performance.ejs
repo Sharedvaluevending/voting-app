@@ -3,6 +3,11 @@
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Performance Dashboard</h2>
   <div style="display:flex;gap:8px;align-items:center;">
+    <% if (typeof user !== 'undefined' && user && user.stripeCustomerId) { %>
+    <a href="/api/stripe/billing-portal" class="btn btn-outline btn-sm">Manage Subscription</a>
+    <% } else { %>
+    <a href="/pricing" class="btn btn-outline btn-sm">View Pricing</a>
+    <% } %>
     <form action="/account/reset" method="POST" style="display:inline;">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <input type="hidden" name="confirm" value="RESET">
@@ -83,7 +88,7 @@
   <% } %>
 
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Trading Settings</h3>
-  <form action="/account/settings" method="POST">
+  <form id="settings-form" action="/account/settings" method="POST" onsubmit="return syncPhoneSmsEmail()">
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
 
     <!-- 1. Position Sizing -->
@@ -93,12 +98,18 @@
       <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:12px;">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
           <input type="radio" name="riskMode" value="percent" <%= (user.settings && user.settings.riskMode) !== 'dollar' ? 'checked' : '' %>>
-          <span style="font-size:12px;color:#9ca3af;">Risk % of balance</span>
+          <span style="font-size:12px;color:#9ca3af;" title="Risk a percentage of your balance per trade — position size compounds as your account grows or shrinks">% of balance per trade (compounds with account)</span>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
           <input type="radio" name="riskMode" value="dollar" <%= (user.settings && user.settings.riskMode) === 'dollar' ? 'checked' : '' %>>
-          <span style="font-size:12px;color:#9ca3af;">Fixed $ per trade</span>
+          <span style="font-size:12px;color:#9ca3af;" title="Risk a fixed dollar amount per trade — exactly this amount every trade, never modified by confidence, streaks, or drawdown adjustments">Fixed $ per trade (exact amount, never modified)</span>
         </label>
+      </div>
+      <div style="margin:0 0 10px 0;padding:8px 12px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:6px;">
+        <p id="risk-mode-tip" style="font-size:11px;color:#6b7280;margin:0;line-height:1.5;">
+          <strong style="color:#93c5fd;">% mode:</strong> Risk scales with account — bigger account = bigger positions, smaller account = smaller positions.
+          <br><strong style="color:#f59e0b;">Fixed $ mode:</strong> Every trade risks the exact dollar amount you set. No confidence weighting, no streak adjustment, no drawdown scaling. If your balance can't fund a trade, it's skipped entirely (never silently reduced).
+        </p>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;align-items:end;">
         <div id="risk-percent-wrap" style="<%= (user.settings && user.settings.riskMode) === 'dollar' ? 'display:none;' : '' %>">
@@ -169,39 +180,30 @@
           <input type="checkbox" name="autoTrade" id="autoTrade" value="true" <%= (user.settings && user.settings.autoTrade) ? 'checked' : '' %>>
           <span style="font-size:12px;color:#9ca3af;">Auto-open trades from signals</span>
         </label>
+        <button type="button" onclick="runAutoTradeDebug()" style="padding:6px 12px;background:rgba(139,92,246,0.2);border:1px solid rgba(139,92,246,0.4);color:#a78bfa;border-radius:6px;font-size:11px;cursor:pointer;" title="Diagnose why no trades are opening">Why no trades?</button>
         <div>
-          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Min score</label>
-          <input type="number" name="autoTradeMinScore" min="30" max="95" value="<%= (user.settings && user.settings.autoTradeMinScore) != null ? user.settings.autoTradeMinScore : 56 %>" title="Only auto-open when score >= this" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
-        </div>
-        <div>
-          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Cooldown (hours)</label>
-          <input type="number" name="cooldownHours" min="0" max="168" title="Wait before re-opening same coin/direction" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 6 %>" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Min Score</label>
+          <input type="number" name="autoTradeMinScore" min="30" max="95" value="<%= (user.settings && user.settings.autoTradeMinScore) != null ? user.settings.autoTradeMinScore : 55 %>" title="Only open trades when score >= this value (manual + auto)" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:13px;">
         </div>
         <div>
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Coins to trade</label>
           <select name="autoTradeCoinsMode" title="Which coins to auto-trade" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
-            <option value="tracked" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'tracked' ? 'selected' : (!user.settings?.autoTradeCoinsMode && !user.settings?.autoTradeTopMarketPick) ? 'selected' : '' %>>20 tracked only</option>
+            <option value="tracked" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'tracked' ? 'selected' : (!user.settings?.autoTradeCoinsMode && !user.settings?.autoTradeTopMarketPick) ? 'selected' : '' %>>40 tracked only</option>
             <option value="tracked+top1" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'tracked+top1' ? 'selected' : (user.settings?.autoTradeTopMarketPick && !user.settings?.autoTradeCoinsMode) ? 'selected' : '' %>>20 + top 1 market pick</option>
             <option value="top1" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'top1' ? 'selected' : '' %>>Top 1 market pick only</option>
           </select>
         </div>
         <div>
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Signal source</label>
-          <select name="autoTradeSignalMode" id="autoTradeSignalMode" title="Original = scoring engine. Indicators = Strategy Builder. Both = either can trigger." onchange="var v=this.value; document.getElementById('autoTradeBothLogicWrap').style.display=v==='both'?'block':'none'; document.getElementById('autoTradeStrategyWrap').style.display=(v==='indicators'||v==='both')?'block':'none';" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
-            <option value="original" <%= (user.settings && user.settings.autoTradeSignalMode) === 'original' ? 'selected' : !user.settings?.autoTradeSignalMode ? 'selected' : '' %>>Original (scoring engine)</option>
-            <option value="indicators" <%= (user.settings && user.settings.autoTradeSignalMode) === 'indicators' ? 'selected' : '' %>>Strategy Builder (indicators)</option>
+          <select name="autoTradeSignalMode" id="autoTradeSignalMode" title="Original = scoring engine. Setups = SMC trade scenarios. Both = either can trigger." onchange="var v=this.value; document.getElementById('autoTradeBothLogicWrap').style.display=v==='both'?'block':'none'; document.getElementById('autoTradeSetupsWrap').style.display=(v==='setups'||v==='both')?'block':'none';" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
+            <option value="original" <%= (user.settings && user.settings.autoTradeSignalMode) === 'original' || (user.settings && user.settings.autoTradeSignalMode) === 'indicators' ? 'selected' : !user.settings?.autoTradeSignalMode ? 'selected' : '' %>>Original (scoring engine)</option>
+            <option value="setups" <%= (user.settings && user.settings.autoTradeSignalMode) === 'setups' ? 'selected' : '' %>>Setups (SMC scenarios)</option>
             <option value="both" <%= (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'selected' : '' %>>Both (OR or AND)</option>
           </select>
         </div>
-        <div id="autoTradeStrategyWrap" style="display:<%= (user.settings && user.settings.autoTradeSignalMode) === 'indicators' || (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'block' : 'none' %>;">
-          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Strategy (for indicators)</label>
-          <select name="autoTradeStrategyConfigId" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
-            <option value="">-- Select saved strategy --</option>
-            <% (savedStrategies || []).forEach(function(s) { %>
-            <option value="<%= s._id %>" <%= (user.settings && user.settings.autoTradeStrategyConfigId && user.settings.autoTradeStrategyConfigId.toString() === s._id.toString()) ? 'selected' : '' %>><%= s.name %></option>
-            <% }); %>
-          </select>
-          <a href="/strategy-builder" style="font-size:11px;color:#3b82f6;margin-left:8px;">Build & save strategies</a>
+        <div id="autoTradeSetupsWrap" style="display:<%= (user.settings && user.settings.autoTradeSignalMode) === 'setups' || (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'block' : 'none' %>;">
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">SMC Setups</label>
+          <p style="font-size:11px;color:#6b7280;margin:0 0 8px 0;">Enable setups and turn on &quot;Use Setups for Auto-Trade&quot; on the <a href="/setups" style="color:#3b82f6;">Setups</a> page. <strong>Setups</strong> = only SMC setups. <strong>Both</strong> = scoring engine + setups (OR logic).</p>
         </div>
         <div id="autoTradeBothLogicWrap" style="display:<%= (user.settings && user.settings.autoTradeSignalMode) === 'both' ? 'block' : 'none' %>;">
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">When both</label>
@@ -211,11 +213,16 @@
           </select>
         </div>
         <div style="flex-basis:100%;margin-top:8px;padding-top:12px;border-top:1px solid #1e2a3a;">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:6px;" title="Ask local Ollama LLM to approve each auto-trade before opening. Requires Ollama running (e.g. ollama run qwen3-coder:480b-cloud).">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:6px;" title="<% if (typeof useDeepSeek !== 'undefined' && useDeepSeek) { %>Ask DeepSeek to approve each auto-trade before opening. Uses DEEPSEEK_API_KEY from env.<% } else { %>Ask local Ollama LLM to approve each auto-trade before opening. Requires Ollama running (e.g. ollama run llama3.1:8b).<% } %>">
             <input type="hidden" name="llmEnabled" value="false">
-            <input type="checkbox" name="llmEnabled" id="llmEnabled" value="true" <%= (user.settings && user.settings.llmEnabled) ? 'checked' : '' %> onchange="document.getElementById('ollama-url-wrap').style.display=this.checked?'block':'none'">
-            <span style="font-size:12px;color:#9ca3af;">Use LLM (Ollama) to approve trades</span>
+            <input type="checkbox" name="llmEnabled" id="llmEnabled" value="true" <%= (user.settings && user.settings.llmEnabled) ? 'checked' : '' %> onchange="var w=document.getElementById('ollama-url-wrap');if(w)w.style.display=this.checked?'block':'none'">
+            <span style="font-size:12px;color:#9ca3af;">Use LLM (<% if (typeof useDeepSeek !== 'undefined' && useDeepSeek) { %>DeepSeek<% } else { %>Ollama<% } %>) to approve trades</span>
           </label>
+          <% if (typeof useDeepSeek !== 'undefined' && useDeepSeek) { %>
+          <div id="ollama-url-wrap" style="<%= (user.settings && user.settings.llmEnabled) ? '' : 'display:none;' %>">
+            <p style="font-size:11px;color:#10b981;margin:4px 0 0 0;">Using DeepSeek — API key from DEEPSEEK_API_KEY (Render env)</p>
+          </div>
+          <% } else { %>
           <div id="ollama-url-wrap" style="<%= (user.settings && user.settings.llmEnabled) ? '' : 'display:none;' %>">
             <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:4px;">
               <div>
@@ -227,18 +234,26 @@
               </div>
               <div>
                 <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:4px;">Model</label>
-                <input type="text" name="ollamaModel" placeholder="qwen3-coder:480b-cloud" value="<%= (user.settings && user.settings.ollamaModel) || 'qwen3-coder:480b-cloud' %>" style="width:220px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="e.g. qwen3-coder:480b-cloud, gpt-oss:20b-cloud, glm-4.6:cloud">
+                <input type="text" name="ollamaModel" placeholder="llama3.1:8b" value="<%= (user.settings && user.settings.ollamaModel) || 'llama3.1:8b' %>" style="width:220px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="e.g. llama3.1:8b, qwen3-coder:480b-cloud, gpt-oss:20b-cloud">
+              </div>
+              <div>
+                <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:4px;">API Key (X-API-Key)</label>
+                <input type="password" name="ollamaApiKey" id="ollamaApiKeyInput" placeholder="Optional for Open WebUI / remote LLM" value="<%= (user.settings && user.settings.ollamaApiKey) || '' %>" style="width:220px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="Required for Open WebUI or remote LLM with auth">
               </div>
             </div>
             <span id="ollama-status" style="font-size:11px;color:#6b7280;margin-top:4px;display:block;"></span>
           </div>
+          <% } %>
           <script>
             function testOllama() {
               var url = document.getElementById('ollamaUrlInput').value.trim() || 'http://localhost:11434';
+              var apiKey = (document.getElementById('ollamaApiKeyInput') || {}).value || '';
               var el = document.getElementById('ollama-status');
               el.textContent = 'Checking...';
               el.style.color = '#6b7280';
-              fetch('/api/ollama/status?url=' + encodeURIComponent(url))
+              var qs = 'url=' + encodeURIComponent(url);
+              if (apiKey) qs += '&apiKey=' + encodeURIComponent(apiKey);
+              fetch('/api/ollama/status?' + qs)
                 .then(function(r) { return r.json(); })
                 .then(function(d) {
                   el.textContent = d.reachable ? 'Connected' : (d.error || 'Not reachable');
@@ -249,11 +264,41 @@
                   el.style.color = '#ef4444';
                 });
             }
+            function runAutoTradeDebug() {
+              fetch('/api/auto-trade-debug', { credentials: 'same-origin' })
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                  var lines = ['Auto-Trade Debug:'];
+                  lines.push('Auto-trade: ' + (d.autoTradeOn ? 'ON' : 'OFF'));
+                  lines.push('Mode: ' + d.mode + ', Min score: ' + d.minScore);
+                  lines.push('Open: ' + d.openCount + '/' + d.maxOpen + ', Cooldown: ' + d.cooldownHours + 'h');
+                  lines.push('LLM approval: ' + (d.llmEnabled ? 'ON' : 'OFF'));
+                  lines.push('Prices: ' + d.pricesCount + ', Signals: ' + d.signalsCount + ', Actionable: ' + d.actionableCount);
+                  if (d.blockedReasons && d.blockedReasons.length) {
+                    lines.push('');
+                    lines.push('Blockers:');
+                    d.blockedReasons.forEach(function(r) { lines.push('• ' + r); });
+                  }
+                  if (d.topSignals && d.topSignals.length) {
+                    lines.push('');
+                    lines.push('Top signals:');
+                    d.topSignals.slice(0, 5).forEach(function(s) {
+                      var b = s.blockedBy && s.blockedBy.length ? ' [' + s.blockedBy.join(', ') + ']' : '';
+                      lines.push('  ' + s.coin + ' ' + s.direction + ' score=' + s.score + b);
+                    });
+                  }
+                  if (d.suggestion) lines.push('', 'Suggestion: ' + d.suggestion);
+                  alert(lines.join('\n'));
+                })
+                .catch(function(e) {
+                  alert('Error: ' + (e.message || 'Failed to fetch'));
+                });
+            }
           </script>
         </div>
         <div style="flex-basis:100%;margin-top:12px;padding-top:12px;border-top:1px solid #1e2a3a;">
           <h5 style="color:#8b5cf6;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px 0;">LLM Agent (Full Access)</h5>
-          <p style="font-size:11px;color:#6b7280;margin:0 0 8px 0;">Autonomous agent can change settings, run backtests, adjust risk per trade, move stops, and optimize. Uses same Ollama above.</p>
+          <p style="font-size:11px;color:#6b7280;margin:0 0 8px 0;">Autonomous agent can change settings, run backtests, adjust risk per trade, move stops, and optimize. <% if (typeof useDeepSeek !== 'undefined' && useDeepSeek) { %><strong>Using DeepSeek</strong> (DEEPSEEK_API_KEY set).<% } else { %>Uses same Ollama above.<% } %></p>
           <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:8px;">
             <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="Leave on for 24/7 autonomous runs. Save the form to apply.">
               <input type="hidden" name="llmAgentEnabled" value="false">
@@ -262,7 +307,7 @@
             </label>
             <div>
               <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:2px;">Every (min)</label>
-              <input type="number" name="llmAgentIntervalMinutes" min="15" max="1440" value="<%= (user.settings && user.settings.llmAgentIntervalMinutes) || 60 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="How often to run (15–1440 min). 60 = hourly.">
+              <input type="number" name="llmAgentIntervalMinutes" min="5" max="1440" value="<%= (user.settings && user.settings.llmAgentIntervalMinutes) || 15 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="How often to run (5–1440 min). 15 = every 15 min.">
             </div>
             <% if (user.settings && user.settings.llmAgentEnabled) { %>
             <span style="font-size:11px;padding:4px 10px;background:rgba(16,185,129,0.2);color:#10b981;border-radius:6px;font-weight:600;">Running on schedule</span>
@@ -347,9 +392,96 @@
       </div>
     </div>
 
+    <!-- 6. Push & SMS Notifications -->
+    <div style="margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid #1e2a3a;">
+      <h4 style="color:#9ca3af;font-size:11px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px 0;">Push &amp; SMS Notifications</h4>
+      <p style="font-size:12px;color:#6b7280;margin:0 0 10px 0;">Get notified on your phone when trades open/close and when action badges (BE, TS, LOCK, etc.) fire.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin-bottom:10px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="hidden" name="notifyTradeOpen" value="false">
+          <input type="checkbox" name="notifyTradeOpen" value="true" <%= (user.settings && user.settings.notifyTradeOpen) !== false ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Trade opened</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="hidden" name="notifyTradeClose" value="false">
+          <input type="checkbox" name="notifyTradeClose" value="true" <%= (user.settings && user.settings.notifyTradeClose) !== false ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Trade closed</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;" title="BE, TS, LOCK, DCA, EXIT, etc.">
+          <input type="hidden" name="notifyActionBadges" value="false">
+          <input type="checkbox" name="notifyActionBadges" value="true" <%= (user.settings && user.settings.notifyActionBadges) === true ? 'checked' : '' %>>
+          <span style="font-size:12px;color:#9ca3af;">Action badges (BE, TS, LOCK)</span>
+        </label>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:end;">
+        <button type="button" id="push-enable-btn" onclick="enablePushNotifications()" style="padding:8px 16px;background:#10b981;border:none;color:#0f172a;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;">Enable Push (Phone)</button>
+        <span id="push-status" style="font-size:11px;color:#6b7280;"></span>
+        <div>
+          <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:2px;">SMS (phone + carrier)</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+            <input type="tel" id="smsPhone" placeholder="5551234567" maxlength="15" pattern="[0-9]*" inputmode="numeric" style="width:140px;padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;" title="10-digit US phone number">
+            <select id="smsCarrier" style="padding:6px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:12px;">
+              <option value="">Select carrier</option>
+              <option value="@vtext.com">Verizon</option>
+              <option value="@txt.att.net">AT&amp;T</option>
+              <option value="@tmomail.net">T-Mobile</option>
+              <option value="@messaging.sprintpcs.com">Sprint</option>
+              <option value="@vmobl.com">Virgin</option>
+              <option value="@message.alltel.com">Alltel</option>
+              <option value="@email.uscc.net">US Cellular</option>
+            </select>
+            <input type="hidden" name="phoneSmsEmail" id="phoneSmsEmail" value="<%= (user.phoneSmsEmail || '') %>">
+          </div>
+          <p style="font-size:10px;color:#6b7280;margin-top:4px;">Trade alerts via SMS. Enter your 10-digit number and carrier.</p>
+        </div>
+      </div>
+    </div>
 
     <button type="submit" class="btn btn-outline btn-sm">Save Settings</button>
   </form>
+  <script>
+  (function() {
+    var carriers = [
+      { gateway: '@vtext.com', name: 'Verizon' },
+      { gateway: '@txt.att.net', name: 'AT&T' },
+      { gateway: '@tmomail.net', name: 'T-Mobile' },
+      { gateway: '@messaging.sprintpcs.com', name: 'Sprint' },
+      { gateway: '@vmobl.com', name: 'Virgin' },
+      { gateway: '@message.alltel.com', name: 'Alltel' },
+      { gateway: '@email.uscc.net', name: 'US Cellular' }
+    ];
+    function parsePhoneSmsEmail(val) {
+      if (!val || typeof val !== 'string') return { phone: '', carrier: '' };
+      var at = val.indexOf('@');
+      if (at < 1) return { phone: val.replace(/\D/g, ''), carrier: '' };
+      var phone = val.slice(0, at).replace(/\D/g, '');
+      var gateway = val.slice(at);
+      var carrier = '';
+      for (var i = 0; i < carriers.length; i++) {
+        if (carriers[i].gateway === gateway) { carrier = carriers[i].gateway; break; }
+      }
+      if (!carrier) carrier = gateway;
+      return { phone: phone, carrier: carrier };
+    }
+    var existing = '<%= (user.phoneSmsEmail || "").replace(/'/g, "\\'") %>';
+    if (existing) {
+      var parsed = parsePhoneSmsEmail(existing);
+      var phoneEl = document.getElementById('smsPhone');
+      var carrierEl = document.getElementById('smsCarrier');
+      if (phoneEl) phoneEl.value = parsed.phone;
+      if (carrierEl) carrierEl.value = parsed.carrier;
+    }
+    window.syncPhoneSmsEmail = function() {
+      var phone = (document.getElementById('smsPhone')?.value || '').replace(/\D/g, '');
+      var carrier = document.getElementById('smsCarrier')?.value || '';
+      var hidden = document.getElementById('phoneSmsEmail');
+      if (hidden) {
+        hidden.value = (phone && carrier) ? phone + carrier : '';
+      }
+      return true;
+    };
+  })();
+  </script>
 </div>
 
 <!-- Feature Toggles for Live/Paper Trading -->
@@ -430,6 +562,30 @@
       </div>
 
       <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
+        <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Entry Gates (Shared Live + Backtest)</h4>
+        <p style="font-size:11px;color:#6b7280;margin:0 0 10px 0;">These gates control when entries are allowed. Backtest now uses the same cooldown unit (hours) for one universal setting model.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+          <div>
+            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Min Score (entry threshold)</label>
+            <input type="number" name="autoTradeMinScore" min="30" max="95" value="<%= (user.settings && user.settings.autoTradeMinScore) != null ? user.settings.autoTradeMinScore : 56 %>" title="Only auto-open when score >= this" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Cooldown (hours, 0 = off)</label>
+            <input type="number" name="cooldownHours" min="0" max="168" step="0.25" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 6 %>" title="Wait before re-opening same coin/direction" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+          </div>
+          <div>
+            <label class="ft-toggle" title="Only open entries when confidence is at or above Min Confidence." style="margin-bottom:6px;">
+              <input type="checkbox" name="featureConfidenceFilterEnabled" id="featureConfidenceFilterEnabled" value="true" <%= (user.settings && user.settings.featureConfidenceFilterEnabled) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Confidence Entry Filter
+            </label>
+            <div id="minConfidenceWrap" style="display:<%= (user.settings?.featureConfidenceFilterEnabled === true) ? 'flex' : 'none' %>;align-items:center;gap:8px;">
+              <label style="font-size:12px;color:#9ca3af;">Min Confidence</label>
+              <input type="number" name="minConfidence" id="minConfidenceInput" min="0" max="100" step="1" value="<%= (user.settings && user.settings.minConfidence) != null ? user.settings.minConfidence : 60 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
         <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Risk Controls</h4>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
           <div>
@@ -461,10 +617,26 @@
               <input type="number" name="minExpectancy" value="<%= (user.settings && user.settings.minExpectancy) ?? 0.15 %>" min="-1" max="2" step="0.05" style="width:80px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;"> min expectancy
             </div>
           </div>
+          <div>
+            <label class="ft-toggle" title="Widen stops tighter than 1x ATR to prevent noise-level stop-outs">
+              <input type="checkbox" name="featureMinSlDistance" value="true" <%= (user.settings && user.settings.featureMinSlDistance) !== false ? 'checked' : '' %>> <span class="ft-badge ft-fix">FIX</span> Min SL Distance (1x ATR)
+            </label>
+          </div>
+          <div>
+            <label class="ft-toggle" title="Re-analyze signal while in trade. Exit on score collapse, reduce 50% on score drop">
+              <input type="checkbox" name="featureScoreRecheck" value="true" <%= (user.settings && user.settings.featureScoreRecheck) !== false ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> Score Re-check (Exit/Reduce)
+            </label>
+          </div>
+          <div>
+            <label class="ft-toggle" title="Cap stop loss distance to max 15% from entry">
+              <input type="checkbox" name="featureSlCap" value="true" <%= (user.settings && user.settings.featureSlCap) !== false ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> SL Distance Cap (15%)
+            </label>
+          </div>
         </div>
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
+        <div style="grid-column:1/-1;color:#93c5fd;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:2px 0 4px 0;">Quality + Signal Gates</div>
         <!-- Signal Filters -->
         <label class="ft-toggle" title="Block altcoin LONGs when BTC is STRONG_SELL, block SHORTs when BTC is STRONG_BUY">
           <input type="checkbox" name="featureBtcFilter" value="true" <%= (user.settings && user.settings.featureBtcFilter) !== false ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> BTC Signal Filter
@@ -472,44 +644,52 @@
         <label class="ft-toggle" title="Penalize score up to -8 when coin is highly correlated with BTC but trading against BTC direction">
           <input type="checkbox" name="featureBtcCorrelation" value="true" <%= (user.settings && user.settings.featureBtcCorrelation) !== false ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> BTC Correlation Penalty
         </label>
-        <label class="ft-toggle" title="Apply session penalty (-5 score) outside 12-22 UTC peak hours">
-          <input type="checkbox" name="featureSessionFilter" value="true" <%= (user.settings && user.settings.featureSessionFilter) !== false ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Session Filter (12-22 UTC)
+        <label class="ft-toggle" title="Apply session penalty (-5 score) outside 12-22 UTC. OFF recommended — crypto trades 24/7 and Asian session produces many valid moves">
+          <input type="checkbox" name="featureSessionFilter" value="true" <%= (user.settings && user.settings.featureSessionFilter) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Session Filter (12-22 UTC)
         </label>
         <label class="ft-toggle" title="Hide signals with R:R below threshold. Dashboard and auto-trade only show signals meeting min R:R.">
           <input type="checkbox" name="minRiskRewardEnabled" value="true" id="minRrEnabled" <%= (user.settings?.minRiskRewardEnabled ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> Min R:R Filter
         </label>
         <div id="minRrValueWrap" style="display:<%= (user.settings?.minRiskRewardEnabled ?? true) ? 'flex' : 'none' %>;align-items:center;gap:8px;">
           <label style="font-size:12px;color:#9ca3af;">Min R:R</label>
-          <input type="number" name="minRiskReward" id="minRiskRewardInput" min="1" max="5" step="0.1" value="<%= (user.settings && user.settings.minRiskReward) != null ? user.settings.minRiskReward : 1.2 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+          <input type="number" name="minRiskReward" id="minRiskRewardInput" min="1" max="5" step="0.1" value="<%= (user.settings && user.settings.minRiskReward) != null ? user.settings.minRiskReward : 1.5 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
         </div>
 
+        <div style="grid-column:1/-1;color:#86efac;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:8px 0 4px 0;">TP / Stops / Locking</div>
         <!-- Position Management -->
         <label class="ft-toggle" title="TP1 closes 40%, TP2 closes 30%, TP3 closes remaining 30%. OFF = close 100% at TP1">
           <input type="checkbox" name="featurePartialTP" value="true" <%= (user.settings && user.settings.featurePartialTP) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">TP</span> Partial Take Profits (40/30/30)
         </label>
-        <label class="ft-toggle" title="Move stop to entry (+0.3% buffer) when trade reaches 0.75R profit">
-          <input type="checkbox" name="autoMoveBreakeven" value="true" <%= (user.settings && user.settings.autoMoveBreakeven) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">BE</span> Breakeven at 0.75R
+        <label class="ft-toggle" title="Move stop to entry (+0.3% buffer) when trade reaches beRMult×R profit">
+          <input type="checkbox" name="autoMoveBreakeven" value="true" <%= (user.settings && user.settings.autoMoveBreakeven) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">BE</span> Breakeven Stop
         </label>
-        <label class="ft-toggle" title="Trail stop 1.5R behind best price after 1.5R profit">
-          <input type="checkbox" name="autoTrailingStop" value="true" <%= (user.settings && user.settings.autoTrailingStop) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">TS</span> Trailing Stop (1.5R trail)
+        <div style="display:flex;align-items:center;gap:6px;padding-left:4px;flex-wrap:wrap;margin-bottom:4px;">
+          <span style="font-size:11px;color:#6b7280;">Trigger at</span>
+          <input type="number" name="breakevenRMult" value="<%= user.settings?.breakevenRMult ?? 0.75 %>" min="0.25" max="3" step="0.05" style="width:65px;padding:4px 8px;background:rgba(15,23,42,0.8);border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" title="Move stop to entry when this many R in profit. Lower = moves sooner (riskier). Higher = more time in profit before securing.">
+          <span style="font-size:11px;color:#6b7280;">× R &nbsp;<span style="color:#374151;">(0.75 = default)</span></span>
+        </div>
+        <label class="ft-toggle" title="Trail stop behind best price after activation">
+          <input type="checkbox" name="autoTrailingStop" value="true" <%= (user.settings && user.settings.autoTrailingStop) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">TS</span> Trailing Stop Loss
         </label>
+        <div style="display:flex;align-items:center;gap:10px;padding-left:4px;flex-wrap:wrap;margin-bottom:4px;">
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span style="font-size:11px;color:#6b7280;">Activate at</span>
+            <input type="number" name="trailingStartR" value="<%= user.settings?.trailingStartR ?? 1.5 %>" min="0.5" max="5" step="0.1" style="width:65px;padding:4px 8px;background:rgba(15,23,42,0.8);border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" title="Trailing stop activates when trade reaches this many R in profit. Increase to delay activation.">
+            <span style="font-size:11px;color:#6b7280;">× R</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span style="font-size:11px;color:#6b7280;">Trail dist</span>
+            <input type="number" name="trailingDistR" value="<%= user.settings?.trailingDistR ?? 2.0 %>" min="0.5" max="5" step="0.1" style="width:65px;padding:4px 8px;background:rgba(15,23,42,0.8);border:1px solid #1e2a3a;border-radius:5px;color:#e5e7eb;font-size:12px;" title="Stop trails this many R behind the best price. 2.0 recommended — wider trail avoids noise-triggered stop-outs.">
+            <span style="font-size:11px;color:#6b7280;">× R &nbsp;<span style="color:#374151;">(2.0 recommended)</span></span>
+          </div>
+        </div>
         <label class="ft-toggle" title="Lock stop at 0.5R/0.75R/1R as trade progresses 50%/75%/90% toward TP2">
           <input type="checkbox" name="featureLockIn" value="true" <%= (user.settings && user.settings.featureLockIn) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">LOCK</span> Stepped Lock-In
         </label>
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;margin-top:12px;">
-        <!-- Risk Management -->
-        <label class="ft-toggle" title="Widen stops tighter than 1x ATR to prevent noise-level stop-outs">
-          <input type="checkbox" name="featureMinSlDistance" value="true" <%= (user.settings && user.settings.featureMinSlDistance) !== false ? 'checked' : '' %>> <span class="ft-badge ft-fix">FIX</span> Min SL Distance (1x ATR)
-        </label>
-        <label class="ft-toggle" title="Re-analyze signal while in trade. Exit on score collapse, reduce 50% on score drop">
-          <input type="checkbox" name="featureScoreRecheck" value="true" <%= (user.settings && user.settings.featureScoreRecheck) !== false ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> Score Re-check (Exit/Reduce)
-        </label>
-        <label class="ft-toggle" title="Cap stop loss distance to max 15% from entry">
-          <input type="checkbox" name="featureSlCap" value="true" <%= (user.settings && user.settings.featureSlCap) !== false ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> SL Distance Cap (15%)
-        </label>
-
+        <div style="grid-column:1/-1;color:#c4b5fd;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:8px 0 4px 0;">Sizing Controls</div>
         <!-- Sizing -->
         <label class="ft-toggle" title="Higher score = slightly larger position (0.5 + score/100, cap 1.2x)">
           <input type="checkbox" name="featureConfidenceSizing" value="true" <%= (user.settings && user.settings.featureConfidenceSizing) !== false ? 'checked' : '' %>> <span class="ft-badge ft-cost">SIZE</span> Confidence Sizing
@@ -517,22 +697,23 @@
         <label class="ft-toggle" title="Blend 70% risk-based + 30% fractional Kelly based on strategy win rate & R:R. Requires 15+ trades.">
           <input type="checkbox" name="featureKellySizing" value="true" <%= (user.settings && user.settings.featureKellySizing) !== false ? 'checked' : '' %>> <span class="ft-badge ft-cost">SIZE</span> Kelly Criterion Sizing
         </label>
-        <label class="ft-toggle" title="Boost +2 score for coins in top 5 bullish sectors (CoinGecko categories). See Themes page.">
-          <input type="checkbox" name="featureThemeDetector" value="true" <%= (user.settings && user.settings.featureThemeDetector) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Theme Detector
-        </label>
 
+        <div style="grid-column:1/-1;color:#93c5fd;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:8px 0 4px 0;">Quality Filters</div>
         <!-- Quality Filters -->
         <label class="ft-toggle" title="Require at least one of: order block, FVG, or liquidity cluster. Reduces trades without structure.">
           <input type="checkbox" name="featurePriceActionConfluence" value="true" <%= (user.settings?.featurePriceActionConfluence ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Price-Action Confluence (OB/FVG/Liq)
         </label>
-        <label class="ft-toggle" title="Skip entries when volatility is extreme. Reduces blow-ups in chaotic markets.">
-          <input type="checkbox" name="featureVolatilityFilter" value="true" <%= (user.settings && user.settings.featureVolatilityFilter) === true ? 'checked' : '' %>> <span class="ft-badge ft-risk">QUALITY</span> Volatility Filter (skip extreme)
+        <label class="ft-toggle" title="Skip entries when volatility is extreme (ATR spike > 2× average). Reduces blow-ups in chaotic markets.">
+          <input type="checkbox" name="featureVolatilityFilter" value="true" <%= (user.settings?.featureVolatilityFilter ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-risk">QUALITY</span> Volatility Filter (skip extreme)
         </label>
         <label class="ft-toggle" title="Require relative volume &gt; 1.0. Avoids entries on thin, low-conviction moves.">
           <input type="checkbox" name="featureVolumeConfirmation" value="true" <%= (user.settings?.featureVolumeConfirmation ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Volume Confirmation
         </label>
         <label class="ft-toggle" title="Skip LONG when funding &gt;0.15%, skip SHORT when funding &lt;-0.15% (crowded trades)">
           <input type="checkbox" name="featureFundingRateFilter" value="true" <%= (user.settings?.featureFundingRateFilter ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Funding Rate Filter
+        </label>
+        <label class="ft-toggle" title="Boost +2 score for coins in top 5 bullish sectors (CoinGecko categories). See Themes page.">
+          <input type="checkbox" name="featureThemeDetector" value="true" <%= (user.settings && user.settings.featureThemeDetector) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Theme Detector
         </label>
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -723,6 +904,7 @@
 <% if (Object.keys(stats.byStrategy).length > 0) { %>
 <div class="section">
   <h3>By Strategy</h3>
+  <div style="overflow-x:auto;">
   <table class="data-table">
     <thead><tr><th>Strategy</th><th>Wins</th><th>Losses</th><th>Win Rate</th><th>P&L</th></tr></thead>
     <tbody>
@@ -731,21 +913,23 @@
         var wr = total > 0 ? ((data.wins/total)*100).toFixed(1) : '0';
       %>
         <tr>
-          <td><%= name %></td>
-          <td class="up"><%= data.wins %></td>
-          <td class="down"><%= data.losses %></td>
-          <td><%= wr %>%</td>
-          <td class="<%= (data.pnl || 0) >= 0 ? 'up' : 'down' %>"><%= (data.pnl || 0) >= 0 ? '+' : '' %>$<%= (data.pnl || 0).toFixed(2) %></td>
+          <td data-label="Strategy"><%= name %></td>
+          <td data-label="Wins" class="up"><%= data.wins %></td>
+          <td data-label="Losses" class="down"><%= data.losses %></td>
+          <td data-label="Win Rate"><%= wr %>%</td>
+          <td data-label="P&L" class="<%= (data.pnl || 0) >= 0 ? 'up' : 'down' %>"><%= (data.pnl || 0) >= 0 ? '+' : '' %>$<%= (data.pnl || 0).toFixed(2) %></td>
         </tr>
       <% }); %>
     </tbody>
   </table>
+  </div>
 </div>
 <% } %>
 
 <% if (Object.keys(stats.byCoin).length > 0) { %>
 <div class="section">
   <h3>By Coin</h3>
+  <div style="overflow-x:auto;">
   <table class="data-table">
     <thead><tr><th>Coin</th><th>Wins</th><th>Losses</th><th>Win Rate</th><th>P&L</th></tr></thead>
     <tbody>
@@ -754,15 +938,16 @@
         var wr = total > 0 ? ((data.wins/total)*100).toFixed(1) : '0';
       %>
         <tr>
-          <td style="font-weight:700;"><%= name %></td>
-          <td class="up"><%= data.wins %></td>
-          <td class="down"><%= data.losses %></td>
-          <td><%= wr %>%</td>
-          <td class="<%= (data.pnl || 0) >= 0 ? 'up' : 'down' %>"><%= (data.pnl || 0) >= 0 ? '+' : '' %>$<%= (data.pnl || 0).toFixed(2) %></td>
+          <td data-label="Coin" style="font-weight:700;"><%= name %></td>
+          <td data-label="Wins" class="up"><%= data.wins %></td>
+          <td data-label="Losses" class="down"><%= data.losses %></td>
+          <td data-label="Win Rate"><%= wr %>%</td>
+          <td data-label="P&L" class="<%= (data.pnl || 0) >= 0 ? 'up' : 'down' %>"><%= (data.pnl || 0) >= 0 ? '+' : '' %>$<%= (data.pnl || 0).toFixed(2) %></td>
         </tr>
       <% }); %>
     </tbody>
   </table>
+  </div>
 </div>
 <% } %>
 
@@ -824,6 +1009,50 @@
   });
   updateCalc();
 
+  window.enablePushNotifications = function() {
+    var btn = document.getElementById('push-enable-btn');
+    var status = document.getElementById('push-status');
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = 'Setting up...';
+    fetch('/api/push/vapid-public', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.publicKey) throw new Error('Push not configured');
+        return navigator.serviceWorker.register('/sw.js').then(function(reg) {
+          return reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(data.publicKey)
+          });
+        }).then(function(sub) {
+          return fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subscription: sub.toJSON() }),
+            credentials: 'same-origin'
+          });
+        });
+      })
+      .then(function(r) {
+        if (!r.ok) throw new Error('Subscribe failed');
+        if (status) status.textContent = 'Push enabled';
+        if (status) status.style.color = '#10b981';
+        if (btn) { btn.disabled = false; btn.textContent = 'Push enabled'; }
+      })
+      .catch(function(e) {
+        if (status) status.textContent = e.message || 'Failed (need HTTPS, or allow notifications)';
+        if (status) status.style.color = '#ef4444';
+        if (btn) btn.disabled = false;
+      });
+  };
+  function urlBase64ToUint8Array(base64) {
+    var padding = '='.repeat((4 - base64.length % 4) % 4);
+    var b64 = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+    var raw = atob(b64);
+    var arr = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+    return arr;
+  }
+
   // Load Bitget balance when connected
   var bitgetEl = document.getElementById('bitget-balance-val');
   if (bitgetEl) {
@@ -842,6 +1071,7 @@
 
   <% if (stats.equityCurve && stats.equityCurve.length > 1) { %>
   (function() {
+    try {
     var data = <%- JSON.stringify(stats.equityCurve) %>;
     var canvas = document.getElementById('equity-curve');
     if (!canvas || !data || data.length < 2) return;
@@ -966,6 +1196,11 @@
     // Initial draw + resize handler
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
+    } catch (chartErr) {
+      console.warn('Equity chart init error:', chartErr);
+      var wrap = document.querySelector('.equity-chart-wrap');
+      if (wrap) wrap.innerHTML = '<p style="color:#9ca3af;padding:24px;text-align:center;">Chart could not be loaded. Data is available in the table below.</p>';
+    }
   })();
   <% } %>
 
@@ -976,12 +1211,19 @@ function setLiveToggles(val) {
     document.querySelectorAll('#live-feature-toggles input[type=checkbox]').forEach(function(cb) { cb.checked = val; });
     var wrap = document.getElementById('minRrValueWrap');
     if (wrap) wrap.style.display = val ? 'flex' : 'none';
+    var confWrap = document.getElementById('minConfidenceWrap');
+    if (confWrap) confWrap.style.display = val ? 'flex' : 'none';
   }
   document.addEventListener('DOMContentLoaded', function() {
     var cb = document.getElementById('minRrEnabled');
     var wrap = document.getElementById('minRrValueWrap');
     if (cb && wrap) {
       cb.addEventListener('change', function() { wrap.style.display = cb.checked ? 'flex' : 'none'; });
+    }
+    var confCb = document.getElementById('featureConfidenceFilterEnabled');
+    var confWrap = document.getElementById('minConfidenceWrap');
+    if (confCb && confWrap) {
+      confCb.addEventListener('change', function() { confWrap.style.display = confCb.checked ? 'flex' : 'none'; });
     }
   });
 
@@ -1008,6 +1250,7 @@ function setLiveToggles(val) {
     set('featureScoreRecheck', true);
     set('featureSlCap', true);
     set('featureConfidenceSizing', true);
+    set('featureConfidenceFilterEnabled', false);
     set('featureKellySizing', true);
     set('featurePriceActionConfluence', true);
     set('featureVolatilityFilter', true);
@@ -1020,6 +1263,8 @@ function setLiveToggles(val) {
     if (minRr) minRr.value = 1.2;
     var wrap = document.getElementById('minRrValueWrap');
     if (wrap) wrap.style.display = 'flex';
+    var confWrap = document.getElementById('minConfidenceWrap');
+    if (confWrap) confWrap.style.display = 'none';
     var dcaOpts = document.getElementById('dca-opts');
     if (dcaOpts) dcaOpts.style.display = 'none';
     alert('Max Profit preset applied. Click "Save Toggles" to apply.');
@@ -1045,6 +1290,7 @@ function setLiveToggles(val) {
       var preset = JSON.parse(saved);
       // Map backtest toggle IDs to live form field names
       var mapping = {
+        autoTradeMinScore: 'autoTradeMinScore',
         btcFilter: 'featureBtcFilter',
         btcCorrelation: 'featureBtcCorrelation',
         sessionFilter: 'featureSessionFilter',
@@ -1056,6 +1302,8 @@ function setLiveToggles(val) {
         scoreRecheck: 'featureScoreRecheck',
         slCap: 'featureSlCap',
         confidenceSizing: 'featureConfidenceSizing',
+        confidenceFilterEnabled: 'featureConfidenceFilterEnabled',
+        minConfidence: 'minConfidence',
         kellySizing: 'featureKellySizing',
         priceActionConfluence: 'featurePriceActionConfluence',
         volatilityFilter: 'featureVolatilityFilter',
@@ -1063,17 +1311,61 @@ function setLiveToggles(val) {
         fundingRateFilter: 'featureFundingRateFilter',
         minRiskRewardEnabled: 'minRiskRewardEnabled',
         minRiskReward: 'minRiskReward',
-        correlationFilterEnabled: 'correlationFilterEnabled'
+        correlationFilterEnabled: 'correlationFilterEnabled',
+        cooldownHours: 'cooldownHours',
+        breakevenRMult: 'breakevenRMult',
+        trailingStartR: 'trailingStartR',
+        trailingDistR: 'trailingDistR',
+        maxDailyLossPercent: 'maxDailyLossPercent',
+        drawdownSizingEnabled: 'drawdownSizingEnabled',
+        drawdownThresholdPercent: 'drawdownThresholdPercent',
+        minVolume24hUsd: 'minVolume24hUsd',
+        trailingTpDistanceMode: 'trailingTpDistanceMode',
+        trailingTpAtrMultiplier: 'trailingTpAtrMultiplier',
+        trailingTpFixedPercent: 'trailingTpFixedPercent',
+        dcaMaxAdds: 'dcaMaxAdds',
+        dcaDipPercent: 'dcaDipPercent',
+        dcaAddSizePercent: 'dcaAddSizePercent',
+        dcaMinScore: 'dcaMinScore'
       };
       for (var key in mapping) {
-        var input = document.querySelector('#feature-toggles-form input[name="' + mapping[key] + '"]');
+        var input = document.querySelector('#feature-toggles-form input[name="' + mapping[key] + '"], #feature-toggles-form select[name="' + mapping[key] + '"]');
         if (input && preset[key] !== undefined) {
           if (input.type === 'checkbox') input.checked = preset[key];
           else input.value = preset[key];
         }
       }
+      // dca (backtest) -> dcaEnabled (performance)
+      var dcaCb = document.querySelector('#feature-toggles-form input[name="dcaEnabled"]');
+      if (dcaCb && preset.dca !== undefined) {
+        dcaCb.checked = preset.dca;
+        var dcaOpts = document.getElementById('dca-opts');
+        if (dcaOpts) dcaOpts.style.display = preset.dca ? 'grid' : 'none';
+      }
+      // trailingTp (backtest) -> tpMode radio (performance)
+      var tpFixed = document.querySelector('#feature-toggles-form input[name="tpMode"][value="fixed"]');
+      var tpTrailing = document.querySelector('#feature-toggles-form input[name="tpMode"][value="trailing"]');
+      if (tpFixed && tpTrailing && preset.trailingTp !== undefined) {
+        tpFixed.checked = !preset.trailingTp;
+        tpTrailing.checked = preset.trailingTp;
+        var trailOpts = document.getElementById('trailing-tp-opts');
+        if (trailOpts) trailOpts.style.display = preset.trailingTp ? 'grid' : 'none';
+        var trailAtr = document.getElementById('trail-atr-wrap');
+        var trailFixed = document.getElementById('trail-fixed-wrap');
+        if (preset.trailingTp && preset.trailingTpDistanceMode) {
+          if (trailAtr) trailAtr.style.display = preset.trailingTpDistanceMode === 'atr' ? 'block' : 'none';
+          if (trailFixed) trailFixed.style.display = preset.trailingTpDistanceMode === 'fixed' ? 'block' : 'none';
+        }
+      }
       if (preset.minRiskRewardEnabled && document.getElementById('minRrValueWrap')) {
         document.getElementById('minRrValueWrap').style.display = 'flex';
+      }
+      if (document.getElementById('minConfidenceWrap') && preset.confidenceFilterEnabled !== undefined) {
+        document.getElementById('minConfidenceWrap').style.display = preset.confidenceFilterEnabled ? 'flex' : 'none';
+      }
+      var ddWrap = document.getElementById('dd-thresh-wrap');
+      if (ddWrap && preset.drawdownSizingEnabled !== undefined) {
+        ddWrap.style.display = preset.drawdownSizingEnabled ? 'block' : 'none';
       }
       alert('Backtest preset loaded! Click "Save Toggles" to apply.');
     } catch (e) {

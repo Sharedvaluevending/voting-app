@@ -19,7 +19,12 @@
       var fgColor = v <= 25 ? '#ef4444' : v <= 45 ? '#eab308' : v <= 55 ? '#9ca3af' : v <= 75 ? '#10b981' : '#3b82f6';
     %>
     <div class="pulse-card-value" style="color:<%= fgColor %>;"><%= v %></div>
-    <div class="pulse-card-sub"><%= pulse.fearGreed.classification %></div>
+    <div class="pulse-card-sub">
+      <%= pulse.fearGreed.classification %>
+      <% if (pulse.fearGreed.timestamp) { %>
+        <div style="font-size:10px;opacity:0.6;"><%= new Date(pulse.fearGreed.timestamp).toLocaleDateString() %></div>
+      <% } %>
+    </div>
     <% } else { %>
     <div class="pulse-card-value" style="color:#6b7280;font-size:16px;">—</div>
     <% } %>

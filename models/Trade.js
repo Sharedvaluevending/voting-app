@@ -43,6 +43,7 @@ const tradeSchema = new mongoose.Schema({
   tpType: { type: String },
   tpLabel: { type: String },
   reasoning: [String],
+  counterReasoning: [String],
   indicatorsAtEntry: { type: mongoose.Schema.Types.Mixed },
   scoreBreakdownAtEntry: { type: mongoose.Schema.Types.Mixed },
   llmConfidence: { type: Number, default: null },
@@ -62,6 +63,8 @@ const tradeSchema = new mongoose.Schema({
   isLive: { type: Boolean, default: false },
   bitgetOrderId: { type: String },
   bitgetSymbol: { type: String },
+  bitgetSlOrderId: { type: String },
+  bitgetTpOrderId: { type: String },
   executionStatus: { type: String, enum: ['paper', 'pending', 'filled', 'partial', 'failed'], default: 'paper' },
   executionDetails: { type: mongoose.Schema.Types.Mixed },
   userNotes: { type: String },
@@ -74,6 +77,8 @@ const tradeSchema = new mongoose.Schema({
 tradeSchema.index({ userId: 1, status: 1 });
 tradeSchema.index({ userId: 1, coinId: 1, status: 1 });
 tradeSchema.index({ userId: 1, createdAt: -1 });
+tradeSchema.index({ userId: 1, status: 1, exitTime: -1 });
+tradeSchema.index({ status: 1, coinId: 1, userId: 1 });
 
 tradeSchema.methods.getCurrentPnl = function(currentPrice) {
   if (!currentPrice || !this.entryPrice || this.entryPrice <= 0) return { pnl: 0, pnlPercent: 0 };

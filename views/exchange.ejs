@@ -1,5 +1,38 @@
 <%- include('partials/header') %>
 
+<!-- Early Beta Warning Modal -->
+<div id="exchange-beta-modal" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(2,6,23,0.82);backdrop-filter:blur(10px);align-items:center;justify-content:center;">
+  <div style="max-width:480px;width:90%;background:#0f172a;border:1px solid rgba(239,68,68,0.35);border-radius:14px;padding:28px 24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+    <div style="font-size:32px;margin-bottom:12px;">&#9888;</div>
+    <h3 style="color:#f87171;font-size:18px;margin:0 0 12px 0;">Early Beta — Use at Your Own Risk</h3>
+    <p style="color:#cbd5e1;font-size:13px;line-height:1.7;margin:0 0 10px 0;">
+      The Bitget exchange integration is in <strong style="color:#ef4444;">early beta testing</strong>. 
+      It requires further optimization, testing, and validation before it should be considered reliable.
+    </p>
+    <p style="color:#9ca3af;font-size:12px;line-height:1.6;margin:0 0 8px 0;">
+      Automated trades may not execute as expected. Position sizing, stop-losses, and order timing are still being refined. 
+      <strong style="color:#fbbf24;">You are fully responsible for any funds connected through this page.</strong>
+    </p>
+    <p style="color:#6b7280;font-size:11px;line-height:1.5;margin:0 0 18px 0;">
+      We strongly recommend starting with minimal capital and monitoring all trades manually until the system has been stress-tested.
+    </p>
+    <button id="exchange-beta-dismiss" style="padding:10px 32px;background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.35);border-radius:8px;color:#f87171;font-weight:600;font-size:14px;cursor:pointer;">I Understand the Risks</button>
+  </div>
+</div>
+<script>
+(function() {
+  if (!sessionStorage.getItem('exchange_beta_ack')) {
+    var m = document.getElementById('exchange-beta-modal');
+    if (m) m.style.display = 'flex';
+  }
+  var btn = document.getElementById('exchange-beta-dismiss');
+  if (btn) btn.addEventListener('click', function() {
+    sessionStorage.setItem('exchange_beta_ack', '1');
+    document.getElementById('exchange-beta-modal').style.display = 'none';
+  });
+})();
+</script>
+
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Exchange Integration</h2>
   <span style="color:#6b7280;font-size:13px;">Connect Bitget to trade with real money</span>
@@ -96,9 +129,67 @@
   <% if (user.liveTrading && user.liveTrading.enabled) { %>
   <div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:10px 14px;margin-bottom:16px;">
     <span style="color:#eab308;font-weight:600;font-size:13px;">LIVE TRADING IS ACTIVE</span>
-    <span style="color:#9ca3af;font-size:12px;margin-left:8px;">Real orders are being sent to Bitget</span>
+    <span style="color:#9ca3af;font-size:12px;margin-left:8px;"><%= user.liveTrading.dryRun ? 'DRY-RUN — orders are logged but NOT sent to Bitget' : 'Real orders are being sent to Bitget' %></span>
   </div>
   <% } %>
+</div>
+
+<!-- Dry-Run Test Mode -->
+<div class="section" style="margin-bottom:24px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <div>
+      <h3 style="color:#e5e7eb;margin:0;">Dry-Run Test Mode</h3>
+      <p style="font-size:13px;color:#9ca3af;margin:4px 0 0 0;">Simulate live trading — logs all orders, SL/TP, and closes without sending anything to Bitget. Use this to verify everything works before going live.</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span style="font-size:13px;font-weight:600;color:<%= user.liveTrading && user.liveTrading.dryRun ? '#3b82f6' : '#6b7280' %>;">
+        <%= user.liveTrading && user.liveTrading.dryRun ? 'DRY-RUN' : 'OFF' %>
+      </span>
+      <form action="/exchange/settings" method="POST">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <input type="hidden" name="toggleDryRun" value="true">
+        <input type="hidden" name="dryRunState" value="<%= user.liveTrading && user.liveTrading.dryRun ? 'false' : 'true' %>">
+        <button type="submit"
+          style="position:relative;width:56px;height:28px;border-radius:14px;border:none;cursor:pointer;transition:all 0.3s;
+          background:<%= user.liveTrading && user.liveTrading.dryRun ? '#3b82f6' : '#374151' %>;">
+          <div style="position:absolute;top:3px;<%= user.liveTrading && user.liveTrading.dryRun ? 'left:31px' : 'left:3px' %>;width:22px;height:22px;border-radius:50%;background:#fff;transition:all 0.3s;"></div>
+        </button>
+      </form>
+    </div>
+  </div>
+  <% if (user.liveTrading && user.liveTrading.dryRun) { %>
+  <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.3);border-radius:8px;padding:10px 14px;">
+    <span style="color:#3b82f6;font-weight:600;font-size:13px;">DRY-RUN ACTIVE</span>
+    <span style="color:#9ca3af;font-size:12px;margin-left:8px;">All trade actions are logged in server console but no real orders are placed. Check your server logs to verify signals fire correctly.</span>
+  </div>
+  <% } %>
+</div>
+
+<!-- Exchange Protection Info -->
+<div class="section" style="margin-bottom:24px;">
+  <h3 style="color:#e5e7eb;margin-bottom:8px;">Exchange-Level Protection</h3>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;">
+    <div class="perf-card">
+      <div class="perf-label">Native SL Orders</div>
+      <div class="perf-value up">Active</div>
+      <div style="font-size:11px;color:#6b7280;margin-top:4px;">Stop-loss orders placed directly on Bitget</div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Native TP Orders</div>
+      <div class="perf-value up">Active</div>
+      <div style="font-size:11px;color:#6b7280;margin-top:4px;">Take-profit (TP1) placed on Bitget</div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">App SL/TP Check</div>
+      <div class="perf-value" style="color:#3b82f6;">Every 10s</div>
+      <div style="font-size:11px;color:#6b7280;margin-top:4px;">Breakeven, trailing, partials managed by app</div>
+    </div>
+    <div class="perf-card">
+      <div class="perf-label">Server-Down Safety</div>
+      <div class="perf-value up">Protected</div>
+      <div style="font-size:11px;color:#6b7280;margin-top:4px;">Bitget enforces SL/TP even if server offline</div>
+    </div>
+  </div>
 </div>
 
 <!-- Trading Settings -->
@@ -237,6 +328,7 @@
           var el = document.getElementById(id);
           if (el) el.textContent = 'Error';
         });
+        if (typeof showToast === 'function') showToast('Account data failed to load');
       });
   }
 
@@ -250,25 +342,26 @@
           container.innerHTML = '<div style="color:#6b7280;font-size:13px;">No open positions on Bitget</div>';
           return;
         }
-        var html = '<table class="data-table"><thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>Mark</th><th>P&L</th><th>Leverage</th></tr></thead><tbody>';
+        var html = '<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>Mark</th><th>P&L</th><th>Leverage</th></tr></thead><tbody>';
         data.positions.forEach(function(p) {
           var pnl = parseFloat(p.unrealizedPL || p.achievedProfits || 0);
           html += '<tr>';
-          html += '<td style="font-weight:700;">' + (p.symbol || '-') + '</td>';
-          html += '<td class="' + (p.holdSide === 'long' ? 'up' : 'down') + '">' + (p.holdSide || '-').toUpperCase() + '</td>';
-          html += '<td>' + (p.total || p.available || '-') + '</td>';
-          html += '<td>$' + (parseFloat(p.openPriceAvg || 0).toFixed(2)) + '</td>';
-          html += '<td>$' + (parseFloat(p.markPrice || 0).toFixed(2)) + '</td>';
-          html += '<td class="' + (pnl >= 0 ? 'up' : 'down') + '">' + (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2) + '</td>';
-          html += '<td>' + (p.leverage || '-') + 'x</td>';
+          html += '<td data-label="Symbol" style="font-weight:700;">' + (p.symbol || '-') + '</td>';
+          html += '<td data-label="Side" class="' + (p.holdSide === 'long' ? 'up' : 'down') + '">' + (p.holdSide || '-').toUpperCase() + '</td>';
+          html += '<td data-label="Size">' + (p.total || p.available || '-') + '</td>';
+          html += '<td data-label="Entry">$' + (parseFloat(p.openPriceAvg || 0).toFixed(2)) + '</td>';
+          html += '<td data-label="Mark">$' + (parseFloat(p.markPrice || 0).toFixed(2)) + '</td>';
+          html += '<td data-label="P&L" class="' + (pnl >= 0 ? 'up' : 'down') + '">' + (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2) + '</td>';
+          html += '<td data-label="Leverage">' + (p.leverage || '-') + 'x</td>';
           html += '</tr>';
         });
-        html += '</tbody></table>';
+        html += '</tbody></table></div>';
         container.innerHTML = html;
       })
       .catch(function() {
         var container = document.getElementById('exchange-positions');
         if (container) container.innerHTML = '<div style="color:#ef4444;font-size:13px;">Error loading positions</div>';
+        if (typeof showToast === 'function') showToast('Positions failed to load');
       });
   }
 

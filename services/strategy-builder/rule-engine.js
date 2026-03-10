@@ -75,7 +75,7 @@ function evalCondition(cond, ctx) {
     case 'bb_touch': {
       const bb = ind.BollingerBands(closes, cond.period || 20, cond.stdDev || 2);
       const range = bb.upper - bb.lower;
-      if (range === 0) return false;
+      if (range <= 0 || !Number.isFinite(range)) return false;
       const dist = Math.abs(currentPrice - (cond.band === 'lower' ? bb.lower : cond.band === 'upper' ? bb.upper : bb.mid)) / range;
       return dist < 0.02;
     }
@@ -86,6 +86,7 @@ function evalCondition(cond, ctx) {
         const prev = ind.BollingerBands(closes.slice(0, -1), 20, 2);
         return prev.upper - prev.lower;
       })() : width * 1.5;
+      if (width <= 0 || prevWidth <= 0 || !Number.isFinite(width)) return false;
       if (width < prevWidth * 0.8) return false; // Was squeezed
       if (cond.direction === 'above') return currentPrice > bb.upper;
       return currentPrice < bb.lower;

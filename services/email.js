@@ -15,7 +15,7 @@ function getTransporter() {
 async function sendPasswordResetEmail(email, resetUrl) {
   const transporter = getTransporter();
   const from = process.env.MAIL_FROM || process.env.MAIL_USER || 'noreply@cryptosignals.local';
-  const subject = 'Reset your CryptoSignals Pro password';
+  const subject = 'Reset your AlphaConfluence password';
   const html = `
     <p>You requested a password reset. Click the link below to set a new password:</p>
     <p><a href="${resetUrl}" style="color:#3b82f6;">${resetUrl}</a></p>
@@ -25,8 +25,27 @@ async function sendPasswordResetEmail(email, resetUrl) {
     await transporter.sendMail({ from, to: email, subject, html });
     return true;
   }
-  console.log('[Email] No SMTP configured. Reset link (dev):', resetUrl);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[Email] No SMTP configured. Reset link (dev):', resetUrl);
+  }
   return false;
 }
 
-module.exports = { sendPasswordResetEmail };
+async function sendLifecycleEmail(email, subject, message) {
+  const transporter = getTransporter();
+  const from = process.env.MAIL_FROM || process.env.MAIL_USER || 'noreply@cryptosignals.local';
+  const html = `
+    <p>${message}</p>
+    <p>Manage billing: <a href="${process.env.BASE_URL || 'https://alphaconfluence.com'}/pricing">${process.env.BASE_URL || 'https://alphaconfluence.com'}/pricing</a></p>
+  `;
+  if (transporter) {
+    await transporter.sendMail({ from, to: email, subject, html });
+    return true;
+  }
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[Email] Lifecycle email (dev):', { email, subject, message });
+  }
+  return false;
+}
+
+module.exports = { sendPasswordResetEmail, sendLifecycleEmail };

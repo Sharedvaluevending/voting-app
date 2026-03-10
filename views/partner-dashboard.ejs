@@ -1,0 +1,66 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Partner Dashboard</h2>
+</div>
+
+<div class="pulse-grid">
+  <div class="pulse-card">
+    <div class="pulse-card-label">Referral Code</div>
+    <div class="pulse-card-value" style="font-size:22px;"><%= partner.referralCode %></div>
+    <div class="pulse-card-sub"><button class="btn btn-outline btn-sm" onclick="navigator.clipboard.writeText('<%= referralLink %>')">Copy Link</button></div>
+  </div>
+  <div class="pulse-card">
+    <div class="pulse-card-label">Total Signups</div>
+    <div class="pulse-card-value"><%= totalSignups %></div>
+  </div>
+  <div class="pulse-card">
+    <div class="pulse-card-label">Active Subscribers</div>
+    <div class="pulse-card-value"><%= activeSubscribers %></div>
+  </div>
+  <div class="pulse-card">
+    <div class="pulse-card-label">Pending Earnings</div>
+    <div class="pulse-card-value">$<%= Number(partner.pendingEarnings || 0).toFixed(2) %></div>
+  </div>
+  <div class="pulse-card">
+    <div class="pulse-card-label">Lifetime Earnings</div>
+    <div class="pulse-card-value">$<%= Number(partner.totalEarnings || 0).toFixed(2) %></div>
+  </div>
+</div>
+
+<% if (typeof referralsEnabled !== 'undefined' && !referralsEnabled) { %>
+<div class="section" style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.3);border-radius:10px;margin-bottom:0;">
+  <p style="font-size:13px;color:#fbbf24;line-height:1.65;margin:0;">Referrals are not active yet. Your code and link are ready — once we launch, people can sign up using your link and you'll start earning commissions. Stay tuned!</p>
+</div>
+<% } %>
+
+<div class="section" style="background:rgba(15,23,42,0.62);">
+  <h3>How it works</h3>
+  <p style="font-size:13px;color:#cbd5e1;line-height:1.65;">Share your referral link. When someone subscribes through your code, you earn your configured recurring commission percentage on successful subscription payments.</p>
+</div>
+
+<div class="section themes-table-wrap" style="margin-top:16px;">
+  <h3>Payout History</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Invoice</th>
+        <th>Commission</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% (commissions || []).forEach(function(c) { %>
+        <tr>
+          <td><%= new Date(c.createdAt).toLocaleDateString() %></td>
+          <td><code><%= c.stripeInvoiceId || '-' %></code></td>
+          <td>$<%= (Number(c.commissionAmountCents || 0) / 100).toFixed(2) %></td>
+          <td><%= c.status %></td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+</div>
+
+<%- include('partials/footer') %>

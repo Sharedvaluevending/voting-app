@@ -9,6 +9,13 @@
 const Trade = require('../models/Trade');
 const User = require('../models/User');
 const { recordTradeOutcome, adjustWeights } = require('./learning-engine');
+const { notifyUser } = require('./notifications');
+const {
+  notifyTradeOpened: notifyFreeSignalTradeOpened,
+  notifyTradeClosed: notifyFreeSignalTradeClosed,
+  notifyActionBadge: notifyFreeSignalActionBadge
+} = require('./free-signal-discord');
+const { notifyWinningTrade } = require('./admin-discord');
 const bitget = require('./bitget');
 const { plan: riskEnginePlan } = require('./engines/risk-engine');
 
@@ -25,6 +32,19 @@ function getTakerFee(user) {
 const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
 const DEFAULT_COOLDOWN_HOURS = 6;  // no same-direction re-entry on same coin within N hours (matches schema default)
 const MIN_HOLD_MINUTES = 30;       // Don't score-exit trades within first 30 minutes
+const MAX_DOLLAR_RISK_FRACTION = 0.10;
+
+function computeWeightedEntryPrice(currentEntry, currentSize, addPrice, addSize) {
+  if (!(currentEntry > 0) || !(addPrice > 0) || !(currentSize > 0) || !(addSize > 0)) return currentEntry;
+  const currentUnits = currentSize / currentEntry;
+  const addUnits = addSize / addPrice;
+  const totalUnits = currentUnits + addUnits;
+  if (!(totalUnits > 0)) return currentEntry;
+  return (currentSize + addSize) / totalUnits;
+}
+
+// Trade IDs currently being closed — prevents double-close race (concurrent requests double-crediting balance)
+const closingTrades = new Set();
 
 // Correlated coin groups: avoid opening 2+ trades in same group (e.g. ETH + MATIC move together)
 const CORRELATED_GROUPS = [
@@ -132,16 +152,28 @@ function suggestLeverage(score, regime, volatilityState) {
 
 function calculatePositionSize(balance, riskPercent, entryPrice, stopLoss, leverage, opts) {
   opts = opts || {};
-  if (!entryPrice || entryPrice <= 0) return balance * 0.05 * leverage;
   const riskMode = opts.riskMode || 'percent';
-  const riskAmount = riskMode === 'dollar' && Number.isFinite(opts.riskDollarsPerTrade) && opts.riskDollarsPerTrade > 0
-    ? opts.riskDollarsPerTrade
-    : balance * (riskPercent / 100);
+  const isDollarMode = riskMode === 'dollar' && Number.isFinite(opts.riskDollarsPerTrade) && opts.riskDollarsPerTrade > 0;
+
+  if (!entryPrice || entryPrice <= 0) {
+    if (isDollarMode) return 0;
+    return balance * 0.05 * leverage;
+  }
+
   let stopDistance = typeof stopLoss === 'number' && stopLoss > 0
     ? Math.abs(entryPrice - stopLoss) / entryPrice
     : 0.02;
   if (stopDistance <= 0 || !Number.isFinite(stopDistance)) stopDistance = 0.02;
-  const positionSize = (riskAmount / stopDistance) * leverage;
+
+  let positionSize;
+  if (isDollarMode) {
+    positionSize = opts.riskDollarsPerTrade / stopDistance;
+    return Number.isFinite(positionSize) && positionSize > 0 ? positionSize : 0;
+  } else {
+    const riskAmount = balance * (riskPercent / 100);
+    positionSize = (riskAmount / stopDistance) * leverage;
+  }
+
   const capped = Math.min(positionSize, balance * leverage * 0.95);
   return Number.isFinite(capped) ? capped : balance * 0.1 * leverage;
 }
@@ -198,6 +230,17 @@ async function openTrade(userId, signalData) {
     throw new Error(`${signalData.symbol} volume $${(signalData.volume24h || 0).toLocaleString()} below minimum $${minVol.toLocaleString()}`);
   }
 
+  // Optional confidence gate (OFF by default): block low-confidence entries.
+  if (user.settings?.featureConfidenceFilterEnabled === true) {
+    const minConfidence = Math.max(0, Math.min(100, Number(user.settings?.minConfidence ?? 60)));
+    // Backward-compatible fallback: some signal sources don't provide confidence.
+    // Use score as a proxy so confidence filter does not hard-block on "N/A".
+    const confidence = Number(signalData.confidence ?? signalData.score);
+    if (!Number.isFinite(confidence) || confidence < minConfidence) {
+      throw new Error(`Confidence filter blocked trade: ${signalData.symbol} confidence ${Number.isFinite(confidence) ? confidence.toFixed(0) : 'N/A'} < minimum ${minConfidence}.`);
+    }
+  }
+
   // Correlation filter: avoid opening 2+ trades in same correlated group (e.g. ETH + MATIC)
   if (user.settings?.correlationFilterEnabled !== false) {
     const openTrades = await Trade.find({ userId, status: 'OPEN' }).select('coinId').lean();
@@ -224,6 +267,47 @@ async function openTrade(userId, signalData) {
     suggestedLeverage: signalData.leverage || suggestLeverage(signalData.score, signalData.regime, signalData.indicators?.volatilityState)
   };
   const peakEquity = Math.max(user.initialBalance || 10000, balance);
+  const requestedRiskDollarsPerTrade = user.settings?.riskDollarsPerTrade ?? 200;
+  const riskModeSetting = user.settings?.riskMode || 'percent';
+  const maxRiskDollarsPerTrade = Math.max(1, balance * MAX_DOLLAR_RISK_FRACTION);
+  const appliedRiskDollarsPerTrade = riskModeSetting === 'dollar'
+    ? Math.min(requestedRiskDollarsPerTrade, maxRiskDollarsPerTrade)
+    : requestedRiskDollarsPerTrade;
+  if (riskModeSetting === 'dollar' && appliedRiskDollarsPerTrade < requestedRiskDollarsPerTrade) {
+    console.warn(`[OpenTrade] ${signalData.symbol}: fixed dollar risk capped from $${requestedRiskDollarsPerTrade.toFixed(2)} to $${appliedRiskDollarsPerTrade.toFixed(2)} (10% of balance rule)`);
+  }
+  const userSettings = {
+    riskPerTrade: user.settings?.riskPerTrade || 2,
+    riskMode: riskModeSetting,
+    drawdownSizingEnabled: user.settings?.drawdownSizingEnabled ?? true,
+    drawdownThresholdPercent: user.settings?.drawdownThresholdPercent ?? 10,
+    expectancyFilterEnabled: user.settings?.expectancyFilterEnabled ?? true,
+    minExpectancy: user.settings?.minExpectancy ?? 0.15,
+    riskDollarsPerTrade: appliedRiskDollarsPerTrade,
+    defaultLeverage: user.settings?.defaultLeverage || 1,
+    useFixedLeverage: user.settings?.useFixedLeverage,
+    disableLeverage: user.settings?.disableLeverage,
+    maxBalancePercentPerTrade: user.settings?.maxBalancePercentPerTrade ?? 25,
+    makerFeePercent: user.settings?.makerFeePercent,
+    takerFeePercent: user.settings?.takerFeePercent,
+    tpMode: user.settings?.tpMode || 'fixed',
+    trailingTpDistanceMode: user.settings?.trailingTpDistanceMode || 'atr',
+    trailingTpAtrMultiplier: user.settings?.trailingTpAtrMultiplier ?? 1.5,
+    trailingTpFixedPercent: user.settings?.trailingTpFixedPercent ?? 2
+  };
+  // Apply LLM per-trade overrides (stop, TPs, tpMode, trailing, leverage)
+  const llmOverrides = signalData.llmOverrides;
+  if (llmOverrides) {
+    if (llmOverrides.tpMode) userSettings.tpMode = llmOverrides.tpMode;
+    if (llmOverrides.trailingTpDistanceMode) userSettings.trailingTpDistanceMode = llmOverrides.trailingTpDistanceMode;
+    if (llmOverrides.trailingTpAtrMultiplier != null) userSettings.trailingTpAtrMultiplier = llmOverrides.trailingTpAtrMultiplier;
+    if (llmOverrides.trailingTpFixedPercent != null) userSettings.trailingTpFixedPercent = llmOverrides.trailingTpFixedPercent;
+    if (llmOverrides.useFixedLeverage !== undefined) userSettings.useFixedLeverage = llmOverrides.useFixedLeverage;
+    if (llmOverrides.leverage != null) {
+      userSettings.useFixedLeverage = true;
+      userSettings.defaultLeverage = llmOverrides.leverage;
+    }
+  }
   const context = {
     balance,
     peakEquity,
@@ -231,25 +315,7 @@ async function openTrade(userId, signalData) {
     streak: user.stats?.currentStreak || 0,
     strategyStats: signalData.strategyStats || {},
     featureFlags: ff,
-    userSettings: {
-      riskPerTrade: user.settings?.riskPerTrade || 2,
-      riskMode: user.settings?.riskMode || 'percent',
-      drawdownSizingEnabled: user.settings?.drawdownSizingEnabled ?? true,
-      drawdownThresholdPercent: user.settings?.drawdownThresholdPercent ?? 10,
-      expectancyFilterEnabled: user.settings?.expectancyFilterEnabled ?? true,
-      minExpectancy: user.settings?.minExpectancy ?? 0.15,
-      riskDollarsPerTrade: user.settings?.riskDollarsPerTrade ?? 200,
-      defaultLeverage: user.settings?.defaultLeverage || 1,
-      useFixedLeverage: user.settings?.useFixedLeverage,
-      disableLeverage: user.settings?.disableLeverage,
-      maxBalancePercentPerTrade: user.settings?.maxBalancePercentPerTrade ?? 25,
-      makerFeePercent: user.settings?.makerFeePercent,
-      takerFeePercent: user.settings?.takerFeePercent,
-      tpMode: user.settings?.tpMode || 'fixed',
-      trailingTpDistanceMode: user.settings?.trailingTpDistanceMode || 'atr',
-      trailingTpAtrMultiplier: user.settings?.trailingTpAtrMultiplier ?? 1.5,
-      trailingTpFixedPercent: user.settings?.trailingTpFixedPercent ?? 2
-    }
+    userSettings
   };
   const orders = riskEnginePlan(decision, { coinData: { price: signalData.entry } }, context);
   if (!orders) {
@@ -299,7 +365,7 @@ async function openTrade(userId, signalData) {
     safeTP1 = null;
     safeTP2 = null;
     safeTP3 = null;
-    console.log(`[OpenTrade] ${signalData.symbol}: Trailing TP mode — distance $${(trailingTpDistance || 0).toFixed(6)}`);
+    if (process.env.NODE_ENV !== 'production') console.log(`[OpenTrade] ${signalData.symbol}: Trailing TP mode — distance $${(trailingTpDistance || 0).toFixed(6)}`);
   } else {
     if (signalData.direction === 'LONG') {
       if (safeTP1 && safeTP1 < entryPrice) { console.warn(`[OpenTrade] ${signalData.symbol}: TP1 $${safeTP1} < entry $${entryPrice} for LONG — removed`); safeTP1 = null; }
@@ -344,6 +410,7 @@ async function openTrade(userId, signalData) {
     tpType: signalData.tpType,
     tpLabel: signalData.tpLabel,
     reasoning: signalData.reasoning || [],
+    counterReasoning: signalData.counterReasons || [],
     indicatorsAtEntry: signalData.indicators || {},
     scoreBreakdownAtEntry: signalData.scoreBreakdown || {},
     llmConfidence: signalData.llmConfidence || null,
@@ -357,7 +424,14 @@ async function openTrade(userId, signalData) {
 
   await trade.save();
 
-  console.log(`[OpenTrade] ${signalData.symbol} ${signalData.direction} | entry=$${entryPrice} | SL=$${stopLoss} | TP1=$${safeTP1} | TP2=$${safeTP2} | TP3=$${safeTP3} | size=$${finalPositionSize.toFixed(2)} | lev=${leverage}x | score=${signalData.score} | strategy=${signalData.strategyType || 'default'} | auto=${!!signalData.autoTriggered}${signalData.llmConfidence ? ` | llmConf=${signalData.llmConfidence}` : ''}`);
+  if (process.env.NODE_ENV !== 'production') console.log(`[OpenTrade] ${signalData.symbol} ${signalData.direction} | entry=$${entryPrice} | SL=$${stopLoss} | TP1=$${safeTP1} | TP2=$${safeTP2} | TP3=$${safeTP3} | size=$${finalPositionSize.toFixed(2)} | lev=${leverage}x | score=${signalData.score} | strategy=${signalData.strategyType || 'default'} | auto=${!!signalData.autoTriggered}${signalData.llmConfidence ? ` | llmConf=${signalData.llmConfidence}` : ''}`);
+
+  // Push/SMS notification
+  if (user.settings?.notifyTradeOpen !== false) {
+    const u = user.toObject ? user.toObject() : user;
+    notifyUser(userId, 'trade_open', `Trade opened: ${signalData.symbol} ${signalData.direction}`, `Score ${signalData.score} | Entry $${entryPrice.toFixed(2)}`, u).catch(() => {});
+  }
+  notifyFreeSignalTradeOpened(trade).catch(() => {});
 
   // Atomic balance update — prevents race conditions between concurrent trade operations
   if (user.paperBalance == null) {
@@ -373,7 +447,7 @@ async function openTrade(userId, signalData) {
     if (paperLiveSync && bitget.isLiveTradingActive(user)) {
       const isManual = user.liveTrading?.mode !== 'auto';
       if (isManual || signalData.autoTriggered) {
-        console.log(`[Bitget] Executing live open for ${trade.symbol} ${trade.direction}`);
+        if (process.env.NODE_ENV !== 'production') console.log(`[Bitget] Executing live open for ${trade.symbol} ${trade.direction}`);
         await bitget.executeLiveOpen(user, trade, signalData);
       }
     }
@@ -390,13 +464,18 @@ async function closeTradePartial(trade, exitPrice, portionSize, reason) {
   const user = await User.findById(trade.userId);
   if (!user) throw new Error('User not found');
 
+  if (!trade.entryPrice || trade.entryPrice <= 0 || !Number.isFinite(trade.entryPrice)) {
+    console.error(`[Partial] Invalid trade ${trade.symbol}: entryPrice=${trade.entryPrice} — skipping partial close to prevent bad PnL math`);
+    return;
+  }
+
   const origSize = trade.originalPositionSize || trade.positionSize;
   const remainingAfter = trade.positionSize - portionSize;
 
   // If remaining position would be < 1% of original (dust), close the entire remaining instead.
   // This prevents trades lingering with $0.01 size showing huge partial PnL.
   if (remainingAfter < origSize * 0.01 || remainingAfter < 1) {
-    console.log(`[Partial] ${trade.symbol}: remaining $${remainingAfter.toFixed(2)} < 1% of original $${origSize.toFixed(2)} — closing entire remaining position`);
+    if (process.env.NODE_ENV !== 'production') console.log(`[Partial] ${trade.symbol}: remaining $${remainingAfter.toFixed(2)} < 1% of original $${origSize.toFixed(2)} — closing entire remaining position`);
     await closeTrade(trade.userId, trade._id, exitPrice, reason);
     return;
   }
@@ -444,7 +523,7 @@ async function closeTradePartial(trade, exitPrice, portionSize, reason) {
     if (trade.isLive) {
       const user = await User.findById(trade.userId);
       if (user && bitget.isLiveTradingActive(user)) {
-        console.log(`[Bitget] Executing live partial close for ${trade.symbol}, portion=$${portion.toFixed(2)}`);
+        if (process.env.NODE_ENV !== 'production') console.log(`[Bitget] Executing live partial close for ${trade.symbol}, portion=$${portion.toFixed(2)}`);
         await bitget.executeLivePartialClose(user, trade, portion);
       }
     }
@@ -457,8 +536,26 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
   const trade = await Trade.findOne({ _id: tradeId, userId, status: 'OPEN' });
   if (!trade) throw new Error('Trade not found or already closed');
 
+  const tradeKey = String(tradeId);
+  if (closingTrades.has(tradeKey)) {
+    throw new Error('Trade is already being closed');
+  }
+  closingTrades.add(tradeKey);
+  try {
+    return await _closeTradeInner(userId, tradeId, trade, currentPrice, reason);
+  } finally {
+    closingTrades.delete(tradeKey);
+  }
+}
+
+async function _closeTradeInner(userId, tradeId, trade, currentPrice, reason) {
   const user = await User.findById(userId);
   if (!user) throw new Error('User not found');
+
+  if (!trade.entryPrice || trade.entryPrice <= 0 || !Number.isFinite(trade.entryPrice)) {
+    console.error(`[CloseTrade] Invalid trade ${trade.symbol}: entryPrice=${trade.entryPrice} — skipping close to prevent bad PnL math`);
+    return null;
+  }
 
   // PRICE SANITY CHECK: don't close at a price that's impossibly far from entry
   // unless it's a manual close (user explicitly chose to close)
@@ -483,6 +580,19 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
         throw new Error(`Price sanity check failed: ${trade.symbol} entry=$${trade.entryPrice} close=$${currentPrice} (${(finalDrift * 100).toFixed(1)}% drift). Blocking automated close.`);
       }
     }
+  }
+
+  const closeActionType = reason === 'STOPPED_OUT' || reason === 'TRAILING_TP_EXIT'
+    ? 'SL'
+    : (reason === 'TP1' || reason === 'TP2' || reason === 'TP3')
+      ? reason
+      : null;
+  if (closeActionType) {
+    const fp = (v) => typeof v === 'number' ? v.toFixed(v >= 1 ? 2 : 6) : String(v);
+    const desc = closeActionType === 'SL'
+      ? `Stop hit at $${fp(currentPrice)} (${reason})`
+      : `${closeActionType} closed at $${fp(currentPrice)}`;
+    logTradeAction(trade, closeActionType, desc, trade.positionSize, 0, currentPrice);
   }
 
   // Slippage on exit: LONG sell lower, SHORT buy back higher
@@ -523,7 +633,7 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
 
   await trade.save();
 
-  console.log(`[CloseTrade] ${trade.symbol} ${trade.direction} | entry=$${trade.entryPrice} exit=$${exitPrice} (fed price=$${currentPrice}) | reason=${reason} | PnL=$${totalPnl.toFixed(2)} (${pnlPercent.toFixed(1)}%) | duration=${Math.round((Date.now() - new Date(trade.createdAt).getTime()) / 60000)}min`);
+  if (process.env.NODE_ENV !== 'production') console.log(`[CloseTrade] ${trade.symbol} ${trade.direction} | entry=$${trade.entryPrice} exit=$${exitPrice} (fed price=$${currentPrice}) | reason=${reason} | PnL=$${totalPnl.toFixed(2)} (${pnlPercent.toFixed(1)}%) | duration=${Math.round((Date.now() - new Date(trade.createdAt).getTime()) / 60000)}min`);
 
   // Atomic balance + stats update — prevents race conditions between concurrent operations
   const balanceDelta = trade.margin + pnl;
@@ -566,7 +676,7 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
     if (trade.isLive) {
       const liveUser = await User.findById(userId);
       if (liveUser && bitget.isLiveTradingActive(liveUser)) {
-        console.log(`[Bitget] Executing live close for ${trade.symbol} ${trade.direction} reason=${reason}`);
+        if (process.env.NODE_ENV !== 'production') console.log(`[Bitget] Executing live close for ${trade.symbol} ${trade.direction} reason=${reason}`);
         await bitget.executeLiveClose(liveUser, trade);
       }
     }
@@ -574,7 +684,14 @@ async function closeTrade(userId, tradeId, currentPrice, reason) {
     console.error(`[Bitget] Live close error: ${bitgetErr.message}`);
   }
 
-  // Push notification
+  // Push/SMS notification (reuse user from start of function)
+  if (user && (user.settings?.notifyTradeClose !== false)) {
+    const pnl = trade.pnl != null ? trade.pnl.toFixed(2) : '0';
+    const pnlSign = (trade.pnl || 0) >= 0 ? '+' : '';
+    notifyUser(userId, 'trade_close', `Trade closed: ${trade.symbol} ${trade.direction}`, `${pnlSign}$${pnl} — ${reason}`, user).catch(() => {});
+  }
+  notifyFreeSignalTradeClosed(trade).catch(() => {});
+  notifyWinningTrade(trade).catch(() => {});
 
   return trade;
 }
@@ -589,6 +706,12 @@ function logTradeAction(trade, type, description, oldValue, newValue, marketPric
     marketPrice: marketPrice != null ? marketPrice : undefined,
     timestamp: new Date()
   });
+  // Action badge notification (BE, TS, LOCK, DCA, EXIT, etc.)
+  const badgeTypes = ['BE', 'TS', 'LOCK', 'DCA', 'EXIT', 'PP', 'RP', 'LLM_SL', 'SL', 'TP1', 'TP2', 'TP3'];
+  if (badgeTypes.includes(type) && trade.userId) {
+    notifyUser(trade.userId, 'action_badge', `${type}: ${trade.symbol}`, description || type, null).catch(() => {});
+    notifyFreeSignalActionBadge(trade, trade.actions[trade.actions.length - 1]).catch(() => {});
+  }
 }
 
 /**
@@ -607,16 +730,26 @@ async function updateTradeLevels(userId, tradeId, updates, currentPrice) {
   const entry = trade.entryPrice;
   const isLong = trade.direction === 'LONG';
 
-  const validate = (val, mustBeAbove) => {
+  const validateTP = (val, isLong) => {
     if (val == null || !Number.isFinite(val) || val <= 0) return null;
-    if (mustBeAbove && val <= entry) return null;
-    if (!mustBeAbove && val >= entry) return null;
+    if (isLong && val <= entry) return null;
+    if (!isLong && val >= entry) return null;
+    return val;
+  };
+
+  const validateSL = (val, isLong) => {
+    if (val == null || !Number.isFinite(val) || val <= 0) return null;
+    // Allow SL in profit (trailing), but ensure it doesn't immediately trigger
+    if (currentPrice && Number.isFinite(currentPrice) && currentPrice > 0) {
+      if (isLong && val >= currentPrice) return null; // SL must be below current price for LONG
+      if (!isLong && val <= currentPrice) return null; // SL must be above current price for SHORT
+    }
     return val;
   };
 
   let changed = false;
   if (updates.stopLoss != null && Number.isFinite(updates.stopLoss)) {
-    const newSl = validate(updates.stopLoss, !isLong); // LONG: SL below entry; SHORT: SL above entry
+    const newSl = validateSL(updates.stopLoss, isLong);
     if (newSl != null) {
       const oldSl = trade.stopLoss;
       trade.stopLoss = Math.round(newSl * 1000000) / 1000000;
@@ -631,21 +764,21 @@ async function updateTradeLevels(userId, tradeId, updates, currentPrice) {
     }
   }
   if (updates.takeProfit1 != null && Number.isFinite(updates.takeProfit1)) {
-    const newTp = validate(updates.takeProfit1, isLong);
+    const newTp = validateTP(updates.takeProfit1, isLong);
     if (newTp != null) {
       trade.takeProfit1 = Math.round(newTp * 1000000) / 1000000;
       changed = true;
     }
   }
   if (updates.takeProfit2 != null && Number.isFinite(updates.takeProfit2)) {
-    const newTp = validate(updates.takeProfit2, isLong);
+    const newTp = validateTP(updates.takeProfit2, isLong);
     if (newTp != null) {
       trade.takeProfit2 = Math.round(newTp * 1000000) / 1000000;
       changed = true;
     }
   }
   if (updates.takeProfit3 != null && Number.isFinite(updates.takeProfit3)) {
-    const newTp = validate(updates.takeProfit3, isLong);
+    const newTp = validateTP(updates.takeProfit3, isLong);
     if (newTp != null) {
       trade.takeProfit3 = Math.round(newTp * 1000000) / 1000000;
       changed = true;
@@ -689,7 +822,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
     // DUST POSITION CLEANUP: if remaining position < 1% of original, close it out
     const origPosSize = trade.originalPositionSize || trade.positionSize;
     if (origPosSize > 0 && trade.positionSize < origPosSize * 0.01) {
-      console.log(`[StopTP] ${trade.symbol}: Dust position $${trade.positionSize.toFixed(2)} < 1% of original $${origPosSize.toFixed(2)} — closing out`);
+      if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: Dust position $${trade.positionSize.toFixed(2)} < 1% of original $${origPosSize.toFixed(2)} — closing out`);
       try {
         await closeTrade(trade.userId, trade._id, currentPrice, 'DUST_CLEANUP');
         closedCount++;
@@ -729,8 +862,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
     }
 
     // Fix stale trailingActivated from ping-pong bug:
-    // If trailingActivated is true but stop hasn't actually moved past breakeven,
-    // reset it so BE/lock-in can function again.
+    // Reset when stop is still at or before entry (so BE/lock-in can function again)
     if (trade.trailingActivated && trade.stopLoss != null) {
       const isLong = trade.direction === 'LONG';
       const stopAtOrWorseEntry = isLong
@@ -739,7 +871,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       if (stopAtOrWorseEntry) {
         trade.trailingActivated = false;
         await trade.save();
-        console.log(`[StopTP] ${trade.symbol}: Reset stale trailingActivated (stop ${trade.stopLoss} still at/before entry ${trade.entryPrice})`);
+        if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: Reset stale trailingActivated (stop ${trade.stopLoss} still at/before entry ${trade.entryPrice})`);
       }
     }
 
@@ -770,12 +902,13 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       const ageMs = Date.now() - new Date(openedAt).getTime();
       const pastStopGrace = ageMs >= stopGrace * 60 * 1000;
 
-      // Breakeven at 0.75R (if autoMoveBreakeven) — only if trailing hasn't started yet
-      // Lowered from 1R to 0.75R so BE fires sooner, protecting positions earlier
-      // Uses entry + 0.3% buffer so "breakeven" actually breaks even after round-trip fees + slippage
-      // Guard: breakevenHit flag prevents duplicate BE actions (matches manage-engine)
+      // Breakeven (configurable R multiplier, default 0.75R)
+      const beRMult = user?.settings?.breakevenRMult ?? 0.75;
+      const trailingStartR = user?.settings?.trailingStartR ?? 1.5;
+      const trailingDistR = user?.settings?.trailingDistR ?? 1.5;
+
       if (pastStopGrace && autoBE && !trade.breakevenHit && !trade.trailingActivated) {
-        const atBE = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * 0.75 : currentPrice <= trade.entryPrice - risk * 0.75;
+        const atBE = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * beRMult : currentPrice <= trade.entryPrice - risk * beRMult;
         if (atBE) {
           const oldSl = trade.stopLoss;
           const BE_BUFFER = 0.003; // 0.3% covers round-trip fees + slippage
@@ -796,7 +929,12 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       }
 
       // === TRAILING TP MODE: trail from entry using trailingTpDistance (immediate, no 1.5R gate) ===
-      if (trade.tpMode === 'trailing' && trade.trailingTpDistance > 0) {
+      // Only set trailingActivated when price has moved past entry by minimum threshold (prevents stale flag)
+      const TRAIL_ACTIVATION_THRESHOLD = 0.003; // 0.3% past entry
+      const pricePastEntry = trade.direction === 'LONG'
+        ? currentPrice >= trade.entryPrice * (1 + TRAIL_ACTIVATION_THRESHOLD)
+        : currentPrice <= trade.entryPrice * (1 - TRAIL_ACTIVATION_THRESHOLD);
+      if (trade.tpMode === 'trailing' && trade.trailingTpDistance > 0 && pricePastEntry) {
         trade.trailingActivated = true;
         const trailDist = trade.trailingTpDistance;
         const trailSL = trade.direction === 'LONG'
@@ -824,12 +962,12 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
         // Activates if: stop already at BE, trailing already running, OR stop has been locked past entry
         const stopPastEntry = trade.direction === 'LONG' ? trade.stopLoss >= trade.entryPrice : trade.stopLoss <= trade.entryPrice;
         if (pastStopGrace && autoTrail && (stopPastEntry || trade.trailingActivated)) {
-          const at1_5R = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * 1.5 : currentPrice <= trade.entryPrice - risk * 1.5;
-          if (at1_5R) {
+          const atActivation = trade.direction === 'LONG' ? currentPrice >= trade.entryPrice + risk * trailingStartR : currentPrice <= trade.entryPrice - risk * trailingStartR;
+          if (atActivation) {
             trade.trailingActivated = true;
             const trailSL = trade.direction === 'LONG'
-              ? trade.maxPrice - risk * 1.5
-              : trade.minPrice + risk * 1.5;
+              ? trade.maxPrice - risk * trailingDistR
+              : trade.minPrice + risk * trailingDistR;
             const r2 = (v) => Math.round(v * 1000000) / 1000000;
             const newStop = r2(trailSL);
             const isLong = trade.direction === 'LONG';
@@ -874,7 +1012,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
                 trade.stopLoss = newStop;
                 logTradeAction(trade, 'LOCK', `Locked in ${level.lockR}R profit: $${newStop.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (was $${(oldSl || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })})`, oldSl, newStop, currentPrice);
                 await trade.save();
-                console.log(`[StopTP] ${trade.symbol}: LOCK-IN ${level.lockR}R → SL $${newStop}`);
+                if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: LOCK-IN ${level.lockR}R → SL $${newStop}`);
                 // Bitget: update LOCK SL on exchange
                 if (trade.isLive) {
                   try {
@@ -905,7 +1043,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       if (trade.takeProfit3 && trade.takeProfit3 > trade.entryPrice) { trade.takeProfit3 = null; tpFixed = true; }
     }
     if (tpFixed) {
-      console.warn(`[StopTP] ${trade.symbol}: Fixed wrong-side TPs (${trade.direction} entry=$${trade.entryPrice}, TP1=$${trade.takeProfit1}, TP2=$${trade.takeProfit2}, TP3=$${trade.takeProfit3})`);
+      if (process.env.NODE_ENV !== 'production') console.warn(`[StopTP] ${trade.symbol}: Fixed wrong-side TPs (${trade.direction} entry=$${trade.entryPrice}, TP1=$${trade.takeProfit1}, TP2=$${trade.takeProfit2}, TP3=$${trade.takeProfit3})`);
       await trade.save();
     }
 
@@ -916,7 +1054,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
         : currentPrice >= trade.stopLoss;
       if (slHit) {
         const slReason = trade.tpMode === 'trailing' ? 'TRAILING_TP_EXIT' : 'STOPPED_OUT';
-        console.log(`[StopTP] ${trade.symbol}: STOP LOSS HIT (${trade.direction}) price=$${currentPrice} ${trade.direction === 'LONG' ? '<=' : '>='} SL=$${trade.stopLoss} → FULL CLOSE [${slReason}]`);
+        if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: STOP LOSS HIT (${trade.direction}) price=$${currentPrice} ${trade.direction === 'LONG' ? '<=' : '>='} SL=$${trade.stopLoss} → FULL CLOSE [${slReason}]`);
         await closeTrade(trade.userId, trade._id, trade.stopLoss, slReason);
         closedCount++;
         continue;
@@ -947,17 +1085,17 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       if (hitTP1Long && !trade.partialTakenAtTP1 && trade.takeProfit1) {
         const exit1 = trade.takeProfit1 / slippage;
         if (!ff.partialTP || (!trade.takeProfit2 && !trade.takeProfit3)) {
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → FULL CLOSE (only TP)`);
+          if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → FULL CLOSE (only TP)`);
           await closeTrade(trade.userId, trade._id, exit1, 'TP1');
           closedCount++;
           continue; // trade closed, skip rest
         } else if (trade.takeProfit2 && !trade.takeProfit3) {
           const portion = Math.round((orig * TP1_PCT) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (40%)`);
+          if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (40%)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         } else {
           const portion = Math.round((orig * TP1_PCT) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (40%)`);
+          if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: TP1 HIT (LONG) price=$${currentPrice} >= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (40%)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         }
         closedCount++;
@@ -967,13 +1105,13 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       if (hitTP2Long && !trade.partialTakenAtTP2 && trade.takeProfit2) {
         const exit2 = trade.takeProfit2 / slippage;
         if (!trade.takeProfit3) {
-          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (LONG) price=$${currentPrice} >= TP2=$${trade.takeProfit2} → FULL CLOSE (no TP3)`);
+          if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: TP2 HIT (LONG) price=$${currentPrice} >= TP2=$${trade.takeProfit2} → FULL CLOSE (no TP3)`);
           await closeTrade(trade.userId, trade._id, exit2, 'TP2');
           closedCount++;
           continue; // trade closed
         } else {
           const portion = Math.round((orig * TP2_PCT) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (LONG) price=$${currentPrice} >= TP2=$${trade.takeProfit2} → PARTIAL $${portion} (30%)`);
+          if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: TP2 HIT (LONG) price=$${currentPrice} >= TP2=$${trade.takeProfit2} → PARTIAL $${portion} (30%)`);
           await closeTradePartial(trade, exit2, portion, 'TP2');
           closedCount++;
         }
@@ -982,7 +1120,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       // TP3: full close on remaining position
       if (hitTP3Long && trade.takeProfit3) {
         const exit3 = trade.takeProfit3 / slippage;
-        console.log(`[StopTP] ${trade.symbol}: TP3 HIT (LONG) price=$${currentPrice} >= TP3=$${trade.takeProfit3} → FULL CLOSE`);
+        if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: TP3 HIT (LONG) price=$${currentPrice} >= TP3=$${trade.takeProfit3} → FULL CLOSE`);
         await closeTrade(trade.userId, trade._id, exit3, 'TP3');
         closedCount++;
         continue; // trade closed
@@ -994,17 +1132,17 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       if (hitTP1Short && !trade.partialTakenAtTP1 && trade.takeProfit1) {
         const exit1 = trade.takeProfit1 * slippage;
         if (!ff.partialTP || (!trade.takeProfit2 && !trade.takeProfit3)) {
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → FULL CLOSE (only TP)`);
+          if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → FULL CLOSE (only TP)`);
           await closeTrade(trade.userId, trade._id, exit1, 'TP1');
           closedCount++;
           continue;
         } else if (trade.takeProfit2 && !trade.takeProfit3) {
           const portion = Math.round((orig * TP1_PCT) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (40%)`);
+          if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (40%)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         } else {
           const portion = Math.round((orig * TP1_PCT) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (40%)`);
+          if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: TP1 HIT (SHORT) price=$${currentPrice} <= TP1=$${trade.takeProfit1} → PARTIAL $${portion} (40%)`);
           await closeTradePartial(trade, exit1, portion, 'TP1');
         }
         closedCount++;
@@ -1014,13 +1152,13 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       if (hitTP2Short && !trade.partialTakenAtTP2 && trade.takeProfit2) {
         const exit2 = trade.takeProfit2 * slippage;
         if (!trade.takeProfit3) {
-          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (SHORT) price=$${currentPrice} <= TP2=$${trade.takeProfit2} → FULL CLOSE (no TP3)`);
+          if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: TP2 HIT (SHORT) price=$${currentPrice} <= TP2=$${trade.takeProfit2} → FULL CLOSE (no TP3)`);
           await closeTrade(trade.userId, trade._id, exit2, 'TP2');
           closedCount++;
           continue;
         } else {
           const portion = Math.round((orig * TP2_PCT) * 100) / 100;
-          console.log(`[StopTP] ${trade.symbol}: TP2 HIT (SHORT) price=$${currentPrice} <= TP2=$${trade.takeProfit2} → PARTIAL $${portion} (30%)`);
+          if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: TP2 HIT (SHORT) price=$${currentPrice} <= TP2=$${trade.takeProfit2} → PARTIAL $${portion} (30%)`);
           await closeTradePartial(trade, exit2, portion, 'TP2');
           closedCount++;
         }
@@ -1029,7 +1167,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
       // TP3: full close on remaining position
       if (hitTP3Short && trade.takeProfit3) {
         const exit3 = trade.takeProfit3 * slippage;
-        console.log(`[StopTP] ${trade.symbol}: TP3 HIT (SHORT) price=$${currentPrice} <= TP3=$${trade.takeProfit3} → FULL CLOSE`);
+        if (process.env.NODE_ENV !== 'production') console.log(`[StopTP] ${trade.symbol}: TP3 HIT (SHORT) price=$${currentPrice} <= TP3=$${trade.takeProfit3} → FULL CLOSE`);
         await closeTrade(trade.userId, trade._id, exit3, 'TP3');
         closedCount++;
         continue;
@@ -1074,10 +1212,8 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
 
                 if (dcaBal >= addRequired) {
                   const oldAvg = trade.avgEntryPrice || trade.entryPrice;
-                  const oldTotalCost = oldAvg * trade.positionSize;
-                  const newTotalCost = oldTotalCost + (currentPrice * addSize);
                   const newTotalSize = trade.positionSize + addSize;
-                  const newAvgEntry = newTotalCost / newTotalSize;
+                  const newAvgEntry = computeWeightedEntryPrice(oldAvg, trade.positionSize, currentPrice, addSize);
 
                   trade.positionSize = newTotalSize;
                   trade.avgEntryPrice = newAvgEntry;
@@ -1092,9 +1228,9 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
 
                   logTradeAction(trade, 'DCA', `DCA #${trade.dcaCount}: Added $${addSize.toFixed(2)} at $${currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })} (avg entry now $${newAvgEntry.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}, dip ${dipPct.toFixed(1)}%)`, oldAvg, newAvgEntry, currentPrice);
                   await trade.save();
-                  console.log(`[DCA] ${trade.symbol}: DCA #${trade.dcaCount} +$${addSize.toFixed(2)} at $${currentPrice} | avg $${newAvgEntry.toFixed(6)} | dip ${dipPct.toFixed(1)}% | score ${signal.score}`);
+                  if (process.env.NODE_ENV !== 'production') console.log(`[DCA] ${trade.symbol}: DCA #${trade.dcaCount} +$${addSize.toFixed(2)} at $${currentPrice} | avg $${newAvgEntry.toFixed(6)} | dip ${dipPct.toFixed(1)}% | score ${signal.score}`);
                 } else {
-                  console.log(`[DCA] ${trade.symbol}: DCA skipped — insufficient balance ($${dcaBal.toFixed(2)} < $${addRequired.toFixed(2)})`);
+                  if (process.env.NODE_ENV !== 'production') console.log(`[DCA] ${trade.symbol}: DCA skipped — insufficient balance ($${dcaBal.toFixed(2)} < $${addRequired.toFixed(2)})`);
                 }
               }
             }
@@ -1111,7 +1247,7 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
   }
 
   if (closedCount > 0) {
-    console.log(`[PaperTrading] Auto-closed ${closedCount} trades`);
+    if (process.env.NODE_ENV !== 'production') console.log(`[PaperTrading] Auto-closed ${closedCount} trades`);
   }
 }
 
@@ -1374,7 +1510,7 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
     const openedAt = trade.createdAt || trade.entryTime || trade.updatedAt;
     const ageMs = Date.now() - new Date(openedAt).getTime();
     if (ageMs < scoreGrace * 60 * 1000) {
-      console.log(`[ScoreCheck] GRACE: Skipping ${actionId} on ${trade.symbol} (trade age ${Math.round(ageMs / 60000)}min < ${scoreGrace}min)`);
+      if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] GRACE: Skipping ${actionId} on ${trade.symbol} (trade age ${Math.round(ageMs / 60000)}min < ${scoreGrace}min)`);
       return { executed: false };
     }
   }
@@ -1418,7 +1554,7 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
       ? ((isLongExec ? (price - trade.entryPrice) : (trade.entryPrice - price)) / trade.entryPrice * 100) * (trade.leverage || 1)
       : 0;
     if (execPnlPct >= 0) {
-      console.log(`[ScoreCheck] BLOCKED ${actionId} on ${trade.symbol}: trade is in profit (${execPnlPct.toFixed(2)}%) — letting stop/TP handle exit`);
+      if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] BLOCKED ${actionId} on ${trade.symbol}: trade is in profit (${execPnlPct.toFixed(2)}%) — letting stop/TP handle exit`);
       return { executed: false };
     }
   }
@@ -1429,7 +1565,7 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
       const execPnlPct = trade.entryPrice > 0
         ? ((trade.direction === 'LONG' ? (price - trade.entryPrice) : (trade.entryPrice - price)) / trade.entryPrice * 100) * (trade.leverage || 1)
         : 0;
-      console.log(`[ScoreCheck] EXECUTING consider_exit: ${trade.symbol} ${trade.direction} | P&L=${execPnlPct.toFixed(2)}% | size=$${sizeBefore.toFixed(2)} | price=$${price}`);
+      if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] EXECUTING consider_exit: ${trade.symbol} ${trade.direction} | P&L=${execPnlPct.toFixed(2)}% | size=$${sizeBefore.toFixed(2)} | price=$${price}`);
       // Close the trade FIRST — only log EXIT badge if close actually succeeds
       // (previously badge was saved before close, so if close failed the trade
       //  stayed open with a misleading EXIT badge)
@@ -1448,7 +1584,7 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
         }
       } catch (logErr) { /* non-critical: trade is already closed */ }
       const details = `Closed entire position ($${fp(sizeBefore)}) at $${fp(price)}`;
-      console.log(`[ScoreCheck] ${details}`);
+      if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] ${details}`);
       return { executed: true, details };
     }
     if (actionId === 'reduce_position') {
@@ -1462,7 +1598,7 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
       trade.scoreCheck = trade.scoreCheck || {};
       trade.scoreCheck.lastActionDetails = details;
       await trade.save();
-      console.log(`[ScoreCheck] ${details}`);
+      if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] ${details}`);
       return { executed: true, details };
     }
     if (actionId === 'take_partial') {
@@ -1476,7 +1612,7 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
       trade.scoreCheck = trade.scoreCheck || {};
       trade.scoreCheck.lastActionDetails = details;
       await trade.save();
-      console.log(`[ScoreCheck] ${details}`);
+      if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] ${details}`);
       return { executed: true, details };
     }
     if (actionId === 'tighten_stop') {
@@ -1489,14 +1625,15 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
         const tp = trade.takeProfit2 || trade.takeProfit1 || trade.takeProfit3;
         if (tp) risk = Math.abs(trade.entryPrice - tp) / (tp === trade.takeProfit2 ? 2 : 1);
       }
-      // Only move to breakeven if trade is actually in profit by at least 0.75R
-      const inProfit075R = risk > 0 && (
-        trade.direction === 'LONG' ? price >= trade.entryPrice + risk * 0.75 : price <= trade.entryPrice - risk * 0.75
+      // Only move to breakeven if trade is actually in profit by at least beRMult×R
+      const beRMultScore = (await User.findById(trade.userId).select('settings').lean())?.settings?.breakevenRMult ?? 0.75;
+      const inProfitBE = risk > 0 && (
+        trade.direction === 'LONG' ? price >= trade.entryPrice + risk * beRMultScore : price <= trade.entryPrice - risk * beRMultScore
       );
-      if (risk > 0 && trade.stopLoss !== trade.entryPrice && !inProfit075R) {
-        console.log(`[ScoreCheck] BLOCKED tighten_stop→BE on ${trade.symbol}: not yet in profit by 0.75R (price $${fp(price)} vs entry $${fp(trade.entryPrice)} ± 0.75R)`);
+      if (risk > 0 && trade.stopLoss !== trade.entryPrice && !inProfitBE) {
+        if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] BLOCKED tighten_stop→BE on ${trade.symbol}: not yet in profit by ${beRMultScore}R (price $${fp(price)} vs entry $${fp(trade.entryPrice)} ± ${beRMultScore}R)`);
       }
-      if (risk > 0 && trade.stopLoss !== trade.entryPrice && inProfit075R) {
+      if (risk > 0 && trade.stopLoss !== trade.entryPrice && inProfitBE) {
         const oldStop = trade.stopLoss;
         trade.stopLoss = trade.entryPrice;
         trade.lastExecutedActionId = actionId;
@@ -1505,7 +1642,7 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
         trade.scoreCheck = trade.scoreCheck || {};
         trade.scoreCheck.lastActionDetails = details;
         await trade.save();
-        console.log(`[ScoreCheck] ${details}`);
+        if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] ${details}`);
         // Bitget: update SL on exchange
         if (trade.isLive) {
           try {
@@ -1552,7 +1689,7 @@ async function executeScoreCheckAction(trade, suggestedAction, currentPrice, get
               trade.scoreCheck = trade.scoreCheck || {};
               trade.scoreCheck.lastActionDetails = details;
               await trade.save();
-              console.log(`[ScoreCheck] ${details}`);
+              if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] ${details}`);
               // Bitget: update LOCK SL on exchange
               if (trade.isLive) {
                 try {
@@ -1838,7 +1975,7 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
         if (flipAge < SIGNAL_FLIP_COOLDOWN_MS) {
           // Flip too recent — downgrade to HOLD so the -15 penalty doesn't apply
           effectiveSignal = 'HOLD';
-          console.log(`[ScoreCheck] ${trade.symbol}: Signal flip cooldown (${Math.round(flipAge / 60000)}min < 10min) — treating ${signal.signal} as HOLD`);
+          if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] ${trade.symbol}: Signal flip cooldown (${Math.round(flipAge / 60000)}min < 10min) — treating ${signal.signal} as HOLD`);
         }
       }
       // If signal is no longer flipped, reset the timer
@@ -1948,21 +2085,21 @@ async function recheckTradeScores(getSignalForCoin, getCurrentPriceFunc) {
       if (autoExec && suggestedAction?.actionId && pastMinHold) {
         const result = await executeScoreCheckAction(trade, suggestedAction, currentPrice, getCurrentPriceFunc);
         if (result.executed) {
-          console.log(`[ScoreCheck] AUTO-EXECUTED ${suggestedAction.actionId} on ${trade.symbol}: ${result.details}`);
+          if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] AUTO-EXECUTED ${suggestedAction.actionId} on ${trade.symbol}: ${result.details}`);
         }
       } else if (autoExec && suggestedAction?.actionId && !pastMinHold) {
-        console.log(`[ScoreCheck] ${trade.symbol}: Skipping auto-execute (${Math.round(tradeAgeMs / 60000)}min < ${minHold}min min hold)`);
+        if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] ${trade.symbol}: Skipping auto-execute (${Math.round(tradeAgeMs / 60000)}min < ${minHold}min min hold)`);
       }
 
       // Log summary for debugging
-      console.log(`[ScoreCheck] ${trade.symbol} ${trade.direction} | score: ${currentScore} (entry: ${entryScore}, diff: ${scoreDiff}) | heat: ${heat} | action: ${suggestedAction?.text || 'none'} | autoExec: ${autoExec ? 'ON' : 'OFF'}`);
+      if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] ${trade.symbol} ${trade.direction} | score: ${currentScore} (entry: ${entryScore}, diff: ${scoreDiff}) | heat: ${heat} | action: ${suggestedAction?.text || 'none'} | autoExec: ${autoExec ? 'ON' : 'OFF'}`);
     } catch (err) {
       console.error(`[ScoreCheck] Error rechecking ${trade.symbol}:`, err.message);
     }
   }
 
   if (checkedCount > 0) {
-    console.log(`[ScoreCheck] Rechecked ${checkedCount} open trades at ${new Date().toLocaleTimeString()}`);
+    if (process.env.NODE_ENV !== 'production') console.log(`[ScoreCheck] Rechecked ${checkedCount} open trades at ${new Date().toLocaleTimeString()}`);
   }
 }
 
@@ -2262,7 +2399,7 @@ async function fixBalance(userId) {
         'stats.worstTrade': result.computedStats.worstTrade
       }
     });
-    console.log(`[Reconcile] Fixed balance for user ${userId}: $${result.currentBalance} → $${result.expectedBalance} (discrepancy: $${result.discrepancy})`);
+    if (process.env.NODE_ENV !== 'production') console.log(`[Reconcile] Fixed balance for user ${userId}: $${result.currentBalance} → $${result.expectedBalance} (discrepancy: $${result.discrepancy})`);
     return { fixed: true, ...result, newBalance: result.expectedBalance };
   }
   return { fixed: false, ...result };
