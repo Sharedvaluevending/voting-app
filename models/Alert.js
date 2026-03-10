@@ -11,4 +11,7 @@ const alertSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+alertSchema.index({ active: 1, triggeredAt: 1 });
+alertSchema.index({ userId: 1, active: 1, triggeredAt: 1, createdAt: -1 });
+
 module.exports = mongoose.model('Alert', alertSchema);

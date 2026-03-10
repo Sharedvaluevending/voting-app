@@ -222,4 +222,4 @@ function buildContextBlock(ctx, pulse) {
   return parts.join('\n');
 }
 
-module.exports = { runChat };
+module.exports = { runChat, buildContextBlock };

@@ -74,12 +74,12 @@ function isValidStopMove(trade, newStop) {
 function validateLevels(trade) {
   const isLong = trade.direction === 'LONG';
   if (isLong) {
-    if (trade.stopLoss != null && trade.stopLoss >= trade.entry) return false;
+    if (trade.stopLoss != null && trade.stopLoss > trade.entry) return false;
     if (trade.takeProfit1 != null && trade.takeProfit1 <= trade.entry) return false;
     if (trade.takeProfit2 != null && trade.takeProfit2 <= trade.entry) return false;
     if (trade.takeProfit3 != null && trade.takeProfit3 <= trade.entry) return false;
   } else {
-    if (trade.stopLoss != null && trade.stopLoss <= trade.entry) return false;
+    if (trade.stopLoss != null && trade.stopLoss < trade.entry) return false;
     if (trade.takeProfit1 != null && trade.takeProfit1 >= trade.entry) return false;
     if (trade.takeProfit2 != null && trade.takeProfit2 >= trade.entry) return false;
     if (trade.takeProfit3 != null && trade.takeProfit3 >= trade.entry) return false;

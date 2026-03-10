@@ -6,9 +6,13 @@
 <% } %>
 <%
   var displayCounts = { STRONG_BUY: 0, BUY: 0, SELL: 0, STRONG_SELL: 0, HOLD: 0 };
+  var disabledRegimeMap = (typeof disabledRegimesByCoin !== 'undefined' && disabledRegimesByCoin) ? disabledRegimesByCoin : {};
+  var regimeOffCount = 0;
   (signals || []).forEach(function(sig) {
     var s = sig.signal;
-    if (s === 'HOLD' && (sig.score || 0) >= 52 && sig.topStrategies && sig.topStrategies.length > 0) {
+    var regimeDisabled = !!(sig.regime && sig.regime !== 'unknown' && Array.isArray(disabledRegimeMap[sig.coin && sig.coin.id]) && disabledRegimeMap[sig.coin.id].includes(sig.regime));
+    if (regimeDisabled) regimeOffCount += 1;
+    if (!regimeDisabled && s === 'HOLD' && (sig.score || 0) >= 52 && sig.topStrategies && sig.topStrategies.length > 0) {
       var fallback = sig.topStrategies.find(function(ts) {
         return (ts.signal === 'BUY' || ts.signal === 'STRONG_BUY' || ts.signal === 'SELL' || ts.signal === 'STRONG_SELL') && (ts.score || 0) >= 55;
       });
@@ -23,6 +27,30 @@
 <div class="alert alert-success" style="margin-bottom:16px;">Your account has been deleted.</div>
 <% } %>
 
+<% if (typeof subscriptionTier !== 'undefined' && subscriptionTier === 'trial') { %>
+<div class="section" style="margin-bottom:14px;background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.35);">
+  <strong style="color:#93c5fd;">Trial:</strong>
+  <span style="color:#cbd5e1;"><%= typeof trialDaysRemaining !== 'undefined' ? trialDaysRemaining : 0 %> day(s) remaining — Upgrade to keep access.</span>
+  <a href="/pricing" class="btn btn-sm btn-primary" style="margin-left:10px;">Upgrade</a>
+</div>
+<% } %>
+
+<% if (typeof usage !== 'undefined') { %>
+<div class="section" style="margin-bottom:14px;background:rgba(15,23,42,0.6);">
+  <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:#cbd5e1;">
+    <% if ((usage.tier === 'elite' || usage.tier === 'partner') && usage.unlimitedLabel) { %>
+      <span>Copilot: <strong><%= usage.copilotUsed %>/500</strong> questions used (<%= usage.unlimitedLabel %> packs)</span>
+      <span>LLM Chat: <strong><%= usage.llmUsed %>/500</strong> messages used (<%= usage.unlimitedLabel %> packs)</span>
+    <% } else { %>
+      <span>Copilot: <strong><%= usage.copilotUsed %>/<%= usage.copilotLimit %></strong> monthly + <strong><%= usage.copilotPackRemaining %></strong> pack questions remaining</span>
+      <span>LLM Chat: <strong><%= usage.llmUsed %>/<%= usage.llmLimit %></strong> monthly + <strong><%= usage.llmPackRemaining %></strong> pack messages remaining</span>
+    <% } %>
+    <span>Voice: <strong><%= Math.floor(usage.voiceUsed || 0) %>/<%= usage.voiceLimit || 0 %></strong> minutes used this month + <strong><%= Math.floor(usage.voicePackRemaining || 0) %></strong> pack minutes</span>
+    <a href="/pricing" style="color:#60a5fa;">Upgrade for higher limits</a>
+  </div>
+</div>
+<% } %>
+
 <!-- PRICE TICKER (WebSocket real-time + fallback poll) -->
 <div class="ticker-strip" id="ticker-strip">
   <% prices.forEach(function(coin) { %>
@@ -35,6 +63,15 @@
     </div>
   <% }); %>
 </div>
+
+<% if (regimeOffCount > 0) { %>
+<div style="display:flex;align-items:center;gap:8px;margin:10px 0 18px 0;flex-wrap:wrap;">
+  <button id="regime-off-filter-btn" class="btn btn-outline btn-sm" type="button" onclick="toggleRegimeOffFilter()">
+    Regime OFF Only (<%= regimeOffCount %>)
+  </button>
+  <span id="regime-off-filter-status" style="font-size:12px;color:#6b7280;">Showing all coins</span>
+</div>
+<% } %>
 
 <!-- SUMMARY -->
 <div class="summary-bar">
@@ -154,9 +191,10 @@
 
 <div class="signals-grid">
   <% signals.forEach(function(sig) {
+    var regimeDisabled = !!(sig.regime && sig.regime !== 'unknown' && Array.isArray(disabledRegimeMap[sig.coin && sig.coin.id]) && disabledRegimeMap[sig.coin.id].includes(sig.regime));
     var displaySignal = sig.signal;
     var displayStrategyType = sig.strategyType || '';
-    if (sig.signal === 'HOLD' && (sig.score || 0) >= 52 && sig.topStrategies && sig.topStrategies.length > 0) {
+    if (!regimeDisabled && sig.signal === 'HOLD' && (sig.score || 0) >= 52 && sig.topStrategies && sig.topStrategies.length > 0) {
       var bestStrat = sig.topStrategies.find(function(s) {
         return (s.signal === 'BUY' || s.signal === 'STRONG_BUY' || s.signal === 'SELL' || s.signal === 'STRONG_SELL') && (s.score || 0) >= 55;
       });
@@ -166,7 +204,7 @@
       }
     }
   %>
-    <div class="signal-card <%= displaySignal.toLowerCase().replace('_', '-') %>" data-coin-id="<%= sig.coin.id %>">
+    <div class="signal-card <%= displaySignal.toLowerCase().replace('_', '-') %>" data-coin-id="<%= sig.coin.id %>" data-regime-disabled="<%= regimeDisabled ? '1' : '0' %>">
       <div class="card-header">
         <div class="coin-info">
           <h3>
@@ -185,6 +223,9 @@
           <% } %>
           <% if (sig.regime && sig.regime !== 'unknown') { %>
             <span class="regime-badge regime-<%= sig.regime %>"><%= sig.regime %></span>
+          <% } %>
+          <% if (regimeDisabled) { %>
+            <span class="regime-badge" style="background:rgba(239,68,68,0.2);color:#fca5a5;border:1px solid rgba(239,68,68,0.45);" title="This coin is set to HOLD when regime is <%= sig.regime %>">Regime OFF</span>
           <% } %>
         </div>
         <div class="coin-price">
@@ -486,6 +527,25 @@ function toggleCoinFromPanel(coinId, exclude) {
     if (data.success) location.reload();
     else alert('Failed: ' + (data.error || 'Unknown error'));
   }).catch(function(err) { alert('Error: ' + err.message); });
+}
+
+var regimeOffOnly = false;
+function toggleRegimeOffFilter() {
+  regimeOffOnly = !regimeOffOnly;
+  var btn = document.getElementById('regime-off-filter-btn');
+  var status = document.getElementById('regime-off-filter-status');
+  document.querySelectorAll('.signal-card').forEach(function(card) {
+    var isRegimeDisabled = card.getAttribute('data-regime-disabled') === '1';
+    card.style.display = (regimeOffOnly && !isRegimeDisabled) ? 'none' : '';
+  });
+  if (btn) {
+    btn.textContent = regimeOffOnly
+      ? ('Regime OFF Only (ON)')
+      : ('Regime OFF Only (<%= regimeOffCount %>)');
+    btn.style.borderColor = regimeOffOnly ? '#ef4444' : '';
+    btn.style.color = regimeOffOnly ? '#fca5a5' : '';
+  }
+  if (status) status.textContent = regimeOffOnly ? 'Filtering to regime-disabled coins only' : 'Showing all coins';
 }
 </script>
 

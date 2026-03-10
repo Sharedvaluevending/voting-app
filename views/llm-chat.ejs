@@ -27,10 +27,11 @@
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <div style="display:flex;gap:8px;align-items:flex-end;">
         <textarea id="chat-input" name="message" rows="2" placeholder="Ask about markets, trades, strategies... Or: 'Move my SOL stop to breakeven', 'Close my BTC trade'" style="flex:1;padding:10px 14px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#fff;font-size:14px;resize:none;min-height:44px;max-height:120px;" required></textarea>
-        <button type="button" id="chat-mic" title="Hold to talk" style="padding:10px;height:44px;width:44px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#9ca3af;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;">
+        <button type="button" id="chat-mic" title="Start voice input" style="padding:10px;height:52px;width:52px;background:#1e293b;border:1px solid #334155;border-radius:12px;color:#9ca3af;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;">
           <svg id="mic-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 1 3 3v8a3 3 0 0 1-6 0V4a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
         </button>
-        <button type="submit" id="chat-send" class="btn btn-primary" style="padding:10px 20px;height:44px;">Send</button>
+        <button type="button" id="chat-cancel" class="btn btn-outline" style="padding:10px 14px;height:52px;display:none;">Cancel</button>
+        <button type="submit" id="chat-send" class="btn btn-primary" style="padding:10px 20px;height:52px;">Send</button>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:12px 20px;">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:#9ca3af;">
@@ -41,9 +42,26 @@
           <input type="checkbox" id="speak-response" checked style="accent-color:#8b5cf6;">
           Speak response
         </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:#9ca3af;">
+          <input type="checkbox" id="always-on" style="accent-color:#22d3ee;">
+          Always On
+        </label>
+      </div>
+      <div id="voice-waveform" style="display:none;align-items:flex-end;gap:3px;height:18px;margin-top:4px;">
+        <span class="wf-bar"></span><span class="wf-bar"></span><span class="wf-bar"></span><span class="wf-bar"></span><span class="wf-bar"></span>
       </div>
     </form>
     <div id="chat-status" style="font-size:11px;color:#6b7280;margin-top:6px;"></div>
+  </div>
+</div>
+
+<div id="usage-limit-modal" style="display:none;position:fixed;inset:0;z-index:12000;background:rgba(2,6,23,0.72);backdrop-filter:blur(12px);align-items:center;justify-content:center;padding:20px;">
+  <div style="width:min(520px,92vw);background:rgba(15,23,42,0.88);border:1px solid rgba(148,163,184,0.28);border-radius:14px;padding:18px;">
+    <h3 id="usage-limit-title" style="margin:0 0 10px 0;color:#f8fafc;">Limit reached</h3>
+    <p id="usage-limit-copy" style="margin:0 0 12px 0;color:#cbd5e1;font-size:13px;"></p>
+    <div id="usage-limit-options" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;"></div>
+    <button type="button" class="btn btn-primary btn-sm" id="usage-limit-upgrade">Upgrade to Elite — $99/mo</button>
+    <button type="button" class="btn btn-outline btn-sm" id="usage-limit-close">Wait for monthly reset</button>
   </div>
 </div>
 
@@ -52,8 +70,15 @@
 #chat-messages .msg-assistant { align-self:flex-start; max-width:90%; padding:12px 16px; background:rgba(30,41,59,0.6); border:1px solid #334155; border-radius:10px; color:#e5e7eb; font-size:14px; line-height:1.5; white-space:pre-wrap; }
 #chat-messages .msg-error { align-self:flex-start; padding:10px 14px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); border-radius:8px; color:#fca5a5; font-size:13px; }
 #chat-messages .msg-agent { align-self:flex-start; max-width:90%; padding:12px 16px; background:rgba(139,92,246,0.15); border:1px solid rgba(139,92,246,0.4); border-radius:10px; color:#c4b5fd; font-size:13px; }
-#chat-mic.recording { background:rgba(239,68,68,0.2); border-color:rgba(239,68,68,0.5); color:#fca5a5; }
+#chat-messages .msg-transcript { align-self:flex-end; max-width:85%; padding:10px 14px; background:rgba(34,211,238,0.14); border:1px solid rgba(34,211,238,0.35); border-radius:10px; color:#cffafe; font-size:13px; }
+#chat-mic.listening { background:rgba(8,145,178,0.25); border-color:rgba(34,211,238,0.7); color:#67e8f9; box-shadow:0 0 0 1px rgba(34,211,238,0.25), 0 0 16px rgba(34,211,238,0.35); }
 #chat-mic:hover { border-color:#64748b; color:#e5e7eb; }
+#voice-waveform .wf-bar { width:4px; border-radius:999px; background:linear-gradient(180deg,#67e8f9,#0891b2); height:6px; animation:wave-bounce 0.9s ease-in-out infinite; opacity:0.85; }
+#voice-waveform .wf-bar:nth-child(2) { animation-delay:0.1s; }
+#voice-waveform .wf-bar:nth-child(3) { animation-delay:0.2s; }
+#voice-waveform .wf-bar:nth-child(4) { animation-delay:0.3s; }
+#voice-waveform .wf-bar:nth-child(5) { animation-delay:0.4s; }
+@keyframes wave-bounce { 0%,100% { height:5px; } 50% { height:18px; } }
 </style>
 
 <script>
@@ -65,121 +90,383 @@
   var statusEl = document.getElementById('chat-status');
   var sendBtn = document.getElementById('chat-send');
   var micBtn = document.getElementById('chat-mic');
+  var cancelBtn = document.getElementById('chat-cancel');
+  var waveformEl = document.getElementById('voice-waveform');
+  var alwaysOnEl = document.getElementById('always-on');
   var history = [];
+  var csrfToken = document.querySelector('input[name="_csrf"]').value;
+  var mediaRecorder = null;
+  var mediaStream = null;
+  var recordChunks = [];
+  var recordStart = 0;
+  var recordTick = null;
+  var inFlightController = null;
+  var activeAudio = null;
+  var pendingAlwaysOn = false;
+  var uiState = 'idle';
+  var transportMode = 'http';
+  var voiceGateway = null;
+  var useRealtimeGateway = false;
+  var limitModal = document.getElementById('usage-limit-modal');
+  var limitTitle = document.getElementById('usage-limit-title');
+  var limitCopy = document.getElementById('usage-limit-copy');
+  var limitOptions = document.getElementById('usage-limit-options');
 
-  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  var recognition = SpeechRecognition ? new SpeechRecognition() : null;
-  if (recognition) {
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
+  function scrollToLatest() {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (window.innerWidth < 900) messagesEl.lastElementChild && messagesEl.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }
 
-  function speakText(text) {
-    if (!window.speechSynthesis || !text || !document.getElementById('speak-response').checked) return;
-    var CHUNK_LIMIT = 14000;
-    var chunks = [];
-    if (text.length <= CHUNK_LIMIT) {
-      chunks = [text];
-    } else {
-      var remaining = text;
-      while (remaining.length > 0) {
-        var chunk = remaining.slice(0, CHUNK_LIMIT);
-        var lastPeriod = chunk.lastIndexOf('.');
-        var lastNewline = chunk.lastIndexOf('\n');
-        var splitAt = Math.max(lastPeriod, lastNewline, 0);
-        if (splitAt > 0) {
-          chunks.push(chunk.slice(0, splitAt + 1));
-          remaining = remaining.slice(splitAt + 1);
-        } else {
-          chunks.push(chunk);
-          remaining = remaining.slice(CHUNK_LIMIT);
-        }
-      }
-    }
-    speechSynthesis.cancel();
-    chunks.forEach(function(chunk, i) {
-      var u = new SpeechSynthesisUtterance(chunk);
-      u.rate = 0.95;
-      speechSynthesis.speak(u);
+  function setUiState(next, message) {
+    uiState = next;
+    statusEl.textContent = message || '';
+    var listening = next === 'listening';
+    micBtn.classList.toggle('listening', listening);
+    waveformEl.style.display = listening ? 'flex' : 'none';
+    cancelBtn.style.display = (next === 'transcribing' || next === 'thinking' || next === 'speaking' || next === 'listening') ? '' : 'none';
+    sendBtn.disabled = next === 'transcribing' || next === 'thinking' || next === 'speaking';
+    input.disabled = next === 'transcribing' || next === 'thinking';
+    if (next !== 'listening') micBtn.disabled = false;
+  }
+
+  function appendMessage(text, klass) {
+    var div = document.createElement('div');
+    div.className = klass;
+    div.textContent = text;
+    messagesEl.appendChild(div);
+    scrollToLatest();
+  }
+
+  function fmtReset(iso) {
+    if (!iso) return 'next month';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return 'next month';
+    return d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+  }
+
+  async function startPackCheckout(packType, packAmount) {
+    var r = await fetch('/api/stripe/buy-pack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+      credentials: 'same-origin',
+      body: JSON.stringify({ packType: packType, packAmount: packAmount })
+    });
+    var d = await r.json();
+    if (!r.ok || !d.url) throw new Error(d.error || 'Pack checkout failed');
+    window.location.href = d.url;
+  }
+
+  function showUsageLimitModal(kind, payload) {
+    if (!limitModal) return;
+    var cap = Number(payload && payload.monthlyLimit) || 0;
+    var used = Number(payload && payload.used) || 0;
+    var resetTxt = fmtReset(payload && payload.resetAt);
+    var label = kind === 'copilot' ? 'copilot questions' : kind === 'llm' ? 'LLM messages' : 'voice minutes';
+    limitTitle.textContent = "⚡ You've used all " + cap + ' ' + label + ' this month';
+    limitCopy.textContent = 'Keep the conversation going with a pack, or upgrade. Monthly reset: ' + resetTxt + '.';
+    limitOptions.innerHTML = '';
+    var packType = kind === 'copilot' ? 'copilot' : kind === 'llm' ? 'llm' : 'voice';
+    var amounts = kind === 'voice' ? [30, 120, 300] : [50, 200, 500];
+    var prices = ['$2.99', '$7.99', '$14.99'];
+    amounts.forEach(function(a, idx) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn btn-outline btn-sm';
+      b.textContent = (kind === 'voice' ? (a + ' minutes') : (a + (kind === 'llm' ? ' messages' : ' questions'))) + ' — ' + prices[idx];
+      b.addEventListener('click', function() {
+        startPackCheckout(packType, a).catch(function(err) { appendMessage(err.message || 'Pack checkout failed', 'msg-error'); });
+      });
+      limitOptions.appendChild(b);
+    });
+    limitModal.style.display = 'flex';
+  }
+
+  function formatElapsed(ms) {
+    var total = Math.floor(ms / 1000);
+    var mm = String(Math.floor(total / 60)).padStart(2, '0');
+    var ss = String(total % 60).padStart(2, '0');
+    return mm + ':' + ss;
+  }
+
+  function blobToBase64(blob) {
+    return new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function() { resolve(reader.result); };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
     });
   }
 
-  function sendMessage(text) {
-    text = (text || '').trim();
-    if (!text) return;
+  function playBase64Audio(base64Data, mimeType) {
+    return new Promise(function(resolve, reject) {
+      if (!base64Data) return resolve();
+      var b = atob(base64Data);
+      var arr = new Uint8Array(b.length);
+      for (var i = 0; i < b.length; i++) arr[i] = b.charCodeAt(i);
+      var blob = new Blob([arr], { type: mimeType || 'audio/wav' });
+      var url = URL.createObjectURL(blob);
+      activeAudio = new Audio(url);
+      activeAudio.onended = function() {
+        URL.revokeObjectURL(url);
+        activeAudio = null;
+        resolve();
+      };
+      activeAudio.onerror = function(err) {
+        URL.revokeObjectURL(url);
+        activeAudio = null;
+        reject(err || new Error('Audio playback failed'));
+      };
+      activeAudio.play().catch(reject);
+    });
+  }
 
-    welcomeEl.style.display = 'none';
-    history.push({ role: 'user', content: text });
-    var userDiv = document.createElement('div');
-    userDiv.className = 'msg-user';
-    userDiv.textContent = text;
-    messagesEl.appendChild(userDiv);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+  async function initTransport() {
+    try {
+      var r = await fetch('/api/voice/transport', { credentials: 'same-origin' });
+      var d = await r.json();
+      if (!r.ok || !d.success) return;
+      transportMode = d.mode || 'http';
+      if (transportMode === 'mumble' && window.VoiceRealtimeGateway) {
+        voiceGateway = new window.VoiceRealtimeGateway(d.wsPath || '/ws/voice');
+        await voiceGateway.connect();
+        useRealtimeGateway = true;
+      }
+    } catch (e) {}
+  }
 
-    input.value = '';
-    sendBtn.disabled = true;
-    micBtn.disabled = true;
-    statusEl.textContent = 'Thinking...';
+  function stopMediaTracks() {
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(function(t) { try { t.stop(); } catch (e) {} });
+    }
+    mediaStream = null;
+  }
 
-    var executeActions = document.getElementById('execute-actions').checked;
-    fetch('/api/llm-chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.querySelector('input[name="_csrf"]').value },
-      body: JSON.stringify({ messages: history, executeActions: executeActions }),
-      credentials: 'same-origin'
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      sendBtn.disabled = false;
-      micBtn.disabled = false;
-      statusEl.textContent = '';
-      if (d.success && d.text) {
-        history.push({ role: 'assistant', content: d.text });
-        var div = document.createElement('div');
-        div.className = 'msg-assistant';
-        div.textContent = d.text;
-        messagesEl.appendChild(div);
-        speakText(d.text);
-        if (d.agentResult) {
-          var ar = d.agentResult;
+  async function startRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+      appendMessage('Voice recording is not supported on this browser. Use text input instead.', 'msg-error');
+      return;
+    }
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      var mimeType = '';
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mimeType = 'audio/webm;codecs=opus';
+      else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
+      mediaRecorder = mimeType ? new MediaRecorder(mediaStream, { mimeType: mimeType }) : new MediaRecorder(mediaStream);
+      recordChunks = [];
+      mediaRecorder.ondataavailable = function(evt) {
+        if (!(evt.data && evt.data.size > 0)) return;
+        if (useRealtimeGateway && voiceGateway) {
+          voiceGateway.sendChunkBlob(evt.data).catch(function() {});
+        } else {
+          recordChunks.push(evt.data);
+        }
+      };
+      if (useRealtimeGateway && voiceGateway) {
+        voiceGateway.start('llm', mimeType || 'audio/webm', {
+          messages: history,
+          executeActions: document.getElementById('execute-actions').checked,
+          speakResponse: document.getElementById('speak-response').checked
+        });
+        mediaRecorder.start(250);
+      } else {
+        mediaRecorder.start();
+      }
+      recordStart = Date.now();
+      recordTick = setInterval(function() {
+        setUiState('listening', 'Listening... ' + formatElapsed(Date.now() - recordStart));
+      }, 250);
+      setUiState('listening', 'Listening... 00:00');
+    } catch (err) {
+      if (String(err && err.name) === 'NotAllowedError') {
+        appendMessage('Microphone permission denied. Enable microphone access in browser settings and reload.', 'msg-error');
+      } else {
+        appendMessage('Could not access microphone: ' + (err.message || 'unknown error'), 'msg-error');
+      }
+      setUiState('idle', '');
+    }
+  }
+
+  async function stopRecording() {
+    if (!mediaRecorder) return;
+    await new Promise(function(resolve) {
+      mediaRecorder.onstop = resolve;
+      mediaRecorder.stop();
+    });
+    if (recordTick) clearInterval(recordTick);
+    recordTick = null;
+
+    var recorderMime = (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm';
+    var recordedBlob = new Blob(recordChunks, { type: recorderMime });
+    mediaRecorder = null;
+    recordChunks = [];
+    stopMediaTracks();
+
+    if (useRealtimeGateway && voiceGateway) {
+      setUiState('transcribing', 'Transcribing...');
+      try {
+        var gatewayOut = await voiceGateway.stopAndAwait();
+        var transcript = gatewayOut && gatewayOut.transcript && gatewayOut.transcript.text ? gatewayOut.transcript.text : '';
+        var response = gatewayOut && gatewayOut.response ? gatewayOut.response : null;
+        if (!transcript || !response || !response.text) throw new Error('Voice gateway returned incomplete response');
+        welcomeEl.style.display = 'none';
+        history.push({ role: 'user', content: transcript });
+        appendMessage('Heard: ' + transcript, 'msg-transcript');
+        appendMessage(transcript, 'msg-user');
+        history.push({ role: 'assistant', content: response.text });
+        setUiState('thinking', 'Thinking...');
+        appendMessage(response.text, 'msg-assistant');
+        if (response.agentResult) {
+          var ar = response.agentResult;
           var agentLines = [];
           if (ar.reasoning) agentLines.push(ar.reasoning);
           if (ar.actionsExecuted && ar.actionsExecuted.length) agentLines.push('Executed: ' + ar.actionsExecuted.map(function(a){ return a.message; }).join('; '));
           if (ar.actionsFailed && ar.actionsFailed.length) agentLines.push('Failed: ' + ar.actionsFailed.map(function(a){ return a.message; }).join('; '));
-          if (agentLines.length) {
-            var agentDiv = document.createElement('div');
-            agentDiv.className = 'msg-agent';
-            agentDiv.textContent = agentLines.join('\n');
-            messagesEl.appendChild(agentDiv);
-          }
+          if (agentLines.length) appendMessage(agentLines.join('\n'), 'msg-agent');
         }
-        if (d.agentError) {
-          var errDiv = document.createElement('div');
-          errDiv.className = 'msg-error';
-          errDiv.textContent = 'Agent error: ' + d.agentError;
-          messagesEl.appendChild(errDiv);
+        if (response.agentError) appendMessage('Agent error: ' + response.agentError, 'msg-error');
+        if (gatewayOut.audio && gatewayOut.audio.data && document.getElementById('speak-response').checked) {
+          setUiState('speaking', 'Speaking...');
+          await playBase64Audio(gatewayOut.audio.data, gatewayOut.audio.mimeType || 'audio/wav');
         }
-      } else {
-        history.pop();
-        var errDiv = document.createElement('div');
-        errDiv.className = 'msg-error';
-        errDiv.textContent = d.error || 'Failed to get response';
-        messagesEl.appendChild(errDiv);
+        setUiState('idle', '');
+      } catch (err) {
+        appendMessage(err.message || 'Voice gateway failed; switched to text mode.', 'msg-error');
+        setUiState('idle', '');
       }
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    })
-    .catch(function(err) {
-      sendBtn.disabled = false;
-      micBtn.disabled = false;
-      statusEl.textContent = '';
-      history.pop();
-      var errDiv = document.createElement('div');
-      errDiv.className = 'msg-error';
-      errDiv.textContent = err.message || 'Network error';
-      messagesEl.appendChild(errDiv);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    });
+      if (alwaysOnEl.checked && !pendingAlwaysOn) {
+        pendingAlwaysOn = true;
+        setTimeout(function() {
+          pendingAlwaysOn = false;
+          if (uiState === 'idle') startRecording();
+        }, 220);
+      }
+      return;
+    }
+
+    if (!recordedBlob || recordedBlob.size === 0) {
+      setUiState('idle', '');
+      return;
+    }
+    setUiState('transcribing', 'Transcribing...');
+    try {
+      var audioBase64 = await blobToBase64(recordedBlob);
+      inFlightController = new AbortController();
+      var tr = await fetch('/api/voice/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+        credentials: 'same-origin',
+        body: JSON.stringify({ audioBase64: audioBase64 }),
+        signal: inFlightController.signal
+      });
+      var td = await tr.json();
+      if (td && (td.error === 'voice_limit_reached' || td.error === 'voice_locked')) {
+        showUsageLimitModal('voice', td);
+      }
+      if (!tr.ok || !td.success || !td.text) throw new Error(td.error || 'Transcription error');
+      appendMessage('Heard: ' + td.text, 'msg-transcript');
+      input.value = td.text;
+      await sendMessage(td.text);
+    } catch (err) {
+      if (err.name !== 'AbortError') appendMessage(err.message || 'Transcription failed', 'msg-error');
+      setUiState('idle', '');
+    } finally {
+      inFlightController = null;
+    }
+  }
+
+  async function speakText(text) {
+    if (!document.getElementById('speak-response').checked || !text) return;
+    setUiState('speaking', 'Speaking...');
+    inFlightController = new AbortController();
+    try {
+      var resp = await fetch('/api/voice/synthesize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+        credentials: 'same-origin',
+        body: JSON.stringify({ text: text }),
+        signal: inFlightController.signal
+      });
+      var type = resp.headers.get('content-type') || '';
+      if (!resp.ok || type.indexOf('audio/') !== 0) {
+        var maybeJson = null;
+        try { maybeJson = await resp.json(); } catch (e) {}
+        throw new Error((maybeJson && maybeJson.error) || 'Voice playback unavailable');
+      }
+      var blob = await resp.blob();
+      var url = URL.createObjectURL(blob);
+      activeAudio = new Audio(url);
+      await new Promise(function(resolve, reject) {
+        activeAudio.onended = resolve;
+        activeAudio.onerror = reject;
+        activeAudio.play().catch(reject);
+      });
+      URL.revokeObjectURL(url);
+      activeAudio = null;
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        appendMessage('Piper unavailable, showing text response only.', 'msg-error');
+      }
+    } finally {
+      inFlightController = null;
+    }
+  }
+
+  async function sendMessage(text) {
+    text = (text || '').trim();
+    if (!text) return;
+    welcomeEl.style.display = 'none';
+    history.push({ role: 'user', content: text });
+    appendMessage(text, 'msg-user');
+    input.value = '';
+    setUiState('thinking', 'Thinking...');
+
+    try {
+      inFlightController = new AbortController();
+      var executeActions = document.getElementById('execute-actions').checked;
+      var r = await fetch('/api/llm-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+        body: JSON.stringify({ messages: history, executeActions: executeActions }),
+        credentials: 'same-origin',
+        signal: inFlightController.signal
+      });
+      var d = await r.json();
+      if (d && (d.error === 'llm_limit_reached' || d.error === 'copilot_limit_reached')) {
+        showUsageLimitModal(d.error.indexOf('copilot') === 0 ? 'copilot' : 'llm', d);
+      }
+      if (!r.ok || !d.success || !d.text) {
+        history.pop();
+        throw new Error(d.error || 'Failed to get response');
+      }
+
+      history.push({ role: 'assistant', content: d.text });
+      appendMessage(d.text, 'msg-assistant');
+
+      if (d.agentResult) {
+        var ar = d.agentResult;
+        var agentLines = [];
+        if (ar.reasoning) agentLines.push(ar.reasoning);
+        if (ar.actionsExecuted && ar.actionsExecuted.length) agentLines.push('Executed: ' + ar.actionsExecuted.map(function(a){ return a.message; }).join('; '));
+        if (ar.actionsFailed && ar.actionsFailed.length) agentLines.push('Failed: ' + ar.actionsFailed.map(function(a){ return a.message; }).join('; '));
+        if (agentLines.length) appendMessage(agentLines.join('\n'), 'msg-agent');
+      }
+      if (d.agentError) appendMessage('Agent error: ' + d.agentError, 'msg-error');
+
+      if (document.getElementById('speak-response').checked) await speakText(d.text);
+      setUiState('idle', '');
+      if (alwaysOnEl.checked && !pendingAlwaysOn) {
+        pendingAlwaysOn = true;
+        setTimeout(function() {
+          pendingAlwaysOn = false;
+          if (uiState === 'idle') startRecording();
+        }, 200);
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') appendMessage(err.message || 'Network error', 'msg-error');
+      setUiState('idle', '');
+    } finally {
+      inFlightController = null;
+    }
   }
 
   form.addEventListener('submit', function(e) {
@@ -194,61 +481,47 @@
     }
   });
 
-  if (recognition) {
-    var transcript = '';
-    function onResult(e) {
-      var r = '';
-      for (var i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) r += e.results[i][0].transcript;
-      }
-      if (r) transcript += r;
+  micBtn.addEventListener('click', function() {
+    if (uiState === 'listening') stopRecording();
+    else if (uiState === 'idle') startRecording();
+  });
+
+  cancelBtn.addEventListener('click', function() {
+    pendingAlwaysOn = false;
+    if (recordTick) clearInterval(recordTick);
+    recordTick = null;
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      try { mediaRecorder.stop(); } catch (e) {}
     }
-    function onEnd() {
-      micBtn.classList.remove('recording');
-      micBtn.disabled = false;
-      statusEl.textContent = '';
-      recognition.onresult = null;
-      recognition.onend = null;
-      recognition.onerror = null;
-      var t = transcript.trim();
-      if (t) sendMessage(t);
-      transcript = '';
+    mediaRecorder = null;
+    recordChunks = [];
+    stopMediaTracks();
+    if (inFlightController) {
+      try { inFlightController.abort(); } catch (e) {}
+      inFlightController = null;
     }
-    function onError(e) {
-      if (e.error === 'not-allowed') statusEl.textContent = 'Microphone access denied';
-      onEnd();
+    if (activeAudio) {
+      try { activeAudio.pause(); } catch (e) {}
+      activeAudio = null;
     }
-    micBtn.addEventListener('mousedown', function(e) {
-      if (e.button !== 0) return;
-      transcript = '';
-      micBtn.classList.add('recording');
-      micBtn.disabled = true;
-      statusEl.textContent = 'Listening...';
-      recognition.onresult = onResult;
-      recognition.onend = onEnd;
-      recognition.onerror = onError;
-      recognition.start();
+    if (voiceGateway) {
+      try { voiceGateway.cancel(); } catch (e) {}
+    }
+    setUiState('idle', 'Cancelled');
+    setTimeout(function() { if (statusEl.textContent === 'Cancelled') statusEl.textContent = ''; }, 900);
+  });
+  document.getElementById('usage-limit-upgrade').addEventListener('click', function() {
+    window.location.href = '/pricing';
+  });
+  document.getElementById('usage-limit-close').addEventListener('click', function() {
+    if (limitModal) limitModal.style.display = 'none';
+  });
+  if (limitModal) {
+    limitModal.addEventListener('click', function(e) {
+      if (e.target === limitModal) limitModal.style.display = 'none';
     });
-    micBtn.addEventListener('mouseup', function() { recognition.stop(); });
-    micBtn.addEventListener('mouseleave', function() { if (micBtn.classList.contains('recording')) recognition.stop(); });
-    micBtn.addEventListener('touchstart', function(e) {
-      e.preventDefault();
-      transcript = '';
-      micBtn.classList.add('recording');
-      micBtn.disabled = true;
-      statusEl.textContent = 'Listening...';
-      recognition.onresult = onResult;
-      recognition.onend = onEnd;
-      recognition.onerror = onError;
-      recognition.start();
-    }, { passive: false });
-    micBtn.addEventListener('touchend', function(e) {
-      e.preventDefault();
-      recognition.stop();
-    }, { passive: false });
-  } else {
-    micBtn.style.display = 'none';
   }
+  initTransport();
 })();
 </script>
 

@@ -43,11 +43,25 @@ async function main() {
   console.log('Total PnL: $' + s.totalPnl.toFixed(2));
   console.log('Return:', s.returnPct.toFixed(2) + '%');
   console.log('Profit Factor:', s.profitFactor.toFixed(2));
+  if (s.maxDrawdownPctAggregateRealized != null) {
+    console.log('Max DD (Aggregate, realized equity):', s.maxDrawdownPctAggregateRealized.toFixed(2) + '%');
+  }
+  if (s.maxDrawdownPctWorstCoinRealized != null && s.maxDrawdownPctWorstCoinMtm != null) {
+    console.log('Worst Coin DD (realized / MTM):', s.maxDrawdownPctWorstCoinRealized.toFixed(2) + '% / ' + s.maxDrawdownPctWorstCoinMtm.toFixed(2) + '%');
+  }
   console.log('');
 
   result.results.forEach(r => {
     if (r.error) return;
-    console.log(r.symbol || r.coinId, '| Trades:', r.totalTrades, '| WR:', r.winRate.toFixed(1) + '%', '| PnL: $' + (r.totalPnl || 0).toFixed(2), '| DD:', (r.maxDrawdownPct || 0).toFixed(1) + '%');
+    const ddRealized = r.maxDrawdownPctRealized != null ? r.maxDrawdownPctRealized : (r.maxDrawdownPct || 0);
+    const ddMtm = r.maxDrawdownPctMtm != null ? r.maxDrawdownPctMtm : (r.maxDrawdownPct || 0);
+    console.log(
+      r.symbol || r.coinId,
+      '| Trades:', r.totalTrades,
+      '| WR:', r.winRate.toFixed(1) + '%',
+      '| PnL: $' + (r.totalPnl || 0).toFixed(2),
+      '| DD(realized/MTM):', ddRealized.toFixed(1) + '%/' + ddMtm.toFixed(1) + '%'
+    );
   });
 
   console.log('\nOK\n');

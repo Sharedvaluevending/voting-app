@@ -1,5 +1,18 @@
   </div>
   <footer class="footer">
+    <div class="footer-brand">
+      <img src="/images/logo-full.png" alt="AlphaConfluence" class="footer-logo">
+    </div>
+    <div class="footer-links" style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;padding:8px 12px 0;">
+      <a href="/help">Help</a>
+      <a href="/faq">FAQ</a>
+      <a href="/risk-disclosure">Risk Disclosure</a>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+    </div>
+    <div style="text-align:center;padding:8px 12px 0;">
+      <a href="/risk-disclosure" class="footer-warning-link">READ THE FULL RISK DISCLAIMER BEFORE TRADING</a>
+    </div>
     <div class="disclaimer">
       This tool is for informational and educational purposes only. Not financial advice.
       Always DYOR. Crypto is volatile - never trade more than you can afford to lose.
@@ -9,6 +22,17 @@
 
   <!-- Real-time WebSocket prices (all pages: ticker, cards, trades, nav PnL) -->
   <script src="/js/ws-prices.js"></script>
+  <script src="/js/voice-realtime.js"></script>
+
+  <!-- HTML sanitization utility -->
+  <script>
+  window.escapeHtml = function(str) {
+    if (typeof str !== 'string') return String(str == null ? '' : str);
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+  };
+  </script>
 
   <!-- Toast helper for user-facing error feedback -->
   <script>
@@ -53,6 +77,31 @@
   })();
   </script>
 
+  <% if (typeof user !== 'undefined' && user && typeof legalAckRequired !== 'undefined' && legalAckRequired) { %>
+  <div id="legal-ack-overlay" style="position:fixed;inset:0;background:rgba(2,6,23,0.82);backdrop-filter:blur(4px);z-index:100000;display:flex;align-items:center;justify-content:center;padding:18px;">
+    <form action="/account/legal-acknowledge" method="POST" style="width:min(760px,100%);background:rgba(15,23,42,0.96);border:1px solid rgba(239,68,68,0.45);border-radius:12px;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,0.45);">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <input type="hidden" name="next" value="<%= typeof currentPath !== 'undefined' ? currentPath : (typeof activePage !== 'undefined' ? '/' + activePage : '/performance') %>">
+      <h3 style="margin:0 0 8px 0;color:#fca5a5;font-size:18px;">Important: Risk & Liability Acknowledgment</h3>
+      <p style="margin:0 0 10px 0;color:#cbd5e1;font-size:13px;line-height:1.7;">
+        Crypto trading is high risk. You may lose all capital. System signals, backtests, and automation are provided
+        for educational/software use only and are not financial advice or guaranteed outcomes.
+      </p>
+      <p style="margin:0 0 12px 0;color:#9ca3af;font-size:12px;line-height:1.7;">
+        Please review and acknowledge:
+        <a href="/risk-disclosure" target="_blank" rel="noopener">Risk Disclosure</a>,
+        <a href="/terms" target="_blank" rel="noopener">Terms</a>,
+        <a href="/privacy" target="_blank" rel="noopener">Privacy</a>.
+      </p>
+      <label style="display:flex;gap:8px;align-items:flex-start;color:#e5e7eb;font-size:12px;margin-bottom:12px;">
+        <input type="checkbox" id="legal-ack-cb" required style="margin-top:2px;">
+        <span>I understand the risks, accept the Terms and Privacy Policy, and I am solely responsible for all trading decisions.</span>
+      </label>
+      <button id="legal-ack-btn" type="submit" class="btn btn-sm" style="background:#ef4444;border:1px solid #ef4444;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;">I Understand and Accept</button>
+    </form>
+  </div>
+  <% } %>
+
   <script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then(function(regs) {
@@ -87,7 +136,7 @@
             var title = 'SMC Setup Found';
             var body = added === 1 ? '1 new setup found by LLM' : added + ' new setups found by LLM';
             try {
-              new Notification(title, { body: body, icon: '/favicon.ico' });
+              new Notification(title, { body: body, icon: '/images/logo-icon.png' });
             } catch (e) {}
           }
           firstCheck = false;

@@ -1,9 +1,40 @@
 <%- include('partials/header') %>
 
+<!-- Beta Warning Modal -->
+<div id="trench-beta-modal" style="display:none;position:fixed;inset:0;z-index:99999;background:rgba(2,6,23,0.82);backdrop-filter:blur(10px);align-items:center;justify-content:center;">
+  <div style="max-width:480px;width:90%;background:#0f172a;border:1px solid rgba(234,179,8,0.35);border-radius:14px;padding:28px 24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+    <div style="font-size:32px;margin-bottom:12px;">&#9888;</div>
+    <h3 style="color:#fbbf24;font-size:18px;margin:0 0 12px 0;">Trench Warfare — Active Development</h3>
+    <p style="color:#cbd5e1;font-size:13px;line-height:1.7;margin:0 0 10px 0;">
+      This feature is under <strong style="color:#f59e0b;">heavy development and optimization</strong>. 
+      The automated bot does not perform consistently yet and strategies are still being tested and refined.
+    </p>
+    <p style="color:#9ca3af;font-size:12px;line-height:1.6;margin:0 0 18px 0;">
+      Paper trading mode is recommended. Do not risk real funds until performance has been validated. 
+      Results may vary significantly and past paper performance is not indicative of live results.
+    </p>
+    <button id="trench-beta-dismiss" style="padding:10px 32px;background:rgba(234,179,8,0.18);border:1px solid rgba(234,179,8,0.4);border-radius:8px;color:#fbbf24;font-weight:600;font-size:14px;cursor:pointer;">I Understand</button>
+  </div>
+</div>
+<script>
+(function() {
+  if (!sessionStorage.getItem('trench_beta_ack')) {
+    var m = document.getElementById('trench-beta-modal');
+    if (m) m.style.display = 'flex';
+  }
+  var btn = document.getElementById('trench-beta-dismiss');
+  if (btn) btn.addEventListener('click', function() {
+    sessionStorage.setItem('trench_beta_ack', '1');
+    document.getElementById('trench-beta-modal').style.display = 'none';
+  });
+})();
+</script>
+
 <style>
 /* Trench Warfare – compact mobile for Open Positions & Trade History */
 .trench-warfare-page .section { background: rgba(15,23,42,0.6); border: 1px solid #1e2a3a; width: 100%; box-sizing: border-box; }
 .trench-warfare-page .data-table { background: rgba(15,23,42,0.4); }
+.trench-warfare-page { display: flex; flex-direction: column; }
 .trench-warfare-page #market-category-pills { scrollbar-width: thin; }
 .trench-warfare-page #market-tokens-row { scrollbar-width: thin; }
 .trench-warfare-page #open-positions-section,
@@ -11,6 +42,75 @@
 .trench-warfare-page #open-positions-section .data-table,
 .trench-warfare-page #trade-history-container .data-table { width: 100%; max-width: 100%; }
 .trench-warfare-page .trench-table-wrap { overflow-x: auto; width: 100%; max-width: 100%; }
+.trench-warfare-page #meme-market-explorer-section { order: 10; }
+.trench-warfare-page #trench-analytics-section { order: 20; }
+.trench-warfare-page #trench-auto-bot-section { order: 30; }
+.trench-warfare-page #open-positions-section { order: 40; }
+.trench-warfare-page #trade-history-section { order: 50; }
+.trench-warfare-page #dex-tools-section { order: 60; }
+.trench-warfare-page #scalping-criteria-section { order: 70; }
+.trench-lock-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(14px);
+  background: rgba(2, 6, 23, 0.72);
+}
+.trench-lock-modal {
+  width: min(1180px, 96vw);
+  background: linear-gradient(180deg, rgba(15,23,42,0.86), rgba(15,23,42,0.74));
+  border: 1px solid rgba(148,163,184,0.24);
+  border-radius: 16px;
+  padding: 22px;
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.48);
+}
+.trench-lock-header {
+  margin: 0 0 14px 0;
+  color: #f8fafc;
+}
+.trench-lock-layout {
+  display: grid;
+  grid-template-columns: minmax(460px, 1.25fr) 1fr;
+  gap: 18px;
+  align-items: start;
+}
+.trench-lock-image {
+  width: 100%;
+  max-width: 560px;
+  border-radius: 12px;
+  border: 1px solid rgba(148,163,184,0.3);
+  background: rgba(15,23,42,0.65);
+  object-fit: cover;
+}
+.trench-lock-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trench-lock-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+@media (max-width: 900px) {
+  .trench-lock-modal {
+    width: min(700px, 96vw);
+    padding: 16px;
+  }
+  .trench-lock-layout {
+    display: block;
+  }
+  .trench-lock-image {
+    width: 100%;
+    max-width: 100%;
+    max-height: 48vh;
+    margin-bottom: 12px;
+  }
+}
 /* Open Positions & Trade History: full-width cards on mobile (like history page) */
 @media (max-width: 600px) {
   .trench-warfare-page .section-header h2 { font-size: 18px; }
@@ -195,7 +295,7 @@
 
 <!-- Analytics + Equity Curve -->
 <% if (typeof user !== 'undefined' && user) { %>
-<div class="section" style="margin-bottom:24px;">
+<div class="section" id="trench-analytics-section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Trench Analytics</h3>
   <div id="trench-analytics-error" style="display:none;padding:12px;background:rgba(239,68,68,0.15);border:1px solid #ef4444;border-radius:8px;color:#ef4444;font-size:13px;margin-bottom:12px;"></div>
   <div id="trench-analytics" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;width:100%;">
@@ -253,7 +353,7 @@
 
 <!-- Auto Trade Bot -->
 <% if (typeof user !== 'undefined' && user) { %>
-<div class="section" style="margin-bottom:24px;">
+<div class="section" id="trench-auto-bot-section" style="margin-bottom:24px;">
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
     <h3 style="color:#e5e7eb;margin:0;">Auto Trade Bot</h3>
     <div id="bot-status-badge" style="display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;<%= botRunning ? 'background:rgba(16,185,129,0.2);color:#10b981;border:1px solid rgba(16,185,129,0.3);' : 'background:rgba(107,114,128,0.2);color:#6b7280;border:1px solid rgba(107,114,128,0.3);' %>">
@@ -285,9 +385,10 @@
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
       <span style="font-size:13px;color:#9ca3af;font-weight:600;">Live Activity</span>
       <span id="bot-strategy-badge" style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(16,185,129,0.2);color:#10b981;display:none;"></span>
+      <span id="bot-source-badge" style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(59,130,246,0.16);color:#93c5fd;display:none;"></span>
       <span id="bot-scan-count" style="font-size:11px;color:#6b7280;"></span>
     </div>
-    <div id="bot-activity-log" style="max-height:200px;overflow-y:auto;background:rgba(0,0,0,0.3);border:1px solid #1e2a3a;border-radius:8px;padding:8px 12px;font-family:monospace;font-size:12px;line-height:1.6;">
+    <div id="bot-activity-log" style="height:160px;overflow-y:auto;background:rgba(0,0,0,0.3);border:1px solid #1e2a3a;border-radius:8px;padding:8px 12px;font-family:monospace;font-size:12px;line-height:1.6;">
       <div style="color:#6b7280;">Waiting for bot activity...</div>
     </div>
   </div>
@@ -307,39 +408,59 @@
   <!-- Settings (collapsible) -->
   <details style="margin-top:8px;padding:12px;background:rgba(15,23,42,0.4);border-radius:8px;border:1px solid #1e2a3a;">
     <summary style="cursor:pointer;color:#e5e7eb;font-weight:600;">Bot Settings</summary>
-    <p style="font-size:12px;color:#6b7280;margin:8px 0;"><strong>Memecoin</strong>: Detect pump START (0.5–10% 5m), 1–3% TP, 2–5min hold. <strong>Scalping</strong>: Trending tokens, 8–12% TP.</p>
+    <p style="font-size:12px;color:#6b7280;margin:8px 0;"><strong>Memecoin</strong>: Detect pump START (0.5–10% 5m), 1–3% TP, 2–5min hold. <strong>Scalping</strong>: Trending tokens, 8–12% TP. You can also switch candidate source to Market Explorer categories.</p>
+    <div style="padding:10px;background:rgba(2,6,23,0.45);border:1px solid rgba(51,65,85,0.75);border-radius:8px;margin:10px 0;">
+      <div style="font-size:12px;color:#cbd5e1;font-weight:700;margin-bottom:8px;">Trench Presets (survival first)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <button type="button" class="nav-btn" id="preset-survival" style="padding:6px 10px;font-size:12px;">Survival</button>
+        <button type="button" class="nav-btn" id="preset-balanced" style="padding:6px 10px;font-size:12px;">Balanced</button>
+        <button type="button" class="nav-btn" id="preset-aggressive" style="padding:6px 10px;font-size:12px;">Aggressive</button>
+        <button type="button" class="nav-btn" id="preset-sniper" style="padding:6px 10px;font-size:12px;">Sniper</button>
+        <button type="button" class="nav-btn" id="preset-profit-factor" style="padding:6px 10px;font-size:12px;">Profit Factor Fix</button>
+      </div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:8px;line-height:1.5;">
+        Start with <strong>Survival + Paper</strong> for at least 100 trades, then move to Balanced only if drawdown stays under 8%.
+      </div>
+    </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:12px;">
       <div><label style="font-size:11px;color:#6b7280;">Strategy</label><select id="auto-strategy" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"><option value="memecoin" <%= !trenchAuto || trenchAuto.strategy !== 'scalping' ? 'selected' : '' %>>Memecoin (pump start)</option><option value="scalping" <%= (trenchAuto && trenchAuto.strategy) === 'scalping' ? 'selected' : '' %>>Scalping (trending)</option></select></div>
+      <div><label style="font-size:11px;color:#6b7280;">Candidate Source</label><select id="auto-market-source" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"><option value="trendings" <%= (!trenchAuto || !['explorer','launches'].includes(trenchAuto.marketSource)) ? 'selected' : '' %>>Scanner Trendings</option><option value="explorer" <%= (trenchAuto && trenchAuto.marketSource === 'explorer') ? 'selected' : '' %>>Meme Market Explorer</option><option value="launches" <%= (trenchAuto && trenchAuto.marketSource === 'launches') ? 'selected' : '' %>>Launch Detection</option></select></div>
+      <div><label style="font-size:11px;color:#6b7280;">Explorer Category</label><select id="auto-explorer-category" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"><option value="auto" <%= (!trenchAuto || !trenchAuto.explorerCategoryId || trenchAuto.explorerCategoryId === 'auto') ? 'selected' : '' %>>Auto (all categories)</option><option value="topBoosted" <%= (trenchAuto && trenchAuto.explorerCategoryId === 'topBoosted') ? 'selected' : '' %>>Top Boosted</option><option value="trending5m" <%= (trenchAuto && trenchAuto.explorerCategoryId === 'trending5m') ? 'selected' : '' %>>Trending 5m</option><option value="trending1h" <%= (trenchAuto && trenchAuto.explorerCategoryId === 'trending1h') ? 'selected' : '' %>>Trending 1h</option><option value="newPools" <%= (trenchAuto && trenchAuto.explorerCategoryId === 'newPools') ? 'selected' : '' %>>New Pools</option><option value="topVolume" <%= (trenchAuto && trenchAuto.explorerCategoryId === 'topVolume') ? 'selected' : '' %>>Top Volume</option><option value="jupiterTrending5m" <%= (trenchAuto && trenchAuto.explorerCategoryId === 'jupiterTrending5m') ? 'selected' : '' %>>Jupiter Trending 5m</option><option value="jupiterTraded1h" <%= (trenchAuto && trenchAuto.explorerCategoryId === 'jupiterTraded1h') ? 'selected' : '' %>>Top Traded 1h</option><option value="organicScore" <%= (trenchAuto && trenchAuto.explorerCategoryId === 'organicScore') ? 'selected' : '' %>>Organic Score</option><option value="justLaunched" <%= (trenchAuto && trenchAuto.explorerCategoryId === 'justLaunched') ? 'selected' : '' %>>Just Launched</option></select></div>
+      <div><label style="font-size:11px;color:#6b7280;">Use Engine Confirmation</label><select id="auto-engine-confirm" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"><option value="off" <%= (trenchAuto && trenchAuto.useEngineConfirmation === false) ? 'selected' : '' %>>Off</option><option value="on" <%= (!trenchAuto || trenchAuto.useEngineConfirmation !== false) ? 'selected' : '' %>>On</option></select></div>
+      <div><label style="font-size:11px;color:#6b7280;">Engine Strictness</label><select id="auto-engine-strictness" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"><option value="light" <%= (!trenchAuto || !trenchAuto.enginePatternStrictness || trenchAuto.enginePatternStrictness === 'light') ? 'selected' : '' %>>Light</option><option value="strict" <%= (trenchAuto && trenchAuto.enginePatternStrictness === 'strict') ? 'selected' : '' %>>Strict</option></select></div>
+      <div><label style="font-size:11px;color:#6b7280;">Engine Min Score</label><input type="number" id="auto-engine-score" value="<%= (trenchAuto && trenchAuto.engineMinScore) != null ? trenchAuto.engineMinScore : 55 %>" min="45" max="95" step="1" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+      <div><label style="font-size:11px;color:#6b7280;">Engine Top Candidates</label><input type="number" id="auto-engine-topn" value="<%= (trenchAuto && trenchAuto.engineTopCandidates) != null ? trenchAuto.engineTopCandidates : 40 %>" min="5" max="60" step="1" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
       <div><label style="font-size:11px;color:#6b7280;">Max Positions</label><input type="number" id="auto-max-pos" value="<%= (trenchAuto && trenchAuto.maxOpenPositions) != null ? trenchAuto.maxOpenPositions : 3 %>" min="1" max="15" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-      <div><label style="font-size:11px;color:#6b7280;">$ per Trade (Paper)</label><input type="number" id="auto-amount-usd" value="<%= (trenchAuto && trenchAuto.amountPerTradeUsd) != null ? trenchAuto.amountPerTradeUsd : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 50 : 25) %>" min="5" max="500" step="5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+      <div><label style="font-size:11px;color:#6b7280;">$ per Trade (Paper)</label><input type="number" id="auto-amount-usd" value="<%= (trenchAuto && trenchAuto.amountPerTradeUsd) != null ? trenchAuto.amountPerTradeUsd : 25 %>" min="5" max="500" step="5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
       <div><label style="font-size:11px;color:#6b7280;">SOL per Trade (Live)</label><input type="number" id="auto-amount-sol" value="<%= (trenchAuto && trenchAuto.amountPerTradeSol) != null ? trenchAuto.amountPerTradeSol : 0.05 %>" min="0.01" max="1" step="0.01" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
     </div>
     <details style="margin-top:12px;padding:10px;background:rgba(15,23,42,0.3);border-radius:6px;border:1px solid rgba(30,42,58,0.5);">
       <summary style="cursor:pointer;color:#9ca3af;font-size:13px;font-weight:600;">Profit Locking</summary>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
-        <div><label style="font-size:11px;color:#6b7280;">TP %</label><input type="number" id="auto-tp" value="<%= (trenchAuto && trenchAuto.tpPercent) != null ? trenchAuto.tpPercent : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 10 : 2) %>" min="1" max="50" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-        <div><label style="font-size:11px;color:#6b7280;">SL %</label><input type="number" id="auto-sl" value="<%= (trenchAuto && trenchAuto.slPercent) != null ? trenchAuto.slPercent : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 8 : 2) %>" min="1" max="30" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-        <div><label style="font-size:11px;color:#6b7280;">Trailing %</label><input type="number" id="auto-trailing" value="<%= (trenchAuto && trenchAuto.trailingStopPercent) != null ? trenchAuto.trailingStopPercent : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 5 : 2) %>" min="1" max="20" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-        <div><label style="font-size:11px;color:#6b7280;">Max hold (min)</label><input type="number" id="auto-max-hold" value="<%= (trenchAuto && trenchAuto.maxHoldMinutes) != null ? trenchAuto.maxHoldMinutes : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 10 : 4) %>" min="2" max="15" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-        <div><label style="font-size:11px;color:#6b7280;">Breakeven at %</label><input type="number" id="auto-breakeven-at" value="<%= (trenchAuto && trenchAuto.breakevenAtPercent) != null ? trenchAuto.breakevenAtPercent : ((trenchAuto && trenchAuto.strategy) === 'scalping' ? 5 : 1) %>" min="1" max="15" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-        <div><label style="font-size:11px;color:#6b7280;">Min profit to trail %</label><input type="number" id="auto-min-profit-trail" value="<%= (trenchAuto && trenchAuto.minProfitToActivateTrail) != null ? trenchAuto.minProfitToActivateTrail : 0 %>" min="0" max="10" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;" title="Only activate trailing after this % profit (0=always)"></div>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-partial-tp" <%= (trenchAuto && trenchAuto.usePartialTP !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Partial take profits (40/30/30 at TP1/TP2/TP3)</span></label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-trailing" <%= (trenchAuto && trenchAuto.useTrailingStop !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Trailing stop (adaptive: tight at small gains, wide at big gains)</span></label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-trailing-tp" <%= (trenchAuto && trenchAuto.useTrailingTP) === true ? 'checked' : '' %>><span style="color:#e5e7eb;">Trailing take profit (skip fixed TP, exit only via trailing)</span></label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-breakeven" <%= (trenchAuto && trenchAuto.useBreakevenStop !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Breakeven stop (locks at entry once profit hits threshold)</span></label>
+        <div><label style="font-size:11px;color:#6b7280;">TP %</label><input type="number" id="auto-tp" value="<%= (trenchAuto && trenchAuto.tpPercent) != null ? trenchAuto.tpPercent : 3 %>" min="1" max="50" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">SL %</label><input type="number" id="auto-sl" value="<%= (trenchAuto && trenchAuto.slPercent) != null ? trenchAuto.slPercent : 2 %>" min="1" max="30" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Trailing %</label><input type="number" id="auto-trailing" value="<%= (trenchAuto && trenchAuto.trailingStopPercent) != null ? trenchAuto.trailingStopPercent : 1.5 %>" min="1" max="20" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Max hold (min)</label><input type="number" id="auto-max-hold" value="<%= (trenchAuto && trenchAuto.maxHoldMinutes) != null ? trenchAuto.maxHoldMinutes : 4 %>" min="2" max="15" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Breakeven at %</label><input type="number" id="auto-breakeven-at" value="<%= (trenchAuto && trenchAuto.breakevenAtPercent) != null ? trenchAuto.breakevenAtPercent : 1.5 %>" min="1" max="15" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Min profit to trail %</label><input type="number" id="auto-min-profit-trail" value="<%= (trenchAuto && trenchAuto.minProfitToActivateTrail) != null ? trenchAuto.minProfitToActivateTrail : 1 %>" min="0" max="10" step="0.5" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;" title="Only activate trailing after this % profit (0=always)"></div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-partial-tp" <%= (!trenchAuto || trenchAuto.usePartialTP !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Partial take profits (40/30/30 at TP1/TP2/TP3)</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-trailing" <%= (!trenchAuto || trenchAuto.useTrailingStop !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Trailing stop (adaptive: tight at small gains, wide at big gains)</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-trailing-tp" <%= (!trenchAuto || trenchAuto.useTrailingTP !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Trailing take profit (skip fixed TP, exit only via trailing)</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-breakeven" <%= (!trenchAuto || trenchAuto.useBreakevenStop !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Breakeven stop (locks at entry once profit hits threshold)</span></label>
       </div>
     </details>
     <details style="margin-top:8px;padding:10px;background:rgba(15,23,42,0.3);border-radius:6px;border:1px solid rgba(30,42,58,0.5);">
       <summary style="cursor:pointer;color:#9ca3af;font-size:13px;font-weight:600;">Entry Filters</summary>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px;">
-        <div><label style="font-size:11px;color:#6b7280;">Min Liq $</label><input type="number" id="auto-min-liq" value="<%= (trenchAuto && trenchAuto.minLiquidityUsd) != null ? trenchAuto.minLiquidityUsd : 10000 %>" min="5000" max="100000" step="1000" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Min Liq $</label><input type="number" id="auto-min-liq" value="<%= (trenchAuto && trenchAuto.minLiquidityUsd) != null ? trenchAuto.minLiquidityUsd : 15000 %>" min="5000" max="100000" step="1000" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <div><label style="font-size:11px;color:#6b7280;">Min Vol 24h $</label><input type="number" id="auto-min-volume" value="<%= (trenchAuto && trenchAuto.minVolume24hUsd) != null ? trenchAuto.minVolume24hUsd : 25000 %>" min="5000" max="500000" step="5000" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-        <div><label style="font-size:11px;color:#6b7280;">Max Top10 %</label><input type="number" id="auto-max-top10" value="<%= (trenchAuto && trenchAuto.maxTop10HoldersPercent) != null ? trenchAuto.maxTop10HoldersPercent : 80 %>" min="50" max="100" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-        <div><label style="font-size:11px;color:#6b7280;">Max 24h %</label><input type="number" id="auto-max-24h" value="<%= (trenchAuto && trenchAuto.maxPriceChange24hPercent) != null ? trenchAuto.maxPriceChange24hPercent : 500 %>" min="100" max="1000" step="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Max Top10 %</label><input type="number" id="auto-max-top10" value="<%= (trenchAuto && trenchAuto.maxTop10HoldersPercent) != null ? trenchAuto.maxTop10HoldersPercent : 60 %>" min="50" max="100" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
+        <div><label style="font-size:11px;color:#6b7280;">Max 24h %</label><input type="number" id="auto-max-24h" value="<%= (trenchAuto && trenchAuto.maxPriceChange24hPercent) != null ? trenchAuto.maxPriceChange24hPercent : 400 %>" min="100" max="1000" step="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <div><label style="font-size:11px;color:#6b7280;">Cooldown (hr)</label><input type="number" id="auto-cooldown" value="<%= (trenchAuto && trenchAuto.cooldownHours) != null ? trenchAuto.cooldownHours : 1 %>" min="0.25" max="4" step="0.25" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-filters" <%= (trenchAuto && trenchAuto.useEntryFilters !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Use entry filters (whale check, liquidity via Mobula)</span></label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-volume-filter" <%= (trenchAuto && trenchAuto.volumeFilterEnabled) === true ? 'checked' : '' %>><span style="color:#e5e7eb;">Volume filter (min 24h volume above)</span></label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-volatility-filter" <%= (trenchAuto && trenchAuto.volatilityFilterEnabled) === true ? 'checked' : '' %>><span style="color:#e5e7eb;">Volatility filter (skip too flat or parabolic)</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-require-socials" <%= (!trenchAuto || trenchAuto.requireSocials !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Require social links (skip tokens with no Twitter/website/Telegram)</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-volume-filter" <%= (!trenchAuto || trenchAuto.volumeFilterEnabled !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Volume filter (min 24h volume above)</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-volatility-filter" <%= (!trenchAuto || trenchAuto.volatilityFilterEnabled !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Volatility filter (skip too flat or parabolic)</span></label>
         <div style="grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:8px;"><div><label style="font-size:11px;color:#6b7280;">Max vol 24h %</label><input type="number" id="auto-max-volatility" value="<%= (trenchAuto && trenchAuto.maxVolatility24hPercent) != null ? trenchAuto.maxVolatility24hPercent : 400 %>" min="100" max="1000" style="width:100%;padding:6px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div><div><label style="font-size:11px;color:#6b7280;">Min vol 24h %</label><input type="number" id="auto-min-volatility" value="<%= (trenchAuto && trenchAuto.minVolatility24hPercent) != null ? trenchAuto.minVolatility24hPercent : -30 %>" min="-80" max="50" style="width:100%;padding:6px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div></div>
         <div><label style="font-size:11px;color:#6b7280;">Min organic score</label><input type="number" id="auto-min-organic" value="<%= (trenchAuto && trenchAuto.minOrganicScore) != null ? trenchAuto.minOrganicScore : 0 %>" min="0" max="100" style="width:100%;padding:6px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;" title="Jupiter only, 0=disabled"></div>
         <div><label style="font-size:11px;color:#6b7280;">Min pool age (min)</label><input type="number" id="auto-min-pool-age" value="<%= (trenchAuto && trenchAuto.minPoolAgeMinutes) != null ? trenchAuto.minPoolAgeMinutes : 0 %>" min="0" max="60" style="width:100%;padding:6px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;" title="Skip pools younger than this, 0=disabled"></div>
@@ -353,7 +474,7 @@
         <div><label style="font-size:11px;color:#6b7280;">Max daily loss %</label><input type="number" id="auto-max-daily-loss" value="<%= (trenchAuto && trenchAuto.maxDailyLossPercent) != null ? trenchAuto.maxDailyLossPercent : 15 %>" min="5" max="50" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <div><label style="font-size:11px;color:#6b7280;">Pause after losses</label><input type="number" id="auto-consec-losses" value="<%= (trenchAuto && trenchAuto.consecutiveLossesToPause) != null ? trenchAuto.consecutiveLossesToPause : 3 %>" min="2" max="10" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
         <div><label style="font-size:11px;color:#6b7280;">Min SOL (live)</label><input type="number" id="auto-min-sol" value="<%= (trenchAuto && trenchAuto.minSolBalance) != null ? trenchAuto.minSolBalance : 0.05 %>" min="0.01" max="1" step="0.01" style="width:100%;padding:8px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;"></div>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-kelly" <%= (trenchAuto && trenchAuto.useKellySizing) === true ? 'checked' : '' %>><span style="color:#e5e7eb;">Kelly sizing (scale $ per trade by win rate from trench stats)</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-use-kelly" <%= (!trenchAuto || trenchAuto.useKellySizing !== false) ? 'checked' : '' %>><span style="color:#e5e7eb;">Kelly sizing (scale $ per trade by win rate from trench stats)</span></label>
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;grid-column:1/-1;"><input type="checkbox" id="auto-theme-filter" <%= (trenchAuto && trenchAuto.themeFilterEnabled) === true ? 'checked' : '' %>><span style="color:#e5e7eb;">Theme filter (prefer tokens in trending themes — coming soon)</span></label>
       </div>
     </details>
@@ -382,19 +503,31 @@
 <% } %>
 
 <!-- Meme Market Explorer -->
-<div class="section" style="margin-bottom:24px;">
-  <h3 style="color:#e5e7eb;margin-bottom:12px;">Meme Market Explorer</h3>
-  <p style="font-size:12px;color:#9ca3af;margin-bottom:12px;">Flip through top 10 lists by category. Click Buy to paper/live trade.</p>
+<div class="section" id="meme-market-explorer-section" style="margin-bottom:24px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+    <h3 style="color:#e5e7eb;margin:0;">Meme Market Explorer</h3>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-size:11px;color:#6b7280;">Show:</span>
+      <select id="market-limit-select" style="padding:5px 10px;font-size:12px;background:#1e293b;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;cursor:pointer;">
+        <option value="10">Top 10</option>
+        <option value="25">Top 25</option>
+        <option value="50">Top 50</option>
+        <option value="0" selected>All</option>
+      </select>
+      <span id="market-total-count" style="font-size:11px;color:#6b7280;"></span>
+    </div>
+  </div>
+  <p id="market-explorer-desc" style="font-size:12px;color:#9ca3af;margin-bottom:12px;">Flip through top 10 lists by category. Click Buy to paper/live trade.</p>
   <div id="market-category-pills" style="display:flex;gap:8px;margin-bottom:12px;overflow-x:auto;padding-bottom:4px;-webkit-overflow-scrolling:touch;scrollbar-width:thin;">
     <span style="color:#6b7280;font-size:12px;flex-shrink:0;align-self:center;">Categories:</span>
   </div>
-  <div id="market-tokens-row" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch;scrollbar-width:thin;min-height:140px;">
+  <div id="market-tokens-row" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch;scrollbar-width:thin;min-height:140px;flex-wrap:wrap;">
     <div id="market-tokens-loading" style="color:#6b7280;font-size:13px;padding:20px;">Loading...</div>
   </div>
 </div>
 
 <!-- Dex Tools & Safety -->
-<div class="section" style="margin-bottom:24px;">
+<div class="section" id="dex-tools-section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Dex Tools & Safety</h3>
   <p style="font-size:12px;color:#9ca3af;margin-bottom:12px;">Charts, swaps, and honeypot/rug checkers before you buy.</p>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;">
@@ -422,7 +555,7 @@
 </div>
 
 <!-- Scalping Criteria -->
-<div class="section" style="margin-bottom:24px;">
+<div class="section" id="scalping-criteria-section" style="margin-bottom:24px;">
   <h3 style="color:#e5e7eb;margin-bottom:12px;">Scalping Criteria</h3>
   <p style="font-size:13px;color:#9ca3af;margin-bottom:12px;">Key filters for shitcoin scalps.</p>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">
@@ -459,6 +592,27 @@
     <div id="modal-status" style="margin-top:12px;font-size:12px;color:#9ca3af;"></div>
   </div>
 </div>
+
+<% if (typeof user !== 'undefined' && user && !trenchAccess) { %>
+<div id="trench-lock-overlay" class="trench-lock-overlay" style="display:flex;">
+  <div class="trench-lock-modal">
+    <h3 class="trench-lock-header">🐸 YOUR FRENS ARE IN THE TRENCHES</h3>
+    <div class="trench-lock-layout">
+      <img class="trench-lock-image" src="/images/pepe-trench.png" alt="Trench upgrade">
+      <div class="trench-lock-copy">
+        <p style="margin:0;color:#cbd5e1;font-size:14px;">While you're sitting on the sidelines...</p>
+        <p style="margin:0;color:#cbd5e1;font-size:14px;">they're aping into memecoins and printing.</p>
+        <p style="margin:2px 0 0 0;color:#e2e8f0;font-size:14px;">Unlock Trench Warfare for just <strong>$5/month</strong> or go full degen with <strong>Elite at $99/month</strong>.</p>
+        <div class="trench-lock-actions">
+          <button type="button" class="btn btn-primary" id="btn-trench-addon" style="justify-content:flex-start;">🚀 Add Trench Warfare — $5/mo</button>
+          <button type="button" class="btn btn-outline" id="btn-trench-elite" style="justify-content:flex-start;">💎 Upgrade to Elite — $99/mo (includes everything)</button>
+          <button type="button" class="btn btn-outline" id="btn-trench-later" style="justify-content:flex-start;color:#94a3b8;">Maybe later (stay poor)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<% } %>
 
 <script>window.__TRENDINGS__ = <%- JSON.stringify((trendings || []).map(function(t){ return { tokenAddress: t.tokenAddress, price: t.price }; })) %>;</script>
 <script src="https://unpkg.com/@solana/web3.js@1.95.4/lib/index.iife.min.js"></script>
@@ -672,6 +826,9 @@
     var pillsEl = document.getElementById('market-category-pills');
     var rowEl = document.getElementById('market-tokens-row');
     var loadingEl = document.getElementById('market-tokens-loading');
+    var limitSelect = document.getElementById('market-limit-select');
+    var descEl = document.getElementById('market-explorer-desc');
+    var totalCountEl = document.getElementById('market-total-count');
     if (!pillsEl || !rowEl) return;
 
     function renderPills() {
@@ -685,7 +842,7 @@
         btn.type = 'button';
         btn.className = 'nav-btn';
         btn.style.cssText = 'padding:6px 12px;font-size:12px;flex-shrink:0;white-space:nowrap;';
-        btn.textContent = cat.label;
+        btn.textContent = cat.label + ' (' + cat.tokens.length + ')';
         btn.dataset.categoryId = id;
         if (activeCategoryId === id) btn.classList.add('primary');
         btn.addEventListener('click', function() {
@@ -697,6 +854,9 @@
       });
       if (!activeCategoryId && ids.length > 0) {
         activeCategoryId = ids[0];
+        pillsEl.querySelector('button[data-category-id="' + activeCategoryId + '"]')?.classList.add('primary');
+        renderTokens(marketCategories[activeCategoryId].tokens);
+      } else if (activeCategoryId && marketCategories[activeCategoryId]) {
         pillsEl.querySelector('button[data-category-id="' + activeCategoryId + '"]')?.classList.add('primary');
         renderTokens(marketCategories[activeCategoryId].tokens);
       }
@@ -732,6 +892,28 @@
       window.__TRENDINGS__ = trendings;
     }
 
+    function fetchCategories(limit) {
+      loadingEl.style.display = '';
+      loadingEl.textContent = limit === 0 ? 'Loading all candidates (may take a few seconds)...' : 'Loading...';
+      rowEl.innerHTML = '';
+      rowEl.appendChild(loadingEl);
+
+      fetch('/api/trench-warfare/market-categories?limit=' + limit, { credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          marketCategories = d.categories || {};
+          var total = 0;
+          Object.values(marketCategories).forEach(function(c) { total += (c.tokens ? c.tokens.length : 0); });
+          if (totalCountEl) totalCountEl.textContent = total + ' tokens loaded';
+          if (descEl) descEl.textContent = 'Click a category to browse. ' + Object.keys(marketCategories).length + ' categories, ' + total + ' tokens total.';
+          renderPills();
+          if (loadingEl) loadingEl.style.display = 'none';
+        })
+        .catch(function(err) {
+          if (loadingEl) loadingEl.textContent = 'Failed to load. ' + (err.message || '');
+        });
+    }
+
     rowEl.addEventListener('click', function(e) {
       var btn = e.target.closest('.btn-buy-market-token');
       if (!btn) return;
@@ -745,16 +927,14 @@
       showModal(token);
     });
 
-    fetch('/api/trench-warfare/market-categories', { credentials: 'same-origin' })
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        marketCategories = d.categories || {};
-        renderPills();
-        if (loadingEl) loadingEl.style.display = 'none';
-      })
-      .catch(function(err) {
-        if (loadingEl) loadingEl.textContent = 'Failed to load. ' + (err.message || '');
+    if (limitSelect) {
+      limitSelect.addEventListener('change', function() {
+        activeCategoryId = null;
+        fetchCategories(parseInt(this.value, 10));
       });
+    }
+
+    fetchCategories(0);
   })();
 
   var btnConnectBot = document.getElementById('btn-connect-bot');
@@ -802,6 +982,12 @@
     btnSaveAuto.addEventListener('click', function() {
       var payload = {
         strategy: document.getElementById('auto-strategy')?.value || 'memecoin',
+        marketSource: document.getElementById('auto-market-source')?.value || 'trendings',
+        explorerCategoryId: document.getElementById('auto-explorer-category')?.value || 'auto',
+        useEngineConfirmation: (document.getElementById('auto-engine-confirm')?.value || 'off') === 'on',
+        enginePatternStrictness: document.getElementById('auto-engine-strictness')?.value || 'light',
+        engineMinScore: parseInt(document.getElementById('auto-engine-score')?.value || 58, 10),
+        engineTopCandidates: parseInt(document.getElementById('auto-engine-topn')?.value || 20, 10),
         mode: document.getElementById('auto-mode').value,
         maxOpenPositions: parseInt(document.getElementById('auto-max-pos').value, 10),
         amountPerTradeUsd: parseFloat(document.getElementById('auto-amount-usd').value),
@@ -821,6 +1007,7 @@
         maxPriceChange24hPercent: parseFloat(document.getElementById('auto-max-24h')?.value || 500),
         cooldownHours: parseFloat(document.getElementById('auto-cooldown')?.value || 1),
         useEntryFilters: document.getElementById('auto-use-filters')?.checked !== false,
+        requireSocials: document.getElementById('auto-require-socials')?.checked !== false,
         volumeFilterEnabled: document.getElementById('auto-volume-filter')?.checked === true,
         volatilityFilterEnabled: document.getElementById('auto-volatility-filter')?.checked === true,
         maxVolatility24hPercent: parseFloat(document.getElementById('auto-max-volatility')?.value || 400),
@@ -855,6 +1042,116 @@
     });
   }
 
+  function setPresetVal(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.value = String(val);
+  }
+  function setPresetCheck(id, val) {
+    var el = document.getElementById(id);
+    if (el) el.checked = !!val;
+  }
+  function applyTrenchPreset(name) {
+    var presets = {
+      survival: {
+        strategy: 'scalping', maxPos: 2, usd: 20, sol: 0.03, tp: 8, sl: 5, trailing: 4, hold: 8,
+        breakeven: 3, minTrail: 1, minLiq: 50000, minVol: 50000, maxTop10: 75, max24h: 250,
+        cooldown: 2, maxDailyLoss: 8, consecLosses: 2, minSol: 0.08, minOrganic: 30, minPoolAge: 10, buyPressure: 56,
+        useFilters: true, volFilter: true, volaFilter: true, useKelly: true
+      },
+      balanced: {
+        strategy: 'scalping', maxPos: 3, usd: 35, sol: 0.05, tp: 10, sl: 7, trailing: 5, hold: 10,
+        breakeven: 4, minTrail: 1.5, minLiq: 35000, minVol: 35000, maxTop10: 80, max24h: 350,
+        cooldown: 1.5, maxDailyLoss: 12, consecLosses: 3, minSol: 0.06, minOrganic: 20, minPoolAge: 5, buyPressure: 54,
+        useFilters: true, volFilter: true, volaFilter: true, useKelly: true
+      },
+      aggressive: {
+        strategy: 'memecoin', maxPos: 4, usd: 25, sol: 0.06, tp: 3, sl: 2.4, trailing: 2, hold: 4,
+        breakeven: 1.2, minTrail: 0.6, minLiq: 25000, minVol: 25000, maxTop10: 85, max24h: 500,
+        cooldown: 1, maxDailyLoss: 15, consecLosses: 3, minSol: 0.05, minOrganic: 10, minPoolAge: 2, buyPressure: 52,
+        useFilters: true, volFilter: true, volaFilter: false, useKelly: false
+      },
+      sniper: {
+        strategy: 'memecoin', maxPos: 1, usd: 15, sol: 0.03, tp: 2.2, sl: 1.8, trailing: 1.5, hold: 3,
+        breakeven: 1, minTrail: 0.5, minLiq: 75000, minVol: 60000, maxTop10: 70, max24h: 180,
+        cooldown: 2.5, maxDailyLoss: 6, consecLosses: 2, minSol: 0.1, minOrganic: 40, minPoolAge: 15, buyPressure: 58,
+        useFilters: true, volFilter: true, volaFilter: true, useKelly: true
+      },
+      profitFactor: {
+        strategy: 'scalping', maxPos: 2, usd: 22, sol: 0.04, tp: 12, sl: 5, trailing: 3.5, hold: 8,
+        breakeven: 2.5, minTrail: 1, minLiq: 45000, minVol: 50000, maxTop10: 76, max24h: 280,
+        cooldown: 1.5, maxDailyLoss: 8, consecLosses: 2, minSol: 0.08, minOrganic: 25, minPoolAge: 8, buyPressure: 56,
+        useFilters: true, volFilter: true, volaFilter: true, useKelly: true
+      }
+    };
+    var p = presets[name];
+    if (!p) return;
+    setPresetVal('auto-strategy', p.strategy);
+    setPresetVal('auto-max-pos', p.maxPos);
+    setPresetVal('auto-amount-usd', p.usd);
+    setPresetVal('auto-amount-sol', p.sol);
+    setPresetVal('auto-tp', p.tp);
+    setPresetVal('auto-sl', p.sl);
+    setPresetVal('auto-trailing', p.trailing);
+    setPresetVal('auto-max-hold', p.hold);
+    setPresetVal('auto-breakeven-at', p.breakeven);
+    setPresetVal('auto-min-profit-trail', p.minTrail);
+    setPresetVal('auto-min-liq', p.minLiq);
+    setPresetVal('auto-min-volume', p.minVol);
+    setPresetVal('auto-max-top10', p.maxTop10);
+    setPresetVal('auto-max-24h', p.max24h);
+    setPresetVal('auto-cooldown', p.cooldown);
+    setPresetVal('auto-max-daily-loss', p.maxDailyLoss);
+    setPresetVal('auto-consec-losses', p.consecLosses);
+    setPresetVal('auto-min-sol', p.minSol);
+    setPresetVal('auto-min-organic', p.minOrganic);
+    setPresetVal('auto-min-pool-age', p.minPoolAge);
+    setPresetVal('auto-min-buy-pressure', p.buyPressure);
+    setPresetCheck('auto-use-filters', p.useFilters);
+    setPresetCheck('auto-volume-filter', p.volFilter);
+    setPresetCheck('auto-volatility-filter', p.volaFilter);
+    setPresetCheck('auto-use-kelly', p.useKelly);
+    setPresetCheck('auto-use-partial-tp', true);
+    setPresetCheck('auto-use-trailing', true);
+    setPresetCheck('auto-use-breakeven', true);
+    if (typeof showToast === 'function') showToast('Preset applied: ' + name);
+  }
+  [
+    ['preset-survival', 'survival'],
+    ['preset-balanced', 'balanced'],
+    ['preset-aggressive', 'aggressive'],
+    ['preset-sniper', 'sniper'],
+    ['preset-profit-factor', 'profitFactor']
+  ].forEach(function(row) {
+    var el = document.getElementById(row[0]);
+    if (el) el.addEventListener('click', function() { applyTrenchPreset(row[1]); });
+  });
+
+  var sourceEl = document.getElementById('auto-market-source');
+  var categoryEl = document.getElementById('auto-explorer-category');
+  var engineConfirmEl = document.getElementById('auto-engine-confirm');
+  var engineStrictEl = document.getElementById('auto-engine-strictness');
+  var engineScoreEl = document.getElementById('auto-engine-score');
+  var engineTopNEl = document.getElementById('auto-engine-topn');
+  function syncExplorerCategoryState() {
+    if (!sourceEl || !categoryEl) return;
+    var explorerEnabled = sourceEl.value === 'explorer' || sourceEl.value === 'launches';
+    categoryEl.disabled = !explorerEnabled;
+    categoryEl.style.opacity = explorerEnabled ? '1' : '0.6';
+  }
+  if (sourceEl) sourceEl.addEventListener('change', syncExplorerCategoryState);
+  syncExplorerCategoryState();
+  function syncEngineControlsState() {
+    if (!engineConfirmEl) return;
+    var on = engineConfirmEl.value === 'on';
+    [engineStrictEl, engineScoreEl, engineTopNEl].forEach(function(el) {
+      if (!el) return;
+      el.disabled = !on;
+      el.style.opacity = on ? '1' : '0.6';
+    });
+  }
+  if (engineConfirmEl) engineConfirmEl.addEventListener('change', syncEngineControlsState);
+  syncEngineControlsState();
+
   // ---- BOT START / STOP ----
   var btnStart = document.getElementById('btn-start-bot');
   var btnStop = document.getElementById('btn-stop-bot');
@@ -866,6 +1163,7 @@
   var botActivityLog = document.getElementById('bot-activity-log');
   var botScanCount = document.getElementById('bot-scan-count');
   var botStrategyBadge = document.getElementById('bot-strategy-badge');
+  var botSourceBadge = document.getElementById('bot-source-badge');
   var botPolling = null;
 
   function updateBotUI(running) {
@@ -882,6 +1180,7 @@
       botStatusBadge.style.color = running ? '#10b981' : '#6b7280';
       botStatusBadge.style.borderColor = running ? 'rgba(16,185,129,0.3)' : 'rgba(107,114,128,0.3)';
     }
+    if (!running && botSourceBadge) botSourceBadge.style.display = 'none';
   }
 
   function formatUptime(seconds) {
@@ -904,6 +1203,7 @@
       .then(function(d) {
         updateBotUI(d.running);
         if (!d.running) {
+          if (botSourceBadge) botSourceBadge.style.display = 'none';
           if (botPolling) { clearInterval(botPolling); botPolling = null; }
           return;
         }
@@ -911,6 +1211,12 @@
         if (botStrategyBadge) {
           botStrategyBadge.textContent = (d.strategy || 'memecoin') === 'memecoin' ? 'Meme Bot' : 'Scalp Bot';
           botStrategyBadge.style.display = 'inline-block';
+        }
+        if (botSourceBadge) {
+          var src = d.marketSource === 'launches' ? 'Launch Detection' : d.marketSource === 'explorer' ? 'Market Explorer' : 'Scanner Trendings';
+          var cat = (d.marketSource === 'explorer' || d.marketSource === 'launches') ? (' / ' + (d.explorerCategoryId || 'auto')) : '';
+          botSourceBadge.textContent = src + cat;
+          botSourceBadge.style.display = 'inline-block';
         }
         if (botScanCount) botScanCount.textContent = 'Scans: ' + (d.scanCount || 0) + ' | Trades: ' + (d.tradesOpened || 0);
         if (botActivityLog) {
@@ -1206,6 +1512,45 @@
   if (document.getElementById('positions-tbody')) {
     loadPositions();
     setInterval(loadPositions, 2000);
+  }
+
+  var trenchLockOverlay = document.getElementById('trench-lock-overlay');
+  var trenchBtnAddon = document.getElementById('btn-trench-addon');
+  var trenchBtnElite = document.getElementById('btn-trench-elite');
+  var trenchBtnLater = document.getElementById('btn-trench-later');
+  if (trenchBtnAddon) {
+    trenchBtnAddon.addEventListener('click', async function() {
+      try {
+        var r = await fetch('/api/stripe/add-trench', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' });
+        var d = await r.json();
+        if (!r.ok || !d.url) throw new Error(d.error || 'Checkout failed');
+        window.location.href = d.url;
+      } catch (e) {
+        alert(e.message || 'Could not start trench checkout');
+      }
+    });
+  }
+  if (trenchBtnElite) {
+    trenchBtnElite.addEventListener('click', async function() {
+      try {
+        var r = await fetch('/api/stripe/create-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ tier: 'elite' })
+        });
+        var d = await r.json();
+        if (!r.ok || !d.url) throw new Error(d.error || 'Checkout failed');
+        window.location.href = d.url;
+      } catch (e) {
+        alert(e.message || 'Could not start elite checkout');
+      }
+    });
+  }
+  if (trenchBtnLater) {
+    trenchBtnLater.addEventListener('click', function() {
+      window.location.href = '/';
+    });
   }
 })();
 </script>

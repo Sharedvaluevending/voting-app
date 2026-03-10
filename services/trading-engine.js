@@ -48,6 +48,14 @@ function analyzeCoin(coinData, candles, history, options) {
   return generateBasicSignal(coinData);
 }
 
+function isRegimeDisabledForCoin(options, coinId, regime) {
+  if (!options || !coinId || !regime || regime === 'unknown') return false;
+  const map = options.disabledRegimesByCoin;
+  if (!map || typeof map !== 'object') return false;
+  const disabled = map[coinId];
+  return Array.isArray(disabled) && disabled.includes(regime);
+}
+
 function analyzeAllCoins(allPrices, allCandles, allHistory, options) {
   options = options || {};
   const strategyWeights = options.strategyWeights || [];
@@ -355,6 +363,8 @@ function analyzeWithCandles(coinData, candles, options) {
   // Regime already detected above for adaptive weights — reuse it
   const regime = earlyRegime;
 
+  const regimeDisabledForCoin = isRegimeDisabledForCoin(options, coinData.id, regime);
+
   // Best strategy + all strategies (with regime gating and optional learned weights)
   const strategyStats = options.strategyStats || {};
   const { best: bestStrategy, allStrategies: allStrategiesWithScores } = pickStrategy(
@@ -372,6 +382,19 @@ function analyzeWithCandles(coinData, candles, options) {
       strength = finalScore;
       holdReason = `Score ${finalScore} or confluence ${confluenceLevel} below gate (need ${minConfluence})`;
     }
+  }
+
+  // User override: disable specific regimes per coin (keeps signal visible but non-actionable as HOLD)
+  if (regimeDisabledForCoin) {
+    signal = 'HOLD';
+    strength = finalScore;
+    holdReason = `Regime "${regime}" is disabled for this coin`;
+    scoreFactors.push({
+      label: 'Regime Toggle',
+      delta: 0,
+      type: 'gate',
+      detail: holdReason
+    });
   }
 
   // Funding rate filter: skip when funding extreme and against our direction
@@ -453,6 +476,7 @@ function analyzeWithCandles(coinData, candles, options) {
     if (stratSignal !== 'HOLD' && (stratScore < ENGINE_CONFIG.MIN_SIGNAL_SCORE || stratConfluence < stratMinConfluence)) {
       stratSignal = 'HOLD';
     }
+    if (regimeDisabledForCoin) stratSignal = 'HOLD';
     // Top/bottom protection: no BUY at potential top, no SELL at potential bottom
     if (anyPotentialTop && (stratSignal === 'BUY' || stratSignal === 'STRONG_BUY')) stratSignal = 'HOLD';
     if (anyPotentialBottom && (stratSignal === 'SELL' || stratSignal === 'STRONG_SELL')) stratSignal = 'HOLD';
@@ -496,6 +520,8 @@ function analyzeWithCandles(coinData, candles, options) {
       volume24h: coinData.volume24h, marketCap: coinData.marketCap
     },
     signal,
+    holdReason,
+    regimeDisabled: regimeDisabledForCoin,
     score: finalScore,
     strength: Math.round(strength),
     confidence: Math.round(confidence),

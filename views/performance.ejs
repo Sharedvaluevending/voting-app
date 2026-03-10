@@ -3,6 +3,11 @@
 <div class="section-header">
   <h2 style="color:#fff;font-size:22px;">Performance Dashboard</h2>
   <div style="display:flex;gap:8px;align-items:center;">
+    <% if (typeof user !== 'undefined' && user && user.stripeCustomerId) { %>
+    <a href="/api/stripe/billing-portal" class="btn btn-outline btn-sm">Manage Subscription</a>
+    <% } else { %>
+    <a href="/pricing" class="btn btn-outline btn-sm">View Pricing</a>
+    <% } %>
     <form action="/account/reset" method="POST" style="display:inline;">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>">
       <input type="hidden" name="confirm" value="RESET">
@@ -93,12 +98,18 @@
       <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:12px;">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
           <input type="radio" name="riskMode" value="percent" <%= (user.settings && user.settings.riskMode) !== 'dollar' ? 'checked' : '' %>>
-          <span style="font-size:12px;color:#9ca3af;">Risk % of balance</span>
+          <span style="font-size:12px;color:#9ca3af;" title="Risk a percentage of your balance per trade — position size compounds as your account grows or shrinks">% of balance per trade (compounds with account)</span>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
           <input type="radio" name="riskMode" value="dollar" <%= (user.settings && user.settings.riskMode) === 'dollar' ? 'checked' : '' %>>
-          <span style="font-size:12px;color:#9ca3af;">Fixed $ per trade</span>
+          <span style="font-size:12px;color:#9ca3af;" title="Risk a fixed dollar amount per trade — exactly this amount every trade, never modified by confidence, streaks, or drawdown adjustments">Fixed $ per trade (exact amount, never modified)</span>
         </label>
+      </div>
+      <div style="margin:0 0 10px 0;padding:8px 12px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.2);border-radius:6px;">
+        <p id="risk-mode-tip" style="font-size:11px;color:#6b7280;margin:0;line-height:1.5;">
+          <strong style="color:#93c5fd;">% mode:</strong> Risk scales with account — bigger account = bigger positions, smaller account = smaller positions.
+          <br><strong style="color:#f59e0b;">Fixed $ mode:</strong> Every trade risks the exact dollar amount you set. No confidence weighting, no streak adjustment, no drawdown scaling. If your balance can't fund a trade, it's skipped entirely (never silently reduced).
+        </p>
       </div>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;align-items:end;">
         <div id="risk-percent-wrap" style="<%= (user.settings && user.settings.riskMode) === 'dollar' ? 'display:none;' : '' %>">
@@ -171,17 +182,13 @@
         </label>
         <button type="button" onclick="runAutoTradeDebug()" style="padding:6px 12px;background:rgba(139,92,246,0.2);border:1px solid rgba(139,92,246,0.4);color:#a78bfa;border-radius:6px;font-size:11px;cursor:pointer;" title="Diagnose why no trades are opening">Why no trades?</button>
         <div>
-          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Min score</label>
-          <input type="number" name="autoTradeMinScore" min="30" max="95" value="<%= (user.settings && user.settings.autoTradeMinScore) != null ? user.settings.autoTradeMinScore : 56 %>" title="Only auto-open when score >= this" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
-        </div>
-        <div>
-          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Cooldown (hours)</label>
-          <input type="number" name="cooldownHours" min="0" max="168" title="Wait before re-opening same coin/direction" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 6 %>" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+          <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Min Score</label>
+          <input type="number" name="autoTradeMinScore" min="30" max="95" value="<%= (user.settings && user.settings.autoTradeMinScore) != null ? user.settings.autoTradeMinScore : 55 %>" title="Only open trades when score >= this value (manual + auto)" style="width:70px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;font-size:13px;">
         </div>
         <div>
           <label style="display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;">Coins to trade</label>
           <select name="autoTradeCoinsMode" title="Which coins to auto-trade" style="padding:8px 12px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#e5e7eb;font-size:13px;">
-            <option value="tracked" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'tracked' ? 'selected' : (!user.settings?.autoTradeCoinsMode && !user.settings?.autoTradeTopMarketPick) ? 'selected' : '' %>>20 tracked only</option>
+            <option value="tracked" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'tracked' ? 'selected' : (!user.settings?.autoTradeCoinsMode && !user.settings?.autoTradeTopMarketPick) ? 'selected' : '' %>>40 tracked only</option>
             <option value="tracked+top1" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'tracked+top1' ? 'selected' : (user.settings?.autoTradeTopMarketPick && !user.settings?.autoTradeCoinsMode) ? 'selected' : '' %>>20 + top 1 market pick</option>
             <option value="top1" <%= (user.settings && user.settings.autoTradeCoinsMode) === 'top1' ? 'selected' : '' %>>Top 1 market pick only</option>
           </select>
@@ -555,6 +562,30 @@
       </div>
 
       <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
+        <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Entry Gates (Shared Live + Backtest)</h4>
+        <p style="font-size:11px;color:#6b7280;margin:0 0 10px 0;">These gates control when entries are allowed. Backtest now uses the same cooldown unit (hours) for one universal setting model.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+          <div>
+            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Min Score (entry threshold)</label>
+            <input type="number" name="autoTradeMinScore" min="30" max="95" value="<%= (user.settings && user.settings.autoTradeMinScore) != null ? user.settings.autoTradeMinScore : 56 %>" title="Only auto-open when score >= this" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+          </div>
+          <div>
+            <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Cooldown (hours, 0 = off)</label>
+            <input type="number" name="cooldownHours" min="0" max="168" step="0.25" value="<%= (user.settings && user.settings.cooldownHours) != null ? user.settings.cooldownHours : 6 %>" title="Wait before re-opening same coin/direction" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+          </div>
+          <div>
+            <label class="ft-toggle" title="Only open entries when confidence is at or above Min Confidence." style="margin-bottom:6px;">
+              <input type="checkbox" name="featureConfidenceFilterEnabled" id="featureConfidenceFilterEnabled" value="true" <%= (user.settings && user.settings.featureConfidenceFilterEnabled) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Confidence Entry Filter
+            </label>
+            <div id="minConfidenceWrap" style="display:<%= (user.settings?.featureConfidenceFilterEnabled === true) ? 'flex' : 'none' %>;align-items:center;gap:8px;">
+              <label style="font-size:12px;color:#9ca3af;">Min Confidence</label>
+              <input type="number" name="minConfidence" id="minConfidenceInput" min="0" max="100" step="1" value="<%= (user.settings && user.settings.minConfidence) != null ? user.settings.minConfidence : 60 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
         <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Risk Controls</h4>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
           <div>
@@ -586,10 +617,26 @@
               <input type="number" name="minExpectancy" value="<%= (user.settings && user.settings.minExpectancy) ?? 0.15 %>" min="-1" max="2" step="0.05" style="width:80px;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;"> min expectancy
             </div>
           </div>
+          <div>
+            <label class="ft-toggle" title="Widen stops tighter than 1x ATR to prevent noise-level stop-outs">
+              <input type="checkbox" name="featureMinSlDistance" value="true" <%= (user.settings && user.settings.featureMinSlDistance) !== false ? 'checked' : '' %>> <span class="ft-badge ft-fix">FIX</span> Min SL Distance (1x ATR)
+            </label>
+          </div>
+          <div>
+            <label class="ft-toggle" title="Re-analyze signal while in trade. Exit on score collapse, reduce 50% on score drop">
+              <input type="checkbox" name="featureScoreRecheck" value="true" <%= (user.settings && user.settings.featureScoreRecheck) !== false ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> Score Re-check (Exit/Reduce)
+            </label>
+          </div>
+          <div>
+            <label class="ft-toggle" title="Cap stop loss distance to max 15% from entry">
+              <input type="checkbox" name="featureSlCap" value="true" <%= (user.settings && user.settings.featureSlCap) !== false ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> SL Distance Cap (15%)
+            </label>
+          </div>
         </div>
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
+        <div style="grid-column:1/-1;color:#93c5fd;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:2px 0 4px 0;">Quality + Signal Gates</div>
         <!-- Signal Filters -->
         <label class="ft-toggle" title="Block altcoin LONGs when BTC is STRONG_SELL, block SHORTs when BTC is STRONG_BUY">
           <input type="checkbox" name="featureBtcFilter" value="true" <%= (user.settings && user.settings.featureBtcFilter) !== false ? 'checked' : '' %>> <span class="ft-badge ft-signal">SIGNAL</span> BTC Signal Filter
@@ -608,6 +655,7 @@
           <input type="number" name="minRiskReward" id="minRiskRewardInput" min="1" max="5" step="0.1" value="<%= (user.settings && user.settings.minRiskReward) != null ? user.settings.minRiskReward : 1.5 %>" style="width:70px;padding:6px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#fff;">
         </div>
 
+        <div style="grid-column:1/-1;color:#86efac;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:8px 0 4px 0;">TP / Stops / Locking</div>
         <!-- Position Management -->
         <label class="ft-toggle" title="TP1 closes 40%, TP2 closes 30%, TP3 closes remaining 30%. OFF = close 100% at TP1">
           <input type="checkbox" name="featurePartialTP" value="true" <%= (user.settings && user.settings.featurePartialTP) !== false ? 'checked' : '' %>> <span class="ft-badge ft-pos">TP</span> Partial Take Profits (40/30/30)
@@ -641,17 +689,7 @@
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;margin-top:12px;">
-        <!-- Risk Management -->
-        <label class="ft-toggle" title="Widen stops tighter than 1x ATR to prevent noise-level stop-outs">
-          <input type="checkbox" name="featureMinSlDistance" value="true" <%= (user.settings && user.settings.featureMinSlDistance) !== false ? 'checked' : '' %>> <span class="ft-badge ft-fix">FIX</span> Min SL Distance (1x ATR)
-        </label>
-        <label class="ft-toggle" title="Re-analyze signal while in trade. Exit on score collapse, reduce 50% on score drop">
-          <input type="checkbox" name="featureScoreRecheck" value="true" <%= (user.settings && user.settings.featureScoreRecheck) !== false ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> Score Re-check (Exit/Reduce)
-        </label>
-        <label class="ft-toggle" title="Cap stop loss distance to max 15% from entry">
-          <input type="checkbox" name="featureSlCap" value="true" <%= (user.settings && user.settings.featureSlCap) !== false ? 'checked' : '' %>> <span class="ft-badge ft-risk">RISK</span> SL Distance Cap (15%)
-        </label>
-
+        <div style="grid-column:1/-1;color:#c4b5fd;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:8px 0 4px 0;">Sizing Controls</div>
         <!-- Sizing -->
         <label class="ft-toggle" title="Higher score = slightly larger position (0.5 + score/100, cap 1.2x)">
           <input type="checkbox" name="featureConfidenceSizing" value="true" <%= (user.settings && user.settings.featureConfidenceSizing) !== false ? 'checked' : '' %>> <span class="ft-badge ft-cost">SIZE</span> Confidence Sizing
@@ -659,10 +697,8 @@
         <label class="ft-toggle" title="Blend 70% risk-based + 30% fractional Kelly based on strategy win rate & R:R. Requires 15+ trades.">
           <input type="checkbox" name="featureKellySizing" value="true" <%= (user.settings && user.settings.featureKellySizing) !== false ? 'checked' : '' %>> <span class="ft-badge ft-cost">SIZE</span> Kelly Criterion Sizing
         </label>
-        <label class="ft-toggle" title="Boost +2 score for coins in top 5 bullish sectors (CoinGecko categories). See Themes page.">
-          <input type="checkbox" name="featureThemeDetector" value="true" <%= (user.settings && user.settings.featureThemeDetector) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Theme Detector
-        </label>
 
+        <div style="grid-column:1/-1;color:#93c5fd;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;margin:8px 0 4px 0;">Quality Filters</div>
         <!-- Quality Filters -->
         <label class="ft-toggle" title="Require at least one of: order block, FVG, or liquidity cluster. Reduces trades without structure.">
           <input type="checkbox" name="featurePriceActionConfluence" value="true" <%= (user.settings?.featurePriceActionConfluence ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Price-Action Confluence (OB/FVG/Liq)
@@ -675,6 +711,9 @@
         </label>
         <label class="ft-toggle" title="Skip LONG when funding &gt;0.15%, skip SHORT when funding &lt;-0.15% (crowded trades)">
           <input type="checkbox" name="featureFundingRateFilter" value="true" <%= (user.settings?.featureFundingRateFilter ?? true) ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Funding Rate Filter
+        </label>
+        <label class="ft-toggle" title="Boost +2 score for coins in top 5 bullish sectors (CoinGecko categories). See Themes page.">
+          <input type="checkbox" name="featureThemeDetector" value="true" <%= (user.settings && user.settings.featureThemeDetector) === true ? 'checked' : '' %>> <span class="ft-badge ft-signal">QUALITY</span> Theme Detector
         </label>
       </div>
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
@@ -1172,12 +1211,19 @@ function setLiveToggles(val) {
     document.querySelectorAll('#live-feature-toggles input[type=checkbox]').forEach(function(cb) { cb.checked = val; });
     var wrap = document.getElementById('minRrValueWrap');
     if (wrap) wrap.style.display = val ? 'flex' : 'none';
+    var confWrap = document.getElementById('minConfidenceWrap');
+    if (confWrap) confWrap.style.display = val ? 'flex' : 'none';
   }
   document.addEventListener('DOMContentLoaded', function() {
     var cb = document.getElementById('minRrEnabled');
     var wrap = document.getElementById('minRrValueWrap');
     if (cb && wrap) {
       cb.addEventListener('change', function() { wrap.style.display = cb.checked ? 'flex' : 'none'; });
+    }
+    var confCb = document.getElementById('featureConfidenceFilterEnabled');
+    var confWrap = document.getElementById('minConfidenceWrap');
+    if (confCb && confWrap) {
+      confCb.addEventListener('change', function() { confWrap.style.display = confCb.checked ? 'flex' : 'none'; });
     }
   });
 
@@ -1204,6 +1250,7 @@ function setLiveToggles(val) {
     set('featureScoreRecheck', true);
     set('featureSlCap', true);
     set('featureConfidenceSizing', true);
+    set('featureConfidenceFilterEnabled', false);
     set('featureKellySizing', true);
     set('featurePriceActionConfluence', true);
     set('featureVolatilityFilter', true);
@@ -1216,6 +1263,8 @@ function setLiveToggles(val) {
     if (minRr) minRr.value = 1.2;
     var wrap = document.getElementById('minRrValueWrap');
     if (wrap) wrap.style.display = 'flex';
+    var confWrap = document.getElementById('minConfidenceWrap');
+    if (confWrap) confWrap.style.display = 'none';
     var dcaOpts = document.getElementById('dca-opts');
     if (dcaOpts) dcaOpts.style.display = 'none';
     alert('Max Profit preset applied. Click "Save Toggles" to apply.');
@@ -1241,6 +1290,7 @@ function setLiveToggles(val) {
       var preset = JSON.parse(saved);
       // Map backtest toggle IDs to live form field names
       var mapping = {
+        autoTradeMinScore: 'autoTradeMinScore',
         btcFilter: 'featureBtcFilter',
         btcCorrelation: 'featureBtcCorrelation',
         sessionFilter: 'featureSessionFilter',
@@ -1252,6 +1302,8 @@ function setLiveToggles(val) {
         scoreRecheck: 'featureScoreRecheck',
         slCap: 'featureSlCap',
         confidenceSizing: 'featureConfidenceSizing',
+        confidenceFilterEnabled: 'featureConfidenceFilterEnabled',
+        minConfidence: 'minConfidence',
         kellySizing: 'featureKellySizing',
         priceActionConfluence: 'featurePriceActionConfluence',
         volatilityFilter: 'featureVolatilityFilter',
@@ -1260,6 +1312,7 @@ function setLiveToggles(val) {
         minRiskRewardEnabled: 'minRiskRewardEnabled',
         minRiskReward: 'minRiskReward',
         correlationFilterEnabled: 'correlationFilterEnabled',
+        cooldownHours: 'cooldownHours',
         breakevenRMult: 'breakevenRMult',
         trailingStartR: 'trailingStartR',
         trailingDistR: 'trailingDistR',
@@ -1306,6 +1359,9 @@ function setLiveToggles(val) {
       }
       if (preset.minRiskRewardEnabled && document.getElementById('minRrValueWrap')) {
         document.getElementById('minRrValueWrap').style.display = 'flex';
+      }
+      if (document.getElementById('minConfidenceWrap') && preset.confidenceFilterEnabled !== undefined) {
+        document.getElementById('minConfidenceWrap').style.display = preset.confidenceFilterEnabled ? 'flex' : 'none';
       }
       var ddWrap = document.getElementById('dd-thresh-wrap');
       if (ddWrap && preset.drawdownSizingEnabled !== undefined) {

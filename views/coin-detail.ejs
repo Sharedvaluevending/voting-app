@@ -45,6 +45,31 @@
   <% } %>
 </div>
 
+<% if (typeof user !== 'undefined' && user) { %>
+<div class="section" style="margin-bottom:16px;">
+  <h3>Per-Coin Regime Toggles</h3>
+  <p style="font-size:12px;color:#9ca3af;margin-bottom:12px;">
+    Disable regimes that underperform for <strong style="color:#e5e7eb;"><%= sig.coin.symbol %></strong>. When a disabled regime is active, this coin is forced to HOLD.
+  </p>
+  <div id="coin-regime-toggle-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;">
+    <% (validRegimes || ['trending','ranging','volatile','compression','mixed']).forEach(function(r) { %>
+      <label style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:rgba(15,23,42,0.55);border:1px solid #1e2a3a;border-radius:6px;cursor:pointer;">
+        <span style="display:flex;align-items:center;gap:8px;">
+          <span class="regime-badge regime-<%= r %>" style="font-size:11px;padding:4px 8px;"><%= r %></span>
+          <span style="font-size:12px;color:#e5e7eb;">Disable</span>
+        </span>
+        <input type="checkbox" class="coin-regime-toggle" value="<%= r %>" <%= (disabledRegimesForCoin || []).includes(r) ? 'checked' : '' %>>
+      </label>
+    <% }) %>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px;">
+    <button type="button" class="btn btn-outline btn-sm" id="save-coin-regimes-btn">Save Regime Toggles</button>
+    <button type="button" class="btn btn-outline btn-sm" id="suggest-coin-regimes-btn" style="border-color:#3b82f6;color:#3b82f6;">Suggest from my results</button>
+    <span id="coin-regime-status" style="font-size:12px;color:#6b7280;"></span>
+  </div>
+</div>
+<% } %>
+
 <div class="score-bar" style="margin:16px 0;">
   <div class="score-bar-outer" style="height:10px;">
     <div class="score-bar-inner" style="width:<%= Math.min(100, sig.score || 0) %>%;background:<%= (sig.score||0) >= 75 ? '#10b981' : (sig.score||0) >= 55 ? '#3b82f6' : (sig.score||0) >= 40 ? '#eab308' : '#ef4444' %>;height:100%;"></div>
@@ -335,6 +360,73 @@
   <p style="color:#6b7280;font-size:13px;">Main signal needs score ≥55 and confluence ≥<%= minConf %>. Current signal score: <strong style="color:#e5e7eb;"><%= sig.score || 0 %></strong>, confluence: <strong style="color:#e5e7eb;"><%= sig.confluenceLevel || 0 %></strong>. You can still open via a strategy card above if that strategy's fit score is ≥55.</p>
   <% } %>
 </div>
+<% } %>
+
+<% if (typeof user !== 'undefined' && user) { %>
+<script>
+(function() {
+  var coinId = '<%= sig.coin.id %>';
+  var statusEl = document.getElementById('coin-regime-status');
+  var saveBtn = document.getElementById('save-coin-regimes-btn');
+  var suggestBtn = document.getElementById('suggest-coin-regimes-btn');
+  if (!saveBtn || !suggestBtn) return;
+
+  function selectedDisabledRegimes() {
+    return Array.from(document.querySelectorAll('.coin-regime-toggle:checked')).map(function(el) { return el.value; });
+  }
+
+  function setStatus(msg, color) {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    statusEl.style.color = color || '#6b7280';
+  }
+
+  saveBtn.addEventListener('click', async function() {
+    saveBtn.disabled = true;
+    setStatus('Saving...', '#6b7280');
+    try {
+      var res = await fetch('/api/coin/' + encodeURIComponent(coinId) + '/regime-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ disabledRegimes: selectedDisabledRegimes() })
+      });
+      var data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Save failed');
+      setStatus('Saved. This coin will HOLD in disabled regimes.', '#10b981');
+    } catch (err) {
+      setStatus(err.message || 'Failed to save', '#ef4444');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  suggestBtn.addEventListener('click', async function() {
+    suggestBtn.disabled = true;
+    setStatus('Analyzing closed trades by regime...', '#6b7280');
+    try {
+      var res = await fetch('/api/coin/' + encodeURIComponent(coinId) + '/regime-suggestions', {
+        credentials: 'same-origin'
+      });
+      var data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Suggestion failed');
+      var suggestedDisable = Array.isArray(data.suggestedDisable) ? data.suggestedDisable : [];
+      document.querySelectorAll('.coin-regime-toggle').forEach(function(cb) {
+        cb.checked = suggestedDisable.includes(cb.value);
+      });
+      if (suggestedDisable.length === 0) {
+        setStatus('No weak regime found (or not enough trades yet).', '#9ca3af');
+      } else {
+        setStatus('Suggested disable: ' + suggestedDisable.join(', ') + '. Click Save to apply.', '#3b82f6');
+      }
+    } catch (err) {
+      setStatus(err.message || 'Could not load suggestions', '#ef4444');
+    } finally {
+      suggestBtn.disabled = false;
+    }
+  });
+})();
+</script>
 <% } %>
 
 <%- include('partials/footer') %>

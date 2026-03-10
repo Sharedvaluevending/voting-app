@@ -489,9 +489,15 @@
           : 'Server returned an unexpected response (' + r.status + '). The backtest may have crashed.';
         throw new Error(msg);
       }
-      return r.json();
+      return r.json().then(function(data) { return { data: data, status: r.status, headers: r.headers }; });
     })
-    .then(function(data) {
+    .then(function(wrap) {
+      var data = wrap.data;
+      if (wrap.status === 429) {
+        var retryErr = new Error(data.error || 'Rate limit exceeded');
+        retryErr._retryAfterSeconds = data.retryAfterSeconds || parseInt(wrap.headers.get('Retry-After') || '0', 10) || 30;
+        throw retryErr;
+      }
       if (data.error) throw new Error(data.error);
       if (data.jobId) {
         btn.textContent = 'Running on ' + (data.coins || []).length + ' coins...';
@@ -574,8 +580,28 @@
       document.getElementById('setup-bt-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
     })
     .catch(function(err) {
-      document.getElementById('setup-error').textContent = err.message || 'Backtest failed';
-      document.getElementById('setup-error').style.display = 'block';
+      var errEl = document.getElementById('setup-error');
+      var msg = err.message || 'Backtest failed';
+      if (err._retryAfterSeconds && err._retryAfterSeconds > 0) {
+        var secsLeft = err._retryAfterSeconds;
+        errEl.textContent = msg + ' — Please try again in ' + secsLeft + 's';
+        errEl.style.display = 'block';
+        var countdownTimer = setInterval(function() {
+          secsLeft--;
+          if (secsLeft <= 0) {
+            clearInterval(countdownTimer);
+            errEl.textContent = 'You can run a backtest again now.';
+            errEl.style.background = 'rgba(16,185,129,0.1)';
+            errEl.style.borderColor = 'rgba(16,185,129,0.3)';
+            errEl.style.color = '#34d399';
+          } else {
+            errEl.textContent = msg + ' — Please try again in ' + secsLeft + 's';
+          }
+        }, 1000);
+      } else {
+        errEl.textContent = msg;
+        errEl.style.display = 'block';
+      }
     })
     .finally(function() {
       btn.disabled = false;

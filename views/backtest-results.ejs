@@ -6,6 +6,33 @@
   <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Latest 2-year massive backtest. Use these rankings to prioritize better-performing coins in auto-trade.</p>
 </div>
 
+<% if (typeof successMsg !== 'undefined' && successMsg) { %>
+<div class="alert alert-success" style="margin-bottom:14px;"><%= successMsg %></div>
+<% } %>
+<% if (typeof errorMsg !== 'undefined' && errorMsg) { %>
+<div class="alert alert-error" style="margin-bottom:14px;"><%= errorMsg %></div>
+<% } %>
+
+<% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+<div class="section" style="margin-bottom:20px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:10px;">
+  <h3 style="color:#e5e7eb;margin-bottom:12px;">Admin Discord: Backtest Channel</h3>
+  <form action="/admin/backtest-discord-settings" method="POST" style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <input type="text" name="backtestDiscordWebhook" value="<%= (adminDiscordConfig && adminDiscordConfig.backtest && adminDiscordConfig.backtest.webhookUrl) ? adminDiscordConfig.backtest.webhookUrl : '' %>" placeholder="Discord webhook URL for backtest results" style="padding:10px;border-radius:8px;border:1px solid #334155;background:rgba(15,23,42,0.55);color:#e5e7eb;">
+    <label style="display:flex;align-items:center;gap:6px;color:#d1d5db;font-size:13px;">
+      <input type="hidden" name="backtestDiscordEnabled" value="false">
+      <input type="checkbox" name="backtestDiscordEnabled" value="true" <%= (adminDiscordConfig && adminDiscordConfig.backtest && adminDiscordConfig.backtest.enabled) ? 'checked' : '' %>>
+      Enabled
+    </label>
+    <button type="submit" class="btn btn-outline btn-sm">Save</button>
+  </form>
+  <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+    <button type="button" class="btn btn-primary btn-sm" onclick="postMassiveBacktestToDiscord()">Post Latest Massive Result to Discord</button>
+    <span id="bt-discord-status" style="font-size:12px;color:#9ca3af;"></span>
+  </div>
+</div>
+<% } %>
+
 <% if (typeof error !== 'undefined' && error) { %>
 <div class="alert alert-error" style="margin-bottom:20px;"><%= error %></div>
 <p style="color:#9ca3af;font-size:13px;">Run <code>node scripts/backtest-massive.js</code> from the project root to generate results.</p>
@@ -146,6 +173,26 @@
 <% if (typeof user !== 'undefined' && user) { %>
 <input type="hidden" name="_csrf" value="<%= typeof csrfToken !== 'undefined' ? csrfToken : '' %>" id="backtest-csrf">
 <script>
+async function postMassiveBacktestToDiscord() {
+  try {
+    var csrf = document.getElementById('backtest-csrf')?.value || '';
+    var status = document.getElementById('bt-discord-status');
+    if (status) status.textContent = 'Posting...';
+    var res = await fetch('/api/admin/backtest-results/post-discord', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      credentials: 'same-origin',
+      body: JSON.stringify({})
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to post');
+    if (status) status.textContent = 'Posted successfully.';
+  } catch (e) {
+    var statusErr = document.getElementById('bt-discord-status');
+    if (statusErr) statusErr.textContent = 'Error: ' + e.message;
+  }
+}
+
 async function loadCoinWeights() {
   try {
     var csrf = document.getElementById('backtest-csrf')?.value || document.querySelector('input[name="_csrf"]')?.value || '';

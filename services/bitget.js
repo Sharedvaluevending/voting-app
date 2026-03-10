@@ -3,6 +3,8 @@
 // BITGET LIVE EXECUTION
 // Wraps Bitget V2 REST API for live futures trading.
 // Uses apiKey + secretKey + passphrase authentication.
+// Supports native SL/TP orders on the exchange and
+// dry-run mode for testing without real money.
 // ====================================================
 
 const { RestClientV2 } = require('bitget-api');
@@ -15,7 +17,7 @@ const MARGIN_MODE = 'crossed';
 function getBitgetSymbol(coinId) {
   const meta = getCoinMeta(coinId);
   if (!meta || !meta.bybit) throw new Error(`No Bitget symbol for ${coinId}`);
-  return meta.bybit; // BTCUSDT, ETHUSDT, etc. - same format as Bybit
+  return meta.bybit;
 }
 
 function getClient(user) {
@@ -27,6 +29,10 @@ function getClient(user) {
     apiSecret: user.bitget.secretKey,
     apiPass: user.bitget.passphrase
   });
+}
+
+function isDryRun(user) {
+  return !!(user.liveTrading?.dryRun);
 }
 
 // ====================================================
@@ -122,6 +128,11 @@ async function placeOrder(user, params) {
     orderParams.price = String(limitPrice);
   }
 
+  if (isDryRun(user)) {
+    console.log(`[Bitget][DRY-RUN] Would place order: ${symbol} ${side} size=${sizeStr} type=${orderParams.orderType}`);
+    return { success: true, orderId: `dryrun_${Date.now()}`, symbol, dryRun: true, details: orderParams };
+  }
+
   try {
     const client = getClient(user);
     const result = await client.futuresSubmitOrder(orderParams);
@@ -145,8 +156,6 @@ async function placeOrder(user, params) {
 // CLOSE POSITION
 // ====================================================
 async function closePosition(user, coinId, direction, size) {
-  const symbol = getBitgetSymbol(coinId);
-  const reduceOnly = true;
   const closeSide = direction === 'LONG' ? 'sell' : 'buy';
   return placeOrder(user, {
     coinId,
@@ -160,6 +169,10 @@ async function closePosition(user, coinId, direction, size) {
 // CLOSE ALL POSITIONS (Kill switch)
 // ====================================================
 async function closeAllPositions(user) {
+  if (isDryRun(user)) {
+    console.log('[Bitget][DRY-RUN] Would close all positions (kill switch)');
+    return { success: true, results: [], dryRun: true, message: 'Dry-run kill switch — no positions closed' };
+  }
   try {
     const client = getClient(user);
     const res = await client.getFuturesPositions({ productType: PRODUCT_TYPE, marginCoin: MARGIN_COIN });
@@ -193,11 +206,153 @@ async function closeAllPositions(user) {
 }
 
 // ====================================================
-// UPDATE STOP LOSS (modify position SL)
+// NATIVE TPSL ORDERS — Place SL/TP on Bitget exchange
+// These protect positions even if the server goes down.
 // ====================================================
-async function updateStopLoss(user, coinId, direction, newStopPrice) {
-  console.log(`[Bitget] updateStopLoss: ${coinId} newStop=${newStopPrice} - use placeTpslOrder or modify position`);
-  return { success: true, message: 'SL update logged (Bitget TPSL requires separate order)' };
+
+async function placeTPSLOrders(user, trade) {
+  const symbol = getBitgetSymbol(trade.coinId);
+  const holdSide = trade.direction === 'LONG' ? 'long' : 'short';
+  const sizeInCoins = trade.positionSize / trade.entryPrice;
+  const size = String(Math.max(0.001, parseFloat(sizeInCoins.toFixed(6))));
+  const results = { slOrderId: null, tpOrderId: null };
+
+  if (isDryRun(user)) {
+    console.log(`[Bitget][DRY-RUN] Would place TPSL: ${symbol} ${holdSide} SL=$${trade.stopLoss} TP=$${trade.takeProfit1 || 'none'}`);
+    results.slOrderId = `dryrun_sl_${Date.now()}`;
+    results.tpOrderId = trade.takeProfit1 ? `dryrun_tp_${Date.now()}` : null;
+    return results;
+  }
+
+  const client = getClient(user);
+
+  // Place stop-loss order (pos_loss — closes entire position at market)
+  if (trade.stopLoss) {
+    try {
+      const slRes = await client.futuresSubmitTPSLOrder({
+        marginCoin: MARGIN_COIN,
+        productType: PRODUCT_TYPE,
+        symbol,
+        planType: 'pos_loss',
+        triggerPrice: String(trade.stopLoss),
+        triggerType: 'mark_price',
+        holdSide,
+        size
+      });
+      results.slOrderId = slRes?.data?.orderId || '';
+      console.log(`[Bitget] SL order placed: ${symbol} ${holdSide} triggerPrice=$${trade.stopLoss} orderId=${results.slOrderId}`);
+    } catch (err) {
+      console.error(`[Bitget] SL order failed for ${symbol}: ${err.message}`);
+    }
+  }
+
+  // Place take-profit order (pos_profit — uses TP1 as the exchange-level TP)
+  const tpPrice = trade.takeProfit1 || trade.takeProfit2 || trade.takeProfit3;
+  if (tpPrice) {
+    try {
+      const tpRes = await client.futuresSubmitTPSLOrder({
+        marginCoin: MARGIN_COIN,
+        productType: PRODUCT_TYPE,
+        symbol,
+        planType: 'pos_profit',
+        triggerPrice: String(tpPrice),
+        triggerType: 'mark_price',
+        holdSide,
+        size
+      });
+      results.tpOrderId = tpRes?.data?.orderId || '';
+      console.log(`[Bitget] TP order placed: ${symbol} ${holdSide} triggerPrice=$${tpPrice} orderId=${results.tpOrderId}`);
+    } catch (err) {
+      console.error(`[Bitget] TP order failed for ${symbol}: ${err.message}`);
+    }
+  }
+
+  return results;
+}
+
+async function cancelTPSLOrders(user, trade) {
+  if (isDryRun(user)) {
+    console.log(`[Bitget][DRY-RUN] Would cancel TPSL orders for ${trade.symbol}`);
+    return { success: true, dryRun: true };
+  }
+
+  const client = getClient(user);
+  const symbol = getBitgetSymbol(trade.coinId);
+  const orderIds = [];
+  if (trade.bitgetSlOrderId) orderIds.push({ orderId: trade.bitgetSlOrderId });
+  if (trade.bitgetTpOrderId) orderIds.push({ orderId: trade.bitgetTpOrderId });
+
+  if (orderIds.length === 0) return { success: true };
+
+  try {
+    await client.futuresCancelPlanOrder({
+      orderIdList: orderIds,
+      productType: PRODUCT_TYPE,
+      symbol
+    });
+    console.log(`[Bitget] TPSL orders cancelled for ${symbol}: ${orderIds.map(o => o.orderId).join(', ')}`);
+    return { success: true };
+  } catch (err) {
+    console.error(`[Bitget] Cancel TPSL error for ${symbol}: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+}
+
+// ====================================================
+// UPDATE STOP LOSS — Modify or replace the SL order
+// ====================================================
+async function updateStopLoss(user, coinId, direction, newStopPrice, trade) {
+  const symbol = getBitgetSymbol(coinId);
+  const holdSide = direction === 'LONG' ? 'long' : 'short';
+
+  if (isDryRun(user)) {
+    console.log(`[Bitget][DRY-RUN] Would update SL: ${symbol} ${holdSide} newStop=$${newStopPrice}`);
+    return { success: true, dryRun: true, orderId: `dryrun_sl_${Date.now()}` };
+  }
+
+  const client = getClient(user);
+
+  // Cancel existing SL order first, then place a new one
+  if (trade?.bitgetSlOrderId) {
+    try {
+      await client.futuresCancelPlanOrder({
+        orderIdList: [{ orderId: trade.bitgetSlOrderId }],
+        productType: PRODUCT_TYPE,
+        symbol
+      });
+    } catch (err) {
+      console.warn(`[Bitget] Could not cancel old SL order ${trade.bitgetSlOrderId}: ${err.message}`);
+    }
+  }
+
+  const sizeInCoins = (trade?.positionSize || 0) / (trade?.entryPrice || 1);
+  const size = String(Math.max(0.001, parseFloat(sizeInCoins.toFixed(6))));
+
+  try {
+    const res = await client.futuresSubmitTPSLOrder({
+      marginCoin: MARGIN_COIN,
+      productType: PRODUCT_TYPE,
+      symbol,
+      planType: 'pos_loss',
+      triggerPrice: String(newStopPrice),
+      triggerType: 'mark_price',
+      holdSide,
+      size
+    });
+    const orderId = res?.data?.orderId || '';
+    console.log(`[Bitget] SL updated: ${symbol} ${holdSide} newStop=$${newStopPrice} orderId=${orderId}`);
+
+    // Save new SL order ID on the trade
+    if (trade) {
+      trade.bitgetSlOrderId = orderId;
+      await trade.save();
+    }
+
+    return { success: true, orderId };
+  } catch (err) {
+    console.error(`[Bitget] SL update failed for ${symbol}: ${err.message}`);
+    return { success: false, error: err.message };
+  }
 }
 
 // ====================================================
@@ -206,17 +361,20 @@ async function updateStopLoss(user, coinId, direction, newStopPrice) {
 async function executeLiveOpen(user, trade, signalData) {
   try {
     const leverage = trade.leverage || 1;
-    const margin = trade.margin || (trade.positionSize / leverage);
     const sizeInContracts = trade.positionSize / trade.entryPrice;
     const size = Math.max(0.001, parseFloat(sizeInContracts.toFixed(6)));
 
-    const client = getClient(user);
-    await client.setFuturesLeverage({
-      symbol: getBitgetSymbol(trade.coinId),
-      productType: PRODUCT_TYPE,
-      marginCoin: MARGIN_COIN,
-      leverage: String(Math.min(50, Math.max(1, Math.round(leverage))))
-    }).catch(() => {});
+    if (!isDryRun(user)) {
+      const client = getClient(user);
+      await client.setFuturesLeverage({
+        symbol: getBitgetSymbol(trade.coinId),
+        productType: PRODUCT_TYPE,
+        marginCoin: MARGIN_COIN,
+        leverage: String(Math.min(50, Math.max(1, Math.round(leverage))))
+      }).catch(() => {});
+    } else {
+      console.log(`[Bitget][DRY-RUN] Would set leverage: ${getBitgetSymbol(trade.coinId)} ${leverage}x`);
+    }
 
     const result = await placeOrder(user, {
       coinId: trade.coinId,
@@ -229,11 +387,23 @@ async function executeLiveOpen(user, trade, signalData) {
       trade.isLive = true;
       trade.bitgetOrderId = result.orderId;
       trade.bitgetSymbol = result.symbol;
-      trade.executionStatus = 'filled';
+      trade.executionStatus = isDryRun(user) ? 'paper' : 'filled';
       trade.executionDetails = result.details;
       await trade.save();
+
+      // Place native SL/TP orders on Bitget so position is protected
+      try {
+        const tpslResult = await placeTPSLOrders(user, trade);
+        if (tpslResult.slOrderId) trade.bitgetSlOrderId = tpslResult.slOrderId;
+        if (tpslResult.tpOrderId) trade.bitgetTpOrderId = tpslResult.tpOrderId;
+        await trade.save();
+      } catch (tpslErr) {
+        console.error(`[Bitget] TPSL placement error (position still open): ${tpslErr.message}`);
+      }
+
       if (process.env.NODE_ENV !== 'production') {
-        console.log(`[Bitget] Live trade opened: ${trade.symbol} ${trade.direction} orderId=${result.orderId}`);
+        const label = isDryRun(user) ? '[DRY-RUN] ' : '';
+        console.log(`[Bitget] ${label}Live trade opened: ${trade.symbol} ${trade.direction} orderId=${result.orderId} slOrderId=${trade.bitgetSlOrderId || 'none'} tpOrderId=${trade.bitgetTpOrderId || 'none'}`);
       }
     } else {
       trade.isLive = false;
@@ -255,12 +425,21 @@ async function executeLiveOpen(user, trade, signalData) {
 async function executeLiveClose(user, trade) {
   try {
     if (!trade.isLive) return { success: false, error: 'Trade is not live' };
+
+    // Cancel any pending TPSL orders before closing (prevent double-close)
+    try {
+      await cancelTPSLOrders(user, trade);
+    } catch (err) {
+      console.warn(`[Bitget] Could not cancel TPSL before close: ${err.message}`);
+    }
+
     const sizeInCoins = trade.positionSize / trade.entryPrice;
     const size = Math.max(0.001, parseFloat(sizeInCoins.toFixed(6)));
     const result = await closePosition(user, trade.coinId, trade.direction, size);
     if (result.success) {
       if (process.env.NODE_ENV !== 'production') {
-        console.log(`[Bitget] Live trade closed: ${trade.symbol} ${trade.direction}`);
+        const label = isDryRun(user) ? '[DRY-RUN] ' : '';
+        console.log(`[Bitget] ${label}Live trade closed: ${trade.symbol} ${trade.direction}`);
       }
     } else {
       console.error(`[Bitget] Live close FAILED: ${trade.symbol} - ${result.error}`);
@@ -279,8 +458,18 @@ async function executeLivePartialClose(user, trade, portionUSD) {
     const size = Math.max(0.001, parseFloat(portionCoins.toFixed(6)));
     const result = await closePosition(user, trade.coinId, trade.direction, size);
     if (result.success) {
+      // After partial close, update the SL order size to match remaining position
+      try {
+        const remainingSize = trade.positionSize - portionUSD;
+        if (remainingSize > 0 && trade.stopLoss) {
+          await updateStopLoss(user, trade.coinId, trade.direction, trade.stopLoss, trade);
+        }
+      } catch (err) {
+        console.warn(`[Bitget] Could not resize SL after partial close: ${err.message}`);
+      }
       if (process.env.NODE_ENV !== 'production') {
-        console.log(`[Bitget] Live partial close: ${trade.symbol} $${portionUSD.toFixed(2)}`);
+        const label = isDryRun(user) ? '[DRY-RUN] ' : '';
+        console.log(`[Bitget] ${label}Live partial close: ${trade.symbol} $${portionUSD.toFixed(2)}`);
       }
     } else {
       console.error(`[Bitget] Live partial close FAILED: ${trade.symbol} - ${result.error}`);
@@ -293,7 +482,7 @@ async function executeLivePartialClose(user, trade, portionUSD) {
 }
 
 async function executeLiveStopUpdate(user, trade, newStopPrice) {
-  return updateStopLoss(user, trade.coinId, trade.direction, newStopPrice);
+  return updateStopLoss(user, trade.coinId, trade.direction, newStopPrice, trade);
 }
 
 function isLiveTradingActive(user) {
@@ -319,6 +508,8 @@ module.exports = {
   placeOrder,
   closePosition,
   closeAllPositions,
+  placeTPSLOrders,
+  cancelTPSLOrders,
   updateStopLoss,
   executeLiveOpen,
   executeLiveClose,
@@ -326,5 +517,6 @@ module.exports = {
   executeLiveStopUpdate,
   isLiveTradingActive,
   shouldAutoOpenLive,
-  getBitgetSymbol
+  getBitgetSymbol,
+  isDryRun
 };

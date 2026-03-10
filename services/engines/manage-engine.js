@@ -18,7 +18,7 @@ const TP3_PCT = 0.3;
 // Default constants — overridable via opts.breakevenRMult / opts.trailingStartR / opts.trailingDistR
 const DEFAULT_BE_R_MULT = 0.75;      // Move stop to entry at 0.75R profit
 const DEFAULT_TRAILING_START_R = 1.5; // Activate trailing stop at 1.5R profit
-const DEFAULT_TRAILING_DIST_R = 2.0;  // Trail 2R behind best price (wider = fewer premature stops)
+const DEFAULT_TRAILING_DIST_R = 1.5;  // Match paper/live default trailing distance
 const BE_BUFFER = 0.003;
 
 const PRICE_EPSILON = 0.0001;

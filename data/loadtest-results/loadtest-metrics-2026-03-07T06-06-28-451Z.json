@@ -1,0 +1,253 @@
+{
+  "runAt": "2026-03-07T06:08:39.261Z",
+  "config": {
+    "baseUrl": "http://127.0.0.1:3000",
+    "metricsPath": "/api/ops/metrics",
+    "metricsIntervalMs": 10000,
+    "hasOpsKey": false,
+    "concurrency": 500,
+    "durationSec": 120,
+    "paths": "/api/health,/"
+  },
+  "loadtestExitCode": 0,
+  "loadtestStdout": "[loadtest] target=http://127.0.0.1:3000 concurrency=500 duration=120s paths=/api/health,/\n[loadtest] sent=706 ok=207 fail=0 inflight=499 rps~141 p95=4698ms\n[loadtest] sent=1215 ok=581 fail=135 inflight=499 rps~122 p95=8795ms\n[loadtest] sent=1821 ok=1187 fail=135 inflight=499 rps~121 p95=8698ms\n[loadtest] sent=2555 ok=1786 fail=270 inflight=499 rps~128 p95=8609ms\n[loadtest] sent=3345 ok=2566 fail=280 inflight=499 rps~134 p95=8400ms\n[loadtest] sent=4172 ok=3268 fail=405 inflight=499 rps~139 p95=8392ms\n[loadtest] sent=5017 ok=3978 fail=540 inflight=499 rps~143 p95=8381ms\n[loadtest] sent=5735 ok=4696 fail=540 inflight=499 rps~143 p95=8312ms\n[loadtest] sent=6604 ok=5444 fail=661 inflight=499 rps~147 p95=8311ms\n[loadtest] sent=7291 ok=6098 fail=694 inflight=499 rps~146 p95=8308ms\n[loadtest] sent=8107 ok=6817 fail=791 inflight=499 rps~147 p95=8313ms\n[loadtest] sent=9025 ok=7667 fail=859 inflight=499 rps~150 p95=8315ms\n[loadtest] sent=9818 ok=8389 fail=930 inflight=499 rps~151 p95=8385ms\n[loadtest] sent=10732 ok=9237 fail=996 inflight=499 rps~153 p95=8390ms\n[loadtest] sent=11769 ok=10212 fail=1058 inflight=499 rps~157 p95=8391ms\n[loadtest] sent=12633 ok=11016 fail=1118 inflight=499 rps~158 p95=8392ms\n[loadtest] sent=13641 ok=11980 fail=1162 inflight=499 rps~160 p95=8392ms\n[loadtest] sent=14602 ok=12860 fail=1243 inflight=499 rps~162 p95=8394ms\n[loadtest] sent=15509 ok=13718 fail=1292 inflight=499 rps~163 p95=8394ms\n[loadtest] sent=16465 ok=14590 fail=1376 inflight=499 rps~165 p95=8495ms\n[loadtest] sent=17424 ok=15483 fail=1442 inflight=499 rps~166 p95=8582ms\n[loadtest] sent=18233 ok=16241 fail=1493 inflight=499 rps~164 p95=8594ms\n[loadtest] sent=19126 ok=17096 fail=1531 inflight=499 rps~165 p95=8580ms\n[loadtest] sent=20011 ok=17968 fail=1643 inflight=400 rps~165 p95=8619ms\n[loadtest] sent=20011 ok=18238 fail=1668 inflight=105 rps~159 p95=8675ms\n\n=== Load Test Summary ===\nsent: 20011\nok: 18279\nfailed: 1732\ntimeouts: 1732\nsuccessRate: 91.34%\nrps: 166.8\np50: 3420ms\np95: 8804ms\np99: 12204ms\n",
+  "loadtestStderr": "",
+  "snapshots": [
+    {
+      "at": "2026-03-07T06:06:28.459Z",
+      "ok": true,
+      "status": 200,
+      "json": {
+        "uptimeSec": 15,
+        "thresholds": {
+          "slowHttpMs": 1200,
+          "slowDbMs": 300
+        },
+        "http": {
+          "total": 5,
+          "errors5xx": 0,
+          "p50": 15,
+          "p95": 184,
+          "p99": 184,
+          "topRoutes": [
+            {
+              "route": "GET /api/trades/active",
+              "count": 2,
+              "avgMs": 97,
+              "maxMs": 184,
+              "slow": 0,
+              "status5xx": 0
+            },
+            {
+              "route": "GET /api/prices",
+              "count": 3,
+              "avgMs": 47.3,
+              "maxMs": 117,
+              "slow": 0,
+              "status5xx": 0
+            }
+          ]
+        },
+        "db": {
+          "total": 12,
+          "errors": 0,
+          "p50": 8,
+          "p95": 206,
+          "p99": 206,
+          "topOps": [
+            {
+              "op": "StrategyWeight.findOneAndUpdate",
+              "count": 7,
+              "avgMs": 55.3,
+              "maxMs": 206,
+              "slow": 0
+            },
+            {
+              "op": "Trade.find",
+              "count": 5,
+              "avgMs": 4,
+              "maxMs": 8,
+              "slow": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "at": "2026-03-07T06:06:38.566Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:06:54.569Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:07:10.652Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:07:26.670Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:07:46.868Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:08:03.957Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:08:23.156Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    }
+  ],
+  "finalSnapshot": {
+    "ok": true,
+    "status": 200,
+    "json": {
+      "uptimeSec": 146,
+      "thresholds": {
+        "slowHttpMs": 1200,
+        "slowDbMs": 300
+      },
+      "http": {
+        "total": 18693,
+        "errors5xx": 0,
+        "p50": 2191,
+        "p95": 4004,
+        "p99": 4309,
+        "topRoutes": [
+          {
+            "route": "GET /api/health",
+            "count": 356,
+            "avgMs": 3934.1,
+            "maxMs": 7098,
+            "slow": 355,
+            "status5xx": 0
+          },
+          {
+            "route": "GET /",
+            "count": 9225,
+            "avgMs": 3760.7,
+            "maxMs": 7411,
+            "slow": 9207,
+            "status5xx": 0
+          },
+          {
+            "route": "GET /api/setup-notifications",
+            "count": 10,
+            "avgMs": 1751.6,
+            "maxMs": 9399,
+            "slow": 2,
+            "status5xx": 0
+          },
+          {
+            "route": "GET /api/trades/active",
+            "count": 26,
+            "avgMs": 752.1,
+            "maxMs": 8788,
+            "slow": 2,
+            "status5xx": 0
+          },
+          {
+            "route": "GET /api/prices",
+            "count": 46,
+            "avgMs": 634.5,
+            "maxMs": 9000,
+            "slow": 3,
+            "status5xx": 0
+          },
+          {
+            "route": "GET /api/ops/metrics",
+            "count": 1,
+            "avgMs": 86,
+            "maxMs": 86,
+            "slow": 0,
+            "status5xx": 0
+          },
+          {
+            "route": "GET /health",
+            "count": 9029,
+            "avgMs": 1.4,
+            "maxMs": 90,
+            "slow": 0,
+            "status5xx": 0
+          }
+        ]
+      },
+      "db": {
+        "total": 115,
+        "errors": 0,
+        "p50": 9,
+        "p95": 397,
+        "p99": 714,
+        "topOps": [
+          {
+            "op": "User.find",
+            "count": 3,
+            "avgMs": 412,
+            "maxMs": 714,
+            "slow": 2
+          },
+          {
+            "op": "StrategyWeight.find",
+            "count": 2,
+            "avgMs": 400.5,
+            "maxMs": 415,
+            "slow": 2
+          },
+          {
+            "op": "Alert.find",
+            "count": 3,
+            "avgMs": 266.3,
+            "maxMs": 391,
+            "slow": 1
+          },
+          {
+            "op": "SetupNotification.countDocuments",
+            "count": 10,
+            "avgMs": 86.5,
+            "maxMs": 404,
+            "slow": 1
+          },
+          {
+            "op": "SetupNotification.find",
+            "count": 10,
+            "avgMs": 86.2,
+            "maxMs": 306,
+            "slow": 1
+          },
+          {
+            "op": "Trade.find",
+            "count": 80,
+            "avgMs": 71.1,
+            "maxMs": 715,
+            "slow": 8
+          },
+          {
+            "op": "StrategyWeight.findOneAndUpdate",
+            "count": 7,
+            "avgMs": 55.3,
+            "maxMs": 206,
+            "slow": 0
+          }
+        ]
+      }
+    }
+  }
+}

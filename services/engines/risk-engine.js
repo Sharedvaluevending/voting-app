@@ -27,8 +27,11 @@ function getTakerFee(userSettings) {
 
 function calculatePositionSize(balance, riskPercent, entryPrice, stopLoss, leverage, opts) {
   opts = opts || {};
-  if (!entryPrice || entryPrice <= 0) return balance * 0.05 * leverage;
   const riskMode = opts.riskMode || 'percent';
+  if (!entryPrice || entryPrice <= 0) {
+    if (riskMode === 'dollar' && Number.isFinite(opts.riskDollarsPerTrade) && opts.riskDollarsPerTrade > 0) return 0;
+    return balance * 0.05 * leverage;
+  }
 
   let stopDistance = typeof stopLoss === 'number' && stopLoss > 0
     ? Math.abs(entryPrice - stopLoss) / entryPrice
@@ -37,11 +40,12 @@ function calculatePositionSize(balance, riskPercent, entryPrice, stopLoss, lever
 
   let positionSize;
   if (riskMode === 'dollar' && Number.isFinite(opts.riskDollarsPerTrade) && opts.riskDollarsPerTrade > 0) {
-    // Dollar mode: position size such that loss at stop = exactly riskDollarsPerTrade.
-    // loss = positionSize × stopDistance → positionSize = riskDollars / stopDistance
-    // DO NOT multiply by leverage here — leverage affects the margin deposited, not the
-    // dollar loss at the stop. Multiplying by leverage would cause loss = riskDollars × leverage.
+    // Dollar mode: loss at stop = exactly riskDollarsPerTrade.
+    // positionSize = riskDollars / stopDistance (leverage only affects margin, not loss)
     positionSize = opts.riskDollarsPerTrade / stopDistance;
+    // Return uncapped — plan() will reject if balance can't fund the full position.
+    // Silently capping would reduce actual risk below the stated dollar amount.
+    return Number.isFinite(positionSize) && positionSize > 0 ? positionSize : 0;
   } else {
     // Percent mode: risk is a fraction of balance; leverage amplifies position (and loss).
     const riskAmount = balance * (riskPercent / 100);
@@ -60,12 +64,12 @@ function suggestLeverage(score, regime, volatilityState) {
   else if (score >= 55) maxLev = 3;
   else if (score >= 45) maxLev = 2;
   else maxLev = 1;
-  if (regime === 'ranging' || regime === 'mixed') {
-    maxLev = Math.max(1, Math.floor(maxLev * 0.6));
-  }
-  if (volatilityState === 'high' || volatilityState === 'extreme') {
-    maxLev = Math.max(1, Math.floor(maxLev * 0.5));
-  }
+
+  if (regime === 'ranging' || regime === 'mixed') maxLev = Math.max(1, Math.floor(maxLev * 0.6));
+  if (regime === 'volatile') maxLev = Math.max(1, Math.floor(maxLev * 0.5));
+  if (volatilityState === 'high') maxLev = Math.max(1, Math.floor(maxLev * 0.5));
+  if (volatilityState === 'extreme') maxLev = 1;
+
   return maxLev;
 }
 
@@ -162,48 +166,47 @@ function plan(decision, snapshot, context) {
     { riskMode, riskDollarsPerTrade }
   );
 
-  // Confidence-weighted size
-  if (ff.confidenceSizing !== false) {
-    const score = Math.min(100, Math.max(0, decision.score || 50));
-    const confidenceMult = Math.min(1.2, 0.5 + score / 100);
-    positionSize *= confidenceMult;
-  }
+  // Dollar mode: position size is derived from a fixed risk amount.
+  // Skip ALL modifiers so the risk per trade is exactly riskDollarsPerTrade.
+  const isDollarMode = (riskMode === 'dollar');
 
-  // Win/loss streak adjustment
-  if (streak <= -3) positionSize *= 0.6;
-  else if (streak <= -2) positionSize *= 0.75;
-  else if (streak >= 3) positionSize *= Math.min(1.15, 1 + streak * 0.03);
-
-  // Drawdown-based sizing: reduce size when in drawdown
-  if (userSettings.drawdownSizingEnabled && peakEquity > 0) {
-    const threshold = (userSettings.drawdownThresholdPercent ?? 10) / 100;
-    if (balance < peakEquity * (1 - threshold)) {
-      positionSize *= 0.5;
+  if (!isDollarMode) {
+    // Confidence-weighted size
+    if (ff.confidenceSizing !== false) {
+      const score = Math.min(100, Math.max(0, decision.score || 50));
+      const confidenceMult = Math.min(1.2, 0.5 + score / 100);
+      positionSize *= confidenceMult;
     }
-  }
 
-  // Kelly criterion sizing — blend with risk-based, don't hard-cap (when enabled)
-  // Old: min(riskBased, kelly) could shrink positions 8x on good strategies
-  // New: blend 70% risk-based + 30% kelly to nudge size without crushing it
-  const strat = strategyStats[decision.strategy];
-  if (ff.kellySizing !== false && strat && strat.totalTrades >= 15 && strat.winRate > 0 && strat.avgRR > 0) {
-    const w = strat.winRate / 100;
-    const r = strat.avgRR;
-    const kellyFull = w - ((1 - w) / r);
-    if (kellyFull > 0) {
-      const kellyFraction = Math.min(0.25, kellyFull * 0.25);
-      const kellySize = balance * kellyFraction * leverage;
-      // Blend: 70% risk-based + 30% kelly (soft adjustment, not hard cap)
-      positionSize = positionSize * 0.7 + Math.min(positionSize, kellySize) * 0.3;
-    } else if (kellyFull < -0.1) {
-      positionSize *= 0.75;  // Was 0.5 — less punishing for strategies with limited data
+    // Win/loss streak adjustment
+    if (streak <= -3) positionSize *= 0.6;
+    else if (streak <= -2) positionSize *= 0.75;
+    else if (streak >= 3) positionSize *= Math.min(1.15, 1 + streak * 0.03);
+
+    // Drawdown-based sizing: reduce size when in drawdown
+    if (userSettings.drawdownSizingEnabled && peakEquity > 0) {
+      const threshold = (userSettings.drawdownThresholdPercent ?? 10) / 100;
+      if (balance < peakEquity * (1 - threshold)) {
+        positionSize *= 0.5;
+      }
     }
-  }
 
-  // Cap margin to max % of balance.
-  // In dollar mode, skip this cap — the dollar risk already controls position size.
-  // Applying a % cap would make positions scale with balance, defeating fixed-dollar intent.
-  if (riskMode !== 'dollar') {
+    // Kelly criterion sizing — blend with risk-based, don't hard-cap (when enabled)
+    const strat = strategyStats[decision.strategy];
+    if (ff.kellySizing !== false && strat && strat.totalTrades >= 15 && strat.winRate > 0 && strat.avgRR > 0) {
+      const w = strat.winRate / 100;
+      const r = strat.avgRR;
+      const kellyFull = w - ((1 - w) / r);
+      if (kellyFull > 0) {
+        const kellyFraction = Math.min(0.25, kellyFull * 0.25);
+        const kellySize = balance * kellyFraction * leverage;
+        positionSize = positionSize * 0.7 + Math.min(positionSize, kellySize) * 0.3;
+      } else if (kellyFull < -0.1) {
+        positionSize *= 0.75;
+      }
+    }
+
+    // Cap margin to max % of balance (percent mode only)
     const maxMarginByPct = balance * (Math.min(100, Math.max(5, maxBalancePct)) / 100);
     const maxPositionByMarginPct = maxMarginByPct * leverage;
     positionSize = Math.min(positionSize, Math.max(0, maxPositionByMarginPct));
@@ -212,10 +215,20 @@ function plan(decision, snapshot, context) {
   const makerFee = getMakerFee(userSettings);
   const maxSpend = Math.max(0, balance - 0.50);
   const maxPositionFromBalance = maxSpend / (1 / leverage + makerFee);
-  positionSize = Math.min(positionSize, Math.max(0, maxPositionFromBalance));
 
-  if (!Number.isFinite(positionSize) || positionSize <= 0) {
-    positionSize = Math.min(balance * 0.02 * leverage, maxPositionFromBalance);
+  if (isDollarMode) {
+    if (!Number.isFinite(positionSize) || positionSize <= 0) return null;
+    // If full $-risk position exceeds balance, cap to what balance can support
+    if (positionSize > maxPositionFromBalance) {
+      positionSize = Math.max(0, maxPositionFromBalance * 0.95);
+      if (positionSize <= 0) return null;
+    }
+  } else {
+    positionSize = Math.min(positionSize, Math.max(0, maxPositionFromBalance));
+
+    if (!Number.isFinite(positionSize) || positionSize <= 0) {
+      positionSize = Math.min(balance * 0.02 * leverage, maxPositionFromBalance);
+    }
   }
 
   let margin = positionSize / leverage;

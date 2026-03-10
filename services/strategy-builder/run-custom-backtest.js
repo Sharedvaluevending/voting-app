@@ -12,7 +12,7 @@ const SL_ATR_MULT_AUTO = 2;
 const TP_ATR_MULT_AUTO = 3;
 
 const INITIAL_BALANCE = 10000;
-const RISK_PER_TRADE = 0.02;
+const DEFAULT_RISK_PER_TRADE = 0.02;
 const LEVERAGE = 2;
 const SL_ATR_MULT = 2;
 const TP_ATR_MULT = 3;
@@ -30,6 +30,9 @@ const SLIPPAGE_BPS = 5;
 async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {}) {
   const initialBalance = options.initialBalance ?? INITIAL_BALANCE;
   const leverage = options.leverage ?? LEVERAGE;
+  const riskMode = options.riskMode || 'percent';
+  const riskPerTradeVal = options.riskPerTrade ?? DEFAULT_RISK_PER_TRADE;
+  const riskDollarsPerTrade = options.riskDollarsPerTrade ?? 200;
 
   const { fetchHistoricalCandlesForCoin, fetchHistoricalKrakenCandles } = require('../crypto-api');
   const { loadCachedCandles, saveCachedCandles } = require('../backtest-cache');
@@ -137,8 +140,16 @@ async function runCustomBacktest(coinId, startMs, endMs, strategy, options = {})
       const rewardDist = atr * TP_ATR_MULT;
       const stopLoss = adjEntry - riskDist;
       const takeProfit = adjEntry + rewardDist;
-      const riskAmount = equity * RISK_PER_TRADE;
-      const positionSize = Math.min(equity * leverage * 0.95, riskDist > 0 ? (riskAmount / riskDist) * adjEntry : equity * 0.1);
+      const riskAmount = (riskMode === 'dollar') ? riskDollarsPerTrade : equity * riskPerTradeVal;
+      const rawSize = riskDist > 0 ? (riskAmount / riskDist) * adjEntry : (riskMode === 'dollar' ? riskDollarsPerTrade * 50 : equity * 0.1);
+      const maxSize = equity * leverage * 0.95;
+      let positionSize;
+      if (riskMode === 'dollar') {
+        if (rawSize > maxSize) continue; // skip trade — insufficient balance for fixed $ risk
+        positionSize = rawSize;
+      } else {
+        positionSize = Math.min(rawSize, maxSize);
+      }
       const entryFees = positionSize * TAKER_FEE;
 
       if (entryFees + (positionSize / leverage) > equity) continue;

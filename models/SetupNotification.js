@@ -18,4 +18,7 @@ const setupNotificationSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+setupNotificationSchema.index({ userId: 1, createdAt: -1 });
+setupNotificationSchema.index({ userId: 1, seenAt: 1, createdAt: -1 });
+
 module.exports = mongoose.model('SetupNotification', setupNotificationSchema);

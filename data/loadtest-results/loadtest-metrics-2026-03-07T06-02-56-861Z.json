@@ -1,0 +1,342 @@
+{
+  "runAt": "2026-03-07T06:05:17.381Z",
+  "config": {
+    "baseUrl": "http://127.0.0.1:3000",
+    "metricsPath": "/api/ops/metrics",
+    "metricsIntervalMs": 10000,
+    "hasOpsKey": false,
+    "concurrency": 500,
+    "durationSec": 120,
+    "paths": "/api/health,/"
+  },
+  "loadtestExitCode": 0,
+  "loadtestStdout": "[loadtest] target=http://127.0.0.1:3000 concurrency=500 duration=120s paths=/api/health,/\n[loadtest] sent=3432 ok=0 fail=2933 inflight=499 rps~686 p95=1074ms\n[loadtest] sent=4287 ok=146 fail=3642 inflight=499 rps~429 p95=1294ms\n[loadtest] sent=4707 ok=508 fail=3700 inflight=499 rps~314 p95=2806ms\n[loadtest] sent=5588 ok=1120 fail=3969 inflight=499 rps~279 p95=9084ms\n[loadtest] sent=6502 ok=1797 fail=4206 inflight=499 rps~260 p95=9078ms\n[loadtest] sent=7397 ok=2602 fail=4296 inflight=499 rps~247 p95=9092ms\n[loadtest] sent=8441 ok=3517 fail=4425 inflight=499 rps~241 p95=9095ms\n[loadtest] sent=9626 ok=4531 fail=4596 inflight=499 rps~241 p95=9103ms\n[loadtest] sent=10734 ok=5565 fail=4670 inflight=499 rps~239 p95=9103ms\n[loadtest] sent=12067 ok=6664 fail=4904 inflight=499 rps~241 p95=9204ms\n[loadtest] sent=13219 ok=7714 fail=5006 inflight=499 rps~240 p95=9215ms\n[loadtest] sent=14213 ok=8509 fail=5205 inflight=499 rps~237 p95=9216ms\n[loadtest] sent=15419 ok=9544 fail=5376 inflight=499 rps~237 p95=10090ms\n[loadtest] sent=16308 ok=10282 fail=5527 inflight=499 rps~233 p95=10048ms\n[loadtest] sent=17499 ok=11290 fail=5710 inflight=499 rps~233 p95=9408ms\n[loadtest] sent=18698 ok=12343 fail=5856 inflight=499 rps~234 p95=10091ms\n[loadtest] sent=19701 ok=13164 fail=6038 inflight=499 rps~232 p95=10103ms\n[loadtest] sent=20611 ok=13962 fail=6150 inflight=499 rps~229 p95=10104ms\n[loadtest] sent=21682 ok=14757 fail=6426 inflight=499 rps~228 p95=10108ms\n[loadtest] sent=22580 ok=15536 fail=6545 inflight=499 rps~226 p95=10101ms\n[loadtest] sent=23648 ok=16410 fail=6739 inflight=499 rps~225 p95=10119ms\n[loadtest] sent=24612 ok=17246 fail=6867 inflight=499 rps~224 p95=10120ms\n[loadtest] sent=25786 ok=18223 fail=7064 inflight=499 rps~224 p95=10181ms\n[loadtest] sent=26721 ok=19106 fail=7220 inflight=395 rps~223 p95=10181ms\n[loadtest] sent=26721 ok=19192 fail=7335 inflight=194 rps~214 p95=10181ms\n\n=== Load Test Summary ===\nsent: 26721\nok: 19315\nfailed: 7406\ntimeouts: 3701\nsuccessRate: 72.28%\nrps: 222.7\np50: 1102ms\np95: 10194ms\np99: 13404ms\n",
+  "loadtestStderr": "",
+  "snapshots": [
+    {
+      "at": "2026-03-07T06:02:56.868Z",
+      "ok": false,
+      "status": 0,
+      "body": "connect ECONNREFUSED 127.0.0.1:3000"
+    },
+    {
+      "at": "2026-03-07T06:03:06.959Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:03:22.966Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:03:38.969Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:03:55.050Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:04:13.250Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:04:29.255Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:04:45.259Z",
+      "ok": false,
+      "status": 0,
+      "body": "timeout"
+    },
+    {
+      "at": "2026-03-07T06:05:05.560Z",
+      "ok": true,
+      "status": 200,
+      "json": {
+        "uptimeSec": 134,
+        "thresholds": {
+          "slowHttpMs": 1200,
+          "slowDbMs": 300
+        },
+        "http": {
+          "total": 19758,
+          "errors5xx": 0,
+          "p50": 3,
+          "p95": 1401,
+          "p99": 1578,
+          "topRoutes": [
+            {
+              "route": "GET /api/health",
+              "count": 384,
+              "avgMs": 1282.4,
+              "maxMs": 3002,
+              "slow": 146,
+              "status5xx": 0
+            },
+            {
+              "route": "GET /",
+              "count": 9682,
+              "avgMs": 991.1,
+              "maxMs": 2883,
+              "slow": 1575,
+              "status5xx": 0
+            },
+            {
+              "route": "GET /api/trades/active",
+              "count": 8,
+              "avgMs": 439.1,
+              "maxMs": 2897,
+              "slow": 1,
+              "status5xx": 0
+            },
+            {
+              "route": "GET /api/prices",
+              "count": 15,
+              "avgMs": 304.9,
+              "maxMs": 2982,
+              "slow": 1,
+              "status5xx": 0
+            },
+            {
+              "route": "GET /api/candles/:coinId",
+              "count": 1,
+              "avgMs": 190,
+              "maxMs": 190,
+              "slow": 0,
+              "status5xx": 0
+            },
+            {
+              "route": "GET /api/setup-notifications",
+              "count": 3,
+              "avgMs": 121,
+              "maxMs": 168,
+              "slow": 0,
+              "status5xx": 0
+            },
+            {
+              "route": "GET /health",
+              "count": 9665,
+              "avgMs": 1.5,
+              "maxMs": 92,
+              "slow": 0,
+              "status5xx": 0
+            }
+          ]
+        },
+        "db": {
+          "total": 53,
+          "errors": 0,
+          "p50": 11,
+          "p95": 486,
+          "p99": 692,
+          "topOps": [
+            {
+              "op": "Alert.find",
+              "count": 3,
+              "avgMs": 465,
+              "maxMs": 692,
+              "slow": 2
+            },
+            {
+              "op": "User.find",
+              "count": 3,
+              "avgMs": 293.3,
+              "maxMs": 310,
+              "slow": 1
+            },
+            {
+              "op": "StrategyWeight.find",
+              "count": 2,
+              "avgMs": 291.5,
+              "maxMs": 384,
+              "slow": 1
+            },
+            {
+              "op": "Trade.find",
+              "count": 30,
+              "avgMs": 112.3,
+              "maxMs": 608,
+              "slow": 4
+            },
+            {
+              "op": "StrategyWeight.findOneAndUpdate",
+              "count": 7,
+              "avgMs": 57.1,
+              "maxMs": 286,
+              "slow": 0
+            },
+            {
+              "op": "SetupNotification.find",
+              "count": 4,
+              "avgMs": 47.3,
+              "maxMs": 96,
+              "slow": 0
+            },
+            {
+              "op": "SetupNotification.countDocuments",
+              "count": 4,
+              "avgMs": 26,
+              "maxMs": 89,
+              "slow": 0
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "finalSnapshot": {
+    "ok": true,
+    "status": 200,
+    "json": {
+      "uptimeSec": 144,
+      "thresholds": {
+        "slowHttpMs": 1200,
+        "slowDbMs": 300
+      },
+      "http": {
+        "total": 19838,
+        "errors5xx": 0,
+        "p50": 5,
+        "p95": 1401,
+        "p99": 1578,
+        "topRoutes": [
+          {
+            "route": "GET /api/health",
+            "count": 384,
+            "avgMs": 1282.4,
+            "maxMs": 3002,
+            "slow": 146,
+            "status5xx": 0
+          },
+          {
+            "route": "GET /",
+            "count": 9682,
+            "avgMs": 991.1,
+            "maxMs": 2883,
+            "slow": 1575,
+            "status5xx": 0
+          },
+          {
+            "route": "GET /api/trades/active",
+            "count": 33,
+            "avgMs": 151.8,
+            "maxMs": 2897,
+            "slow": 1,
+            "status5xx": 0
+          },
+          {
+            "route": "GET /api/prices",
+            "count": 62,
+            "avgMs": 136.1,
+            "maxMs": 2982,
+            "slow": 1,
+            "status5xx": 0
+          },
+          {
+            "route": "GET /api/candles/:coinId",
+            "count": 2,
+            "avgMs": 100.5,
+            "maxMs": 190,
+            "slow": 0,
+            "status5xx": 0
+          },
+          {
+            "route": "GET /api/setup-notifications",
+            "count": 9,
+            "avgMs": 100.4,
+            "maxMs": 206,
+            "slow": 0,
+            "status5xx": 0
+          },
+          {
+            "route": "GET /api/ops/metrics",
+            "count": 1,
+            "avgMs": 99,
+            "maxMs": 99,
+            "slow": 0,
+            "status5xx": 0
+          },
+          {
+            "route": "GET /health",
+            "count": 9665,
+            "avgMs": 1.5,
+            "maxMs": 92,
+            "slow": 0,
+            "status5xx": 0
+          }
+        ]
+      },
+      "db": {
+        "total": 135,
+        "errors": 0,
+        "p50": 6,
+        "p95": 311,
+        "p99": 608,
+        "topOps": [
+          {
+            "op": "Alert.find",
+            "count": 3,
+            "avgMs": 465,
+            "maxMs": 692,
+            "slow": 2
+          },
+          {
+            "op": "User.find",
+            "count": 3,
+            "avgMs": 293.3,
+            "maxMs": 310,
+            "slow": 1
+          },
+          {
+            "op": "StrategyWeight.find",
+            "count": 2,
+            "avgMs": 291.5,
+            "maxMs": 384,
+            "slow": 1
+          },
+          {
+            "op": "StrategyWeight.findOneAndUpdate",
+            "count": 7,
+            "avgMs": 57.1,
+            "maxMs": 286,
+            "slow": 0
+          },
+          {
+            "op": "Trade.find",
+            "count": 102,
+            "avgMs": 45.4,
+            "maxMs": 608,
+            "slow": 4
+          },
+          {
+            "op": "SetupNotification.find",
+            "count": 9,
+            "avgMs": 24.7,
+            "maxMs": 96,
+            "slow": 0
+          },
+          {
+            "op": "SetupNotification.countDocuments",
+            "count": 9,
+            "avgMs": 22.1,
+            "maxMs": 89,
+            "slow": 0
+          }
+        ]
+      }
+    }
+  }
+}

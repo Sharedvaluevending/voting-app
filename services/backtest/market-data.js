@@ -41,12 +41,20 @@ const LOWER_TF_PER_BASE = {
  * @param {string} baseTf - '1m'|'5m'|'15m'|'1h'
  * @returns {Object|null} Slice of candles for analysis
  */
+const SLICE_LOOKBACK = (() => {
+  const raw = Number(process.env.BT_SLICE_LOOKBACK || 140);
+  if (!Number.isFinite(raw)) return 140;
+  return Math.max(80, Math.min(300, Math.floor(raw)));
+})(); // Indicators need ~50 bars max; bounded configurable window improves long-range backtest speed
+
 function sliceCandlesAt(candles, t, baseTf) {
   baseTf = baseTf || '1h';
   const baseCandles = candles[baseTf];
   if (!candles || !baseCandles || t >= baseCandles.length) return null;
 
-  const slice = { [baseTf]: baseCandles.slice(0, t + 1) };
+  // Only pass the last N bars instead of the full history — massive perf win for long backtests
+  const sliceStart = Math.max(0, t + 1 - SLICE_LOOKBACK);
+  const slice = { [baseTf]: baseCandles.slice(sliceStart, t + 1) };
   const ratios = BARS_PER_TF[baseTf] || {};
   if (Object.keys(ratios).length === 0) {
     slice['4h'] = candles['4h'] || null;
@@ -60,9 +68,9 @@ function sliceCandlesAt(candles, t, baseTf) {
         slice[htf] = null;
         continue;
       }
-      // Only include closed bars: at bar t we have floor((t+1)/barsPer) complete htf bars
       const closedCount = Math.floor((t + 1) / barsPer);
-      slice[htf] = closedCount > 0 ? arr.slice(0, closedCount) : null;
+      const htfStart = Math.max(0, closedCount - SLICE_LOOKBACK);
+      slice[htf] = closedCount > 0 ? arr.slice(htfStart, closedCount) : null;
     }
   }
 

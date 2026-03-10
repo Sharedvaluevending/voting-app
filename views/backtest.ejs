@@ -21,6 +21,23 @@
   <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Simulate the full trading engine on historical candles. Toggle features to compare performance.</p>
 </div>
 
+<% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+<div class="section" style="margin-bottom:14px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:10px;">
+  <h3 style="color:#e5e7eb;margin-bottom:8px;">Admin Discord: Backtest Channel</h3>
+  <form action="/admin/backtest-discord-settings" method="POST" style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <input type="text" name="backtestDiscordWebhook" value="<%= (adminDiscordConfig && adminDiscordConfig.backtest && adminDiscordConfig.backtest.webhookUrl) ? adminDiscordConfig.backtest.webhookUrl : '' %>" placeholder="Discord webhook URL for backtest results" style="padding:9px 10px;border-radius:8px;border:1px solid #334155;background:rgba(15,23,42,0.55);color:#e5e7eb;">
+    <label style="display:flex;align-items:center;gap:6px;color:#d1d5db;font-size:13px;">
+      <input type="hidden" name="backtestDiscordEnabled" value="false">
+      <input type="checkbox" name="backtestDiscordEnabled" value="true" <%= (adminDiscordConfig && adminDiscordConfig.backtest && adminDiscordConfig.backtest.enabled) ? 'checked' : '' %>>
+      Enabled
+    </label>
+    <button type="submit" class="btn btn-outline btn-sm">Save</button>
+  </form>
+  <p style="font-size:11px;color:#6b7280;margin-top:6px;">This saves to the admin backtest Discord channel used by the "Post to Discord" buttons.</p>
+</div>
+<% } %>
+
 <!-- Backtest Methodology (backtest-expert skill) -->
 <div class="section" style="margin-bottom:20px;padding:16px;background:rgba(234,179,8,0.06);border:1px solid rgba(234,179,8,0.2);border-radius:8px;">
   <h3 style="color:#eab308;font-size:12px;margin:0 0 8px 0;text-transform:uppercase;letter-spacing:0.5px;">Backtest Methodology</h3>
@@ -52,11 +69,13 @@
     </div>
     <div>
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Start Date</label>
-      <div style="display:flex;gap:6px;align-items:center;">
-        <input type="date" name="startDate" id="startDate" style="flex:1;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
-        <div style="display:flex;gap:4px;flex-shrink:0;">
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        <input type="date" name="startDate" id="startDate" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+        <div style="display:flex;gap:4px;flex-wrap:wrap;">
           <button type="button" class="nav-btn" style="padding:6px 12px;font-size:11px;" title="Set to 6 months ago" id="bt-preset-6m">6m</button>
           <button type="button" class="nav-btn" style="padding:6px 12px;font-size:11px;" title="Set to 1 year ago" id="bt-preset-1y">1yr</button>
+          <button type="button" class="nav-btn" style="padding:6px 12px;font-size:11px;" title="Set to 2 years ago" id="bt-preset-2y">2yr</button>
+          <button type="button" class="nav-btn" style="padding:6px 12px;font-size:11px;" title="Set to 3 years ago (max cache window)" id="bt-preset-3y">3yr</button>
         </div>
       </div>
     </div>
@@ -79,17 +98,28 @@
     <div>
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Risk Mode</label>
       <select name="riskMode" id="riskMode" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
-        <option value="percent">% of balance</option>
+        <option value="percent">% of balance (compounds)</option>
         <option value="dollar">Fixed $ per trade</option>
       </select>
     </div>
     <div id="bt-risk-pct-wrap">
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Risk per trade (%)</label>
       <input type="number" name="riskPerTrade" id="riskPerTrade" value="2" min="0.1" max="10" step="0.1" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+      <p style="font-size:10px;color:#6b7280;margin:4px 0 0 0;">Risks this % of current balance each trade. Grows/shrinks with account.</p>
     </div>
     <div id="bt-risk-dollar-wrap" style="display:none;">
-      <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Risk per trade ($)</label>
+      <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Fixed risk per trade ($)</label>
       <input type="number" name="riskDollarsPerTrade" id="riskDollarsPerTrade" value="200" min="1" max="10000" step="1" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;">
+      <p style="font-size:10px;color:#6b7280;margin:4px 0 0 0;">Max loss if stop-loss hits. Position size = risk ÷ stop distance (e.g. $200 risk with 2% stop → $10,000 position). Wins can exceed this amount.</p>
+      <p id="bt-risk-warning" style="display:none;font-size:11px;color:#f59e0b;margin:6px 0 0 0;"></p>
+    </div>
+    <div>
+      <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Capital Mode</label>
+      <select name="capitalMode" id="capitalMode" style="width:100%;padding:8px 12px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:13px;" title="Per-coin: each coin gets its own balance. Shared: all coins share one balance (realistic for single account).">
+        <option value="perCoin">Per-coin (isolated)</option>
+        <option value="shared">Shared balance (realistic)</option>
+      </select>
+      <p style="font-size:10px;color:#6b7280;margin:4px 0 0 0;">Shared = return % based on 1 account balance across all coins.</p>
     </div>
     <div>
       <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Timeframe</label>
@@ -153,9 +183,33 @@
       </ul>
     </div>
 
-    <!-- ── 1. SIGNAL & ENTRY QUALITY ── -->
+    <!-- ── 1. ENTRY GATES ── -->
     <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
-      <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Signal &amp; Entry Quality</h4>
+      <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Entry Gates (Shared Live + Backtest)</h4>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+        <div>
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Min Score (entry threshold)</label>
+          <input type="number" id="ft-entryMinScore" value="52" min="40" max="80" step="1" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+        </div>
+        <div>
+          <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:4px;">Cooldown (hours, 0 = off)</label>
+          <input type="number" id="ft-cooldownHours" min="0" max="168" step="0.25" value="6" style="width:100%;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;" title="Re-entry cooldown for same coin + direction. 0 disables cooldown.">
+        </div>
+        <div>
+          <label class="ft-toggle" title="Only open entries when confidence is above threshold." style="margin-bottom:6px;">
+            <input type="checkbox" id="ft-confidenceGate" onchange="syncConfidenceGateUi()"> <span class="ft-badge ft-signal">QUALITY</span> Confidence Entry Filter
+          </label>
+          <div id="ft-minConfidenceWrap" style="display:none;align-items:center;gap:8px;">
+            <label style="font-size:12px;color:#9ca3af;">Min Confidence</label>
+            <input type="number" id="ft-minConfidence" min="0" max="100" step="1" value="60" style="width:80px;padding:6px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 2. QUALITY FILTERS ── -->
+    <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
+      <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Quality Filters</h4>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
         <label class="ft-toggle" title="Block altcoin LONGs when BTC is STRONG_SELL, block SHORTs when BTC is STRONG_BUY">
           <input type="checkbox" id="ft-btcFilter" checked> <span class="ft-badge ft-signal">SIGNAL</span> BTC Signal Filter
@@ -191,18 +245,19 @@
       </div>
     </div>
 
-    <!-- ── 2. TAKE-PROFIT MODE ── -->
+    <!-- ── 3. TAKE-PROFIT MODE ── -->
     <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
       <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Take-Profit Mode</h4>
       <div style="display:flex;gap:16px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:13px;">
-          <input type="radio" name="bt-tpMode" value="fixed" checked onchange="document.getElementById('ft-trailingTp').checked=false;document.getElementById('bt-trailing-tp-opts').style.display='none'"> Fixed TPs (TP1/TP2/TP3)
+          <input type="radio" name="bt-tpMode" value="fixed" checked onchange="syncTpModeUi('fixed')"> Fixed TPs (TP1/TP2/TP3)
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e5e7eb;font-size:13px;">
-          <input type="radio" name="bt-tpMode" value="trailing" onchange="document.getElementById('ft-trailingTp').checked=true;document.getElementById('bt-trailing-tp-opts').style.display='flex'"> Trailing TP (ride the trend)
+          <input type="radio" name="bt-tpMode" value="trailing" onchange="syncTpModeUi('trailing')"> Trailing TP (ride the trend)
         </label>
       </div>
       <input type="checkbox" id="ft-trailingTp" style="display:none">
+      <div id="bt-tp-mode-note" style="margin:-2px 0 10px 0;font-size:11px;color:#9ca3af;"></div>
       <div id="bt-trailing-tp-opts" style="display:none;flex-wrap:wrap;gap:12px;padding:12px;background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.2);border-radius:6px;">
         <div>
           <label style="font-size:11px;color:#6b7280;display:block;margin-bottom:3px;">Distance Mode</label>
@@ -227,7 +282,7 @@
       </div>
     </div>
 
-    <!-- ── 3. STOP MANAGEMENT ── -->
+    <!-- ── 4. STOP MANAGEMENT ── -->
     <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
       <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Stop Management</h4>
       <div style="display:grid;gap:12px;">
@@ -281,7 +336,7 @@
       </div>
     </div>
 
-    <!-- ── 4. POSITION SIZING ── -->
+    <!-- ── 5. POSITION SIZING ── -->
     <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
       <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Position Sizing</h4>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
@@ -294,7 +349,7 @@
       </div>
     </div>
 
-    <!-- ── 5. RISK CONTROLS ── -->
+    <!-- ── 6. RISK CONTROLS ── -->
     <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
       <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Risk Controls</h4>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-bottom:12px;">
@@ -317,14 +372,9 @@
           <input type="number" id="ft-minVolume" value="0" min="0" step="1000000" style="display:none;width:100%;padding:4px 8px;background:#0d1320;border:1px solid #1e2a3a;border-radius:6px;color:#e5e7eb;font-size:12px;margin-top:6px;" placeholder="e.g. 50000000">
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
-        <label class="ft-toggle" title="4-bar cooldown before same-direction re-entry (4 bars of primary TF, e.g. 4h for 1h)">
-          <input type="checkbox" id="ft-cooldown" checked> <span class="ft-badge ft-risk">RISK</span> Cooldown (4 bars)
-        </label>
-      </div>
     </div>
 
-    <!-- ── 6. DCA ── -->
+    <!-- ── 7. DCA ── -->
     <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
       <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">DCA (Dollar Cost Average)</h4>
       <label class="ft-toggle" title="Add to losing positions when signal re-confirms direction and score is above threshold" style="margin-bottom:10px;">
@@ -350,7 +400,7 @@
       </div>
     </div>
 
-    <!-- ── 7. COSTS & REALISM ── -->
+    <!-- ── 8. COSTS & REALISM ── -->
     <div style="margin-bottom:16px;padding:16px;background:rgba(30,42,58,0.5);border:1px solid #334155;border-radius:8px;">
       <h4 style="color:#e5e7eb;margin:0 0 12px 0;font-size:14px;">Costs &amp; Realism</h4>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px;">
@@ -403,7 +453,14 @@
   <div class="section" style="margin-bottom:24px;">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
       <h3 style="color:#e5e7eb;margin:0;">Summary</h3>
-      <span id="bt-config-used" style="font-size:12px;color:#6b7280;"></span>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+          <button type="button" class="btn btn-outline btn-sm" id="bt-post-discord-btn" onclick="postCurrentBacktestToDiscord()" style="border-color:#8b5cf6;color:#8b5cf6;">Post This Backtest to Discord</button>
+          <span id="bt-post-discord-status" style="font-size:11px;color:#6b7280;"></span>
+        <% } %>
+        <span id="bt-data-source-badge" style="display:none;font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px;"></span>
+        <span id="bt-config-used" style="font-size:12px;color:#6b7280;"></span>
+      </div>
     </div>
     <div class="perf-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;">
       <div class="perf-card">
@@ -426,8 +483,8 @@
         <div class="perf-label">Profit Factor</div>
         <div class="perf-value" id="bt-pf">0</div>
       </div>
-      <div class="perf-card">
-        <div class="perf-label">Max Drawdown</div>
+      <div class="perf-card" title="Realized max drawdown: peak-to-trough from closed-trade equity curve">
+        <div class="perf-label">Max Drawdown (Realized)</div>
         <div class="perf-value down" id="bt-dd">0%</div>
       </div>
     </div>
@@ -449,7 +506,7 @@
   </div>
 
   <!-- Action Badges & Exit Reasons -->
-  <div class="section" style="margin-bottom:24px;" id="bt-actions-section" style="display:none;">
+  <div class="section" style="margin-bottom:24px;display:none;" id="bt-actions-section">
     <h3 style="color:#e5e7eb;margin-bottom:12px;">Actions Taken & Exit Reasons</h3>
     <div style="display:flex;flex-wrap:wrap;gap:16px;">
       <div style="flex:1;min-width:200px;">
@@ -477,7 +534,7 @@
             <th>Win Rate</th>
             <th>PnL</th>
             <th>Return %</th>
-            <th>Max DD %</th>
+            <th title="Realized peak-to-trough drawdown from closed-trade equity">Max DD % (Realized)</th>
           </tr>
         </thead>
         <tbody id="bt-coins-body"></tbody>
@@ -492,7 +549,7 @@
       <table class="data-table" id="bt-trades-table">
         <thead>
           <tr>
-            <th>Date</th>
+            <th class="bt-date-col">Date</th>
             <th>Coin</th>
             <th>Dir</th>
             <th>Entry</th>
@@ -510,12 +567,72 @@
 
 <script>
 // Feature toggle helpers
+var __latestBacktestPayload = null;
+
+function setToggleDisabled(toggleId, disabled, hint) {
+  var input = document.getElementById(toggleId);
+  if (!input) return;
+  input.disabled = !!disabled;
+  if (hint) input.title = hint;
+  var label = input.closest('.ft-toggle');
+  if (!label) return;
+  label.style.opacity = disabled ? '0.55' : '1';
+}
+
+function syncConfidenceGateUi() {
+  var enabled = !!(document.getElementById('ft-confidenceGate') && document.getElementById('ft-confidenceGate').checked);
+  var wrap = document.getElementById('ft-minConfidenceWrap');
+  if (wrap) wrap.style.display = enabled ? 'flex' : 'none';
+}
+
+function syncTpModeUi(mode) {
+  var trailing = mode === 'trailing';
+  var trailingFlag = document.getElementById('ft-trailingTp');
+  var trailingOpts = document.getElementById('bt-trailing-tp-opts');
+  var note = document.getElementById('bt-tp-mode-note');
+  if (trailingFlag) trailingFlag.checked = trailing;
+  if (trailingOpts) trailingOpts.style.display = trailing ? 'flex' : 'none';
+
+  setToggleDisabled('ft-partialTP', trailing, trailing ? 'Ignored in Trailing TP mode.' : '');
+  setToggleDisabled('ft-breakeven', trailing, trailing ? 'Ignored in Trailing TP mode.' : '');
+  setToggleDisabled('ft-trailingStop', trailing, trailing ? 'Ignored in Trailing TP mode (trailing handled by TP engine).' : '');
+
+  if (note) {
+    note.innerHTML = trailing
+      ? 'Trailing TP mode is active: Partial TP, Breakeven, and standalone Trailing Stop toggles are ignored. Exit reason becomes <strong>TRAILING_TP_EXIT</strong>.'
+      : 'Fixed TP mode is active: TP1/TP2/TP3 are used with optional Partial TP + Breakeven + Trailing Stop logic.';
+  }
+}
+
+async function postCurrentBacktestToDiscord() {
+  try {
+    if (!__latestBacktestPayload) throw new Error('Run a backtest first.');
+    var status = document.getElementById('bt-post-discord-status');
+    var csrf = document.querySelector('input[name="_csrf"]')?.value || '';
+    if (status) status.textContent = 'Posting...';
+    var res = await fetch('/api/admin/backtest/post-discord', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+      credentials: 'same-origin',
+      body: JSON.stringify(__latestBacktestPayload)
+    });
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to post');
+    if (status) status.textContent = 'Posted.';
+  } catch (err) {
+    var statusErr = document.getElementById('bt-post-discord-status');
+    if (statusErr) statusErr.textContent = 'Error: ' + err.message;
+  }
+}
+
 function setAllToggles(val) {
   document.querySelectorAll('#feature-toggles input[type=checkbox]').forEach(function(cb) { cb.checked = val; });
   var trailOpts = document.getElementById('bt-trailing-tp-opts');
   var dcaOpts = document.getElementById('bt-dca-opts');
   if (trailOpts) trailOpts.style.display = val ? 'flex' : 'none';
   if (dcaOpts) dcaOpts.style.display = val ? 'flex' : 'none';
+  syncTpModeUi((document.getElementById('ft-trailingTp') && document.getElementById('ft-trailingTp').checked) ? 'trailing' : 'fixed');
+  syncConfidenceGateUi();
 }
 function setPresetsMinimal() {
   setAllToggles(false);
@@ -527,6 +644,9 @@ function setPresetsMinimal() {
 function getFeatureFlags() {
   var el = function(id) { return document.getElementById(id); };
   var flags = {
+    autoTradeMinScore: parseInt(document.getElementById('ft-entryMinScore')?.value, 10)
+      || parseInt(document.getElementById('minScore')?.value, 10)
+      || 52,
     btcFilter: el('ft-btcFilter')?.checked ?? true,
     btcCorrelation: el('ft-btcCorrelation')?.checked ?? true,
     sessionFilter: el('ft-sessionFilter')?.checked ?? false,
@@ -539,8 +659,11 @@ function getFeatureFlags() {
     lockIn: el('ft-lockIn')?.checked ?? true,
     scoreRecheck: el('ft-scoreRecheck')?.checked ?? true,
     slCap: el('ft-slCap')?.checked ?? true,
-    cooldown: el('ft-cooldown')?.checked ?? true,
+    cooldownHours: parseFloat(el('ft-cooldownHours')?.value) || 0,
+    cooldown: (parseFloat(el('ft-cooldownHours')?.value) || 0) > 0,
     confidenceSizing: el('ft-confidenceSizing')?.checked ?? true,
+    confidenceFilterEnabled: el('ft-confidenceGate')?.checked ?? false,
+    minConfidence: parseFloat(el('ft-minConfidence')?.value) || 60,
     kellySizing: el('ft-kellySizing')?.checked ?? true,
     priceActionConfluence: el('ft-priceActionConfluence')?.checked ?? true,
     volatilityFilter: el('ft-volatilityFilter')?.checked ?? true,
@@ -600,6 +723,12 @@ function loadBacktestPresetByName(name) {
   var p = presets[name];
   if (!p || !p.flags) { alert('Preset not found'); return; }
   var f = p.flags;
+  if (f.autoTradeMinScore != null) {
+    var msEl = document.getElementById('minScore');
+    if (msEl) msEl.value = f.autoTradeMinScore;
+    var emsEl = document.getElementById('ft-entryMinScore');
+    if (emsEl) emsEl.value = f.autoTradeMinScore;
+  }
   document.getElementById('ft-btcFilter').checked = f.btcFilter;
   document.getElementById('ft-btcCorrelation').checked = f.btcCorrelation;
   document.getElementById('ft-sessionFilter').checked = f.sessionFilter;
@@ -609,8 +738,15 @@ function loadBacktestPresetByName(name) {
   document.getElementById('ft-lockIn').checked = f.lockIn;
   document.getElementById('ft-scoreRecheck').checked = f.scoreRecheck;
   document.getElementById('ft-slCap').checked = f.slCap;
-  document.getElementById('ft-cooldown').checked = f.cooldown;
+  var cooldownHoursVal = (f.cooldownHours != null)
+    ? f.cooldownHours
+    : (f.cooldown === false ? 0 : 6);
+  var cdEl = document.getElementById('ft-cooldownHours');
+  if (cdEl) cdEl.value = cooldownHoursVal;
   document.getElementById('ft-confidenceSizing').checked = f.confidenceSizing;
+  if (document.getElementById('ft-confidenceGate')) document.getElementById('ft-confidenceGate').checked = !!f.confidenceFilterEnabled;
+  if (document.getElementById('ft-minConfidence')) document.getElementById('ft-minConfidence').value = f.minConfidence != null ? f.minConfidence : 60;
+  syncConfidenceGateUi();
   if (document.getElementById('ft-kellySizing')) document.getElementById('ft-kellySizing').checked = f.kellySizing !== false;
   document.getElementById('ft-priceActionConfluence').checked = f.priceActionConfluence;
   document.getElementById('ft-volatilityFilter').checked = f.volatilityFilter;
@@ -629,7 +765,7 @@ function loadBacktestPresetByName(name) {
   document.getElementById('ft-trailingTp').checked = f.trailingTp;
   document.querySelectorAll('input[name="bt-tpMode"]').forEach(function(r) { r.checked = r.value === (f.trailingTp ? 'trailing' : 'fixed'); });
   document.getElementById('ft-dca').checked = f.dca;
-  document.getElementById('bt-trailing-tp-opts').style.display = f.trailingTp ? 'flex' : 'none';
+  syncTpModeUi(f.trailingTp ? 'trailing' : 'fixed');
   document.getElementById('bt-dca-opts').style.display = f.dca ? 'grid' : 'none';
   // Stop management
   if (f.breakevenRMult != null) { var beEl = document.getElementById('ft-beRMult'); if (beEl) beEl.value = f.breakevenRMult; }
@@ -711,6 +847,19 @@ function renderActionBadgesForTrade(actions) {
   }).join(' ');
 }
 
+function formatCoinLabel(result) {
+  var coinId = String(result?.coinId || '').trim();
+  var symbol = String(result?.symbol || '').trim();
+  var hasGoodSymbol = symbol.length > 1;
+  if (!coinId && hasGoodSymbol) return symbol;
+  if (!coinId) return 'Unknown';
+  var name = coinId.split('-').map(function(part) {
+    if (!part) return part;
+    return part.charAt(0).toUpperCase() + part.slice(1);
+  }).join(' ');
+  return hasGoodSymbol ? (name + ' (' + symbol + ')') : name;
+}
+
 // Inject live settings from server (only when logged in)
 <% if (typeof user !== 'undefined' && user && user.settings) { %>
 var LIVE_SETTINGS = <%- JSON.stringify(user.settings) %>;
@@ -723,7 +872,11 @@ function loadLiveSettings() {
   var s = LIVE_SETTINGS;
 
   // Core parameters
-  if (s.autoTradeMinScore != null) document.getElementById('minScore').value = s.autoTradeMinScore;
+  if (s.autoTradeMinScore != null) {
+    document.getElementById('minScore').value = s.autoTradeMinScore;
+    var ems = document.getElementById('ft-entryMinScore');
+    if (ems) ems.value = s.autoTradeMinScore;
+  }
   if (s.defaultLeverage != null) document.getElementById('leverage').value = s.defaultLeverage;
   if (s.riskMode) {
     document.getElementById('riskMode').value = s.riskMode;
@@ -753,8 +906,13 @@ function loadLiveSettings() {
   set('ft-volumeConfirmation',   s.featureVolumeConfirmation !== false);
   set('ft-fundingRateFilter',    s.featureFundingRateFilter !== false);
   set('ft-themeDetector',        s.featureThemeDetector === true);
-  set('ft-cooldown',             (s.cooldownHours != null ? s.cooldownHours : 6) > 0);
+  var liveCooldownHrs = (s.cooldownHours != null ? s.cooldownHours : 6);
+  var liveCdEl = document.getElementById('ft-cooldownHours');
+  if (liveCdEl) liveCdEl.value = liveCooldownHrs;
   set('ft-minRiskRewardEnabled', s.minRiskRewardEnabled !== false);
+  set('ft-confidenceGate',       s.featureConfidenceFilterEnabled === true);
+  if (s.minConfidence != null) { var cf = document.getElementById('ft-minConfidence'); if (cf) cf.value = s.minConfidence; }
+  syncConfidenceGateUi();
   if (s.minRiskReward != null) { var rr = document.getElementById('ft-minRiskReward'); if (rr) rr.value = s.minRiskReward; }
   var rrWrap = document.getElementById('ft-minRrValue'); if (rrWrap) rrWrap.style.display = s.minRiskRewardEnabled !== false ? 'flex' : 'none';
 
@@ -762,7 +920,7 @@ function loadLiveSettings() {
   var trailingTp = s.tpMode === 'trailing';
   set('ft-trailingTp', trailingTp);
   document.querySelectorAll('input[name="bt-tpMode"]').forEach(function(r) { r.checked = r.value === (trailingTp ? 'trailing' : 'fixed'); });
-  var trailingOpts = document.getElementById('bt-trailing-tp-opts'); if (trailingOpts) trailingOpts.style.display = trailingTp ? 'flex' : 'none';
+  syncTpModeUi(trailingTp ? 'trailing' : 'fixed');
   if (s.trailingTpDistanceMode) { var tm = document.getElementById('bt-trailingTpDistMode'); if (tm) tm.value = s.trailingTpDistanceMode; }
   if (s.trailingTpAtrMultiplier != null) { var ta = document.getElementById('bt-trailingTpAtrMult'); if (ta) ta.value = s.trailingTpAtrMultiplier; }
   if (s.trailingTpFixedPercent != null) { var tf = document.getElementById('bt-trailingTpFixedPct'); if (tf) tf.value = s.trailingTpFixedPercent; }
@@ -787,6 +945,15 @@ function loadLiveSettings() {
   var runBtn = document.getElementById('run-btn');
 
   populatePresetSelect();
+  syncTpModeUi((document.getElementById('ft-trailingTp') && document.getElementById('ft-trailingTp').checked) ? 'trailing' : 'fixed');
+  syncConfidenceGateUi();
+  var baseMinScoreEl = document.getElementById('minScore');
+  var entryMinScoreEl = document.getElementById('ft-entryMinScore');
+  if (baseMinScoreEl && entryMinScoreEl) {
+    entryMinScoreEl.value = baseMinScoreEl.value || entryMinScoreEl.value;
+    entryMinScoreEl.addEventListener('input', function() { baseMinScoreEl.value = entryMinScoreEl.value; });
+    baseMinScoreEl.addEventListener('input', function() { entryMinScoreEl.value = baseMinScoreEl.value; });
+  }
 
   document.getElementById('btMode').addEventListener('change', function() {
     var v = this.value;
@@ -801,18 +968,60 @@ function loadLiveSettings() {
   document.getElementById('endDate').value = end.toISOString().slice(0, 10);
   document.getElementById('startDate').value = start.toISOString().slice(0, 10);
 
-  // Date presets: 6 months, 1 year (1yr+ supported; 1h/4h TF recommended for speed)
+  // Date presets: 6m/1y/2y/3y (cache retains up to ~3 years; 1h/4h TF recommended for speed)
   var preset6m = document.getElementById('bt-preset-6m');
   var preset1y = document.getElementById('bt-preset-1y');
+  var preset2y = document.getElementById('bt-preset-2y');
+  var preset3y = document.getElementById('bt-preset-3y');
   if (preset6m) preset6m.addEventListener('click', function() { var s = new Date(); s.setMonth(s.getMonth() - 6); document.getElementById('startDate').value = s.toISOString().slice(0, 10); });
   if (preset1y) preset1y.addEventListener('click', function() { var s = new Date(); s.setFullYear(s.getFullYear() - 1); document.getElementById('startDate').value = s.toISOString().slice(0, 10); });
+  if (preset2y) preset2y.addEventListener('click', function() { var s = new Date(); s.setFullYear(s.getFullYear() - 2); document.getElementById('startDate').value = s.toISOString().slice(0, 10); });
+  if (preset3y) preset3y.addEventListener('click', function() { var s = new Date(); s.setFullYear(s.getFullYear() - 3); document.getElementById('startDate').value = s.toISOString().slice(0, 10); });
 
   // Risk mode toggle: show % or $ input
   document.getElementById('riskMode').addEventListener('change', function() {
     var isDollar = this.value === 'dollar';
     document.getElementById('bt-risk-pct-wrap').style.display = isDollar ? 'none' : '';
     document.getElementById('bt-risk-dollar-wrap').style.display = isDollar ? '' : 'none';
+    enforceDollarRiskCap();
   });
+
+  function enforceDollarRiskCap() {
+    var riskModeEl = document.getElementById('riskMode');
+    var initialBalanceEl = document.getElementById('initialBalance');
+    var riskDollarEl = document.getElementById('riskDollarsPerTrade');
+    var warningEl = document.getElementById('bt-risk-warning');
+    if (!riskModeEl || !initialBalanceEl || !riskDollarEl || !warningEl) return;
+
+    var isDollar = riskModeEl.value === 'dollar';
+    if (!isDollar) {
+      warningEl.style.display = 'none';
+      warningEl.textContent = '';
+      return;
+    }
+
+    var initialBalance = parseFloat(initialBalanceEl.value) || 0;
+    var riskDollars = parseFloat(riskDollarEl.value) || 0;
+    if (initialBalance <= 0 || riskDollars <= 0) {
+      warningEl.style.display = 'none';
+      warningEl.textContent = '';
+      return;
+    }
+
+    var maxAllowed = Math.max(1, initialBalance * 0.1);
+    if (riskDollars > maxAllowed) {
+      riskDollarEl.value = String(Math.floor(maxAllowed));
+      warningEl.textContent = 'Risk per trade exceeds 10% of account — consider lowering. Auto-capped to $' + Math.floor(maxAllowed) + '.';
+      warningEl.style.display = 'block';
+    } else {
+      warningEl.style.display = 'none';
+      warningEl.textContent = '';
+    }
+  }
+
+  document.getElementById('initialBalance').addEventListener('input', enforceDollarRiskCap);
+  document.getElementById('riskDollarsPerTrade').addEventListener('input', enforceDollarRiskCap);
+  enforceDollarRiskCap();
 
   function updateProgress(msg, elapsed) {
     var el = document.getElementById('bt-progress-text');
@@ -849,6 +1058,29 @@ function loadLiveSettings() {
     throw new Error('Backtest timed out after ' + Math.round(maxWaitMs / 60000) + ' minutes. Try fewer coins or a shorter date range.');
   }
 
+  function estimateBacktestWaitMs(body, startedCoins) {
+    var fallbackStart = Date.now() - (90 * 24 * 60 * 60 * 1000);
+    var fallbackEnd = Date.now();
+    var startMs = body && body.startDate ? new Date(body.startDate).getTime() : fallbackStart;
+    var endMs = body && body.endDate ? new Date(body.endDate).getTime() : fallbackEnd;
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      startMs = fallbackStart;
+      endMs = fallbackEnd;
+    }
+    var days = Math.max(1, Math.round((endMs - startMs) / 86400000));
+    var tf = (body && body.primaryTf) || '1h';
+    var coinCount = Array.isArray(startedCoins) && startedCoins.length > 0 ? startedCoins.length : (body && body.coinId ? 1 : 3);
+
+    var minutes = 10;
+    if (days > 365) minutes = 20;
+    if (days > 730) minutes = 30;
+    if (tf === '15m' && days > 365) minutes = Math.max(minutes, 40);
+    if (coinCount >= 3) minutes += 5;
+    if (coinCount >= 5) minutes += 5;
+    minutes = Math.max(10, Math.min(50, minutes));
+    return minutes * 60 * 1000;
+  }
+
   async function runOneBacktest(b) {
     updateProgress('Submitting backtest job...');
     var res;
@@ -875,17 +1107,25 @@ function loadLiveSettings() {
       throw new Error('Server returned an unexpected response (' + res.status + '). Please try again.');
     }
     var data = await res.json();
+    if (res.status === 429) {
+      var retrySeconds = data.retryAfterSeconds || parseInt(res.headers.get('Retry-After') || '0', 10) || 30;
+      var rateLimitErr = new Error(data.error || 'Rate limit exceeded');
+      rateLimitErr._retryAfterSeconds = retrySeconds;
+      throw rateLimitErr;
+    }
     if (!res.ok) throw new Error(data.error || 'Backtest failed');
 
     if (data.jobId) {
-      updateProgress('Backtest started for ' + (data.coins || []).length + ' coin(s)... fetching candles & simulating trades');
-      return await pollBacktestJob(data.jobId);
+      var waitMs = estimateBacktestWaitMs(b, data.coins || []);
+      updateProgress('Backtest started for ' + (data.coins || []).length + ' coin(s)... fetching candles & simulating trades (timeout ' + Math.round(waitMs / 60000) + 'm)');
+      return await pollBacktestJob(data.jobId, waitMs);
     }
     return data;
   }
 
   form.addEventListener('submit', async function(e) {
     e.preventDefault();
+    enforceDollarRiskCap();
     runBtn.disabled = true;
     loading.style.display = 'block';
     results.style.display = 'none';
@@ -899,12 +1139,15 @@ function loadLiveSettings() {
       startDate: document.getElementById('startDate').value,
       endDate: document.getElementById('endDate').value,
       primaryTf: document.getElementById('primaryTf').value || '1h',
-      minScore: parseInt(document.getElementById('minScore').value, 10) || 52,
+      minScore: parseInt(document.getElementById('ft-entryMinScore')?.value, 10)
+        || parseInt(document.getElementById('minScore').value, 10)
+        || 52,
       leverage: parseInt(document.getElementById('leverage').value, 10) || 2,
       initialBalance: parseInt(document.getElementById('initialBalance').value, 10) || 10000,
       riskMode: riskMode,
       riskPerTrade: parseFloat(document.getElementById('riskPerTrade').value) || 2,
       riskDollarsPerTrade: parseInt(document.getElementById('riskDollarsPerTrade').value, 10) || 200,
+      capitalMode: document.getElementById('capitalMode').value || 'perCoin',
       features: getFeatureFlags()
     };
     if (coinId) baseBody.coinId = coinId;
@@ -1004,6 +1247,35 @@ function loadLiveSettings() {
         data = await runOneBacktest(baseBody);
       }
 
+      var slimResults = (data.results || []).map(function(r) {
+        return {
+          coinId: r.coinId,
+          symbol: r.symbol,
+          totalTrades: r.totalTrades,
+          winRate: r.winRate,
+          totalPnl: r.totalPnl,
+          actionCounts: r.actionCounts || {},
+          exitReasons: r.exitReasons || {},
+          error: r.error || null
+        };
+      });
+
+      __latestBacktestPayload = {
+        summary: data.summary || {},
+        results: slimResults,
+        regimeBreakdown: data.regimeBreakdown || {},
+        generatedAt: new Date().toISOString(),
+        params: {
+          coinId: baseBody.coinId || '',
+          startDate: baseBody.startDate,
+          endDate: baseBody.endDate,
+          primaryTf: baseBody.primaryTf,
+          minScore: baseBody.minScore,
+          leverage: baseBody.leverage,
+          initialBalance: baseBody.initialBalance
+        }
+      };
+
       loading.style.display = 'none';
       results.style.display = 'block';
 
@@ -1033,6 +1305,13 @@ function loadLiveSettings() {
         diagMsg.style.color = '#93c5fd';
         diagMsg.textContent = 'Walk-forward: Train ' + (data.walkForward.train?.totalTrades || 0) + ' trades, ' + (data.walkForward.train?.winRate || 0).toFixed(1) + '% WR | Test ' + (data.walkForward.test?.totalTrades || 0) + ' trades, ' + (data.walkForward.test?.winRate || 0).toFixed(1) + '% WR';
       }
+      if ((s.riskWarnings || []).length > 0) {
+        diag.style.display = 'block';
+        diag.style.background = 'rgba(245,158,11,0.1)';
+        diag.style.borderColor = 'rgba(245,158,11,0.3)';
+        diagMsg.style.color = '#f59e0b';
+        diagMsg.textContent = s.riskWarnings.join(' ');
+      }
       if (data.sweepResults && data.sweepResults.length > 0) {
         var oldSweep = document.getElementById('bt-sweep-results');
         if (oldSweep) oldSweep.remove();
@@ -1051,13 +1330,40 @@ function loadLiveSettings() {
 
       document.getElementById('bt-trades').textContent = s.totalTrades || 0;
       document.getElementById('bt-winrate').textContent = (s.winRate || 0).toFixed(1) + '%';
+      var srcBadge = document.getElementById('bt-data-source-badge');
+      if (srcBadge) {
+        var cachedCoins = Number(s.cachedCoins || 0);
+        var liveCoins = Number(s.liveCoins || 0);
+        if (cachedCoins > 0 && liveCoins === 0) {
+          srcBadge.style.display = 'inline-flex';
+          srcBadge.style.background = 'rgba(16,185,129,0.2)';
+          srcBadge.style.border = '1px solid rgba(16,185,129,0.4)';
+          srcBadge.style.color = '#10b981';
+          srcBadge.textContent = '✅ Cached data - instant results';
+        } else if (liveCoins > 0) {
+          srcBadge.style.display = 'inline-flex';
+          srcBadge.style.background = 'rgba(245,158,11,0.2)';
+          srcBadge.style.border = '1px solid rgba(245,158,11,0.4)';
+          srcBadge.style.color = '#f59e0b';
+          srcBadge.textContent = '⚡ Fetching live data - may take 30s';
+        } else {
+          srcBadge.style.display = 'none';
+        }
+      }
       var configEl = document.getElementById('bt-config-used');
       if (configEl) {
         var ib = s.initialBalance ?? 10000;
         var rp = s.riskPerTrade ?? 2;
         var rm = s.riskMode || 'percent';
         var rd = s.riskDollarsPerTrade ?? 200;
-        configEl.textContent = 'Config: $' + ib.toLocaleString() + ' initial' + (rm === 'dollar' ? ', $' + rd + '/trade' : ', ' + rp + '% risk');
+        var rdRequested = s.riskDollarsPerTradeRequested ?? rd;
+        var cm = s.capitalMode || 'perCoin';
+        var maxConc = s.maxConcurrentPositions || 0;
+        var capLabel = cm === 'shared' ? ', shared capital' : ', per-coin capital';
+        var riskLabel = (rm === 'dollar')
+          ? ('$' + rd + ' max loss/trade (position sized by stop distance)' + (rdRequested > rd ? ', requested $' + rdRequested + ' (capped)' : ''))
+          : (rp + '% risk (compounds)');
+        configEl.textContent = 'Config: $' + ib.toLocaleString() + ' initial, ' + riskLabel + capLabel + (maxConc > 1 ? ', max ' + maxConc + ' concurrent' : '');
       }
       var pnl = s.totalPnl || 0;
       var pnlEl = document.getElementById('bt-pnl');
@@ -1069,7 +1375,10 @@ function loadLiveSettings() {
       retEl.className = 'perf-value ' + (ret >= 0 ? 'up' : 'down');
       document.getElementById('bt-pf').textContent = (s.profitFactor || 0).toFixed(2);
       var maxDd = 0;
-      successResults.forEach(function(r) { if (r.maxDrawdownPct > maxDd) maxDd = r.maxDrawdownPct; });
+      successResults.forEach(function(r) {
+        var ddRealized = (r.maxDrawdownPctRealized != null) ? r.maxDrawdownPctRealized : (r.maxDrawdownPct || 0);
+        if (ddRealized > maxDd) maxDd = ddRealized;
+      });
       document.getElementById('bt-dd').textContent = maxDd.toFixed(1) + '%';
 
       // Action badges & exit reasons (aggregate across all coins)
@@ -1138,6 +1447,7 @@ function loadLiveSettings() {
       if (robSection) robSection.remove();
       if (firstWithEval && firstWithEval.evaluation) {
         var ev = firstWithEval.evaluation;
+        var robustnessCoinLabel = formatCoinLabel(firstWithEval);
         var robDiv = document.createElement('div');
         robDiv.id = 'bt-robustness-section';
         robDiv.className = 'section';
@@ -1156,7 +1466,7 @@ function loadLiveSettings() {
             return '<span style="margin-right:8px;padding:2px 6px;border-radius:4px;background:rgba(30,41,59,0.8);color:' + ((d.pnl || 0) >= 0 ? '#10b981' : '#ef4444') + '">' + y + ': $' + (d.pnl || 0).toFixed(0) + ' (' + d.trades + ')</span>';
           }).join('') + '</div>';
         }
-        robDiv.innerHTML = '<h3 style="color:#e5e7eb;margin-bottom:12px;">Robustness Check (' + (firstWithEval.symbol || firstWithEval.coinId) + ')</h3>' +
+        robDiv.innerHTML = '<h3 style="color:#e5e7eb;margin-bottom:12px;">Robustness Check (' + robustnessCoinLabel + ')</h3>' +
           '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;">' +
           '<span style="padding:4px 10px;border-radius:6px;font-weight:600;font-size:12px;background:' + verdictColor + '22;color:' + verdictColor + '">' + (ev.verdict || 'deploy').toUpperCase() + '</span>' +
           (ev.sampleSizeOk ? '<span style="font-size:11px;color:#10b981">✓ Sample size OK</span>' : '<span style="font-size:11px;color:#eab308">⚠ Low sample</span>') +
@@ -1225,7 +1535,7 @@ function loadLiveSettings() {
           '<td data-label="Win Rate" style="color:' + (wr >= 50 ? '#10b981' : '#ef4444') + '">' + wr.toFixed(1) + '%</td>' +
           '<td data-label="PnL" class="' + (pnl >= 0 ? 'up' : 'down') + '">' + (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2) + '</td>' +
           '<td data-label="Return %" class="' + (ret >= 0 ? 'up' : 'down') + '">' + (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%</td>' +
-          '<td data-label="Max DD %" class="down">' + (r.maxDrawdownPct || 0).toFixed(1) + '%</td>';
+          '<td data-label="Max DD %" class="down">' + ((r.maxDrawdownPctRealized != null ? r.maxDrawdownPctRealized : (r.maxDrawdownPct || 0))).toFixed(1) + '%</td>';
         tbody.appendChild(tr);
       });
 
@@ -1268,16 +1578,33 @@ function loadLiveSettings() {
     } catch (err) {
       loading.style.display = 'none';
       var msg = err.message || 'Backtest failed';
-      // Fallback friendly message for raw network/parse errors
       if (msg === 'Failed to fetch' || err.name === 'AbortError') {
         msg = 'Request timed out or network error. Try fewer coins or a shorter date range.';
       }
-      // Show in a styled banner instead of a plain alert
       var errBanner = document.getElementById('bt-error-banner');
       if (errBanner) {
-        errBanner.textContent = msg;
-        errBanner.style.display = 'block';
-        errBanner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (err._retryAfterSeconds && err._retryAfterSeconds > 0) {
+          var secsLeft = err._retryAfterSeconds;
+          errBanner.textContent = msg + ' — Please try again in ' + secsLeft + 's';
+          errBanner.style.display = 'block';
+          errBanner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          var countdownTimer = setInterval(function() {
+            secsLeft--;
+            if (secsLeft <= 0) {
+              clearInterval(countdownTimer);
+              errBanner.textContent = 'You can run a backtest again now.';
+              errBanner.style.background = 'rgba(16,185,129,0.1)';
+              errBanner.style.borderColor = 'rgba(16,185,129,0.35)';
+              errBanner.style.color = '#34d399';
+            } else {
+              errBanner.textContent = msg + ' — Please try again in ' + secsLeft + 's';
+            }
+          }, 1000);
+        } else {
+          errBanner.textContent = msg;
+          errBanner.style.display = 'block';
+          errBanner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
       } else {
         alert(msg);
       }

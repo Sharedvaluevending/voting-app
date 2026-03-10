@@ -9,6 +9,7 @@
 
 const fetch = require('node-fetch');
 const { coingeckoThrottler } = require('../lib/api-queue');
+const { getJsonCache, setJsonCache } = require('./cache-store');
 
 const cache = {
   prices: { data: [], timestamp: 0 },
@@ -21,7 +22,7 @@ const cache = {
   refreshing: false
 };
 
-const REFRESH_INTERVAL = 60 * 1000;
+const REFRESH_INTERVAL = Number(process.env.REFRESH_INTERVAL_MS || (3 * 60 * 1000));
 const COINGECKO_DELAY = 6000;
 const BITGET_DELAY = 200;      // Bitget: rate limit friendly (safe up to ~55 coins)
 const RETRY_DELAY = 10000;
@@ -71,18 +72,18 @@ const COIN_META = {
   stellar:             { symbol: 'XLM',  name: 'Stellar',          bybit: 'XLMUSDT' },
   'hedera-hashgraph':  { symbol: 'HBAR', name: 'Hedera',           bybit: 'HBARUSDT' },
   stacks:              { symbol: 'STX',  name: 'Stacks',           bybit: 'STXUSDT' },
-  'render-token':      { symbol: 'RNDR', name: 'Render',           bybit: 'RNDRUSDT' },
+  'render-token':      { symbol: 'RENDER', name: 'Render',         bybit: 'RENDERUSDT' },
   aave:                { symbol: 'AAVE', name: 'Aave',             bybit: 'AAVEUSDT' },
   'the-graph':         { symbol: 'GRT',  name: 'The Graph',        bybit: 'GRTUSDT' },
   algorand:            { symbol: 'ALGO', name: 'Algorand',         bybit: 'ALGOUSDT' },
-  fantom:              { symbol: 'FTM',  name: 'Fantom',           bybit: 'FTMUSDT' },
-  maker:               { symbol: 'MKR',  name: 'Maker',            bybit: 'MKRUSDT' },
+  fantom:              { symbol: 'S',    name: 'Sonic (ex-FTM)',    bybit: 'SONICUSDT' },
+  maker:               { symbol: 'MKR',  name: 'Maker',            bybit: null },
   'curve-dao-token':   { symbol: 'CRV',  name: 'Curve',            bybit: 'CRVUSDT' },
   'lido-dao':          { symbol: 'LDO',  name: 'Lido',             bybit: 'LDOUSDT' },
   'internet-computer': { symbol: 'ICP',  name: 'Internet Computer',bybit: 'ICPUSDT' },
   filecoin:            { symbol: 'FIL',  name: 'Filecoin',         bybit: 'FILUSDT' },
   'immutable-x':       { symbol: 'IMX',  name: 'Immutable',        bybit: 'IMXUSDT' },
-  mantle:              { symbol: 'MNT',  name: 'Mantle',           bybit: 'MNTUSDT' }
+  mantle:              { symbol: 'MANTA', name: 'Manta',            bybit: 'MANTAUSDT' }
 };
 
 // CoinCap.io uses different asset ids
@@ -104,9 +105,18 @@ const COINCAP_IDS = {
 };
 
 let priceSourceRotation = 0;
+let backtestLoadCount = 0;
 
 // Max candle age before flagging stale (2 hours for 1h candles)
 const MAX_CANDLE_AGE_MS = 2 * 60 * 60 * 1000;
+const UPSTREAM_PRICES_CACHE_TTL_SEC = Number(process.env.UPSTREAM_PRICES_CACHE_TTL_SEC || 20);
+const LIVE_PRICE_CACHE_TTL_SEC = Number(process.env.LIVE_PRICE_CACHE_TTL_SEC || 6);
+
+async function readCachedPriceList(key) {
+  const cached = await getJsonCache(key);
+  if (Array.isArray(cached) && cached.length > 0) return cached;
+  return null;
+}
 
 // ====================================================
 // FETCH WITH RETRY
@@ -146,6 +156,9 @@ function sleep(ms) {
 // COINGECKO - Prices (single call, queued + exponential backoff)
 // ====================================================
 async function fetchCoinGeckoPricesOnce() {
+  const cacheKey = 'prices:source:coingecko';
+  const cached = await readCachedPriceList(cacheKey);
+  if (cached) return cached;
   return coingeckoThrottler(async () => {
     const ids = TRACKED_COINS.join(',');
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true&include_last_updated_at=true`;
@@ -156,7 +169,7 @@ async function fetchCoinGeckoPricesOnce() {
   if (!data || typeof data !== 'object') {
     throw new Error('Invalid price response');
   }
-    return TRACKED_COINS.map(id => {
+    const normalized = TRACKED_COINS.map(id => {
       const info = data[id];
       if (!info) return null;
       const meta = COIN_META[id];
@@ -172,6 +185,8 @@ async function fetchCoinGeckoPricesOnce() {
         lastUpdated: info.last_updated_at ? new Date(info.last_updated_at * 1000) : new Date()
       };
     }).filter(p => p && p.price && p.price > 0); // Filter out null entries and zero prices
+    await setJsonCache(cacheKey, normalized, UPSTREAM_PRICES_CACHE_TTL_SEC);
+    return normalized;
   });
 }
 
@@ -180,6 +195,9 @@ async function fetchCoinGeckoPricesOnce() {
 // ====================================================
 async function fetchPricesFromBitget() {
   try {
+    const cacheKey = 'prices:source:bitget';
+    const cached = await readCachedPriceList(cacheKey);
+    if (cached) return cached;
     const url = 'https://api.bitget.com/api/v2/mix/market/tickers?productType=USDT-FUTURES';
     const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
     if (!res.ok) return null;
@@ -208,7 +226,11 @@ async function fetchPricesFromBitget() {
         lastUpdated: new Date()
       });
     });
-    return results.length > 0 ? results : null;
+    if (results.length > 0) {
+      await setJsonCache(cacheKey, results, UPSTREAM_PRICES_CACHE_TTL_SEC);
+      return results;
+    }
+    return null;
   } catch (err) {
     console.error('[Bitget] Price fetch failed:', err.message);
     return null;
@@ -220,6 +242,9 @@ async function fetchPricesFromBitget() {
 // ====================================================
 async function fetchPricesFromCoinCap() {
   try {
+    const cacheKey = 'prices:source:coincap';
+    const cached = await readCachedPriceList(cacheKey);
+    if (cached) return cached;
     const res = await fetch('https://api.coincap.io/v2/assets?limit=200', {
       headers: { 'Accept': 'application/json' },
       timeout: 15000
@@ -252,7 +277,11 @@ async function fetchPricesFromCoinCap() {
         lastUpdated: new Date()
       });
     });
-    return results.length > 0 ? results : null;
+    if (results.length > 0) {
+      await setJsonCache(cacheKey, results, UPSTREAM_PRICES_CACHE_TTL_SEC);
+      return results;
+    }
+    return null;
   } catch (err) {
     console.error('[CoinCap] Price fetch failed:', err.message);
     return null;
@@ -290,6 +319,9 @@ const KRAKEN_PAIRS = {
 // ====================================================
 async function fetchPricesFromKraken() {
   try {
+    const cacheKey = 'prices:source:kraken';
+    const cached = await readCachedPriceList(cacheKey);
+    if (cached) return cached;
     const pairs = TRACKED_COINS.map(id => KRAKEN_PAIRS[id]).filter(Boolean);
     if (pairs.length === 0) return null;
     const url = 'https://api.kraken.com/0/public/Ticker?pair=' + pairs.join(',');
@@ -321,7 +353,11 @@ async function fetchPricesFromKraken() {
         lastUpdated: new Date()
       });
     });
-    return out.length > 0 ? out : null;
+    if (out.length > 0) {
+      await setJsonCache(cacheKey, out, UPSTREAM_PRICES_CACHE_TTL_SEC);
+      return out;
+    }
+    return null;
   } catch (err) {
     console.error('[Kraken] Price fetch failed:', err.message);
     return null;
@@ -337,11 +373,9 @@ const BITGET_INTERVAL_MAP = { '15m': '15m', '1h': '1H', '4h': '4H', '1d': '1D', 
 async function fetchBitgetCandles(symbol, interval, limit, startMs, endMs) {
   const bitgetInterval = BITGET_INTERVAL_MAP[interval];
   if (!bitgetInterval || !symbol) return [];
-  const MAX_RETRIES = 2;
+  const MAX_RETRIES = 3;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      // Bitget limits the window between startTime and endTime to ~7 days.
-      // If wider, it silently truncates the response, breaking pagination.
       const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
       let cappedEndMs = endMs;
       if (startMs && endMs && (endMs - startMs) > MAX_WINDOW_MS) {
@@ -350,12 +384,17 @@ async function fetchBitgetCandles(symbol, interval, limit, startMs, endMs) {
       let url = `https://api.bitget.com/api/v2/mix/market/candles?symbol=${symbol}&productType=USDT-FUTURES&granularity=${bitgetInterval}&limit=${Math.min(limit, 200)}`;
       if (startMs) url += `&startTime=${startMs}`;
       if (cappedEndMs) url += `&endTime=${cappedEndMs}`;
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 15000 });
       if (res.status === 429) {
         const wait = RATE_LIMIT_WAIT_BASE * (attempt + 1);
         console.warn(`[Bitget] OHLC ${symbol} ${interval}: 429 rate limited. Waiting ${wait / 1000}s before retry ${attempt + 1}/${MAX_RETRIES + 1}...`);
         await sleep(wait);
         continue;
+      }
+      if (res.status >= 500) {
+        console.warn(`[Bitget] OHLC ${symbol} ${interval}: HTTP ${res.status} (server error), retry ${attempt + 1}/${MAX_RETRIES}...`);
+        if (attempt < MAX_RETRIES) { await sleep(2000 * (attempt + 1)); continue; }
+        return [];
       }
       if (!res.ok) {
         console.warn(`[Bitget] OHLC ${symbol} ${interval}: HTTP ${res.status} ${res.statusText}`);
@@ -366,8 +405,8 @@ async function fetchBitgetCandles(symbol, interval, limit, startMs, endMs) {
       console.warn(`[Bitget] OHLC ${symbol} ${interval}: code=${json.code}, msg=${json.msg}`);
       return [];
     }
-    // Bitget returns [ts, open, high, low, close, volume, quoteVol] - newest first
-    const raw = (json.data || []).reverse();
+    // Bitget returns data in ascending order (oldest first) — do NOT reverse
+    const raw = json.data || [];
     const msPerCandle = { '15m': 900000, '1h': 3600000, '4h': 14400000, '1d': 86400000, '1w': 604800000 }[interval] || 3600000;
     try {
       return raw.map(c => ({
@@ -628,27 +667,32 @@ const CANDLES_ENDPOINT_DAYS = { '15m': 50, '1h': 80, '4h': 235, '1d': 9999, '1w'
 /**
  * Fetch candles from the /history-candles endpoint (for data older than ~80 days).
  * Same response format as /candles but stores ALL historical data.
+ * Uses a request window of 200 bars (not 7 days) so we need fewer pages and avoid rate limits.
  */
 async function fetchBitgetHistoryCandles(symbol, interval, limit, startMs, endMs) {
   const bitgetInterval = BITGET_INTERVAL_MAP[interval];
   if (!bitgetInterval || !symbol) return [];
-  const MAX_RETRIES = 2;
+  const MAX_RETRIES = 3;
+  const msPerCandle = MS_PER_CANDLE[interval] || 3600000;
+  const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+  const windowMs = Math.min((endMs - startMs) || 200 * msPerCandle, MAX_WINDOW_MS);
+  const requestEndMs = Math.min(startMs + windowMs, endMs);
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const MAX_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-      let cappedEndMs = endMs;
-      if (startMs && endMs && (endMs - startMs) > MAX_WINDOW_MS) {
-        cappedEndMs = startMs + MAX_WINDOW_MS;
-      }
       let url = `https://api.bitget.com/api/v2/mix/market/history-candles?symbol=${symbol}&productType=USDT-FUTURES&granularity=${bitgetInterval}&limit=${Math.min(limit, 200)}`;
       if (startMs) url += `&startTime=${startMs}`;
-      if (cappedEndMs) url += `&endTime=${cappedEndMs}`;
-      const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 12000 });
+      url += `&endTime=${requestEndMs}`;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' }, timeout: 15000 });
       if (res.status === 429) {
         const wait = RATE_LIMIT_WAIT_BASE * (attempt + 1);
         console.warn(`[Bitget-History] OHLC ${symbol} ${interval}: 429 rate limited. Waiting ${wait / 1000}s...`);
         await sleep(wait);
         continue;
+      }
+      if (res.status >= 500) {
+        console.warn(`[Bitget-History] OHLC ${symbol} ${interval}: HTTP ${res.status} (server error), retry ${attempt + 1}/${MAX_RETRIES}...`);
+        if (attempt < MAX_RETRIES) { await sleep(2000 * (attempt + 1)); continue; }
+        return [];
       }
       if (!res.ok) {
         console.warn(`[Bitget-History] OHLC ${symbol} ${interval}: HTTP ${res.status} ${res.statusText}`);
@@ -659,8 +703,8 @@ async function fetchBitgetHistoryCandles(symbol, interval, limit, startMs, endMs
         console.warn(`[Bitget-History] OHLC ${symbol} ${interval}: code=${json.code}, msg=${json.msg}`);
         return [];
       }
-      const raw = (json.data || []).reverse();
-      const msPerCandle = MS_PER_CANDLE[interval] || 3600000;
+      // Bitget returns data in ascending order (oldest first) — do NOT reverse
+      const raw = json.data || [];
       try {
         return raw.map(c => ({
           openTime: parseInt(c[0]),
@@ -707,14 +751,14 @@ async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
   const msPerCandle = MS_PER_CANDLE[interval] || 3600000;
   const all = [];
   let cursor = startMs;
-  let retries = 0;
-  const MAX_RETRIES = 2;
+  let consecutiveEmpty = 0;
   let pages = 0;
   const MAX_PAGES = 500;
 
-  // Determine cutoff: data older than this must use /history-candles
   const recentLimitDays = CANDLES_ENDPOINT_DAYS[interval] || 80;
   const recentCutoff = Date.now() - recentLimitDays * 24 * 60 * 60 * 1000;
+  const windowMs = Math.min(limit * msPerCandle, 7 * 24 * 3600000);
+  const EMPTY_BACKOFF_STEPS = [windowMs, windowMs * 2, windowMs * 3, windowMs * 4, windowMs * 5];
 
   while (cursor < endMs && pages < MAX_PAGES) {
     pages++;
@@ -722,20 +766,30 @@ async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
     const fetcher = useHistory ? fetchBitgetHistoryCandles : fetchBitgetCandles;
     const chunk = await fetcher(meta.bybit, interval, limit, cursor, endMs);
     if (!chunk || chunk.length === 0) {
-      if (retries < MAX_RETRIES && all.length === 0) {
-        retries++;
-        console.warn(`[Historical] ${coinId} ${interval}: empty response (${useHistory ? 'history' : 'candles'}), retry ${retries}/${MAX_RETRIES} in 2s...`);
-        await new Promise(r => setTimeout(r, 2000));
-        continue;
+      consecutiveEmpty++;
+      // Do not stop early: newly listed assets can have long empty ranges before first listing candle.
+      // Instead, progressively jump farther ahead so long-range backtests still reach available history.
+      const stepIdx = Math.min(EMPTY_BACKOFF_STEPS.length - 1, consecutiveEmpty - 1);
+      const skipMs = Math.min(30 * 86400000, EMPTY_BACKOFF_STEPS[stepIdx]);
+      if (consecutiveEmpty === 5 || consecutiveEmpty % 25 === 0) {
+        console.warn(
+          `[Historical] ${coinId} ${interval}: ${consecutiveEmpty} consecutive empty responses at ${new Date(cursor).toISOString().slice(0, 10)} (skipping ahead ${Math.round(skipMs / 86400000)}d)`
+        );
       }
-      break;
+      cursor += skipMs;
+      await new Promise(r => setTimeout(r, 1000));
+      continue;
     }
-    retries = 0;
+    consecutiveEmpty = 0;
     all.push(...chunk);
     const lastTs = chunk[chunk.length - 1].openTime;
     if (lastTs >= endMs) break;
     cursor = lastTs + msPerCandle;
-    await new Promise(r => setTimeout(r, BITGET_DELAY));
+    await new Promise(r => setTimeout(r, useHistory ? 350 : BITGET_DELAY));
+    if (pages % 20 === 0) {
+      const pct = Math.min(100, ((cursor - startMs) / (endMs - startMs) * 100)).toFixed(0);
+      console.log(`[Historical] ${coinId} ${interval}: page ${pages}, ${all.length} candles so far (${pct}% of range)`);
+    }
   }
   if (pages >= MAX_PAGES) console.warn(`[Historical] ${coinId} ${interval}: hit max page limit (${MAX_PAGES})`);
   const seen = new Set();
@@ -745,7 +799,9 @@ async function fetchHistoricalCandlesForCoin(coinId, interval, startMs, endMs) {
     return true;
   });
   deduped.sort((a, b) => a.openTime - b.openTime);
-  console.log(`[Historical] ${coinId} ${interval}: ${deduped.length} candles fetched (${pages} pages, range: ${new Date(startMs).toISOString().slice(0,10)} to ${new Date(endMs).toISOString().slice(0,10)})`);
+  const coverage = ((endMs - startMs) / msPerCandle);
+  const pctCoverage = coverage > 0 ? ((deduped.length / coverage) * 100).toFixed(1) : '?';
+  console.log(`[Historical] ${coinId} ${interval}: ${deduped.length} candles fetched (${pages} pages, ${pctCoverage}% coverage, range: ${new Date(startMs).toISOString().slice(0,10)} to ${new Date(endMs).toISOString().slice(0,10)})`);
   return deduped;
 }
 
@@ -778,6 +834,9 @@ async function fetchHistoryFromAPI(coinId, days = 7) {
 /** Fetch coin data + history for detail page (market-scanner coins). */
 async function fetchCoinDataForDetail(coinId) {
   try {
+    const cacheKey = `detail:coingecko:${coinId}`;
+    const cached = await getJsonCache(cacheKey);
+    if (cached && cached.coinData) return cached;
     const [detailRes, history] = await Promise.all([
       fetch(`https://api.coingecko.com/api/v3/coins/${coinId}?localization=false&tickers=false&community_data=false&developer_data=false`, { headers: { Accept: 'application/json' }, timeout: 12000 }),
       fetchHistoryOnce(coinId, 7).catch(() => null)
@@ -796,7 +855,9 @@ async function fetchCoinDataForDetail(coinId) {
       marketCap: md.market_cap?.usd ?? 0
     };
     registerScannerCoinMeta(coinId, coinData.symbol);
-    return { coinData, history: history || { prices: [], volumes: [] } };
+    const payload = { coinData, history: history || { prices: [], volumes: [] } };
+    await setJsonCache(cacheKey, payload, 60);
+    return payload;
   } catch (e) {
     return null;
   }
@@ -877,6 +938,12 @@ async function refreshAllData() {
   console.log('[Refresh] Starting background data refresh...');
 
   try {
+    // Backtests are network-heavy; avoid pileups from full refresh while one is active.
+    if (backtestLoadCount > 0 && cache.lastRefresh > 0 && (Date.now() - cache.lastRefresh) < (5 * 60 * 1000)) {
+      console.log('[Refresh] Backtest load active — deferring refresh to keep server responsive');
+      return;
+    }
+
     if (cache.lastRefresh === 0) {
       console.log('[Refresh] Waiting 10s before first API call...');
       await sleep(10000);
@@ -1016,10 +1083,16 @@ function getCoinMeta(coinId) {
 
 /** Fetch live price for one coin. Tries WebSocket -> Bitget -> Kraken -> dynamic Kraken -> CoinGecko -> cache. */
 async function fetchLivePrice(coinId) {
+  const cacheKey = `live:price:${coinId}`;
+  const cachedLive = await getJsonCache(cacheKey);
+  if (Number.isFinite(cachedLive) && cachedLive > 0) return cachedLive;
   try {
     const ws = require('./websocket-prices');
     const p = ws.getWebSocketPrice(coinId);
-    if (p && Number.isFinite(p.price) && p.price > 0) return p.price;
+    if (p && Number.isFinite(p.price) && p.price > 0) {
+      await setJsonCache(cacheKey, p.price, LIVE_PRICE_CACHE_TTL_SEC);
+      return p.price;
+    }
   } catch (e) { /* WS not available */ }
 
   const meta = getCoinMeta(coinId);
@@ -1033,7 +1106,10 @@ async function fetchLivePrice(coinId) {
         const json = await res.json();
         if (json.code === '00000' && json.data) {
           const price = parseFloat(json.data.lastPr || json.data.lastPrice);
-          if (Number.isFinite(price) && price > 0) return price;
+          if (Number.isFinite(price) && price > 0) {
+            await setJsonCache(cacheKey, price, LIVE_PRICE_CACHE_TTL_SEC);
+            return price;
+          }
         }
       }
     } catch (err) { /* fall through */ }
@@ -1043,7 +1119,10 @@ async function fetchLivePrice(coinId) {
   let krakenPair = KRAKEN_PAIRS[coinId];
   if (krakenPair) {
     const price = await fetchKrakenTicker(krakenPair);
-    if (price != null) return price;
+    if (price != null) {
+      await setJsonCache(cacheKey, price, LIVE_PRICE_CACHE_TTL_SEC);
+      return price;
+    }
   }
 
   // Dynamic Kraken: for scanner coins not in KRAKEN_PAIRS, try {SYMBOL}USD
@@ -1051,7 +1130,10 @@ async function fetchLivePrice(coinId) {
     const dynPair = (meta.symbol || '').toUpperCase() + 'USD';
     if (dynPair.length > 4) {
       const price = await fetchKrakenTicker(dynPair);
-      if (price != null) return price;
+      if (price != null) {
+        await setJsonCache(cacheKey, price, LIVE_PRICE_CACHE_TTL_SEC);
+        return price;
+      }
     }
   }
 
@@ -1063,14 +1145,21 @@ async function fetchLivePrice(coinId) {
       if (res.ok) {
         const json = await res.json();
         const p = json?.[coinId]?.usd;
-        if (Number.isFinite(p) && p > 0) return p;
+        if (Number.isFinite(p) && p > 0) {
+          await setJsonCache(cacheKey, p, LIVE_PRICE_CACHE_TTL_SEC);
+          return p;
+        }
       }
     } catch (err) { /* fall through */ }
   }
 
   // Last resort: cache
   const cached = getCurrentPrice(coinId);
-  return cached && Number.isFinite(cached.price) ? cached.price : null;
+  if (cached && Number.isFinite(cached.price) && cached.price > 0) {
+    await setJsonCache(cacheKey, cached.price, LIVE_PRICE_CACHE_TTL_SEC);
+    return cached.price;
+  }
+  return null;
 }
 
 /** Helper: fetch single pair from Kraken Ticker API. Returns price or null. */
@@ -1136,9 +1225,19 @@ function isDataReady() {
 
 function triggerRefreshIfNeeded() {
   const now = Date.now();
-  if ((now - cache.lastRefresh) > REFRESH_INTERVAL && !cache.refreshing) {
+  const refreshInterval = backtestLoadCount > 0 ? Math.max(REFRESH_INTERVAL, 5 * 60 * 1000) : REFRESH_INTERVAL;
+  if ((now - cache.lastRefresh) > refreshInterval && !cache.refreshing) {
     refreshAllData().catch(err => console.error('[Refresh] Trigger error:', err.message));
   }
+}
+
+function markBacktestLoad(delta) {
+  const d = Number(delta) || 0;
+  backtestLoadCount = Math.max(0, backtestLoadCount + d);
+}
+
+function isBacktestLoadActive() {
+  return backtestLoadCount > 0;
 }
 
 // Start initial refresh
@@ -1154,6 +1253,7 @@ module.exports = {
   recordScoreHistory, getScoreHistory,
   recordRegimeSnapshot, getRegimeTimeline,
   pricesReadyPromise,
+  markBacktestLoad, isBacktestLoadActive,
   TRACKED_COINS, COIN_META,
   registerScannerCoinMeta, getCoinMeta,
   KRAKEN_PAIRS

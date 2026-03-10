@@ -356,7 +356,8 @@ async function buildContext(user, User, Trade, getPerformanceStats, fetchLivePri
     regimeTimeline: null,
     strategyWeights: null,
     featureToggles: null,
-    coinWeights: null
+    coinWeights: null,
+    disabledRegimesByCoin: user.disabledRegimesByCoin || {}
   };
 
   // Collect feature toggle state for the LLM
@@ -668,6 +669,29 @@ async function executeAction(action, user, deps, actionContext = {}) {
     user.markModified('coinWeights');
     await user.save();
     return { ok: true, message: `Coin weight ${coinId} = ${weight}x` };
+  }
+
+  // ── set_coin_regime ──
+  if (tool === 'set_coin_regime') {
+    const coinId = action.coinId;
+    const regime = String(action.regime || '').toLowerCase();
+    const enabled = action.enabled !== false;
+    const VALID_REGIMES = ['trending', 'ranging', 'volatile', 'compression', 'mixed'];
+    if (!coinId || typeof coinId !== 'string') return { ok: false, message: 'Missing coinId' };
+    if (!VALID_REGIMES.includes(regime)) return { ok: false, message: `Invalid regime. Use: ${VALID_REGIMES.join(', ')}` };
+
+    user.disabledRegimesByCoin = user.disabledRegimesByCoin || {};
+    const cur = Array.isArray(user.disabledRegimesByCoin[coinId]) ? user.disabledRegimesByCoin[coinId] : [];
+    let next = cur.slice();
+    if (enabled) {
+      next = next.filter(r => r !== regime);
+    } else if (!next.includes(regime)) {
+      next.push(regime);
+    }
+    user.disabledRegimesByCoin[coinId] = next;
+    user.markModified('disabledRegimesByCoin');
+    await user.save();
+    return { ok: true, message: `${coinId} regime ${regime} ${enabled ? 'ENABLED' : 'DISABLED'}` };
   }
 
   // ── close_trade ──
@@ -1033,6 +1057,7 @@ Reply ONLY with valid JSON. No markdown. No explanations outside JSON.
     { "tool": "close_trade", "tradeId": "id", "reason": "RISK_EXIT" },
     { "tool": "reduce_position", "tradeId": "id", "percent": 50 },
     { "tool": "adjust_weight", "strategyId": "trend_follow", "weights": { "trend": 30, "momentum": 30, "volume": 20, "structure": 20 } },
+    { "tool": "set_coin_regime", "coinId": "bitcoin", "regime": "ranging", "enabled": false },
     { "tool": "move_stop_loss", "tradeId": "id", "stopLoss": 95000 },
     { "tool": "move_to_breakeven", "tradeId": "id" },
     { "tool": "update_take_profit", "tradeId": "id", "takeProfit1": 100000 },
@@ -1047,7 +1072,7 @@ TOOLS:
 - open_trade, close_trade, reduce_position
 - move_stop_loss, move_to_breakeven, update_take_profit
 - adjust_weight, reset_learning
-- set_coin_weight, exclude_coin, include_coin
+- set_coin_weight, set_coin_regime, exclude_coin, include_coin
 - run_backtest: days (7-30), optional overrides
 - setup_backtest: coinId, setupId, days (7-90), timeframe (1h|4h)
 - scan_setups: setupId (optional, null=all), creates notifications when ready setups found
@@ -1109,6 +1134,9 @@ async function runAgent(userId, deps, opts = {}) {
   // Coin weights
   if (ctx.coinWeights) {
     promptParts.push(`- Coin wts: ${JSON.stringify(ctx.coinWeights.weights)}`);
+  }
+  if (ctx.disabledRegimesByCoin && Object.keys(ctx.disabledRegimesByCoin).length > 0) {
+    promptParts.push(`- Disabled regimes by coin: ${JSON.stringify(ctx.disabledRegimesByCoin)}`);
   }
 
   // Market pulse (compact)

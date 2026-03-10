@@ -194,7 +194,54 @@
             </div>
           </div>
         </div>
+        <div class="indicators-dropdown-wrap" id="dropdown-copilot-wrap">
+          <button type="button" class="tool-btn indicators-dropdown-btn" data-dropdown="copilot" title="Ask AI about this chart">Copilot <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M2 4 L6 8 L10 4" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
+          <div class="indicators-dropdown-panel chart-copilot-panel">
+            <% if (typeof user !== 'undefined' && user) { %>
+            <div class="indicators-dropdown-title">Chart Copilot</div>
+            <p class="chart-copilot-help" title="Try asking: What bullish vs bearish signals are strongest right now? What setup would invalidate a long? Which off-chart indicator should I add next for confirmation?">
+              Ask about current chart + indicators. It can explain active indicators and suggest off-chart ones to try.
+            </p>
+            <div class="chart-copilot-suggestions" id="chart-copilot-suggestions">
+              <button type="button" class="chart-copilot-chip" data-prompt="What are the strongest bullish vs bearish signals right now?">Bull vs bear signals</button>
+              <button type="button" class="chart-copilot-chip" data-prompt="Which indicator is contradicting this move right now?">Conflicting indicators</button>
+              <button type="button" class="chart-copilot-chip" data-prompt="What 2 indicators not currently on chart should I try next and why?">What to add next</button>
+            </div>
+            <textarea id="chart-copilot-input" class="chart-copilot-input" rows="3" placeholder="Ask about this setup, indicators, invalidation, or ideas..."></textarea>
+            <div class="chart-copilot-actions">
+              <button type="button" class="btn btn-outline btn-sm chart-copilot-mic" id="chart-copilot-mic" title="Start voice input">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 1 3 3v8a3 3 0 0 1-6 0V4a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" id="chart-copilot-cancel-btn" style="display:none;">Cancel</button>
+              <button type="button" class="btn btn-outline btn-sm" id="chart-copilot-ask-btn">Ask Copilot</button>
+              <span id="chart-copilot-status" class="chart-copilot-status"></span>
+            </div>
+            <div class="chart-copilot-controls">
+              <label><input type="checkbox" id="chart-copilot-speak" checked> Speak response</label>
+              <label><input type="checkbox" id="chart-copilot-always-on"> Always On</label>
+            </div>
+            <div class="chart-copilot-waveform" id="chart-copilot-waveform" style="display:none;">
+              <span class="wf-bar"></span><span class="wf-bar"></span><span class="wf-bar"></span><span class="wf-bar"></span><span class="wf-bar"></span>
+            </div>
+            <div id="chart-copilot-response" class="chart-copilot-response" style="display:none;"></div>
+            <div class="chart-copilot-disclaimer">For analysis support only, not financial advice.</div>
+            <% } else { %>
+            <div class="indicators-dropdown-title">Chart Copilot</div>
+            <p class="chart-copilot-help">Log in to ask AI about the current chart and indicators.</p>
+            <% } %>
+          </div>
+        </div>
       </div>
+
+<div id="chart-usage-limit-modal" style="display:none;position:fixed;inset:0;z-index:12000;background:rgba(2,6,23,0.72);backdrop-filter:blur(12px);align-items:center;justify-content:center;padding:20px;">
+  <div style="width:min(520px,92vw);background:rgba(15,23,42,0.88);border:1px solid rgba(148,163,184,0.28);border-radius:14px;padding:18px;">
+    <h3 id="chart-usage-limit-title" style="margin:0 0 10px 0;color:#f8fafc;">Limit reached</h3>
+    <p id="chart-usage-limit-copy" style="margin:0 0 12px 0;color:#cbd5e1;font-size:13px;"></p>
+    <div id="chart-usage-limit-options" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;"></div>
+    <button type="button" class="btn btn-primary btn-sm" id="chart-usage-limit-upgrade">Upgrade to Elite — $99/mo</button>
+    <button type="button" class="btn btn-outline btn-sm" id="chart-usage-limit-close">Wait for monthly reset</button>
+  </div>
+</div>
 
   <!-- Lightweight Charts (primary – with trade level lines) -->
   <div class="chart-container" id="lw-chart-container" style="display:none;">
@@ -213,6 +260,7 @@
       <div id="candle-countdown" style="font-size:14px;font-weight:700;color:#e5e7eb;font-variant-numeric:tabular-nums;"></div>
     </div>
     <div id="chart-structure-overlay" style="display:none;position:absolute;bottom:8px;left:12px;z-index:6;pointer-events:none;padding:4px 8px;background:rgba(15,23,42,0.85);border:1px solid #334155;border-radius:6px;font-size:11px;font-weight:600;color:#a78bfa;">—</div>
+    <div id="chart-history-badge" style="display:none;position:absolute;bottom:8px;right:12px;z-index:7;pointer-events:none;padding:5px 10px;background:rgba(59,130,246,0.16);border:1px solid rgba(59,130,246,0.45);border-radius:999px;font-size:11px;font-weight:600;color:#93c5fd;">Loading older candles...</div>
     <canvas id="indicator-zones-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:4;"></canvas>
     <canvas id="draw-overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;"></canvas>
   </div>
@@ -349,6 +397,56 @@
 .indicators-dropdown-panel { display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; padding: 12px 14px; min-width: 220px; background: rgba(15,23,42,0.98); border: 1px solid #334155; border-radius: 8px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
 .indicators-dropdown-wrap.open .indicators-dropdown-panel { display: flex; flex-direction: column; gap: 8px; }
 .indicators-dropdown-title { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+.chart-copilot-panel { min-width: 340px; max-width: 420px; background: rgba(15,23,42,0.96); }
+.chart-copilot-help { margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.4; }
+.chart-copilot-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.chart-copilot-chip {
+  border: 1px solid #334155;
+  background: rgba(30,41,59,0.75);
+  color: #cbd5e1;
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.chart-copilot-chip:hover { border-color: #3b82f6; color: #e5e7eb; }
+.chart-copilot-input {
+  width: 100%;
+  padding: 8px 10px;
+  background: rgba(15,23,42,0.75);
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #e5e7eb;
+  font-size: 12px;
+  resize: vertical;
+  min-height: 72px;
+}
+.chart-copilot-actions { display: flex; align-items: center; gap: 8px; }
+.chart-copilot-status { font-size: 11px; color: #6b7280; }
+.chart-copilot-mic { width: 34px; min-width: 34px; height: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; }
+.chart-copilot-mic.listening { border-color: rgba(34,211,238,0.75); color: #67e8f9; box-shadow: 0 0 0 1px rgba(34,211,238,0.2), 0 0 14px rgba(34,211,238,0.3); background: rgba(8,145,178,0.24); }
+.chart-copilot-controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:4px; font-size:11px; color:#9ca3af; }
+.chart-copilot-controls label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+.chart-copilot-waveform { display:flex; align-items:flex-end; gap:3px; margin-top:4px; height:18px; }
+.chart-copilot-waveform .wf-bar { width:4px; border-radius:999px; background:linear-gradient(180deg,#67e8f9,#0891b2); height:6px; animation:wave-bounce 0.9s ease-in-out infinite; opacity:0.85; }
+.chart-copilot-waveform .wf-bar:nth-child(2) { animation-delay:0.1s; }
+.chart-copilot-waveform .wf-bar:nth-child(3) { animation-delay:0.2s; }
+.chart-copilot-waveform .wf-bar:nth-child(4) { animation-delay:0.3s; }
+.chart-copilot-waveform .wf-bar:nth-child(5) { animation-delay:0.4s; }
+.chart-copilot-response {
+  background: rgba(15,23,42,0.7);
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px;
+  color: #d1d5db;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  max-height: 220px;
+  overflow: auto;
+}
+.chart-copilot-disclaimer { font-size: 10px; color: #6b7280; }
+@keyframes wave-bounce { 0%,100% { height:5px; } 50% { height:18px; } }
 .chart-tf-bar { display: flex; align-items: center; justify-content: center; padding: 8px 12px; background: rgba(15,23,42,0.6); border-top: 1px solid #334155; }
 .chart-container { position: relative; width: 100%; flex: 1; height: calc(100vh - 380px); min-height: 380px; overflow: hidden; background: #0f172a; }
 .tf-selector { display: flex; gap: 4px; }
@@ -393,7 +491,7 @@
 .group-btn { position: relative !important; }
 .group-btn .group-icon { display: flex; align-items: center; justify-content: center; }
 .group-btn .group-arrow { position: absolute; bottom: 2px; right: 2px; font-size: 7px; line-height: 1; color: #6b7280; pointer-events: none; }
-.tool-flyout { display: none; position: absolute; left: calc(100% + 4px); top: 0; min-width: 180px; max-height: 70vh; overflow-y: auto; padding: 6px 0; background: rgba(15,23,42,0.98); border: 1px solid #334155; border-radius: 8px; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.tool-flyout { display: none; position: absolute; left: 100%; top: 0; min-width: 180px; max-height: 70vh; overflow-y: auto; padding: 6px 0; background: rgba(15,23,42,0.98); border: 1px solid #334155; border-radius: 8px; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
 .tool-group:hover .tool-flyout, .tool-group.flyout-open .tool-flyout { display: flex; flex-direction: column; }
 .flyout-btn { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: none; border: none; color: #9ca3af; font-size: 12px; cursor: pointer; white-space: nowrap; transition: background 0.15s, color 0.15s; }
 .flyout-btn:hover { background: rgba(59,130,246,0.15); color: #e5e7eb; }
@@ -471,6 +569,74 @@
     } catch (e) { console.warn('applyCandleColors:', e); }
   }
   var currentTF = '1h';
+  var HISTORY_PAGE_SIZE_INITIAL = 1200;
+  var HISTORY_PAGE_SIZE_OLDER = 1200;
+  var historyStateByTf = {};
+  var historyLoadCooldownMs = 1200;
+  var lastHistoryLoadAt = 0;
+  var historyBadgeHideTimer = null;
+  var currentPriceFormat = { precision: 4, minMove: 0.0001 };
+  function clampPrecision(v) {
+    return Math.max(2, Math.min(8, Math.round(v || 4)));
+  }
+  function decimalsFromStep(step) {
+    if (!(step > 0) || !Number.isFinite(step)) return 0;
+    var s = step.toString();
+    if (s.indexOf('e-') >= 0) {
+      var parts = s.split('e-');
+      return parts[1] ? parseInt(parts[1], 10) : 0;
+    }
+    var dot = s.indexOf('.');
+    return dot >= 0 ? (s.length - dot - 1) : 0;
+  }
+  function resolvePriceFormat(candles) {
+    if (!candles || candles.length === 0) return { precision: 4, minMove: 0.0001 };
+    var minPrice = Infinity;
+    var minStep = Infinity;
+    for (var i = 0; i < candles.length; i++) {
+      var c = candles[i] || {};
+      var vals = [c.open, c.high, c.low, c.close];
+      for (var j = 0; j < vals.length; j++) {
+        var p = Number(vals[j]);
+        if (Number.isFinite(p) && p > 0 && p < minPrice) minPrice = p;
+      }
+      if (i > 0) {
+        var prev = candles[i - 1];
+        var curr = candles[i];
+        var delta = Math.abs(Number(curr.close) - Number(prev.close));
+        if (Number.isFinite(delta) && delta > 0 && delta < minStep) minStep = delta;
+      }
+    }
+    var basePrecision = 4;
+    if (minPrice < 1) basePrecision = 6;
+    if (minPrice < 0.01) basePrecision = 7;
+    if (minPrice < 0.0001) basePrecision = 8;
+    var stepPrecision = decimalsFromStep(minStep);
+    var precision = clampPrecision(Math.max(basePrecision, stepPrecision));
+    var minMove = Number((Math.pow(10, -precision)).toFixed(precision));
+    return { precision: precision, minMove: minMove };
+  }
+  function applyPriceFormat(candles) {
+    currentPriceFormat = resolvePriceFormat(candles);
+    if (chartRef.series) {
+      try {
+        chartRef.series.applyOptions({
+          priceFormat: {
+            type: 'price',
+            precision: currentPriceFormat.precision,
+            minMove: currentPriceFormat.minMove
+          }
+        });
+      } catch (e) {
+        console.warn('applyPriceFormat:', e);
+      }
+    }
+  }
+  function formatPriceValue(price, minPrecision) {
+    if (!Number.isFinite(price)) return '—';
+    var precision = Math.max(minPrecision || 0, currentPriceFormat.precision || 4);
+    return Number(price).toFixed(precision);
+  }
   var CHART_INDICATOR_STORAGE_KEY = 'chartIndicatorPrefs';
   function getIndicatorDefaults() {
     var hasTrade = !!(levels.entry != null || levels.sl != null || levels.tp1 != null || levels.tp2 != null || levels.tp3 != null);
@@ -643,6 +809,7 @@
   buildToolGroups();
 
   function saveDrawings() {
+    for (var i = 0; i < drawings.length; i++) ensureDrawingBaseTimes(drawings[i], true);
     try { localStorage.setItem('chart-drawings-' + coinId, JSON.stringify(drawings)); } catch(e) {}
   }
   function loadDrawings() {
@@ -650,6 +817,91 @@
       var raw = localStorage.getItem('chart-drawings-' + coinId);
       if (raw) { var parsed = JSON.parse(raw); if (Array.isArray(parsed)) drawings = parsed; }
     } catch(e) { drawings = []; }
+    for (var i = 0; i < drawings.length; i++) ensureDrawingBaseTimes(drawings[i], false);
+  }
+
+  function getHistoryState(tf) {
+    if (!historyStateByTf[tf]) historyStateByTf[tf] = { hasMore: false, nextBeforeMs: null, loading: false };
+    return historyStateByTf[tf];
+  }
+
+  function setHistoryBadge(text, kind, autoHideMs) {
+    var el = document.getElementById('chart-history-badge');
+    if (!el) return;
+    if (historyBadgeHideTimer) { clearTimeout(historyBadgeHideTimer); historyBadgeHideTimer = null; }
+    if (!text) { el.style.display = 'none'; return; }
+    el.textContent = text;
+    var isDone = kind === 'done';
+    var isWarn = kind === 'warn';
+    if (isDone) {
+      el.style.background = 'rgba(16,185,129,0.15)';
+      el.style.borderColor = 'rgba(16,185,129,0.45)';
+      el.style.color = '#86efac';
+    } else if (isWarn) {
+      el.style.background = 'rgba(234,179,8,0.14)';
+      el.style.borderColor = 'rgba(234,179,8,0.45)';
+      el.style.color = '#fde68a';
+    } else {
+      el.style.background = 'rgba(59,130,246,0.16)';
+      el.style.borderColor = 'rgba(59,130,246,0.45)';
+      el.style.color = '#93c5fd';
+    }
+    el.style.display = '';
+    if (autoHideMs && autoHideMs > 0) {
+      historyBadgeHideTimer = setTimeout(function() {
+        el.style.display = 'none';
+      }, autoHideMs);
+    }
+  }
+
+  function snapToNearestCandleTime(targetSec) {
+    if (!Number.isFinite(targetSec)) return targetSec;
+    var times = chartRef.candleTimes || [];
+    if (!times || times.length === 0) return targetSec;
+    if (targetSec <= times[0]) return times[0];
+    var last = times[times.length - 1];
+    if (targetSec >= last) return last;
+    var lo = 0, hi = times.length - 1;
+    while (lo <= hi) {
+      var mid = Math.floor((lo + hi) / 2);
+      var v = times[mid];
+      if (v === targetSec) return v;
+      if (v < targetSec) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    var left = times[Math.max(0, hi)];
+    var right = times[Math.min(times.length - 1, lo)];
+    return Math.abs(left - targetSec) <= Math.abs(right - targetSec) ? left : right;
+  }
+
+  function ensureDrawingBaseTimes(drawing, forceFromCurrent) {
+    if (!drawing || typeof drawing !== 'object') return;
+    if (!drawing._baseTimes || typeof drawing._baseTimes !== 'object') drawing._baseTimes = {};
+    var keys = ['time', 't1', 't2', 't3'];
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      var v = drawing[k];
+      if (forceFromCurrent) {
+        if (Number.isFinite(v)) drawing._baseTimes[k] = v;
+      } else if (!Number.isFinite(drawing._baseTimes[k]) && Number.isFinite(v)) {
+        drawing._baseTimes[k] = v;
+      }
+    }
+  }
+
+  function materializeDrawingTimesForCurrentTF() {
+    if (!drawings || drawings.length === 0 || !chartRef.candleTimes || chartRef.candleTimes.length === 0) return;
+    for (var i = 0; i < drawings.length; i++) {
+      var d = drawings[i];
+      ensureDrawingBaseTimes(d, false);
+      var base = d._baseTimes || {};
+      var keys = ['time', 't1', 't2', 't3'];
+      for (var ki = 0; ki < keys.length; ki++) {
+        var k = keys[ki];
+        if (!Number.isFinite(base[k])) continue;
+        d[k] = snapToNearestCandleTime(base[k]);
+      }
+    }
   }
 
   // Action marker colors and shapes for Lightweight Charts
@@ -799,6 +1051,7 @@
 
   var lastCandleData = null;
   var candleAnimationIntervalId = null;
+  var wsChartHandler = null;
 
   function updateLastCandleWithPrice(price) {
     if (!chartRef.series || !lastCandleData || !chartRef.chart) return;
@@ -806,7 +1059,13 @@
     var intervalSec = tfIntervalSec[currentTF] || 3600;
     var nextCandleSec = lastCandleData.time + intervalSec;
     if (nowSec >= nextCandleSec) {
-      loadCandles(currentTF, { preserveView: true });
+      var newCandleTime = nextCandleSec;
+      var newBar = { time: newCandleTime, open: price, high: price, low: price, close: price };
+      lastCandleData = newBar;
+      try { chartRef.series.update(newBar); } catch(e) {}
+      if (chartRef.volumeSeries) {
+        try { chartRef.volumeSeries.update({ time: newCandleTime, value: 0, color: 'rgba(34,197,94,0.5)' }); } catch(e) {}
+      }
       return;
     }
     var high = Math.max(lastCandleData.high, price);
@@ -818,8 +1077,26 @@
 
   function startCandleAnimation() {
     if (candleAnimationIntervalId) clearInterval(candleAnimationIntervalId);
+    if (wsChartHandler) {
+      window.removeEventListener('ws-price-update', wsChartHandler);
+      wsChartHandler = null;
+    }
+    wsChartHandler = function(e) {
+      if (!chartRef.chart || !chartRef.series || tvFallbackAttempted) return;
+      if (e.detail && e.detail.coinId === coinId && e.detail.price != null) {
+        updateLastCandleWithPrice(Number(e.detail.price));
+        updateSymbolOverlay(Number(e.detail.price), e.detail.change24h);
+      }
+    };
+    window.addEventListener('ws-price-update', wsChartHandler);
     candleAnimationIntervalId = setInterval(function() {
       if (!chartRef.chart || !chartRef.series || tvFallbackAttempted) return;
+      if (window.__wsPrices && window.__wsPrices[coinId]) {
+        var p = window.__wsPrices[coinId];
+        updateLastCandleWithPrice(Number(p.price));
+        updateSymbolOverlay(Number(p.price), p.change24h);
+        return;
+      }
       fetch('/api/prices', { credentials: 'same-origin' })
         .then(function(r) { return r.ok ? r.json() : null; })
         .then(function(result) {
@@ -831,11 +1108,12 @@
           }
         })
         .catch(function() {});
-    }, 6000);
+    }, 15000);
   }
 
   function stopCandleAnimation() {
     if (candleAnimationIntervalId) { clearInterval(candleAnimationIntervalId); candleAnimationIntervalId = null; }
+    if (wsChartHandler) { window.removeEventListener('ws-price-update', wsChartHandler); wsChartHandler = null; }
   }
 
   function updateSymbolOverlay(price, change24h) {
@@ -843,7 +1121,7 @@
     var changeEl = document.getElementById('chart-symbol-change');
     if (!priceEl) return;
     if (price != null && Number.isFinite(price)) {
-      priceEl.textContent = '$' + (price >= 1 ? price.toFixed(4) : price.toFixed(6));
+      priceEl.textContent = '$' + formatPriceValue(price, 4);
       priceEl.style.color = (change24h != null && change24h >= 0) ? '#22c55e' : '#ef4444';
     }
     if (changeEl && change24h != null && Number.isFinite(change24h)) {
@@ -861,7 +1139,7 @@
     var lEl = document.getElementById('crosshair-l');
     var cEl = document.getElementById('crosshair-c');
     if (!infoEl || !chart) return;
-    function fmt(p) { return p >= 1 ? p.toFixed(4) : p.toFixed(6); }
+    function fmt(p) { return formatPriceValue(p, 4); }
     function findCandle(time) {
       if (!chartRef.candleData || chartRef.candleData.length === 0) return null;
       var best = chartRef.candleData[0];
@@ -1623,7 +1901,12 @@
   function loadCandles(tf, opts) {
     opts = opts || {};
     var preserveView = opts.preserveView === true;
+    var prepend = opts.prepend === true;
+    var beforeMs = Number(opts.beforeMs || 0);
+    var limit = Math.max(200, Math.min(5000, Number(opts.limit) || (prepend ? HISTORY_PAGE_SIZE_OLDER : HISTORY_PAGE_SIZE_INITIAL)));
     currentTF = tf;
+    if (!prepend) setHistoryBadge('');
+    var tfHistoryState = getHistoryState(tf);
     var tvLoading = document.getElementById('tv-loading');
     var fetchTimeout = setTimeout(function() {
       if (!chartRef.chart && tvLoading && tvLoading.style.display !== 'none') {
@@ -1631,7 +1914,9 @@
         showTradingViewFallback();
       }
     }, 15000);
-    fetch('/api/candles/' + coinId + '?interval=' + tf)
+    var url = '/api/candles/' + coinId + '?interval=' + encodeURIComponent(tf) + '&limit=' + limit;
+    if (prepend && beforeMs > 0) url += '&before=' + Math.floor(beforeMs);
+    return fetch(url)
       .then(function(r) {
         clearTimeout(fetchTimeout);
         if (!r.ok) return r.json().catch(function() { return { success: false }; });
@@ -1639,8 +1924,66 @@
       })
       .then(function(data) {
         clearTimeout(fetchTimeout);
-        if (!data || !data.success || !data.candles || data.candles.length === 0) {
+        if (!data || !data.success) {
           if (!chartRef.chart) showTradingViewFallback();
+          return;
+        }
+        tfHistoryState.hasMore = !!data.hasMore;
+        tfHistoryState.nextBeforeMs = Number.isFinite(Number(data.nextBefore)) ? Number(data.nextBefore) : null;
+        if (!data.candles || data.candles.length === 0) {
+          if (prepend) return;
+          if (!chartRef.chart) showTradingViewFallback();
+          return;
+        }
+
+        if (prepend && chartRef.chart && chartRef.series) {
+          var prevCandles = chartRef.candleData || [];
+          var prevVolume = chartRef.volumeData || [];
+          var currentRange = chartRef.chart.timeScale().getVisibleLogicalRange();
+          var combined = data.candles.concat(prevCandles);
+          var dedupedCandles = [];
+          var seenTimes = new Set();
+          for (var ci = 0; ci < combined.length; ci++) {
+            var candle = combined[ci];
+            if (!candle || !Number.isFinite(candle.time) || seenTimes.has(candle.time)) continue;
+            seenTimes.add(candle.time);
+            dedupedCandles.push(candle);
+          }
+          dedupedCandles.sort(function(a, b) { return a.time - b.time; });
+          var combinedVol = (data.volume || []).concat(prevVolume || []);
+          var dedupedVol = [];
+          var seenVolTimes = new Set();
+          for (var vi = 0; vi < combinedVol.length; vi++) {
+            var vrow = combinedVol[vi];
+            if (!vrow || !Number.isFinite(vrow.time) || seenVolTimes.has(vrow.time)) continue;
+            seenVolTimes.add(vrow.time);
+            dedupedVol.push(vrow);
+          }
+          dedupedVol.sort(function(a, b) { return a.time - b.time; });
+
+          chartRef.series.setData(dedupedCandles);
+          chartRef.candleData = dedupedCandles;
+          chartRef.candleTimes = dedupedCandles.map(function(c) { return c.time; });
+          chartRef.volumeData = dedupedVol;
+          if (chartRef.volumeSeries && dedupedVol.length > 0) chartRef.volumeSeries.setData(dedupedVol);
+
+          var added = Math.max(0, dedupedCandles.length - prevCandles.length);
+          if (currentRange && added > 0) {
+            try {
+              chartRef.chart.timeScale().setVisibleLogicalRange({
+                from: currentRange.from + added,
+                to: currentRange.to + added
+              });
+            } catch (e) {}
+          }
+          applyPriceFormat(dedupedCandles);
+          materializeDrawingTimesForCurrentTF();
+          renderDrawings();
+          try { renderZoneOverlays(); } catch(e) {}
+          try { renderRSIPane(); } catch(e) {}
+          try { renderMACDPane(); } catch(e) {}
+          if (tfHistoryState.hasMore) setHistoryBadge('Older candles loaded', 'done', 1200);
+          else setHistoryBadge('Reached oldest cached candles', 'warn', 1800);
           return;
         }
 
@@ -1711,10 +2054,16 @@
               }
               var chart = LightweightCharts.createChart(chartEl, chartOpts);
               var candleColors = getCandleColors();
+              var initialPriceFormat = resolvePriceFormat(data.candles);
               var series = chart.addCandlestickSeries({
                 upColor: candleColors.up, downColor: candleColors.down,
                 borderDownColor: candleColors.down, borderUpColor: candleColors.up,
-                wickDownColor: candleColors.down, wickUpColor: candleColors.up
+                wickDownColor: candleColors.down, wickUpColor: candleColors.up,
+                priceFormat: {
+                  type: 'price',
+                  precision: initialPriceFormat.precision,
+                  minMove: initialPriceFormat.minMove
+                }
               });
               series.setData(data.candles);
               if (data.volume && data.volume.length > 0) {
@@ -1726,10 +2075,12 @@
                 volSeries.setData(data.volume);
                 chartRef.volumeSeries = volSeries;
               }
+              chartRef.volumeData = data.volume || [];
               chartRef.chart = chart;
               chartRef.series = series;
               chartRef.candleTimes = data.candles.map(function(c) { return c.time; });
               chartRef.candleData = data.candles;
+              applyPriceFormat(data.candles);
               var lastC = data.candles[data.candles.length - 1];
               lastCandleData = lastC ? { time: lastC.time, open: lastC.open, high: lastC.high, low: lastC.low, close: lastC.close } : null;
 
@@ -1757,7 +2108,7 @@
                 })
                 .catch(function() {});
               // Set up drawing overlay after chart is ready, load persisted drawings
-              setTimeout(function() { resizeDrawCanvas(); hookChartRedraw(); loadDrawings(); renderDrawings(); try { renderRSIPane(); } catch(e){} try { renderMACDPane(); } catch(e){} }, 100);
+              setTimeout(function() { resizeDrawCanvas(); hookChartRedraw(); loadDrawings(); materializeDrawingTimesForCurrentTF(); renderDrawings(); try { renderRSIPane(); } catch(e){} try { renderMACDPane(); } catch(e){} }, 100);
               // Mobile portrait fix: force resize after layout settles (candles may not render until container has final dimensions)
               [350, 600, 1000].forEach(function(delay) {
                 setTimeout(function() {
@@ -1834,11 +2185,13 @@
             chartRef.series.setData(data.candles);
             chartRef.candleTimes = data.candles.map(function(c) { return c.time; });
             chartRef.candleData = data.candles;
+            applyPriceFormat(data.candles);
             var lastC = data.candles[data.candles.length - 1];
             lastCandleData = lastC ? { time: lastC.time, open: lastC.open, high: lastC.high, low: lastC.low, close: lastC.close } : null;
             if (chartRef.volumeSeries && data.volume && data.volume.length > 0) {
               chartRef.volumeSeries.setData(data.volume);
             }
+            chartRef.volumeData = data.volume || [];
             try { addPriceLines(); } catch(e) { console.warn('addPriceLines error:', e); }
             try { applyActionMarkers(initialActions || []); } catch(e) { console.warn('applyActionMarkers error:', e); }
             try { renderChartPatterns(); } catch(e) { console.warn('renderChartPatterns error:', e); }
@@ -1850,7 +2203,7 @@
             if (!preserveView) chartRef.chart.timeScale().fitContent();
             startCandleCountdown();
             updateSymbolOverlay(lastC ? lastC.close : null);
-            setTimeout(function() { renderDrawings(); try { renderRSIPane(); } catch(e){} try { renderMACDPane(); } catch(e){} }, 100);
+            setTimeout(function() { materializeDrawingTimesForCurrentTF(); renderDrawings(); try { renderRSIPane(); } catch(e){} try { renderMACDPane(); } catch(e){} }, 100);
           } catch (updateErr) {
             console.error('Chart update error:', updateErr);
           }
@@ -1860,6 +2213,25 @@
         clearTimeout(fetchTimeout);
         console.error('Chart load error:', err);
         if (!chartRef.chart) showTradingViewFallback();
+      });
+  }
+
+  function loadOlderHistoryIfNeeded() {
+    if (!chartRef.chart || !chartRef.candleData || chartRef.candleData.length === 0) return;
+    var state = getHistoryState(currentTF);
+    if (!state || state.loading || !state.hasMore) return;
+    var now = Date.now();
+    if ((now - lastHistoryLoadAt) < historyLoadCooldownMs) return;
+    var oldest = chartRef.candleData[0];
+    var beforeMs = Number.isFinite(state.nextBeforeMs) ? state.nextBeforeMs : (oldest ? oldest.time * 1000 : 0);
+    if (!beforeMs || beforeMs <= 0) return;
+    state.loading = true;
+    lastHistoryLoadAt = now;
+    setHistoryBadge('Loading older candles...', 'loading');
+    loadCandles(currentTF, { preserveView: true, prepend: true, beforeMs: beforeMs, limit: HISTORY_PAGE_SIZE_OLDER })
+      .catch(function() { setHistoryBadge('Failed to load older candles', 'warn', 1800); })
+      .finally(function() {
+        state.loading = false;
       });
   }
 
@@ -1947,8 +2319,8 @@
     var slEl = slRow ? slRow.querySelector('.level-price') : null;
     var origEl = slRow ? slRow.querySelector('.level-original') : null;
     var actionsBar = document.getElementById('chart-actions-bar');
-    function fmt(n) { return n >= 1 ? n.toFixed(4) : n.toFixed(6); }
-    function priceStr(n) { return n >= 1 ? n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 6}) : n.toFixed(6); }
+    function fmt(n) { return formatPriceValue(n, 4); }
+    function priceStr(n) { return formatPriceValue(n, 4); }
     setInterval(function() {
       fetch((window.location.origin || '') + '/api/trades/active', { credentials: 'same-origin' })
         .then(function(r) { return r.ok ? r.json() : null; })
@@ -2103,7 +2475,7 @@
             var nameSpan = rows[i].querySelector('.level-name');
             if (nameSpan && nameSpan.textContent === label) {
               var priceEl = rows[i].querySelector('.level-price');
-              if (priceEl) priceEl.textContent = '$' + (obj.price >= 1 ? obj.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 6}) : obj.price.toFixed(6));
+              if (priceEl) priceEl.textContent = '$' + formatPriceValue(obj.price, 4);
               break;
             }
           }
@@ -2408,6 +2780,423 @@
   document.addEventListener('click', function() {
     dropdownWraps.forEach(function(w) { w.classList.remove('open'); });
   });
+  var copilotInput = document.getElementById('chart-copilot-input');
+  var copilotAskBtn = document.getElementById('chart-copilot-ask-btn');
+  var copilotStatus = document.getElementById('chart-copilot-status');
+  var copilotResponse = document.getElementById('chart-copilot-response');
+  var copilotMicBtn = document.getElementById('chart-copilot-mic');
+  var copilotCancelBtn = document.getElementById('chart-copilot-cancel-btn');
+  var copilotWaveform = document.getElementById('chart-copilot-waveform');
+  var copilotSpeak = document.getElementById('chart-copilot-speak');
+  var copilotAlwaysOn = document.getElementById('chart-copilot-always-on');
+  var copilotChips = document.querySelectorAll('.chart-copilot-chip');
+  var chartCsrf = document.getElementById('chart-csrf');
+  var copilotRecorder = null;
+  var copilotStream = null;
+  var copilotChunks = [];
+  var copilotTick = null;
+  var copilotRecordStart = 0;
+  var copilotController = null;
+  var copilotAudio = null;
+  var copilotState = 'idle';
+  var copilotTransportMode = 'http';
+  var copilotVoiceGateway = null;
+  var copilotUseRealtime = false;
+  var chartLimitModal = document.getElementById('chart-usage-limit-modal');
+  var chartLimitTitle = document.getElementById('chart-usage-limit-title');
+  var chartLimitCopy = document.getElementById('chart-usage-limit-copy');
+  var chartLimitOptions = document.getElementById('chart-usage-limit-options');
+  var chartToggleToIndicatorId = {
+    'toggle-volume': 'volume',
+    'toggle-bb': 'bollingerBands',
+    'toggle-ma': 'movingAverages',
+    'toggle-keltner': 'keltnerChannel',
+    'toggle-donchian': 'donchianChannel',
+    'toggle-fib': 'fibonacciLevels',
+    'toggle-sr': 'supportResistance',
+    'toggle-poc': 'pointOfControl',
+    'toggle-pivots': 'pivotPoints',
+    'toggle-chart-patterns': 'chartPatterns',
+    'toggle-patterns': 'candlestickPatterns',
+    'toggle-ob': 'orderBlocks',
+    'toggle-fvg': 'fairValueGaps',
+    'toggle-liq': 'liquidityClusters',
+    'toggle-vwap': 'vwap',
+    'toggle-premium': 'premiumDiscountZone',
+    'toggle-swing': 'swingPoints',
+    'toggle-structure': 'marketStructure',
+    'toggle-sessions': 'sessionMarkers',
+    'toggle-gaps': 'gapMarkers',
+    'toggle-vp': 'volumeProfile',
+    'toggle-rsi': 'rsi',
+    'toggle-macd': 'macd'
+  };
+  function getActiveIndicatorIds() {
+    return Object.keys(chartToggleToIndicatorId).filter(function(toggleId) {
+      var el = document.getElementById(toggleId);
+      if (!el) return false;
+      if (toggleId === 'toggle-volume') return true;
+      return !!el.checked;
+    }).map(function(toggleId) { return chartToggleToIndicatorId[toggleId]; });
+  }
+  if (copilotInput && copilotChips && copilotChips.length > 0) {
+    copilotChips.forEach(function(chip) {
+      chip.addEventListener('click', function() {
+        var p = chip.getAttribute('data-prompt');
+        if (!p) return;
+        copilotInput.value = p;
+        copilotInput.focus();
+      });
+    });
+  }
+  function copilotSetState(next, label) {
+    copilotState = next;
+    if (copilotStatus) copilotStatus.textContent = label || '';
+    if (copilotWaveform) copilotWaveform.style.display = next === 'listening' ? 'flex' : 'none';
+    if (copilotMicBtn) copilotMicBtn.classList.toggle('listening', next === 'listening');
+    if (copilotCancelBtn) copilotCancelBtn.style.display = (next === 'listening' || next === 'transcribing' || next === 'thinking' || next === 'speaking') ? '' : 'none';
+    if (copilotAskBtn) copilotAskBtn.disabled = (next === 'transcribing' || next === 'thinking' || next === 'speaking');
+  }
+  function formatResetDate(iso) {
+    if (!iso) return 'next month';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return 'next month';
+    return d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+  }
+  function startChartPackCheckout(packType, packAmount) {
+    return fetch('/api/stripe/buy-pack', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': chartCsrf ? chartCsrf.value : ''
+      },
+      credentials: 'same-origin',
+      body: JSON.stringify({ packType: packType, packAmount: packAmount })
+    }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+      .then(function(out) {
+        if (!out.ok || !out.data || !out.data.url) throw new Error((out.data && out.data.error) || 'Pack checkout failed');
+        window.location.href = out.data.url;
+      });
+  }
+  function showChartUsageLimit(kind, payload) {
+    if (!chartLimitModal) return;
+    var cap = Number(payload && payload.monthlyLimit) || 0;
+    var label = kind === 'copilot' ? 'copilot questions' : kind === 'voice' ? 'voice minutes' : 'LLM messages';
+    chartLimitTitle.textContent = "⚡ You've used all " + cap + ' ' + label + ' this month';
+    chartLimitCopy.textContent = 'Keep going with a pack or upgrade. Monthly reset: ' + formatResetDate(payload && payload.resetAt) + '.';
+    chartLimitOptions.innerHTML = '';
+    var packType = kind === 'copilot' ? 'copilot' : kind === 'voice' ? 'voice' : 'llm';
+    var amounts = kind === 'voice' ? [30, 120, 300] : [50, 200, 500];
+    var prices = ['$2.99', '$7.99', '$14.99'];
+    amounts.forEach(function(a, idx) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'btn btn-outline btn-sm';
+      b.textContent = (kind === 'voice' ? (a + ' minutes') : (a + ' questions')) + ' — ' + prices[idx];
+      b.addEventListener('click', function() {
+        startChartPackCheckout(packType, a).catch(function(err) { copilotSetState('idle', err.message || 'Pack checkout failed'); });
+      });
+      chartLimitOptions.appendChild(b);
+    });
+    chartLimitModal.style.display = 'flex';
+  }
+  function copilotElapsed(ms) {
+    var sec = Math.floor(ms / 1000);
+    return String(Math.floor(sec / 60)).padStart(2, '0') + ':' + String(sec % 60).padStart(2, '0');
+  }
+  function copilotBlobToBase64(blob) {
+    return new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function() { resolve(reader.result); };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+  function copilotPlayBase64Audio(base64Data, mimeType) {
+    return new Promise(function(resolve, reject) {
+      if (!base64Data) return resolve();
+      var b = atob(base64Data);
+      var arr = new Uint8Array(b.length);
+      for (var i = 0; i < b.length; i++) arr[i] = b.charCodeAt(i);
+      var blob = new Blob([arr], { type: mimeType || 'audio/wav' });
+      var url = URL.createObjectURL(blob);
+      copilotAudio = new Audio(url);
+      copilotAudio.onended = function() {
+        URL.revokeObjectURL(url);
+        copilotAudio = null;
+        resolve();
+      };
+      copilotAudio.onerror = function(err) {
+        URL.revokeObjectURL(url);
+        copilotAudio = null;
+        reject(err || new Error('Audio playback failed'));
+      };
+      copilotAudio.play().catch(reject);
+    });
+  }
+  async function initCopilotVoiceTransport() {
+    try {
+      var r = await fetch('/api/voice/transport', { credentials: 'same-origin' });
+      var d = await r.json();
+      if (!r.ok || !d.success) return;
+      copilotTransportMode = d.mode || 'http';
+      if (copilotTransportMode === 'mumble' && window.VoiceRealtimeGateway) {
+        copilotVoiceGateway = new window.VoiceRealtimeGateway(d.wsPath || '/ws/voice');
+        await copilotVoiceGateway.connect();
+        copilotUseRealtime = true;
+      }
+    } catch (e) {}
+  }
+  function copilotStopTracks() {
+    if (copilotStream) {
+      copilotStream.getTracks().forEach(function(t) { try { t.stop(); } catch (e) {} });
+      copilotStream = null;
+    }
+  }
+  async function copilotSpeakText(text) {
+    if (!copilotSpeak || !copilotSpeak.checked || !text) return;
+    copilotSetState('speaking', 'Speaking...');
+    copilotController = new AbortController();
+    try {
+      var resp = await fetch('/api/voice/synthesize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': chartCsrf ? chartCsrf.value : ''
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({ text: text }),
+        signal: copilotController.signal
+      });
+      var type = resp.headers.get('content-type') || '';
+      if (!resp.ok || type.indexOf('audio/') !== 0) {
+        var maybeJson = null;
+        try { maybeJson = await resp.json(); } catch (e) {}
+        throw new Error((maybeJson && maybeJson.error) || 'Voice playback unavailable');
+      }
+      var blob = await resp.blob();
+      var url = URL.createObjectURL(blob);
+      copilotAudio = new Audio(url);
+      await new Promise(function(resolve, reject) {
+        copilotAudio.onended = resolve;
+        copilotAudio.onerror = reject;
+        copilotAudio.play().catch(reject);
+      });
+      URL.revokeObjectURL(url);
+      copilotAudio = null;
+    } catch (err) {
+      if (err.name !== 'AbortError') copilotStatus.textContent = 'Piper unavailable, text response shown.';
+    } finally {
+      copilotController = null;
+    }
+  }
+  async function askChartCopilot(question) {
+    var q = String(question || '').trim();
+    if (!q) {
+      copilotSetState('idle', 'Enter a question first.');
+      return;
+    }
+    copilotSetState('thinking', 'Thinking...');
+    try {
+      copilotController = new AbortController();
+      var resp = await fetch('/api/chart-copilot/' + encodeURIComponent(coinId), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': chartCsrf ? chartCsrf.value : ''
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          question: q,
+          timeframe: currentTF || '1h',
+          activeIndicators: getActiveIndicatorIds()
+        }),
+        signal: copilotController.signal
+      });
+      var data = await resp.json();
+      if (data && (data.error === 'copilot_limit_reached' || data.error === 'llm_limit_reached')) {
+        showChartUsageLimit(data.error.indexOf('copilot') === 0 ? 'copilot' : 'llm', data);
+      }
+      if (!resp.ok || !data.success) throw new Error(data.error || 'Could not get Copilot response');
+      copilotResponse.style.display = '';
+      copilotResponse.textContent = data.response || 'No response.';
+      copilotSetState('idle', data.contextNote || 'Includes on-chart and off-chart indicator context.');
+      copilotResponse.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      if (copilotSpeak && copilotSpeak.checked) await copilotSpeakText(data.response || '');
+      copilotSetState('idle', data.contextNote || 'Includes on-chart and off-chart indicator context.');
+      if (copilotAlwaysOn && copilotAlwaysOn.checked) {
+        setTimeout(function() {
+          if (copilotState === 'idle') copilotStartRecording();
+        }, 220);
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') copilotSetState('idle', err.message || 'Request failed');
+      else copilotSetState('idle', '');
+    } finally {
+      copilotController = null;
+    }
+  }
+  async function copilotStartRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined') {
+      copilotSetState('idle', 'Voice capture not supported in this browser.');
+      return;
+    }
+    try {
+      copilotStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      var mimeType = '';
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mimeType = 'audio/webm;codecs=opus';
+      else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
+      copilotRecorder = mimeType ? new MediaRecorder(copilotStream, { mimeType: mimeType }) : new MediaRecorder(copilotStream);
+      copilotChunks = [];
+      copilotRecorder.ondataavailable = function(evt) {
+        if (!(evt.data && evt.data.size > 0)) return;
+        if (copilotUseRealtime && copilotVoiceGateway) {
+          copilotVoiceGateway.sendChunkBlob(evt.data).catch(function() {});
+        } else {
+          copilotChunks.push(evt.data);
+        }
+      };
+      if (copilotUseRealtime && copilotVoiceGateway) {
+        copilotVoiceGateway.start('chart', mimeType || 'audio/webm', {
+          coinId: coinId,
+          timeframe: currentTF || '1h',
+          activeIndicators: getActiveIndicatorIds(),
+          speakResponse: !!(copilotSpeak && copilotSpeak.checked)
+        });
+        copilotRecorder.start(250);
+      } else {
+        copilotRecorder.start();
+      }
+      copilotRecordStart = Date.now();
+      copilotTick = setInterval(function() {
+        copilotSetState('listening', 'Listening... ' + copilotElapsed(Date.now() - copilotRecordStart));
+      }, 250);
+      copilotSetState('listening', 'Listening... 00:00');
+    } catch (err) {
+      if (String(err && err.name) === 'NotAllowedError') copilotSetState('idle', 'Mic denied. Enable microphone permissions.');
+      else copilotSetState('idle', err.message || 'Could not access microphone');
+    }
+  }
+  async function copilotStopRecording() {
+    if (!copilotRecorder) return;
+    await new Promise(function(resolve) {
+      copilotRecorder.onstop = resolve;
+      copilotRecorder.stop();
+    });
+    if (copilotTick) clearInterval(copilotTick);
+    copilotTick = null;
+    var blob = new Blob(copilotChunks, { type: (copilotRecorder && copilotRecorder.mimeType) || 'audio/webm' });
+    copilotRecorder = null;
+    copilotChunks = [];
+    copilotStopTracks();
+    if (copilotUseRealtime && copilotVoiceGateway) {
+      copilotSetState('transcribing', 'Transcribing...');
+      try {
+        var gatewayOut = await copilotVoiceGateway.stopAndAwait();
+        var transcript = gatewayOut && gatewayOut.transcript && gatewayOut.transcript.text ? gatewayOut.transcript.text : '';
+        var response = gatewayOut && gatewayOut.response ? gatewayOut.response : null;
+        if (!transcript || !response || !response.text) throw new Error('Voice gateway returned incomplete response');
+        copilotInput.value = transcript;
+        copilotResponse.style.display = '';
+        copilotResponse.textContent = response.text || 'No response.';
+        copilotSetState('idle', response.contextNote || ('Heard: ' + transcript));
+        copilotResponse.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        if (gatewayOut.audio && gatewayOut.audio.data && copilotSpeak && copilotSpeak.checked) {
+          copilotSetState('speaking', 'Speaking...');
+          await copilotPlayBase64Audio(gatewayOut.audio.data, gatewayOut.audio.mimeType || 'audio/wav');
+          copilotSetState('idle', response.contextNote || 'Done');
+        }
+      } catch (err) {
+        copilotSetState('idle', err.message || 'Realtime voice request failed');
+      }
+      if (copilotAlwaysOn && copilotAlwaysOn.checked) {
+        setTimeout(function() { if (copilotState === 'idle') copilotStartRecording(); }, 220);
+      }
+      return;
+    }
+    if (!blob || blob.size === 0) {
+      copilotSetState('idle', '');
+      return;
+    }
+    copilotSetState('transcribing', 'Transcribing...');
+    try {
+      var audioBase64 = await copilotBlobToBase64(blob);
+      copilotController = new AbortController();
+      var tr = await fetch('/api/voice/transcribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': chartCsrf ? chartCsrf.value : ''
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({ audioBase64: audioBase64 }),
+        signal: copilotController.signal
+      });
+      var td = await tr.json();
+      if (td && (td.error === 'voice_limit_reached' || td.error === 'voice_locked')) {
+        showChartUsageLimit('voice', td);
+      }
+      if (!tr.ok || !td.success || !td.text) throw new Error(td.error || 'Transcription failed');
+      copilotInput.value = td.text;
+      copilotSetState('idle', 'Heard: ' + td.text);
+      await askChartCopilot(td.text);
+    } catch (err) {
+      if (err.name !== 'AbortError') copilotSetState('idle', err.message || 'Transcription failed');
+      else copilotSetState('idle', '');
+    } finally {
+      copilotController = null;
+    }
+  }
+  if (copilotAskBtn && copilotInput && copilotStatus && copilotResponse) {
+    copilotAskBtn.addEventListener('click', function() {
+      askChartCopilot(copilotInput.value || '');
+    });
+  }
+  if (copilotMicBtn) {
+    copilotMicBtn.addEventListener('click', function() {
+      if (copilotState === 'listening') copilotStopRecording();
+      else if (copilotState === 'idle') copilotStartRecording();
+    });
+  }
+  if (copilotCancelBtn) {
+    copilotCancelBtn.addEventListener('click', function() {
+      if (copilotTick) clearInterval(copilotTick);
+      copilotTick = null;
+      if (copilotRecorder && copilotRecorder.state !== 'inactive') {
+        try { copilotRecorder.stop(); } catch (e) {}
+      }
+      copilotRecorder = null;
+      copilotChunks = [];
+      copilotStopTracks();
+      if (copilotController) {
+        try { copilotController.abort(); } catch (e) {}
+        copilotController = null;
+      }
+      if (copilotAudio) {
+        try { copilotAudio.pause(); } catch (e) {}
+        copilotAudio = null;
+      }
+      if (copilotVoiceGateway) {
+        try { copilotVoiceGateway.cancel(); } catch (e) {}
+      }
+      copilotSetState('idle', 'Cancelled');
+      setTimeout(function() {
+        if (copilotStatus && copilotStatus.textContent === 'Cancelled') copilotStatus.textContent = '';
+      }, 900);
+    });
+  }
+  document.getElementById('chart-usage-limit-upgrade').addEventListener('click', function() {
+    window.location.href = '/pricing';
+  });
+  document.getElementById('chart-usage-limit-close').addEventListener('click', function() {
+    if (chartLimitModal) chartLimitModal.style.display = 'none';
+  });
+  if (chartLimitModal) {
+    chartLimitModal.addEventListener('click', function(e) {
+      if (e.target === chartLimitModal) chartLimitModal.style.display = 'none';
+    });
+  }
+  initCopilotVoiceTransport();
   var colorInput = document.getElementById('draw-color-input');
   var colorSwatches = document.querySelectorAll('.color-swatch');
   function onColorChange(c) {
@@ -2448,15 +3237,17 @@
   var lastValidCoord = null;  // cache last valid t2,p2 so drawing doesn't disappear over price/time scale areas
   var selectedIndex = null;
   var dragState = null;    // { index, startPx, startPy, startT1, startP1, startT2, startP2 } for move
+  var chartContainerEl = document.getElementById('lw-chart-container');
+  var longShortAutoRiskReward = 2;
 
   function resizeDrawCanvas() {
     if (!drawCanvas || !drawCtx || !chartRef.chart) return;
     var container = document.getElementById('lw-chart-container');
     var rect = container.getBoundingClientRect();
     var dpr = window.devicePixelRatio || 1;
-    var maxH = (window.innerHeight || 500) - 120;
-    var w = Math.min(rect.width, window.innerWidth || 9999);
-    var h = Math.min(rect.height, maxH);
+    var w = rect.width;
+    var h = rect.height;
+    if (w <= 0 || h <= 0) return;
     drawCanvas.width = w * dpr;
     drawCanvas.height = h * dpr;
     drawCanvas.style.width = w + 'px';
@@ -2490,11 +3281,19 @@
     if (time == null || price == null) return null;
     return { time: time, price: price };
   }
+  function getChartPlotArea() {
+    if (!chartRef.chart) return { left: 0, top: 0, right: 800, bottom: 500 };
+    var ts = chartRef.chart.timeScale();
+    var cw = drawCanvas ? drawCanvas.getBoundingClientRect().width : 800;
+    var ch = drawCanvas ? drawCanvas.getBoundingClientRect().height : 500;
+    var tsH = 30;
+    var psW = 60;
+    return { left: 0, top: 0, right: Math.max(cw - psW, 100), bottom: Math.max(ch - tsH, 100) };
+  }
   function fromPixelClamped(px, py, canvasW, canvasH) {
-    var w = canvasW || (drawCanvas ? drawCanvas.getBoundingClientRect().width : 0);
-    var h = canvasH || (drawCanvas ? drawCanvas.getBoundingClientRect().height : 0);
-    var x = Math.max(0, Math.min(w, px));
-    var y = Math.max(0, Math.min(h, py));
+    var plot = getChartPlotArea();
+    var x = Math.max(plot.left + 1, Math.min(plot.right - 1, px));
+    var y = Math.max(plot.top + 1, Math.min(plot.bottom - 1, py));
     return fromPixel(x, y);
   }
 
@@ -2531,7 +3330,12 @@
       if (!p1 || !p2) return false;
       return distToSegment(px, py, p1.x, p1.y, p2.x, p2.y) <= hitRadius;
     }
-    if (type === 'ray' || type === 'hray') {
+    if (type === 'hray') {
+      var hp1 = toPixel(d.t1, d.p1);
+      if (!hp1) return false;
+      return Math.abs(py - hp1.y) <= hitRadius && px >= hp1.x - hitRadius && px <= w;
+    }
+    if (type === 'ray') {
       var rp1 = toPixel(d.t1, d.p1), rp2 = toPixel(d.t2, d.p2);
       if (!rp1 || !rp2) return false;
       var rdx = rp2.x - rp1.x, rdy = rp2.y - rp1.y;
@@ -2554,7 +3358,19 @@
       if (!fc1 || !fc2) return false;
       return distToSegment(px, py, fc1.x, fc1.y, fc2.x, fc2.y) <= hitRadius;
     }
-    if (type === 'channel' || type === 'flatchannel' || type === 'pitchfork' || type === 'schiff' || type === 'modschiff' || type === 'insidepitch' || type === 'fibext' || type === 'fibchannel' || type === 'trendfibext' || type === 'triangle' || type === 'rotrect' || type === 'arc' || type === 'longposition' || type === 'shortposition' || type === 'callout') {
+    if (type === 'longposition' || type === 'shortposition') {
+      var lhp1 = toPixel(d.t1, d.p1), lhp2 = toPixel(d.t2, d.p2);
+      if (!lhp1 || !lhp2) return false;
+      if (d.t3 != null && d.p3 != null) {
+        var lhTargetY = chartRef.series.priceToCoordinate(d.p3);
+        var lhLeft = Math.min(lhp1.x, lhp2.x) - 20, lhRight = Math.max(lhp1.x, lhp2.x) + 20;
+        var lhTop = Math.min(lhp1.y, lhp2.y, lhTargetY != null ? lhTargetY : lhp1.y) - hitRadius;
+        var lhBot = Math.max(lhp1.y, lhp2.y, lhTargetY != null ? lhTargetY : lhp1.y) + hitRadius;
+        return px >= lhLeft - hitRadius && px <= lhRight + hitRadius && py >= lhTop && py <= lhBot;
+      }
+      return distToSegment(px, py, lhp1.x, lhp1.y, lhp2.x, lhp2.y) <= hitRadius;
+    }
+    if (type === 'channel' || type === 'flatchannel' || type === 'pitchfork' || type === 'schiff' || type === 'modschiff' || type === 'insidepitch' || type === 'fibext' || type === 'fibchannel' || type === 'trendfibext' || type === 'triangle' || type === 'rotrect' || type === 'arc' || type === 'callout') {
       var cp1 = toPixel(d.t1, d.p1), cp2 = toPixel(d.t2, d.p2);
       if (!cp1 || !cp2) return false;
       if (distToSegment(px, py, cp1.x, cp1.y, cp2.x, cp2.y) <= hitRadius) return true;
@@ -2582,12 +3398,45 @@
     }
     return -1;
   }
+  function getLongShortHandleAt(px, py, d) {
+    if (!d || (d.type !== 'longposition' && d.type !== 'shortposition')) return null;
+    var p1 = toPixel(d.t1, d.p1), p2 = toPixel(d.t2, d.p2);
+    if (!p1 || !p2 || d.p3 == null) return null;
+    var targetY = chartRef.series.priceToCoordinate(d.p3);
+    if (targetY == null) return null;
+    var rightX = Math.max(p1.x, p2.x) + 20;
+    var hr = 9;
+    if (Math.abs(px - rightX) <= hr && Math.abs(py - p1.y) <= hr) return 'entry';
+    if (Math.abs(px - rightX) <= hr && Math.abs(py - p2.y) <= hr) return 'stop';
+    if (Math.abs(px - rightX) <= hr && Math.abs(py - targetY) <= hr) return 'target';
+    return null;
+  }
+  function buildLongShortDrawingFromDrag(toolType, startCoord, currCoord) {
+    var isLong = toolType === 'longposition';
+    var entry = startCoord.price;
+    var dragRisk = Math.abs(entry - currCoord.price);
+    // Keep behavior deterministic: long always has stop below entry, short above entry.
+    var risk = dragRisk || (Math.abs(entry || 1) * 0.003);
+    var stop = isLong ? (entry - risk) : (entry + risk);
+    var target = isLong ? (entry + risk * longShortAutoRiskReward) : (entry - risk * longShortAutoRiskReward);
+    return {
+      type: toolType,
+      t1: startCoord.time,
+      p1: entry,
+      t2: currCoord.time,
+      p2: stop,
+      t3: currCoord.time,
+      p3: target,
+      color: drawColor,
+      lineWidth: 1.5
+    };
+  }
 
   function drawAnchorDot(ctx, x, y, color) {
     ctx.fillStyle = color || '#f59e0b';
     ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
   }
-  function fmtPrice(p) { return p >= 1 ? p.toFixed(4) : p.toFixed(6); }
+  function fmtPrice(p) { return formatPriceValue(p, 4); }
   var FIB_RATIOS = [
     {r:0,label:'0%',color:'#6b7280'},{r:0.236,label:'23.6%',color:'#a78bfa'},{r:0.382,label:'38.2%',color:'#a78bfa'},
     {r:0.5,label:'50%',color:'#c084fc'},{r:0.618,label:'61.8%',color:'#e879f9'},{r:0.786,label:'78.6%',color:'#f472b6'},{r:1,label:'100%',color:'#6b7280'}
@@ -2977,12 +3826,16 @@
         var isLong = type === 'longposition';
         var lp1 = toPixel(d.t1, d.p1), lp2 = toPixel(d.t2, d.p2);
         if (!lp1 || !lp2) continue;
-        var lpEntry = lp1.y, lpStop = lp2.y, lpTarget = d.t3 != null ? (chartRef.series.priceToCoordinate(d.p3) || lp1.y) : lp1.y;
+        var lpEntry = lp1.y, lpStop = lp2.y;
+        var lpTargetRaw = d.t3 != null ? chartRef.series.priceToCoordinate(d.p3) : null;
+        var lpTarget = (lpTargetRaw != null && lpTargetRaw !== undefined) ? lpTargetRaw : lpEntry;
         if (d.t3 != null) {
           var lpLeft = Math.min(lp1.x, lp2.x) - 20, lpRight = Math.max(lp1.x, lp2.x) + 20;
-          drawCtx.fillStyle = isLong ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
+          // Profit zone (entry→target): green for both long and short
+          drawCtx.fillStyle = 'rgba(34,197,94,0.15)';
           drawCtx.fillRect(lpLeft, Math.min(lpEntry, lpTarget), lpRight - lpLeft, Math.abs(lpTarget - lpEntry));
-          drawCtx.fillStyle = isLong ? 'rgba(239,68,68,0.15)' : 'rgba(34,197,94,0.15)';
+          // Loss zone (entry→stop): red for both long and short
+          drawCtx.fillStyle = 'rgba(239,68,68,0.15)';
           drawCtx.fillRect(lpLeft, Math.min(lpEntry, lpStop), lpRight - lpLeft, Math.abs(lpStop - lpEntry));
           drawCtx.strokeStyle = '#3b82f6'; drawCtx.lineWidth = 2;
           drawCtx.beginPath(); drawCtx.moveTo(lpLeft, lpEntry); drawCtx.lineTo(lpRight, lpEntry); drawCtx.stroke();
@@ -2992,10 +3845,19 @@
           drawCtx.beginPath(); drawCtx.moveTo(lpLeft, lpTarget); drawCtx.lineTo(lpRight, lpTarget); drawCtx.stroke();
           var lpRisk = Math.abs(d.p1 - d.p2), lpReward = Math.abs(d.p3 - d.p1);
           var lpRR = lpRisk > 0 ? (lpReward / lpRisk).toFixed(2) : '\u221E';
-          drawCtx.fillStyle = '#e5e7eb'; drawCtx.font = '11px monospace';
+          var lpPnlPct = d.p1 !== 0 ? (Math.abs(d.p3 - d.p1) / d.p1 * 100).toFixed(1) : '0';
+          var lpLossPct = d.p1 !== 0 ? (Math.abs(d.p2 - d.p1) / d.p1 * 100).toFixed(1) : '0';
+          drawCtx.fillStyle = '#3b82f6'; drawCtx.font = '11px monospace';
+          drawCtx.fillText((isLong ? 'LONG' : 'SHORT') + ' ' + fmtPrice(d.p1), lpRight + 4, lpEntry + 4);
+          drawCtx.fillStyle = '#e5e7eb';
           drawCtx.fillText('R:R ' + lpRR, lpRight + 4, (lpEntry + lpTarget)/2 + 4);
-          drawCtx.fillStyle = '#ef4444'; drawCtx.fillText('SL ' + fmtPrice(d.p2), lpRight + 4, lpStop + 4);
-          drawCtx.fillStyle = '#22c55e'; drawCtx.fillText('TP ' + fmtPrice(d.p3), lpRight + 4, lpTarget + 4);
+          drawCtx.fillStyle = '#ef4444'; drawCtx.fillText('SL ' + fmtPrice(d.p2) + ' (-' + lpLossPct + '%)', lpRight + 4, lpStop + 4);
+          drawCtx.fillStyle = '#22c55e'; drawCtx.fillText('TP ' + fmtPrice(d.p3) + ' (+' + lpPnlPct + '%)', lpRight + 4, lpTarget + 4);
+          if (isSel) {
+            drawAnchorDot(drawCtx, lpRight, lpEntry, '#3b82f6');
+            drawAnchorDot(drawCtx, lpRight, lpStop, '#ef4444');
+            drawAnchorDot(drawCtx, lpRight, lpTarget, '#22c55e');
+          }
         } else {
           drawCtx.beginPath(); drawCtx.moveTo(lp1.x, lp1.y); drawCtx.lineTo(lp2.x, lp2.y); drawCtx.stroke();
         }
@@ -3039,18 +3901,28 @@
     drawCtx.setLineDash([]);
   }
 
-  // Re-render drawings whenever chart pans/zooms
+  // Re-render drawings whenever chart pans/zooms (debounced for smoothness)
+  var _drawRafPending = false;
+  function scheduleDrawRender() {
+    if (_drawRafPending) return;
+    _drawRafPending = true;
+    requestAnimationFrame(function() {
+      _drawRafPending = false;
+      renderDrawings();
+      if (typeof renderZoneOverlays === 'function') renderZoneOverlays();
+    });
+  }
   function hookChartRedraw() {
     if (!chartRef.chart) return;
     var syncing = false;
     chartRef.chart.timeScale().subscribeVisibleLogicalRangeChange(function(range) {
-      renderDrawings();
-      if (typeof renderZoneOverlays === 'function') renderZoneOverlays();
+      scheduleDrawRender();
       if (syncing || !range) return;
       syncing = true;
       try { if (rsiChart) rsiChart.timeScale().setVisibleLogicalRange(range); } catch(e){}
       try { if (macdChart) macdChart.timeScale().setVisibleLogicalRange(range); } catch(e){}
       syncing = false;
+      if (range.from < 25) loadOlderHistoryIfNeeded();
     });
     chartRef.chart.subscribeCrosshairMove(function() {});
   }
@@ -3187,6 +4059,12 @@
       btn.style.cursor = selectedIndex != null ? 'pointer' : 'not-allowed';
     }
   }
+  function closeToolFlyouts(exceptGroup) {
+    var groups = document.querySelectorAll('#tool-groups-container .tool-group');
+    for (var gi = 0; gi < groups.length; gi++) {
+      if (!exceptGroup || groups[gi] !== exceptGroup) groups[gi].classList.remove('flyout-open');
+    }
+  }
 
   function selectTool(toolId, sourceBtn) {
     if (toolId === 'clear') {
@@ -3239,7 +4117,7 @@
     }
     if (drawCanvas) {
       if (toolId === 'cursor') {
-        setDrawOverlayPointerEvents(drawings.length > 0 ? 'auto' : 'none');
+        setDrawOverlayPointerEvents('none');
         drawCanvas.style.cursor = 'default';
       } else {
         setDrawOverlayPointerEvents('auto');
@@ -3266,9 +4144,22 @@
       selectTool(tool, null);
       var grp = btn.closest('.tool-group');
       if (grp) grp.classList.remove('flyout-open');
+    } else if (btn.classList.contains('group-btn')) {
+      var group = btn.closest('.tool-group');
+      if (group) {
+        var isOpen = group.classList.contains('flyout-open');
+        closeToolFlyouts(group);
+        group.classList.toggle('flyout-open', !isOpen);
+      }
+      selectTool(tool, btn);
     } else {
+      closeToolFlyouts();
       selectTool(tool, btn);
     }
+  });
+  document.addEventListener('click', function(e) {
+    var inTools = e.target && e.target.closest('#draw-tools');
+    if (!inTools) closeToolFlyouts();
   });
 
   // Get pointer coords from mouse or touch (for mobile press-and-drag)
@@ -3331,7 +4222,14 @@
       if (idx >= 0) {
         selectedIndex = idx;
         var d = drawings[idx];
-        if (d.type === 'hline' || d.type === 'pricelabel') {
+        if ((d.type === 'longposition' || d.type === 'shortposition') && d.t3 != null && d.p3 != null) {
+          var anchor = getLongShortHandleAt(rawX, rawY, d);
+          if (anchor) {
+            dragState = { index: idx, mode: anchor, startPx: rawX, startPy: rawY, origP1: d.p1, origP2: d.p2, origP3: d.p3 };
+          } else {
+            dragState = { index: idx, mode: 'move-all', startPx: rawX, startPy: rawY, origT1: d.t1, origP1: d.p1, origT2: d.t2, origP2: d.p2, origT3: d.t3, origP3: d.p3 };
+          }
+        } else if (d.type === 'hline' || d.type === 'pricelabel') {
           dragState = { index: idx, startPx: rawX, startPy: rawY, origP1: d.price };
         } else if (d.type === 'vline' || d.type === 'crosshair' || d.type === 'fibtimezone' || d.type === 'anchoredtext') {
           dragState = { index: idx, startPx: rawX, startPy: rawY, origT1: d.time || d.t1, origP1: d.price || d.p1 };
@@ -3343,8 +4241,6 @@
         renderDrawings(); updateDeleteButton();
       } else {
         selectedIndex = null; dragState = null; renderDrawings(); updateDeleteButton();
-        setDrawOverlayPointerEvents('none');
-        setTimeout(function() { if (activeTool === 'cursor' && drawCanvas && drawings.length > 0) setDrawOverlayPointerEvents('auto'); }, 300);
       }
       return;
     }
@@ -3392,7 +4288,9 @@
 
     if (pts === 3) {
       if (activeTool === 'longposition' || activeTool === 'shortposition') {
-        promptText(null);
+        drawState = { type: activeTool, t1: coord.time, p1: coord.price, t2: coord.time, p2: coord.price, t3: coord.time, p3: coord.price, dragCreate: true };
+        lastValidCoord = { time: coord.time, price: coord.price };
+        return;
       }
       drawState = { type: activeTool, t1: coord.time, p1: coord.price, clickCount: 1 };
       lastValidCoord = { time: coord.time, price: coord.price };
@@ -3403,9 +4301,32 @@
     lastValidCoord = { time: coord.time, price: coord.price };
   }
   if (drawCanvas) {
+  function handleContainerPointerStart(e) {
+    if (activeTool !== 'cursor' || !drawCanvas) return;
+    var coords = getPointerCoords(e);
+    var rect = drawCanvas.getBoundingClientRect();
+    var rawX = coords.clientX - rect.left, rawY = coords.clientY - rect.top;
+    if (rawX < 0 || rawY < 0 || rawX > rect.width || rawY > rect.height) return;
+    if (getDrawingAt(rawX, rawY) < 0) {
+      if (selectedIndex != null) {
+        selectedIndex = null;
+        dragState = null;
+        renderDrawings();
+        updateDeleteButton();
+      }
+      return;
+    }
+    setDrawOverlayPointerEvents('auto');
+    handlePointerDown(e);
+    e.preventDefault();
+  }
+  if (chartContainerEl) {
+    chartContainerEl.addEventListener('mousedown', handleContainerPointerStart, true);
+    chartContainerEl.addEventListener('touchstart', handleContainerPointerStart, { passive: false, capture: true });
+  }
   drawCanvas.addEventListener('mousedown', handlePointerDown);
   drawCanvas.addEventListener('touchstart', function(e) {
-    if (activeTool !== 'cursor' || drawings.length > 0) e.preventDefault();
+    if (activeTool !== 'cursor' || dragState || drawState) e.preventDefault();
     handlePointerDown(e);
   }, { passive: false });
 
@@ -3422,7 +4343,11 @@
         if (now && start) {
           var dt = now.time - start.time, dp = now.price - start.price;
           var d = drawings[dragState.index];
-          if (d.type === 'hline' || d.type === 'pricelabel') {
+          if ((d.type === 'longposition' || d.type === 'shortposition') && dragState.mode && dragState.mode !== 'move-all') {
+            if (dragState.mode === 'entry') d.p1 = dragState.origP1 + dp;
+            if (dragState.mode === 'stop') d.p2 = dragState.origP2 + dp;
+            if (dragState.mode === 'target') d.p3 = dragState.origP3 + dp;
+          } else if (d.type === 'hline' || d.type === 'pricelabel') {
             d.price = dragState.origP1 + dp;
           } else if (d.type === 'vline' || d.type === 'fibtimezone') {
             d.time = dragState.origT1 + dt; d.t1 = d.time;
@@ -3435,7 +4360,9 @@
             if (d.t3 != null && dragState.origT3 != null) { d.t3 = dragState.origT3 + dt; d.p3 = dragState.origP3 + dp; }
           }
           dragState.startPx = rawX; dragState.startPy = rawY;
-          if (d.type === 'hline' || d.type === 'pricelabel') dragState.origP1 = d.price;
+          if ((d.type === 'longposition' || d.type === 'shortposition') && dragState.mode && dragState.mode !== 'move-all') {
+            dragState.origP1 = d.p1; dragState.origP2 = d.p2; dragState.origP3 = d.p3;
+          } else if (d.type === 'hline' || d.type === 'pricelabel') dragState.origP1 = d.price;
           else if (d.type === 'vline' || d.type === 'fibtimezone') dragState.origT1 = d.time;
           else if (d.type === 'crosshair' || d.type === 'text' || d.type === 'anchoredtext') { dragState.origT1 = d.time; dragState.origP1 = d.price; }
           else { dragState.origT1 = d.t1; dragState.origP1 = d.p1; dragState.origT2 = d.t2; dragState.origP2 = d.p2; if (d.t3 != null) { dragState.origT3 = d.t3; dragState.origP3 = d.p3; } }
@@ -3449,6 +4376,18 @@
           var bc = fromPixelClamped(x, y, cw, ch);
           if (bc) drawState.points.push({ time: bc.time, price: bc.price });
           renderDrawings({ type: 'brush', points: drawState.points, color: drawColor, lineWidth: 2 });
+          return;
+        }
+        if ((drawState.type === 'longposition' || drawState.type === 'shortposition') && drawState.dragCreate) {
+          var lsCoord = fromPixelClamped(x, y, cw, ch);
+          if (!lsCoord) lsCoord = lastValidCoord;
+          if (lsCoord) {
+            lastValidCoord = { time: lsCoord.time, price: lsCoord.price };
+            var lsStart = { time: drawState.t1, price: drawState.p1 };
+            renderDrawings(buildLongShortDrawingFromDrag(drawState.type, lsStart, lsCoord));
+          } else {
+            renderDrawings();
+          }
           return;
         }
         var coord = fromPixelClamped(x, y, cw, ch);
@@ -3478,7 +4417,14 @@
       var snapped = snapToOHLC(rawX, rawY);
       var x = snapped.x, y = snapped.y;
       var cw = rect.width, ch = rect.height;
-      if (dragState !== null) { dragState = null; saveDrawings(); return; }
+      if (dragState !== null) {
+        dragState = null;
+        saveDrawings();
+        if (activeTool === 'cursor') {
+          setTimeout(function() { if (!dragState) setDrawOverlayPointerEvents('none'); }, 50);
+        }
+        return;
+      }
       if (!drawState) return;
 
       if (drawState.type === 'brush') {
@@ -3501,6 +4447,11 @@
 
       var coord = fromPixelClamped(x, y, cw, ch);
       if (!coord) { coord = lastValidCoord; if (!coord) { drawState = null; lastValidCoord = null; renderDrawings(); return; } }
+      if ((drawState.type === 'longposition' || drawState.type === 'shortposition') && drawState.dragCreate) {
+        var lsStart = { time: drawState.t1, price: drawState.p1 };
+        finishDrawing(buildLongShortDrawingFromDrag(drawState.type, lsStart, coord));
+        return;
+      }
 
       if (drawState.type === 'callout') {
         var callCoord = coord;
@@ -3527,6 +4478,7 @@
       drawState = null;
       lastValidCoord = null;
       dragState = null;
+      if (activeTool === 'cursor') setDrawOverlayPointerEvents('none');
       renderDrawings();
     }, { passive: false });
   }
@@ -3546,12 +4498,21 @@
     }
     if (e.key === 'Escape') {
       drawState = null; lastValidCoord = null; dragState = null; selectedIndex = null;
+      setDrawOverlayPointerEvents('none');
+      closeToolFlyouts();
       renderDrawings(); selectTool('cursor', null); updateDeleteButton();
     }
   });
   updateDeleteButton();
 
   window.addEventListener('resize', function() { forceChartResize(); resizeDrawCanvas(); });
+  if (typeof ResizeObserver !== 'undefined' && chartContainerEl) {
+    var _drawResizeDebounce = null;
+    new ResizeObserver(function() {
+      if (_drawResizeDebounce) clearTimeout(_drawResizeDebounce);
+      _drawResizeDebounce = setTimeout(function() { resizeDrawCanvas(); }, 80);
+    }).observe(chartContainerEl);
+  }
 
   // Mobile: force chart resize on orientation change (fixes candles not showing in portrait until rotate)
   function forceChartResize() {

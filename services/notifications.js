@@ -95,7 +95,7 @@ async function sendSmsViaEmail(phoneSmsEmail, message) {
     await transport.sendMail({
       from,
       to: phoneSmsEmail,
-      subject: 'CryptoSignals',
+      subject: 'AlphaConfluence',
       text: message.slice(0, 160)
     });
   } catch (e) {

@@ -90,7 +90,8 @@ function maybeResetDaily(state, barTimestamp) {
     return {
       ...state,
       dailyStartEquity: state.equity,
-      lastDailyReset: barTimestamp
+      lastDailyReset: barTimestamp,
+      killSwitch: false
     };
   }
   return state;

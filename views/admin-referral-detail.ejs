@@ -1,0 +1,74 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Partner: <%= partner.referralCode %></h2>
+  <a href="/admin/referrals" class="btn btn-outline btn-sm">Back</a>
+</div>
+
+<% if (typeof success !== 'undefined' && success) { %>
+  <div class="alert alert-success"><%= success %></div>
+<% } %>
+<% if (typeof error !== 'undefined' && error) { %>
+  <div class="alert alert-error"><%= error %></div>
+<% } %>
+
+<div class="section" style="background:rgba(15,23,42,0.62);">
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+    <span style="color:#cbd5e1;">Referral link: <code>https://alphaconfluence.com/register?ref=<%= partner.referralCode %></code></span>
+    <button class="btn btn-outline btn-sm" onclick="navigator.clipboard.writeText('https://alphaconfluence.com/register?ref=<%= partner.referralCode %>')">Copy Link</button>
+    <form action="/admin/referrals/<%= partner._id %>/mark-paid" method="POST" style="display:inline;">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button class="btn btn-primary btn-sm" type="submit">Mark Pending as Paid</button>
+    </form>
+  </div>
+</div>
+
+<div class="section themes-table-wrap" style="margin-top:16px;">
+  <h3>Referred Users</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Signup Date</th>
+        <th>Tier</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% (referredUsers || []).forEach(function(u) { %>
+        <tr>
+          <td><strong><%= u.username %></strong><div style="font-size:11px;color:#6b7280;"><%= u.email %></div></td>
+          <td><%= new Date(u.createdAt).toLocaleDateString() %></td>
+          <td><%= u.subscriptionTier || 'free' %></td>
+        </tr>
+      <% }); %>
+    </tbody>
+  </table>
+</div>
+
+<div class="section themes-table-wrap" style="margin-top:16px;">
+  <h3>Commission History</h3>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Invoice</th>
+        <th>Paid Amount</th>
+        <th>Commission</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% (commissions || []).forEach(function(c) { %>
+        <tr>
+          <td><%= new Date(c.createdAt).toLocaleDateString() %></td>
+          <td><code><%= c.stripeInvoiceId || '-' %></code></td>
+          <td>$<%= (Number(c.amountPaidCents || 0) / 100).toFixed(2) %></td>
+          <td>$<%= (Number(c.commissionAmountCents || 0) / 100).toFixed(2) %> (<%= c.commissionRate %>%)</td>
+          <td><%= c.status %></td>
+        </tr>
+      <% }); %>
+    </tbody>
+  </table>
+</div>
+
+<%- include('partials/footer') %>

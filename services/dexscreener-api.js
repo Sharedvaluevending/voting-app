@@ -82,6 +82,8 @@ async function fetchTokenPairs(chainId, tokenAddress) {
   const priceChange5m = pair.priceChange?.m5;
   const vol24 = parseFloat(pair.volume?.h24) || 0;
   const vol1h = parseFloat(pair.volume?.h1) || 0;
+  const socials = Array.isArray(pair.info?.socials) ? pair.info.socials : [];
+  const websites = Array.isArray(pair.info?.websites) ? pair.info.websites : [];
   return {
     tokenAddress: base.address || tokenAddress,
     symbol: base.symbol || '?',
@@ -94,7 +96,9 @@ async function fetchTokenPairs(chainId, tokenAddress) {
     volume1h: vol1h > 0 ? vol1h : undefined,
     liquidity: parseFloat(pair.liquidity?.usd) || 0,
     trendingScore: 1,
-    logo: pair.info?.imageUrl || ''
+    logo: pair.info?.imageUrl || '',
+    hasSocials: socials.length > 0 || websites.length > 0,
+    socialCount: socials.length + websites.length
   };
 }
 
@@ -377,11 +381,11 @@ async function fetchSolanaTrendings(limit = 500) {
 }
 
 /**
- * Fetch top 10 tokens per category for Meme Market Explorer.
- * Returns { categoryId: { id, label, tokens: [...] } }
+ * Fetch tokens per category for Meme Market Explorer.
+ * @param {number} limit - max tokens per category (0 = all the API returns)
  */
-async function fetchMarketCategories() {
-  const TOP_N = 10;
+async function fetchMarketCategories(limit = 10) {
+  const TOP_N = limit > 0 ? limit : 9999;
   const categories = {};
 
   try {
@@ -395,7 +399,8 @@ async function fetchMarketCategories() {
       .filter(Boolean);
     const seen = new Set();
     const uniqueDex = dexAddrs.filter(a => { if (seen.has(a)) return false; seen.add(a); return true; });
-    const dexTokens = await fetchTokensBulk('solana', uniqueDex.slice(0, 50));
+    const bulkLimit = TOP_N > 50 ? 120 : 50;
+    const dexTokens = await fetchTokensBulk('solana', uniqueDex.slice(0, bulkLimit));
     const sorted = dexTokens
       .filter(t => t.price > 0)
       .sort((a, b) => (b.priceChange24h || 0) - (a.priceChange24h || 0));
@@ -405,50 +410,56 @@ async function fetchMarketCategories() {
       tokens: sorted.slice(0, TOP_N)
     };
 
-    // GeckoTerminal: Trending 5m, New Pools, Top Volume
-    const [gtTrend5m, gtNew, gtVol] = await Promise.all([
-      fetchGeckoTerminalPools('trending_pools?duration=5m', 2).catch(() => []),
-      fetchGeckoTerminalPools('new_pools', 2).catch(() => []),
-      fetchGeckoTerminalPools('pools?order=h24_volume_usd_desc', 2).catch(() => [])
-    ]);
-    categories.trending5m = {
-      id: 'trending5m',
-      label: 'Trending 5m',
-      tokens: gtTrend5m.filter(t => t.price > 0).slice(0, TOP_N)
-    };
-    categories.newPools = {
-      id: 'newPools',
-      label: 'New Pools',
-      tokens: gtNew.filter(t => t.price > 0).slice(0, TOP_N)
-    };
-    categories.topVolume = {
-      id: 'topVolume',
-      label: 'Top Volume',
-      tokens: gtVol.filter(t => t.price > 0).slice(0, TOP_N)
-    };
+    // GeckoTerminal + Jupiter in parallel for speed
+    const gtPages = TOP_N > 10 ? 3 : 2;
+    const jupLimit = TOP_N > 10 ? 200 : 50;
 
-    // Jupiter: Trending 5m, Top Traded 1h, Organic (if key)
-    const [jupTrend5m, jupTraded1h, jupOrganic] = await Promise.all([
-      fetchJupiterCategory('toptrending', '5m', 50).catch(() => []),
-      fetchJupiterCategory('toptraded', '1h', 50).catch(() => []),
-      fetchJupiterCategory('toporganicscore', '1h', 50).catch(() => [])
-    ]);
-    categories.jupiterTrending5m = {
-      id: 'jupiterTrending5m',
-      label: 'Jupiter Trending 5m',
-      tokens: jupTrend5m.filter(t => t.price > 0).slice(0, TOP_N)
-    };
-    categories.jupiterTraded1h = {
-      id: 'jupiterTraded1h',
-      label: 'Top Traded 1h',
-      tokens: jupTraded1h.filter(t => t.price > 0).slice(0, TOP_N)
-    };
-    if (jupOrganic.length > 0) {
-      categories.organicScore = {
-        id: 'organicScore',
-        label: 'Organic Score',
-        tokens: jupOrganic.filter(t => t.price > 0).slice(0, TOP_N)
-      };
+    async function fetchGT() {
+      const delay = () => new Promise(r => setTimeout(r, 2000));
+      const t5m = await fetchGeckoTerminalPools('trending_pools?duration=5m', gtPages).catch(() => []);
+      await delay();
+      const np = await fetchGeckoTerminalPools('new_pools', gtPages).catch(() => []);
+      await delay();
+      const vol = await fetchGeckoTerminalPools('pools?order=h24_volume_usd_desc', gtPages).catch(() => []);
+      return { t5m, np, vol };
+    }
+
+    async function fetchJup() {
+      const [t5m, traded1h, organic, recent, traded5m] = await Promise.all([
+        fetchJupiterCategory('toptrending', '5m', jupLimit).catch(() => []),
+        fetchJupiterCategory('toptraded', '1h', jupLimit).catch(() => []),
+        fetchJupiterCategory('toporganicscore', '1h', jupLimit).catch(() => []),
+        fetchJupiterRecent(jupLimit).catch(() => []),
+        fetchJupiterCategory('toptraded', '5m', jupLimit).catch(() => [])
+      ]);
+      return { t5m, traded1h, organic, recent, traded5m };
+    }
+
+    const [gt, jup] = await Promise.all([fetchGT(), fetchJup()]);
+
+    if (gt.t5m.length > 0) {
+      categories.trending5m = { id: 'trending5m', label: 'Trending 5m', tokens: gt.t5m.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (gt.np.length > 0) {
+      categories.newPools = { id: 'newPools', label: 'New Pools', tokens: gt.np.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (gt.vol.length > 0) {
+      categories.topVolume = { id: 'topVolume', label: 'Top Volume', tokens: gt.vol.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (jup.t5m.length > 0) {
+      categories.jupiterTrending5m = { id: 'jupiterTrending5m', label: 'Jupiter Trending 5m', tokens: jup.t5m.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (jup.traded5m.length > 0) {
+      categories.jupiterTraded5m = { id: 'jupiterTraded5m', label: 'Top Traded 5m', tokens: jup.traded5m.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (jup.traded1h.length > 0) {
+      categories.jupiterTraded1h = { id: 'jupiterTraded1h', label: 'Top Traded 1h', tokens: jup.traded1h.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (jup.organic.length > 0) {
+      categories.organicScore = { id: 'organicScore', label: 'Organic Score', tokens: jup.organic.filter(t => t.price > 0).slice(0, TOP_N) };
+    }
+    if (jup.recent.length > 0) {
+      categories.justLaunched = { id: 'justLaunched', label: 'Just Launched', tokens: jup.recent.filter(t => t.price > 0).slice(0, TOP_N) };
     }
   } catch (e) {
     console.warn('[MarketCategories] Error:', e.message);

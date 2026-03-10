@@ -1,0 +1,103 @@
+<%- include('partials/header') %>
+
+<div class="section-header">
+  <h2 style="color:#fff;font-size:22px;">Free Daily Signal Discord</h2>
+  <p style="color:#9ca3af;font-size:13px;margin-top:6px;">Admin control for Fantom-only lifecycle feed (open/update/badges/close/cooldown).</p>
+</div>
+
+<% if (typeof errorMsg !== 'undefined' && errorMsg) { %>
+<div style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.45);color:#fca5a5;padding:10px 14px;border-radius:8px;margin-bottom:12px;">
+  <%= errorMsg %>
+</div>
+<% } %>
+<% if (typeof successMsg !== 'undefined' && successMsg) { %>
+<div style="background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.45);color:#86efac;padding:10px 14px;border-radius:8px;margin-bottom:12px;">
+  <%= successMsg %>
+</div>
+<% } %>
+
+<div class="section" style="background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;backdrop-filter:blur(8px);">
+  <form action="/admin/free-signal" method="POST">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;">
+      <label style="display:flex;flex-direction:column;gap:6px;">
+        <span style="font-size:12px;color:#9ca3af;">Discord Webhook URL</span>
+        <input type="text" name="webhookUrl" value="<%= config.webhookUrl || '' %>" placeholder="https://discord.com/api/webhooks/..." style="padding:10px;border-radius:8px;border:1px solid #334155;background:rgba(15,23,42,0.55);color:#e5e7eb;">
+      </label>
+
+      <label style="display:flex;flex-direction:column;gap:6px;">
+        <span style="font-size:12px;color:#9ca3af;">Paper user email (trade source account)</span>
+        <input type="email" name="paperUserEmail" value="<%= paperUserEmail || '' %>" placeholder="admin@yourdomain.com" style="padding:10px;border-radius:8px;border:1px solid #334155;background:rgba(15,23,42,0.55);color:#e5e7eb;">
+      </label>
+
+      <label style="display:flex;flex-direction:column;gap:6px;">
+        <span style="font-size:12px;color:#9ca3af;">Coin ID</span>
+        <select name="coinId" style="padding:10px;border-radius:8px;border:1px solid #334155;background:rgba(15,23,42,0.55);color:#e5e7eb;cursor:pointer;">
+          <% coinOptions.forEach(function(coin) { %>
+            <option value="<%= coin.id %>" <%= (config.coinId || 'fantom') === coin.id ? 'selected' : '' %>><%= coin.label %></option>
+          <% }); %>
+        </select>
+      </label>
+
+      <label style="display:flex;flex-direction:column;gap:6px;">
+        <span style="font-size:12px;color:#9ca3af;">Cooldown minutes</span>
+        <input type="number" min="5" max="240" name="cooldownMinutes" value="<%= config.cooldownMinutes || 60 %>" style="padding:10px;border-radius:8px;border:1px solid #334155;background:rgba(15,23,42,0.55);color:#e5e7eb;">
+      </label>
+
+      <label style="display:flex;flex-direction:column;gap:6px;">
+        <span style="font-size:12px;color:#9ca3af;">Update interval minutes</span>
+        <input type="number" min="5" max="60" name="updateIntervalMinutes" value="<%= config.updateIntervalMinutes || 15 %>" style="padding:10px;border-radius:8px;border:1px solid #334155;background:rgba(15,23,42,0.55);color:#e5e7eb;">
+      </label>
+    </div>
+
+    <div style="display:flex;gap:20px;flex-wrap:wrap;margin:14px 0;">
+      <label style="display:flex;align-items:center;gap:8px;color:#d1d5db;">
+        <input type="hidden" name="enabled" value="false">
+        <input type="checkbox" name="enabled" value="true" <%= config.enabled ? 'checked' : '' %>>
+        Enable feed
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;color:#d1d5db;">
+        <input type="hidden" name="includeActionBadges" value="false">
+        <input type="checkbox" name="includeActionBadges" value="true" <%= config.includeActionBadges !== false ? 'checked' : '' %>>
+        Post badge updates (BE/TS/LOCK/etc)
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;color:#d1d5db;">
+        <input type="hidden" name="positionFirstMode" value="false">
+        <input type="checkbox" name="positionFirstMode" value="true" <%= config.positionFirstMode !== false ? 'checked' : '' %>>
+        Position-first mode (only lifecycle posts from real open trade)
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;color:#d1d5db;">
+        <input type="hidden" name="postWhenNoOpenTrade" value="false">
+        <input type="checkbox" name="postWhenNoOpenTrade" value="true" <%= config.postWhenNoOpenTrade !== false ? 'checked' : '' %>>
+        Post 15m flat update even with no open trade
+      </label>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <button class="btn btn-outline" type="submit">Save Free Signal Config</button>
+      <span style="font-size:12px;color:#9ca3af;">Last update: <%= config.state && config.state.lastUpdateAt ? new Date(config.state.lastUpdateAt).toLocaleString() : 'Never' %></span>
+    </div>
+  </form>
+</div>
+
+<div class="section" style="margin-top:14px;background:rgba(15,23,42,0.6);border:1px solid #1e2a3a;border-radius:12px;backdrop-filter:blur(8px);overflow-x:auto;">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Setting</th>
+        <th>Value</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td data-label="Setting">Feed status</td><td data-label="Value"><%= config.enabled ? 'Enabled' : 'Disabled' %></td></tr>
+      <tr><td data-label="Setting">Coin</td><td data-label="Value"><%= config.coinId || 'fantom' %></td></tr>
+      <tr><td data-label="Setting">Paper account</td><td data-label="Value"><%= paperUserDisplay || 'Not set' %></td></tr>
+      <tr><td data-label="Setting">Cooldown</td><td data-label="Value"><%= config.cooldownMinutes || 60 %> minutes</td></tr>
+      <tr><td data-label="Setting">Update interval</td><td data-label="Value"><%= config.updateIntervalMinutes || 15 %> minutes</td></tr>
+      <tr><td data-label="Setting">Position-first mode</td><td data-label="Value"><%= config.positionFirstMode !== false ? 'Enabled' : 'Disabled' %></td></tr>
+      <tr><td data-label="Setting">Last digest</td><td data-label="Value"><%= (config.state && config.state.lastDigest) ? config.state.lastDigest.slice(0, 120) + '...' : 'N/A' %></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<%- include('partials/footer') %>

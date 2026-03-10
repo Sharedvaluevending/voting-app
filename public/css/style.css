@@ -4,8 +4,9 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 /* NAV */
 .nav { background: #111827; border-bottom: 1px solid #1e2a3a; position: sticky; top: 0; z-index: 100; }
 .nav-inner { max-width: 1400px; margin: 0 auto; padding: 10px 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-.logo { font-size: 18px; font-weight: 700; color: #fff; text-decoration: none; letter-spacing: -0.5px; white-space: nowrap; }
-.logo span { color: #3b82f6; }
+.logo { font-size: 18px; font-weight: 700; color: #fff; text-decoration: none; letter-spacing: -0.5px; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+.logo-icon { height: 32px; width: auto; border-radius: 4px; }
+.logo span { color: #22d3ee; }
 .nav-links { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .nav-links a { color: #9ca3af; text-decoration: none; font-size: 13px; padding: 6px 12px; border-radius: 6px; transition: all 0.2s; }
 .nav-links a:hover, .nav-links a.active { background: #1e2a3a; color: #fff; }
@@ -212,8 +213,30 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 .empty-state { text-align: center; padding: 40px; color: #6b7280; }
 .empty-state h3 { color: #9ca3af; margin-bottom: 8px; }
 
+/* AUTH LOGO */
+.auth-logo { text-align: center; margin-bottom: 24px; }
+.auth-logo img { height: 48px; width: auto; }
+
 /* FOOTER */
 .footer { margin-top: 32px; }
+.footer-brand { text-align: center; padding: 16px 16px 0; }
+.footer-logo { height: 32px; width: auto; opacity: 0.6; transition: opacity 0.2s; }
+.footer-logo:hover { opacity: 1; }
+.footer-links a { color: #93c5fd; text-decoration: none; font-size: 12px; }
+.footer-links a:hover { color: #dbeafe; text-decoration: underline; }
+.footer-warning-link {
+  display: inline-block;
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  background: rgba(127, 29, 29, 0.25);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  text-decoration: none;
+}
+.footer-warning-link:hover { color: #fecaca; border-color: #ef4444; }
 .disclaimer { font-size: 11px; color: #4b5563; text-align: center; padding: 16px; border-top: 1px solid #1e2a3a; line-height: 1.5; }
 
 /* LEVERAGE BADGE */

@@ -10,6 +10,12 @@ const Trade = require('../models/Trade');
 const User = require('../models/User');
 const { recordTradeOutcome, adjustWeights } = require('./learning-engine');
 const { notifyUser } = require('./notifications');
+const {
+  notifyTradeOpened: notifyFreeSignalTradeOpened,
+  notifyTradeClosed: notifyFreeSignalTradeClosed,
+  notifyActionBadge: notifyFreeSignalActionBadge
+} = require('./free-signal-discord');
+const { notifyWinningTrade } = require('./admin-discord');
 const bitget = require('./bitget');
 const { plan: riskEnginePlan } = require('./engines/risk-engine');
 
@@ -26,6 +32,16 @@ function getTakerFee(user) {
 const SLIPPAGE_BPS = 5;           // 0.05% slippage simulation
 const DEFAULT_COOLDOWN_HOURS = 6;  // no same-direction re-entry on same coin within N hours (matches schema default)
 const MIN_HOLD_MINUTES = 30;       // Don't score-exit trades within first 30 minutes
+const MAX_DOLLAR_RISK_FRACTION = 0.10;
+
+function computeWeightedEntryPrice(currentEntry, currentSize, addPrice, addSize) {
+  if (!(currentEntry > 0) || !(addPrice > 0) || !(currentSize > 0) || !(addSize > 0)) return currentEntry;
+  const currentUnits = currentSize / currentEntry;
+  const addUnits = addSize / addPrice;
+  const totalUnits = currentUnits + addUnits;
+  if (!(totalUnits > 0)) return currentEntry;
+  return (currentSize + addSize) / totalUnits;
+}
 
 // Trade IDs currently being closed — prevents double-close race (concurrent requests double-crediting balance)
 const closingTrades = new Set();
@@ -136,16 +152,28 @@ function suggestLeverage(score, regime, volatilityState) {
 
 function calculatePositionSize(balance, riskPercent, entryPrice, stopLoss, leverage, opts) {
   opts = opts || {};
-  if (!entryPrice || entryPrice <= 0) return balance * 0.05 * leverage;
   const riskMode = opts.riskMode || 'percent';
-  const riskAmount = riskMode === 'dollar' && Number.isFinite(opts.riskDollarsPerTrade) && opts.riskDollarsPerTrade > 0
-    ? opts.riskDollarsPerTrade
-    : balance * (riskPercent / 100);
+  const isDollarMode = riskMode === 'dollar' && Number.isFinite(opts.riskDollarsPerTrade) && opts.riskDollarsPerTrade > 0;
+
+  if (!entryPrice || entryPrice <= 0) {
+    if (isDollarMode) return 0;
+    return balance * 0.05 * leverage;
+  }
+
   let stopDistance = typeof stopLoss === 'number' && stopLoss > 0
     ? Math.abs(entryPrice - stopLoss) / entryPrice
     : 0.02;
   if (stopDistance <= 0 || !Number.isFinite(stopDistance)) stopDistance = 0.02;
-  const positionSize = (riskAmount / stopDistance) * leverage;
+
+  let positionSize;
+  if (isDollarMode) {
+    positionSize = opts.riskDollarsPerTrade / stopDistance;
+    return Number.isFinite(positionSize) && positionSize > 0 ? positionSize : 0;
+  } else {
+    const riskAmount = balance * (riskPercent / 100);
+    positionSize = (riskAmount / stopDistance) * leverage;
+  }
+
   const capped = Math.min(positionSize, balance * leverage * 0.95);
   return Number.isFinite(capped) ? capped : balance * 0.1 * leverage;
 }
@@ -202,6 +230,17 @@ async function openTrade(userId, signalData) {
     throw new Error(`${signalData.symbol} volume $${(signalData.volume24h || 0).toLocaleString()} below minimum $${minVol.toLocaleString()}`);
   }
 
+  // Optional confidence gate (OFF by default): block low-confidence entries.
+  if (user.settings?.featureConfidenceFilterEnabled === true) {
+    const minConfidence = Math.max(0, Math.min(100, Number(user.settings?.minConfidence ?? 60)));
+    // Backward-compatible fallback: some signal sources don't provide confidence.
+    // Use score as a proxy so confidence filter does not hard-block on "N/A".
+    const confidence = Number(signalData.confidence ?? signalData.score);
+    if (!Number.isFinite(confidence) || confidence < minConfidence) {
+      throw new Error(`Confidence filter blocked trade: ${signalData.symbol} confidence ${Number.isFinite(confidence) ? confidence.toFixed(0) : 'N/A'} < minimum ${minConfidence}.`);
+    }
+  }
+
   // Correlation filter: avoid opening 2+ trades in same correlated group (e.g. ETH + MATIC)
   if (user.settings?.correlationFilterEnabled !== false) {
     const openTrades = await Trade.find({ userId, status: 'OPEN' }).select('coinId').lean();
@@ -228,14 +267,23 @@ async function openTrade(userId, signalData) {
     suggestedLeverage: signalData.leverage || suggestLeverage(signalData.score, signalData.regime, signalData.indicators?.volatilityState)
   };
   const peakEquity = Math.max(user.initialBalance || 10000, balance);
+  const requestedRiskDollarsPerTrade = user.settings?.riskDollarsPerTrade ?? 200;
+  const riskModeSetting = user.settings?.riskMode || 'percent';
+  const maxRiskDollarsPerTrade = Math.max(1, balance * MAX_DOLLAR_RISK_FRACTION);
+  const appliedRiskDollarsPerTrade = riskModeSetting === 'dollar'
+    ? Math.min(requestedRiskDollarsPerTrade, maxRiskDollarsPerTrade)
+    : requestedRiskDollarsPerTrade;
+  if (riskModeSetting === 'dollar' && appliedRiskDollarsPerTrade < requestedRiskDollarsPerTrade) {
+    console.warn(`[OpenTrade] ${signalData.symbol}: fixed dollar risk capped from $${requestedRiskDollarsPerTrade.toFixed(2)} to $${appliedRiskDollarsPerTrade.toFixed(2)} (10% of balance rule)`);
+  }
   const userSettings = {
     riskPerTrade: user.settings?.riskPerTrade || 2,
-    riskMode: user.settings?.riskMode || 'percent',
+    riskMode: riskModeSetting,
     drawdownSizingEnabled: user.settings?.drawdownSizingEnabled ?? true,
     drawdownThresholdPercent: user.settings?.drawdownThresholdPercent ?? 10,
     expectancyFilterEnabled: user.settings?.expectancyFilterEnabled ?? true,
     minExpectancy: user.settings?.minExpectancy ?? 0.15,
-    riskDollarsPerTrade: user.settings?.riskDollarsPerTrade ?? 200,
+    riskDollarsPerTrade: appliedRiskDollarsPerTrade,
     defaultLeverage: user.settings?.defaultLeverage || 1,
     useFixedLeverage: user.settings?.useFixedLeverage,
     disableLeverage: user.settings?.disableLeverage,
@@ -383,6 +431,7 @@ async function openTrade(userId, signalData) {
     const u = user.toObject ? user.toObject() : user;
     notifyUser(userId, 'trade_open', `Trade opened: ${signalData.symbol} ${signalData.direction}`, `Score ${signalData.score} | Entry $${entryPrice.toFixed(2)}`, u).catch(() => {});
   }
+  notifyFreeSignalTradeOpened(trade).catch(() => {});
 
   // Atomic balance update — prevents race conditions between concurrent trade operations
   if (user.paperBalance == null) {
@@ -533,6 +582,19 @@ async function _closeTradeInner(userId, tradeId, trade, currentPrice, reason) {
     }
   }
 
+  const closeActionType = reason === 'STOPPED_OUT' || reason === 'TRAILING_TP_EXIT'
+    ? 'SL'
+    : (reason === 'TP1' || reason === 'TP2' || reason === 'TP3')
+      ? reason
+      : null;
+  if (closeActionType) {
+    const fp = (v) => typeof v === 'number' ? v.toFixed(v >= 1 ? 2 : 6) : String(v);
+    const desc = closeActionType === 'SL'
+      ? `Stop hit at $${fp(currentPrice)} (${reason})`
+      : `${closeActionType} closed at $${fp(currentPrice)}`;
+    logTradeAction(trade, closeActionType, desc, trade.positionSize, 0, currentPrice);
+  }
+
   // Slippage on exit: LONG sell lower, SHORT buy back higher
   const slippage = 1 + (SLIPPAGE_BPS / 10000);
   const exitPrice = trade.direction === 'LONG'
@@ -628,6 +690,8 @@ async function _closeTradeInner(userId, tradeId, trade, currentPrice, reason) {
     const pnlSign = (trade.pnl || 0) >= 0 ? '+' : '';
     notifyUser(userId, 'trade_close', `Trade closed: ${trade.symbol} ${trade.direction}`, `${pnlSign}$${pnl} — ${reason}`, user).catch(() => {});
   }
+  notifyFreeSignalTradeClosed(trade).catch(() => {});
+  notifyWinningTrade(trade).catch(() => {});
 
   return trade;
 }
@@ -643,9 +707,10 @@ function logTradeAction(trade, type, description, oldValue, newValue, marketPric
     timestamp: new Date()
   });
   // Action badge notification (BE, TS, LOCK, DCA, EXIT, etc.)
-  const badgeTypes = ['BE', 'TS', 'LOCK', 'DCA', 'EXIT', 'PP', 'RP', 'LLM_SL'];
+  const badgeTypes = ['BE', 'TS', 'LOCK', 'DCA', 'EXIT', 'PP', 'RP', 'LLM_SL', 'SL', 'TP1', 'TP2', 'TP3'];
   if (badgeTypes.includes(type) && trade.userId) {
     notifyUser(trade.userId, 'action_badge', `${type}: ${trade.symbol}`, description || type, null).catch(() => {});
+    notifyFreeSignalActionBadge(trade, trade.actions[trade.actions.length - 1]).catch(() => {});
   }
 }
 
@@ -1147,10 +1212,8 @@ async function _checkStopsAndTPsInner(getCurrentPriceFunc, getSignalForCoinFunc)
 
                 if (dcaBal >= addRequired) {
                   const oldAvg = trade.avgEntryPrice || trade.entryPrice;
-                  const oldTotalCost = oldAvg * trade.positionSize;
-                  const newTotalCost = oldTotalCost + (currentPrice * addSize);
                   const newTotalSize = trade.positionSize + addSize;
-                  const newAvgEntry = newTotalCost / newTotalSize;
+                  const newAvgEntry = computeWeightedEntryPrice(oldAvg, trade.positionSize, currentPrice, addSize);
 
                   trade.positionSize = newTotalSize;
                   trade.avgEntryPrice = newAvgEntry;

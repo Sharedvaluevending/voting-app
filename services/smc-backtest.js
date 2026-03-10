@@ -10,7 +10,7 @@ const { getScenario } = require('./smc-scenarios/scenario-definitions');
 const { computeMaxDrawdown, computeMaxDrawdownPct } = require('./backtest/analytics');
 
 const INITIAL_BALANCE = 10000;
-const RISK_PER_TRADE = 0.02;
+const DEFAULT_RISK_PER_TRADE = 0.02;
 const LEVERAGE = 2;
 const SL_ATR_MULT = 2;
 const TP1_ATR_MULT = 2;      // 1:1 RR — partial close 40%
@@ -31,6 +31,9 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
   const initialBalance = options.initialBalance ?? INITIAL_BALANCE;
   const leverage = options.leverage ?? LEVERAGE;
   const timeframe = options.timeframe || '1h';
+  const riskMode = options.riskMode || 'percent';
+  const riskPerTrade = options.riskPerTrade ?? DEFAULT_RISK_PER_TRADE;
+  const riskDollarsPerTrade = options.riskDollarsPerTrade ?? 200;
   const minScore = options.minScore ?? 0;           // gate entries on scoring engine score
   const usePartialTP = options.partialTP === true;  // 40/30/30 partial exits
   const useFees = options.fees !== false;            // fees on by default
@@ -170,7 +173,7 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
         if (nextBar.low <= position.stopLoss) {
           const adjExit = position.stopLoss;
           const exitFees = useFees ? position.remainingSize * TAKER_FEE : 0;
-          const pnl = ((adjExit - position.entry) / position.entry) * position.remainingSize - exitFees - position.entryFees;
+          const pnl = ((adjExit - position.entry) / position.entry) * position.remainingSize - exitFees;
           equity = Math.max(0, equity + pnl);
           trades.push({ direction: 'LONG', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: 'SL', pnl, size: position.remainingSize, coinId, setupId });
           position = null;
@@ -214,7 +217,7 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
         if (nextBar.high >= position.stopLoss) {
           const adjExit = position.stopLoss;
           const exitFees = useFees ? position.remainingSize * TAKER_FEE : 0;
-          const pnl = ((position.entry - adjExit) / position.entry) * position.remainingSize - exitFees - position.entryFees;
+          const pnl = ((position.entry - adjExit) / position.entry) * position.remainingSize - exitFees;
           equity = Math.max(0, equity + pnl);
           trades.push({ direction: 'SHORT', entry: position.entry, exit: adjExit, entryBar: position.entryBar, exitBar: t+1, exitTime: nextBar.openTime, reason: 'SL', pnl, size: position.remainingSize, coinId, setupId });
           position = null;
@@ -298,8 +301,16 @@ async function runSetupBacktest(coinId, setupId, startMs, endMs, options = {}) {
         takeProfit = adjEntry - rewardDist;
       }
 
-      const riskAmount = equity * RISK_PER_TRADE;
-      const positionSize = Math.min(equity * leverage * 0.95, riskDist > 0 ? (riskAmount / riskDist) * adjEntry : equity * 0.1);
+      const riskAmount = (riskMode === 'dollar') ? riskDollarsPerTrade : equity * riskPerTrade;
+      const rawSize = riskDist > 0 ? (riskAmount / riskDist) * adjEntry : (riskMode === 'dollar' ? riskDollarsPerTrade * 50 : equity * 0.1);
+      const maxSize = equity * leverage * 0.95;
+      let positionSize;
+      if (riskMode === 'dollar') {
+        if (rawSize > maxSize) continue; // skip trade — insufficient balance for fixed $ risk
+        positionSize = rawSize;
+      } else {
+        positionSize = Math.min(rawSize, maxSize);
+      }
       const entryFees = useFees ? positionSize * TAKER_FEE : 0;
 
       if (entryFees + (positionSize / leverage) <= equity) {

@@ -5,17 +5,17 @@ self.addEventListener('push', function(event) {
   try {
     payload = event.data.json();
   } catch (e) {
-    payload = { title: 'CryptoSignals', body: event.data.text() || '' };
+    payload = { title: 'AlphaConfluence', body: event.data.text() || '' };
   }
-  const title = payload.title || 'CryptoSignals Pro';
+  const title = payload.title || 'AlphaConfluence';
   const body = payload.body || '';
   const tag = payload.tag || 'trade';
   const url = payload.url || '/trades';
   const options = {
     body,
     tag,
-    icon: '/favicon.ico',
-    badge: '/favicon.ico',
+    icon: '/images/logo-icon.png',
+    badge: '/images/logo-icon.png',
     data: { url: payload.url || '/trades', ...(payload.data || {}) },
     requireInteraction: false,
     vibrate: [100, 50, 100]

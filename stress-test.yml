@@ -1,0 +1,61 @@
+config:
+  target: "https://alphaconfluence.com"
+  http:
+    timeout: 10
+  phases:
+    - duration: 60
+      arrivalRate: 10
+      name: "Warm up - 10 users/sec"
+    - duration: 120
+      arrivalRate: 50
+      name: "Ramp up - 50 users/sec"
+    - duration: 180
+      arrivalRate: 100
+      name: "Peak load - 100 users/sec"
+    - duration: 60
+      arrivalRate: 10
+      name: "Cool down"
+
+scenarios:
+  - name: "Backtest running"
+    weight: 30
+    flow:
+      - post:
+          url: "/api/backtest/run"
+          json:
+            coin: "solana"
+            startDate: "2024-03-08"
+            endDate: "2026-03-08"
+            riskMode: "fixed"
+            riskAmount: 100
+
+  - name: "LLM chat"
+    weight: 30
+    flow:
+      - post:
+          url: "/api/llm/chat"
+          json:
+            message: "What is the current SOL bias?"
+
+  - name: "Chart copilot"
+    weight: 20
+    flow:
+      - post:
+          url: "/api/copilot/chat"
+          json:
+            message: "Explain this setup"
+            coin: "solana"
+
+  - name: "Signal scanner"
+    weight: 10
+    flow:
+      - get:
+          url: "/api/signals/all"
+
+  - name: "Voice transcribe"
+    weight: 10
+    flow:
+      - post:
+          url: "/api/voice/transcribe"
+          json:
+            audio: "base64audiodata"

@@ -2,16 +2,19 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title><%= typeof pageTitle !== 'undefined' ? pageTitle + ' | ' : '' %>CryptoSignals Pro</title>
+  <title><%= typeof pageTitle !== 'undefined' ? pageTitle + ' | ' : '' %>AlphaConfluence</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#0a0e17">
   <meta name="color-scheme" content="dark">
+  <link rel="icon" type="image/png" href="/images/logo-icon.png">
+  <link rel="apple-touch-icon" href="/images/logo-icon.png">
+  <link rel="manifest" href="/manifest.json">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
   <nav class="nav">
     <div class="nav-inner">
-      <a href="/" class="logo"><span>Crypto</span>Signals Pro</a>
+      <a href="/" class="logo"><img src="/images/logo-icon.png" alt="AlphaConfluence" class="logo-icon"><span>Alpha</span>Confluence</a>
       <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Toggle menu">Menu</button>
       <div class="nav-links" id="nav-links">
         <a href="/" class="<%= typeof activePage !== 'undefined' && activePage === 'dashboard' ? 'active' : '' %>">Dashboard</a>
@@ -44,13 +47,16 @@
           </div>
         </div>
 
-        <div class="nav-dropdown <%= ['learning','comparison','backtest','backtest-results'].indexOf(typeof activePage !== 'undefined' ? activePage : '') >= 0 ? 'active' : '' %>">
+        <div class="nav-dropdown <%= ['learning','comparison','backtest','cache-status','free-signal'].indexOf(typeof activePage !== 'undefined' ? activePage : '') >= 0 ? 'active' : '' %>">
           <button type="button" class="nav-dropdown-trigger" aria-haspopup="true" aria-expanded="false">Strategy ▾</button>
           <div class="nav-dropdown-menu">
             <a href="/learning" class="<%= typeof activePage !== 'undefined' && activePage === 'learning' ? 'active' : '' %>">Strategy Optimizer</a>
             <a href="/strategy-comparison" class="<%= typeof activePage !== 'undefined' && activePage === 'comparison' ? 'active' : '' %>">Compare</a>
             <a href="/backtest" class="<%= typeof activePage !== 'undefined' && activePage === 'backtest' ? 'active' : '' %>">Backtest</a>
-            <a href="/backtest-results" class="<%= typeof activePage !== 'undefined' && activePage === 'backtest-results' ? 'active' : '' %>">Results</a>
+            <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+            <a href="/admin/cache-status" class="<%= typeof activePage !== 'undefined' && activePage === 'cache-status' ? 'active' : '' %>">Cache Status</a>
+            <a href="/admin/free-signal" class="<%= typeof activePage !== 'undefined' && activePage === 'free-signal' ? 'active' : '' %>">Free Signal</a>
+            <% } %>
           </div>
         </div>
 
@@ -64,8 +70,16 @@
         </div>
         <% } %>
 
+        <a href="/pricing" class="<%= typeof activePage !== 'undefined' && activePage === 'pricing' ? 'active' : '' %>">Pricing</a>
         <a href="/learn" class="<%= typeof activePage !== 'undefined' && activePage === 'learn' ? 'active' : '' %>">Learn</a>
-        <a href="/trench-warfare" class="<%= typeof activePage !== 'undefined' && activePage === 'trench-warfare' ? 'active' : '' %>">Trench Warfare</a>
+        <% if (typeof user !== 'undefined' && user && (user.subscriptionTier === 'partner' || user.isPartner)) { %>
+          <a href="/partner-dashboard" class="<%= typeof activePage !== 'undefined' && activePage === 'partner-dashboard' ? 'active' : '' %>">Partner</a>
+        <% } %>
+        <% if (typeof isAdmin !== 'undefined' && isAdmin) { %>
+          <a href="/trench-warfare" class="<%= typeof activePage !== 'undefined' && activePage === 'trench-warfare' ? 'active' : '' %>">Trench Warfare</a>
+          <a href="/admin/referrals" class="<%= typeof activePage !== 'undefined' && activePage === 'admin-referrals' ? 'active' : '' %>">Referrals</a>
+          <a href="/admin/beta" class="<%= typeof activePage !== 'undefined' && activePage === 'admin-beta' ? 'active' : '' %>">Beta</a>
+        <% } %>
       </div>
       <div class="nav-right">
         <% if (typeof user !== 'undefined' && user) { %>

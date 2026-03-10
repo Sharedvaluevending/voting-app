@@ -18,9 +18,10 @@ const MIN_VOLUME_24H_USD = 1e6;       // Skip low-liquidity coins (bad fills, ma
 
 const STABLECOINS = [
   'tether', 'usd-coin', 'dai', 'binance-usd', 'true-usd', 'first-digital-usd',
-  'paxos-standard', 'frax', 'usdd', 'gemini-dollar', 'paypal-usd', 'ethena-usde'
+  'paxos-standard', 'frax', 'usdd', 'gemini-dollar', 'paypal-usd', 'ethena-usde',
+  'usds', 'liquity-usd', 'nusd', 'celo-dollar', 'magic-internet-money'
 ];
-const STABLECOIN_SYMBOLS = ['USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'FDUSD', 'USDP', 'FRAX', 'USDD', 'GUSD', 'PYUSD', 'USDE'];
+const STABLECOIN_SYMBOLS = ['USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'FDUSD', 'USDP', 'FRAX', 'USDD', 'GUSD', 'PYUSD', 'USDE', 'USDS', 'LUSD', 'sUSD', 'CUSD', 'MIM'];
 
 let cache = { top3: [], top3Full: [], fetchedAt: 0, scanning: false, marketHoldState: false };
 
